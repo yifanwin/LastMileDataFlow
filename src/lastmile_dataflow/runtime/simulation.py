@@ -30,10 +30,7 @@ class Simulation:
 
     @classmethod
     def from_source(cls, source, robot_config, *, target=None, restoration=None):
-        spec = mujoco.MjSpec.from_file(str(source.xml_path))
-        robot_spec = mujoco.MjSpec.from_file(robot_config.model_path)
-        prepare_robot_spec(robot_spec, robot_config)
-        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
+        spec = cls.prepare_spec(source, robot_config)
         if restoration:
             from ..integrations.legacy import apply_restoration_spec
             apply_restoration_spec(spec, restoration)
@@ -49,9 +46,19 @@ class Simulation:
         if restoration:
             from ..integrations.legacy import apply_restoration_state
             apply_restoration_state(sim, restoration)
+        sim.spec = spec
         sim.source = source
         sim.restoration = restoration
         return sim
+
+    @staticmethod
+    def prepare_spec(source, robot_config):
+        spec = mujoco.MjSpec.from_file(str(source.xml_path))
+        robot_spec = mujoco.MjSpec.from_file(robot_config.model_path)
+        prepare_robot_spec(robot_spec, robot_config)
+        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
+        spec.option.timestep = robot_config.physics_dt
+        return spec
 
     def freeze(self, path):
         if self.started:
@@ -64,7 +71,7 @@ class Simulation:
         mujoco.mj_saveModel(self.model, str(model_path), None)
         self.model_hash = file_digest(model_path)
         version = scene_version(self.source, asdict(self.robot.config), self.model_hash,
-                                self.restoration)
+                                self.restoration, provenance=getattr(self,"frozen_provenance",None))
         write_json(path / "version.json", version)
         write_json(path / "instances.json", self.catalog)
         self.save_snapshot(path / "initial.npz")
@@ -125,6 +132,8 @@ class Simulation:
             if file_digest(frozen_dir / name) != checksum:
                 raise ValueError(f"frozen artifact modified: {name}")
         version = read_json(frozen_dir / "version.json")
+        if version.get("schema_version") not in (None, "1.0", "2.0"):
+            raise ValueError("unknown frozen scene schema")
         from ..io import digest
         if digest({k: v for k, v in version.items() if k != "version_id"}) != version["version_id"]:
             raise ValueError("scene version digest mismatch")
@@ -137,11 +146,20 @@ class Simulation:
         sim = cls(model, robot_config, read_json(frozen_dir / "instances.json"), target)
         sim.model_hash = model_hash
         sim.restore_snapshot(frozen_dir / "initial.npz")
+        if version.get("schema_version") == "2.0":
+            from .build_session import model_identity, checkpoint_identity
+            if model_identity(sim) != version["model_id"] or checkpoint_identity(sim, version["model_id"]) != version["checkpoint_id"]:
+                sim.close()
+                raise ValueError("frozen model/checkpoint identity mismatch")
+            if digest(sim.catalog) != version["mapping_id"]:
+                sim.close()
+                raise ValueError("frozen instance mapping mismatch")
         from ..scenes.source import SceneSource
         source = version["source"]
         sim.source = SceneSource(**{k: source[k] for k in
                                 ("scene_id", "xml_path", "metadata_path", "dataset", "split")})
         sim.restoration = version["restoration"]
+        sim.frozen_provenance = version["source"]
         return sim
 
     def begin(self):

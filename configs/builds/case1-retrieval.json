@@ -1,0 +1,6 @@
+{
+  "schema_version": "2.0", "task_id": "case1-retrieved", "case_type": "case1",
+  "target": "@retrieved", "support": "@parent", "editable": ["@retrieved"],
+  "parameters": {"distance_range_m": [0.8, 1.6]},
+  "budget": {"candidates": 48, "edits": 12, "repairs": 3, "agent_calls": 0, "timeout_s": 300}
+}

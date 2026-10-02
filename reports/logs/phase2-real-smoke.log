@@ -1,0 +1,9 @@
+building phase2-final-train0-zero
+Traceback (most recent call last):
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/tests/phase2_real_smoke.py", line 66, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/tests/phase2_real_smoke.py", line 46, in main
+    assert result['status']=='candidate_ready',result
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'build_id': 'phase2-final-train0-zero', 'cost': {'observations': 2, 'request_cumulative': {'agent_calls': 0, 'candidates': 2, 'edits': 1, 'repairs': 0}, 'simulated_s': 3.772000000000003, 'wall_time_s': 300.5059870448895}, 'decision_source': 'rule', 'error': 'budget_exhausted:repairs', 'error_type': 'RuntimeError', 'results': {'build_requirements': {'status': 'unknown'}, 'case_condition': {'reason': 'requires_phase3_robot_trials', 'status': 'unknown'}, 'scene_validity': {'status': 'unknown'}, 'task_completion': {'reason': 'no_task_execution', 'status': 'unknown'}}, 'schema_version': '2.0', 'status': 'budget_exhausted'}

@@ -76,7 +76,7 @@ def resolve_target(model, catalog, target):
     return model.body(next(iter(names))).id
 
 
-def scene_version(source, robot_config, model_hash, restoration=None):
-    descriptor = {"source": source.provenance(), "robot": robot_config,
+def scene_version(source, robot_config, model_hash, restoration=None, *, provenance=None):
+    descriptor = {"source": provenance if provenance is not None else source.provenance(), "robot": robot_config,
                   "compiled_model_sha256": model_hash, "restoration": restoration}
     return {"version_id": digest(descriptor), **descriptor}

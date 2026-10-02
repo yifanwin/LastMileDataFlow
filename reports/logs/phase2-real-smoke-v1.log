@@ -1,0 +1,23 @@
+building phase2-v1-train0-zero
+Traceback (most recent call last):
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/tests/phase2_real_smoke.py", line 66, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/tests/phase2_real_smoke.py", line 43, in main
+    path=run_build(source,robot,config,collection,build_id=name)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/src/lastmile_dataflow/workflows/build.py", line 49, in run_build
+    session=BuildSession(source,robot_config,config,collection,path=path)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/src/lastmile_dataflow/runtime/build_session.py", line 85, in __init__
+    self.dependencies=dependencies(source.xml_path)+dependencies(robot_config.model_path)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/src/lastmile_dataflow/catalog/index.py", line 21, in dependencies
+    directory = compiler.get('assetdir','') or compiler.get('meshdir' if node.tag=='mesh' else 'texturedir','')
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wenyifan/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 993, in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen posixpath>", line 413, in realpath
+  File "<frozen posixpath>", line 457, in _joinrealpath
+KeyboardInterrupt
