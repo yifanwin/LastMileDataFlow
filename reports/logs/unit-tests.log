@@ -1,0 +1,27 @@
+test_illegal_robot_initialization_is_not_load_error (test_failures_and_legacy.FailureTests.test_illegal_robot_initialization_is_not_load_error) ... ok
+test_invalid_scene_initialization_keeps_model_and_snapshot (test_failures_and_legacy.FailureTests.test_invalid_scene_initialization_keeps_model_and_snapshot) ... ok
+test_no_action_means_no_execution_video (test_failures_and_legacy.FailureTests.test_no_action_means_no_execution_video) ... ok
+test_nonfinite_state_has_explicit_nullable_diagnostics (test_failures_and_legacy.FailureTests.test_nonfinite_state_has_explicit_nullable_diagnostics) ... ok
+test_render_failure_does_not_erase_executed_action (test_failures_and_legacy.FailureTests.test_render_failure_does_not_erase_executed_action) ... ok
+test_asset_lexical_escape_rejected_but_nas_style_symlink_allowed (test_failures_and_legacy.LegacyTests.test_asset_lexical_escape_rejected_but_nas_style_symlink_allowed) ... ok
+test_conversion_and_restoration_without_old_imports (test_failures_and_legacy.LegacyTests.test_conversion_and_restoration_without_old_imports) ... ok
+test_reject_unsupported_deletion_and_uncoupled_torso (test_failures_and_legacy.LegacyTests.test_reject_unsupported_deletion_and_uncoupled_torso) ... ok
+test_20d_layout_and_invalid_actions (test_foundation.ConfigurationTests.test_20d_layout_and_invalid_actions) ... ok
+test_reject_unknown_and_invalid_config (test_foundation.ConfigurationTests.test_reject_unknown_and_invalid_config) ... ok
+test_empty_attempt_no_video_and_no_overwrite (test_foundation.RecordingTests.test_empty_attempt_no_video_and_no_overwrite) ... ok
+test_executed_trajectory_continuity_and_new_attempt_restore (test_foundation.RecordingTests.test_executed_trajectory_continuity_and_new_attempt_restore) ... ok
+test_invalid_action_is_logged_no_execution_video (test_foundation.RecordingTests.test_invalid_action_is_logged_no_execution_video) ... ok
+test_missing_scene_classified (test_foundation.RecordingTests.test_missing_scene_classified) ... ok
+test_atomic_command_and_actual_controls (test_foundation.SimulationTests.test_atomic_command_and_actual_controls) ... ok
+test_joint_limit_rejects_before_mutation (test_foundation.SimulationTests.test_joint_limit_rejects_before_mutation) ... ok
+test_nonfinite_and_severe_contact_blocked (test_foundation.SimulationTests.test_nonfinite_and_severe_contact_blocked) ... ok
+test_planning_navigation_bridge (test_foundation.SimulationTests.test_planning_navigation_bridge) ... ok
+test_snapshot_exact_and_no_reset_after_begin (test_foundation.SimulationTests.test_snapshot_exact_and_no_reset_after_begin) ... ok
+test_snapshot_tampering_blocked (test_foundation.SimulationTests.test_snapshot_tampering_blocked) ... ok
+test_target_ambiguity_rejected (test_foundation.SimulationTests.test_target_ambiguity_rejected) ... ok
+test_no_old_package_imports_or_environment_script (test_independence.IndependenceTests.test_no_old_package_imports_or_environment_script) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.372s
+
+OK

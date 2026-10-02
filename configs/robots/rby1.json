@@ -1,0 +1,7 @@
+{
+  "model_path": "../../../molmospaces_data/assets/robots/rby1m/rby1_v1.2_site_control.xml",
+  "control_hz": 20,
+  "physics_dt": 0.004,
+  "cameras": ["head_camera", "wrist_camera_l", "wrist_camera_r"],
+  "planning_adapter": "joint_waypoints_v1"
+}

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export MUJOCO_GL="${MUJOCO_GL:-egl}"
+# 不 source 相邻工程、不绑定 GPU 编号；可显式传 DATAFLOW_PYTHON。
+exec "${DATAFLOW_PYTHON:-python3}" -m lastmile_dataflow.cli "$@"

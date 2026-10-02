@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lastmile-dataflow"
+version = "0.1.0"
+description = "Independent scene, RBY-1 execution and evidence foundation"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "mujoco>=3.5,<4", "imageio>=2.34", "imageio-ffmpeg>=0.5"]
+
+[project.scripts]
+lastmile-dataflow = "lastmile_dataflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

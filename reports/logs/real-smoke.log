@@ -1,0 +1,6 @@
+raw source procthor-10k-train/train_0 target Irishpotato_121f03310f70f545adbe1151e4ea4b7f_1_0_2
+passed phase1-final-train0 phase1-final-train0-restore
+raw source procthor-10k-train/train_2 target alarmclock_40f610168cc3c772c1f6b7f3b22ef12d_1_0_2
+passed phase1-final-train2 phase1-final-train2-restore
+legacy initial state regression procthor-10k-val/val_103
+/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/reports/checks/real-smoke.json
