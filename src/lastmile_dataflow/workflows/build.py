@@ -50,6 +50,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         session.deadline=min(session.deadline,budget.start+budget.limits.timeout_s)
         session.record_images=images
         write_json(path/'initialization.json',session.initialization)
+        if session.initialization['status'] != 'valid': raise ValueError('invalid_robot_initialization_no_target_repair')
         observation([],stage='before_edit')
         if config.initial_operations:
             budget.consume('edits',len(config.initial_operations))
@@ -155,10 +156,24 @@ def build_request(sources,robot_config,config,collection,**options):
 
 
 def record_feedback(build_path,classification,evidence,*,new_build_id=None):
-    actions={'scene_invalid':'repair_or_change_candidate','success_without_expected_difficulty':'retain_and_reclassify',
+    actions={'case_verified':'retain_verified_case_and_evidence','scene_invalid':'repair_or_change_candidate','success_without_expected_difficulty':'retain_and_reclassify',
              'valid_unsolved':'retain_unsolved_do_not_remove_obstacles','infrastructure_failure':'retry_infrastructure_without_scene_edits'}
     if classification not in actions or not isinstance(evidence,dict) or not evidence: raise ValueError('invalid downstream feedback')
     candidate=read_json(Path(build_path)/'task_candidate.json')
+    if classification=='case_verified':
+        from ..validation.stations import audit_station_attempt
+        run=Path(evidence.get('station_run',''))
+        summary_path=run/'summary.json'
+        if not summary_path.is_file() or file_digest(summary_path)!=evidence.get('summary_sha256'):
+            raise ValueError('case_verified requires matching real station summary')
+        summary=read_json(summary_path); verdict=summary.get('case_condition',{})
+        if verdict.get('status')!='pass' or summary.get('scene_version')!=candidate['scene_version_id'] or not verdict.get('success_witnesses'):
+            raise ValueError('case_verified requires physical success witnesses in this scene')
+        for witness in verdict['success_witnesses']:
+            audit=audit_station_attempt(witness)
+            source=read_json(Path(witness)/'source.json'); result=read_json(Path(witness)/'result.json')
+            if not audit['valid'] or result['results']['task_completion']['status']!='success' or source.get('scene_version')!=candidate['scene_version_id'] or source.get('target')!=candidate['target']:
+                raise ValueError('case_verified witness is invalid or mismatched')
     feedback={'schema_version':'2.0','parent_build_id':candidate['build_id'],'scene_version_id':candidate['scene_version_id'],
               'classification':classification,'action':actions[classification],'evidence':evidence,'new_build_id':new_build_id}
     # Append-only sibling records, never modify frozen/collected artifacts.

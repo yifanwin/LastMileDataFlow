@@ -1,0 +1,30 @@
+{
+  "target": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+  "asset_id": "Cup_30",
+  "grasp_path": "../../../molmospaces_data/assets/grasps/droid/Cup_30/Cup_30_grasps_filtered.npz",
+  "grasp_sha256": "e28584580e9ec2c9ff4d42d1fae0cd9da8be0cdc60889dcf0a2bbc9f875e79e3",
+  "robot_planner_dir": "../../../molmospaces_data/assets/robots/rby1m/curobo_config",
+  "arms": [
+    "left"
+  ],
+  "torso_heights": [
+    0.738
+  ],
+  "grasp_ids": [
+    794
+  ],
+  "probes": [
+    [
+      7.183716297149658,
+      2.70900559425354,
+      -1.7024431228637695
+    ]
+  ],
+  "radii_m": [],
+  "max_candidates": 2,
+  "max_refinements": 0,
+  "max_plans": 10,
+  "max_executions": 2,
+  "timeout_s": 600,
+  "attempt_timeout_s": 300
+}

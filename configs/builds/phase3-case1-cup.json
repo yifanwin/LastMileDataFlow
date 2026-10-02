@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.0",
+  "task_id": "case1-cup-native",
+  "case_type": "case1",
+  "target": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+  "support": "diningtable_f113cf7f8367e89f709b53cbee1a1c05_1_0_2",
+  "robot_base": [
+    6.3,
+    2.7,
+    -0.5354
+  ],
+  "editable": [
+    "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2"
+  ],
+  "allowed_operations": [
+    "move",
+    "rotate"
+  ],
+  "parameters": {
+    "distance_range_m": [
+      1.0,
+      1.5
+    ]
+  },
+  "budget": {
+    "timeout_s": 900,
+    "candidates": 12,
+    "edits": 4,
+    "repairs": 2
+  }
+}

@@ -66,14 +66,69 @@ def parser():
     query.add_argument("--limit", type=int, default=20)
     feedback = sub.add_parser("feedback", help="append phase-three evidence without modifying frozen scene")
     feedback.add_argument("build", type=Path)
-    feedback.add_argument("--classification", required=True, choices=["scene_invalid", "success_without_expected_difficulty", "valid_unsolved", "infrastructure_failure"])
+    feedback.add_argument("--classification", required=True, choices=["scene_invalid", "success_without_expected_difficulty", "valid_unsolved", "infrastructure_failure", "case_verified"])
     feedback.add_argument("--evidence", required=True, type=Path)
     feedback.add_argument("--new-build-id")
+    stations = sub.add_parser("station-map", help="v3 fixed-base cuRobo success/failure collection")
+    origin = stations.add_mutually_exclusive_group(required=True)
+    origin.add_argument("--build", type=Path, help="ready phase-two build directory")
+    origin.add_argument("--snapshot", type=Path, help="explicit frozen scene, no inherited success labels")
+    stations.add_argument("--station-config", type=Path, required=True)
+    stations.add_argument("--robot-config", type=Path, default=ROOT / "configs/robots/rby1.json")
+    stations.add_argument("--collection-config", type=Path, default=ROOT / "configs/collection/smoke.json")
+    stations.add_argument("--output-dir", type=Path)
+    stations.add_argument("--run-id", required=True)
+    audit3 = sub.add_parser("audit-station", help="verify phase-three attempt and physical pick evidence")
+    audit3.add_argument("attempt", type=Path)
+    review = sub.add_parser("vision-review", help="read-only settled-image API review; explicit external image authorization")
+    review.add_argument("--build", required=True, type=Path)
+    review.add_argument("--env", type=Path, default=ROOT.parent / ".env")
+    review.add_argument("--timeout", type=float, default=60.)
+    export = sub.add_parser("export-stations", help="combine audited v3 runs without mixing control settings")
+    export.add_argument("--runs", type=Path, nargs="+", required=True)
+    export.add_argument("--output-dir", type=Path, default=ROOT / "outputs")
+    export.add_argument("--collection-id", required=True)
+    replay = sub.add_parser("render-delivery", help="derive a new video from an audited actual trajectory, never rerun physics")
+    replay.add_argument("--attempt", required=True, type=Path)
+    replay.add_argument("--output-dir", type=Path, default=ROOT / "outputs")
+    replay.add_argument("--view-id", required=True)
     return p
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == "render-delivery":
+        from .exporting.replay import render_delivery
+        print(render_delivery(args.attempt, args.output_dir, view_id=args.view_id))
+        return 0
+    if args.command == "export-stations":
+        from .exporting.collection import export_collection
+        path = export_collection(args.runs, args.output_dir, collection_id=args.collection_id)
+        print(path)
+        return 0 if read_json(path / "summary.json")['data_collection_complete'] else 1
+    if args.command == "audit-station":
+        from .validation.stations import audit_station_attempt
+        result = audit_station_attempt(args.attempt)
+        print(result)
+        return 0 if result['valid'] else 1
+    if args.command == "vision-review":
+        from .agents.http_vision import review_build
+        path = review_build(args.build, args.env, timeout_s=args.timeout)
+        result = read_json(path / "response.json")
+        print(f"{result['status']}: {path}")
+        return 0 if result['status'] == 'accepted' else 1
+    if args.command == "station-map":
+        from .stations.config import load_station_config
+        from .workflows.stations import supervised_station_map
+        robot = load_config(RobotConfig, args.robot_config)
+        config = load_station_config(args.station_config)
+        collection = load_config(CollectionConfig, args.collection_config)
+        if args.output_dir: collection = replace(collection, output_dir=str(args.output_dir.resolve()))
+        snapshot = Path(read_json(args.build / "task_candidate.json")['scene_dir']) if args.build else args.snapshot
+        path = supervised_station_map(snapshot, robot, config, collection, run_id=args.run_id, build=args.build)
+        print(path)
+        if not (path / 'summary.json').exists(): return 1
+        return 0 if read_json(path / 'summary.json')['data_collection_complete'] else 1
     if args.command == "import-legacy":
         from .integrations.legacy import convert_episode
         convert_episode(args.episode, args.assets_dir, args.output)

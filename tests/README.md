@@ -17,4 +17,22 @@
 
 `phase2_real_smoke.py` 显式使用阶段一已保存的真实 ProcTHOR/RBY-1 编译模型，重新执行
 零编辑/移动、静置、冻结独立恢复及三相机短动作/解码。默认唯一 ID，不覆盖已有输出。
-见 [阶段二交付报告](../reports/phase2-delivery.md)。
+见 [阶段二交付报告](../reports/phase2/phase2-delivery.md)。
+
+## 阶段三
+
+`test_stations.py` 验证采样、控制配置边界、固定底盘、严格抓取协议、预算、未知分类、
+证据篡改、空轨迹与视觉 Agent 协议。fixture 不替代真实 cuRobo/MuJoCo 结果。
+`phase3_planner_smoke.py` 是可选原生 GPU 规划诊断，不是成功标签。
+
+`verify_phase3_delivery.py` 对指定浏览包的全部 attempt 独立审计，并用 ffmpeg 完整解码所有相机和交付视频，
+核对帧数、SHA256、实际回放时间与阶段。只读原始数据，检查结果另存：
+
+```bash
+PYTHONPATH=src ../molmospaces/.venv/bin/python tests/verify_phase3_delivery.py \
+  --collection outputs/collections/case1-phase3-v2 \
+  --derived outputs/delivery_views/case1-failure-v2 \
+  --output reports/checks/phase3-artifacts.json
+```
+
+真实成败、视频与未测范围见[阶段三交付报告](../reports/phase3-delivery.md)。

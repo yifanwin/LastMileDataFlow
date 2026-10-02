@@ -1,8 +1,8 @@
 # `planning/`
 
-- **状态：规划目录，尚未实现。** 所属：第三、四阶段。
-- 职责：cuRobo 原生规划器、世界碰撞场、持物与协同规划。
-- 预定契约：PlanningRequest → PlanResult；动作转换在 integrations/waypoints.py。
-- 依赖与全流程图见 [完整架构](../../../docs/architecture.md)。
+`curobo.py` 直接使用原生 cuRobo，构建活动臂与实测锁定关节、实际碰撞 geom 世界和 FK 坐标检查。
+没有旧管线/MolmoSpaces Python 包依赖。CUDA 不可用记设施异常，不用假路径。
+`PlanResult` 保留无解状态和有限预算；失败不能含可执行路点。
 
-第一阶段不提供假实现，也不把该目录视为可用能力。
+当前普通抓取尚不在规划器中附着持物模型，物理全过程仍检查接触。
+持物规划与连续示教是后续扩展。[阶段三说明](../../../docs/phase3.md)。

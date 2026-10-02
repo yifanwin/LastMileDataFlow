@@ -1,8 +1,7 @@
 # `stations/`
 
-- **状态：规划目录，尚未实现。** 所属：第三阶段。
-- 职责：分层站位采样、固定底盘试验、站位表与可视化。
-- 预定契约：StationCandidate → StationResult；规划与执行结果独立。
-- 依赖与全流程图见 [完整架构](../../../docs/architecture.md)。
+第三阶段已实现：严格 v3 配置、分层站位/真实地面与碰撞过滤、预算、固定底盘 cuRobo 执行。
+`execution.py` 只通过 `runtime.Simulation` 发生真实运动，开始后不重置。
+规划、物理成败、基础设施异常和未知分别记录。浏览导出在 `exporting/`，case/物理审计在 `validation/`。
 
-第一阶段不提供假实现，也不把该目录视为可用能力。
+[使用与限制](../../../docs/phase3.md) · [整体架构](../../../docs/architecture.md)。

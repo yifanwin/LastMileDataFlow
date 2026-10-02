@@ -116,7 +116,13 @@ class RBY1Adapter:
 
     def apply(self, value, *, fixed_base=False):
         a = validate_action(value, self.config, fixed_base=fixed_base)
-        targets = {"base": self.group("base") + a[:3],
+        if fixed_base:
+            if not hasattr(self, "_fixed_base_target"):
+                self._fixed_base_target = self.group("base").copy()
+            base_target = self._fixed_base_target.copy()
+        else:
+            base_target = self.group("base") + a[:3]
+        targets = {"base": base_target,
                    "left_arm": self.group("left_arm") + a[3:10],
                    "left_gripper": a[10:11],
                    "right_arm": self.group("right_arm") + a[11:18],

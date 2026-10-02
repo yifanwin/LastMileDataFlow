@@ -37,6 +37,27 @@ def inside_triangles(xy, triangles):
     return bool(np.any((a >= 0) & (b >= 0) & (a + b <= 1)))
 
 
+def floor_support(sim, xy):
+    """Ray against named collision floor, not robot or room visual occluders.
+
+    The room-triangle mask supplies bounded coverage for infinite floor planes.
+    """
+    start = np.r_[xy, .20]
+    direction = np.array([0., 0., -1.])
+    distances = []
+    for g in range(sim.model.ngeom):
+        if "floor" not in sim.model.geom(g).name.lower(): continue
+        if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]): continue
+        if sim.model.body(int(sim.model.geom_bodyid[g])).name.startswith("robot_0/"): continue
+        if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+            distance = mujoco.mj_rayMesh(sim.model, sim.data, g, start, direction)
+        else:
+            distance = mujoco.mju_rayGeom(sim.data.geom_xpos[g], sim.data.geom_xmat[g],
+                sim.model.geom_size[g], start, direction, sim.model.geom_type[g])
+        if 0 <= distance <= .30: distances.append(float(distance))
+    return bool(distances and inside_triangles(np.asarray(xy), room_triangles(sim)))
+
+
 def initialize_robot(sim, collection, *, base=None):
     if sim.started or sim.closed:
         raise RuntimeError("initialization requires a preparation session")
@@ -75,11 +96,7 @@ def initialize_robot(sim, collection, *, base=None):
             trials.append({"base": candidate.tolist(), "valid": False, "reason": str(exc)})
             continue
         # 基座必须位于实际地面上方；向下 ray 排除房外/空洞。
-        ray_start = np.r_[candidate[:2], 0.20]
-        geom_id = np.zeros(1, dtype=np.int32)
-        distance = mujoco.mj_ray(sim.model, sim.data, ray_start, np.array([0., 0., -1.]),
-                                None, True, sim.model.body("robot_0/base").id, geom_id)
-        ground = distance >= 0 and distance <= 0.30 and "floor" in sim.model.geom(int(geom_id[0])).name.lower()
+        ground = floor_support(sim, candidate[:2])
         check = inspect_state(sim, collection)
         valid = bool(ground and inside_triangles(candidate[:2], triangles) and check["valid"])
         trials.append({"base": candidate.tolist(), "valid": valid, "ground": bool(ground),
