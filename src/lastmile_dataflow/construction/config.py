@@ -102,10 +102,13 @@ class BuildConfig:
                 number(x, 'robot_base')
         if not isinstance(self.parameters, dict) or not isinstance(self.initial_operations, list):
             raise ValueError('invalid build parameters/operations')
-        common = {'distance_range_m', 'height_range_m', 'yaw_candidates_rad'}
+        common = {'distance_range_m', 'height_range_m', 'yaw_candidates_rad', 'line_step_m',
+                  'max_line_samples'}
         specific = {'case1': set(), 'case2': {'handle', 'desired_direction_world', 'direction_tolerance_rad'},
                     'case3': {'obstacle', 'obstacle_asset', 'approach_offset_m', 'obstacle_distance_range_m'},
-                    'case1.5': {'frame_body', 'side_a', 'side_b', 'min_distance_difference_m', 'clearance_radius_m', 'min_clearance_difference_m'}}
+                    'case1.5': {'frame_body', 'side_a', 'side_b', 'side_c', 'side_roles',
+                                'min_distance_difference_m', 'clearance_radius_m',
+                                'min_clearance_difference_m', 'max_side_height_m', 'standing_query'}}
         if set(self.parameters) - common - specific[self.case_type]:
             raise ValueError('unknown template parameters')
         for name in ('distance_range_m', 'height_range_m', 'obstacle_distance_range_m'):
@@ -120,20 +123,36 @@ class BuildConfig:
                     'case1.5': {'frame_body', 'side_a', 'side_b', 'min_distance_difference_m', 'clearance_radius_m', 'min_clearance_difference_m'}}
         if required[self.case_type] - set(self.parameters):
             raise ValueError(f'missing {self.case_type} parameters')
-        for name in ('desired_direction_world', 'approach_offset_m', 'side_a', 'side_b'):
+        for name in ('desired_direction_world', 'approach_offset_m', 'side_a', 'side_b', 'side_c'):
             if name in self.parameters:
                 v = self.parameters[name]
                 if not isinstance(v, list) or len(v) != 3: raise ValueError(f'invalid {name}')
                 for x in v: number(x, name)
                 if name != 'approach_offset_m' and sum(x*x for x in v) < 1e-12:
                     raise ValueError('zero direction/side vector')
-        for name in ('direction_tolerance_rad', 'min_distance_difference_m', 'clearance_radius_m', 'min_clearance_difference_m'):
+        for name in ('direction_tolerance_rad', 'min_distance_difference_m', 'clearance_radius_m',
+                     'min_clearance_difference_m', 'max_side_height_m', 'line_step_m'):
             if name in self.parameters: number(self.parameters[name], name, True)
+        if 'standing_query' in self.parameters and not isinstance(self.parameters['standing_query'], bool):
+            raise ValueError('invalid standing_query')
+        if 'max_line_samples' in self.parameters and (
+                type(self.parameters['max_line_samples']) is not int or self.parameters['max_line_samples'] <= 0):
+            raise ValueError('invalid max_line_samples')
+        if 'side_roles' in self.parameters:
+            roles = self.parameters['side_roles']
+            if not isinstance(roles, dict) or set(roles) - {'side_a', 'side_b', 'side_c'} \
+                    or not all(isinstance(v, str) and v for v in roles.values()):
+                raise ValueError('invalid side_roles')
         yaws = self.parameters.get('yaw_candidates_rad', [0, 1.57079632679, 3.14159265359, -1.57079632679])
         if not isinstance(yaws, list) or not yaws: raise ValueError('invalid yaw candidates')
         for yaw in yaws: number(yaw, 'yaw')
         for name in ('obstacle','obstacle_asset','frame_body'):
             if name in self.parameters and (not isinstance(self.parameters[name],str) or not self.parameters[name]): raise ValueError(f'invalid {name}')
+        if self.case_type == 'case1.5':
+            declared = {k for k in ('side_a', 'side_b', 'side_c') if k in self.parameters}
+            if {k for k in self.parameters.get('side_roles', {})} - declared:
+                raise ValueError('side_roles reference an undeclared side')
+            if len(declared) < 2: raise ValueError('case1.5 requires at least two side vectors')
         if self.case_type == 'case2':
             handle = self.parameters['handle']
             if not isinstance(handle, dict) or set(handle) != {'body', 'axis_local', 'source', 'verified'} or handle['verified'] is not True or not handle['source']:

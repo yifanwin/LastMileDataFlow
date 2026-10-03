@@ -60,7 +60,7 @@ def render_attempt(recorder,snapshot,robot,config,status,reason):
             support='有' if evidence['support_contact'] else '无'
             if t < physics_times[0]: lift_cm=0.; fingers='未知'; support='未采样'
             color='#63d0e0'
-            draw.text((14,7),'Case1 | 固定底盘站位 → cuRobo → 真实抓取验收',font=font,fill='white')
+            draw.text((14,7),f'{config.case_type} | 固定底盘站位 → cuRobo → 真实抓取验收',font=font,fill='white')
             draw.text((14,37),f"{phase_names.get(str(phase),str(phase))} {speed}× | {recorder.attempt_id}",font=font,fill=color)
             draw.text((972,75),'目标局部 · 同一物理时刻',font=font,fill='white')
             draw.text((972,315),'机器人头相机 RGB',font=font,fill='white')
@@ -139,9 +139,37 @@ def plot_map(run):
     fig.savefig(run/'station_map.svg'); fig.savefig(run/'station_map.png',dpi=150); plt.close(fig)
 
 
+def side_section(case_type,verdict):
+    """case1.5 reports every side on its own terms; a partial result is never rounded up."""
+    if case_type!='case1.5': return ''
+    rows=['','## 分侧证据（case1.5）','']
+    rows.append('| side | role | status | trials | success | failure | no_solution | filtered | reason |')
+    rows.append('|---|---|---|---|---|---|---|---|---|')
+    for name,info in sorted((verdict.get('per_side') or {}).items()):
+        rows.append(f"| {name} | {info.get('role') or ''} | {info['status']} | {info['trials']} | "
+                    f"{info['successes']} | {info['failures']} | {info['planning_no_solution']} | "
+                    f"{info['geometry_filtered']} | {info['reason']} |")
+    rows.append('')
+    rows.append(f"- 窄侧通行：`{verdict.get('narrow_side_passage',{}).get('status')}`"
+                f"（{verdict.get('narrow_side_passage',{}).get('reason')}）。"
+                '构建期净空只是包围圆代理，阶段三固定底盘试验不产生导航证据。')
+    rows.append('- 分侧标签是站位划分输入，不是站位成败的归因；同侧不同臂/高度/grasp 仍是不同控制配置。')
+    return '\n'.join(rows)
+
+
+def limits(case_type):
+    if case_type=='case1.5':
+        return ('当前只支持 case1 普通抓取与 case1.5 固定底盘分侧试验；case1.5 的分侧差异需要导航才能完整验收，'
+                '本阶段只能给出固定底盘的操作证据，因此总体判定不会为 pass。case2 把手、case3 障碍归因尚未验收。')
+    return '当前只支持 case1 普通抓取；case2 把手、case3 障碍归因与 case1.5 三侧导航尚未验收。'
+
+
 def export_report(run):
     run=Path(run); rows=read_json(run/'stations.json'); summary=read_json(run/'summary.json')
+    case_type=summary.get('case_type','case1')
+    verdict=summary['case_condition']
     fields=['run_id','station_id','base','arm','torso_h','grasp_row','approach_offset_m','geometry','planning','execution','status','reason','attempt']
+    if case_type=='case1.5': fields.insert(2,'case_side')
     with (run/'station_table.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=fields); writer.writeheader()
         for r in rows: writer.writerow({k:r.get(k) for k in fields})
@@ -164,7 +192,7 @@ def export_report(run):
 同一冻结场景独立初始化站位，几何过滤 → cuRobo 有界规划 → 真实躯干调整与抓取 → 严格力接触/抬升/保持验收 → 成败数据与视频。
 
 - 真实成功 **{summary['successes']}**，真实执行失败 **{summary['failures']}**，执行设施异常 **{summary['infrastructure_errors']}**。
-- case 条件：`{summary['case_condition']['status']}`（{summary['case_condition']['reason']}）。
+- case 条件：`{verdict['status']}`（{verdict['reason']}）。
 - 所有点是固定底盘独立操作试验，不是导航；单次配置标签不是成功率。有限规划无解不是物理不可解。
 
 ![离散站位图](station_map.png)
@@ -173,14 +201,13 @@ def export_report(run):
 
 ## 本次真实执行视频
 
-'''+('\n'.join(links) or '没有发生可交付的真实执行。')+'''
+'''+('\n'.join(links) or '没有发生可交付的真实执行。')+side_section(case_type,verdict)+'''
 
 ## 追溯与限制
 
 [冻结输入](frozen_inputs.json) · [汇总与预算](summary.json) · [证据审计](audit.json)。
 每次独立 attempt 包含原始 20 维动作、实际状态、每个物理 tick 的力接触、规划诊断、初末快照与视频；未发生执行的规划失败动作轨迹为空、没有执行视频。
-未测试/预算耗尽保留 unknown。当前只支持 case1 普通抓取；case2 把手、case3 障碍归因与 case1.5 三侧导航尚未验收。
-'''
+未测试/预算耗尽保留 unknown。'''+limits(case_type)+'\n'
     (run/'REPORT.md').write_text(report,encoding='utf-8')
     import base64
     encoded=base64.b64encode((run/'station_map.png').read_bytes()).decode()

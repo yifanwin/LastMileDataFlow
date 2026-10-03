@@ -25,9 +25,12 @@ from lastmile_dataflow.workflows.build import run_build, record_feedback, Reques
 
 def tabletop(root, variant=0):
     source,robot=fixtures(root)
+    # `barrier` is a floor-level obstacle on one side only: case1.5's clearance difference must come
+    # from a real obstruction at standing height, not from a tabletop object's bounding sphere.
     text=f'''<mujoco><compiler angle="radian"/><option integrator="implicitfast"/>
     <worldbody><geom name="floor" type="plane" size="0 0 .01"/>
     <body name="table" pos="2 0 .4"><geom name="top" type="box" size=".5 .4 .04"/></body>
+    <body name="barrier" pos="2 .95 .30"><geom name="barrier_geom" type="box" size=".5 .05 .30"/></body>
     <body name="target" pos="{2+variant*.03} 0 .50"><freejoint name="target_free"/><geom name="target_geom" type="box" size=".04 .04 .05" mass=".1"/></body>
     <body name="neighbor" pos="2.35 .20 .49"><freejoint name="neighbor_free"/><geom name="neighbor_geom" type="box" size=".02 .02 .05" mass=".1"/></body>
     </worldbody></mujoco>'''

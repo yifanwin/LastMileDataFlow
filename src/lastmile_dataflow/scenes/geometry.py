@@ -130,6 +130,112 @@ def support_rays(sim, body, region, points):
     return all(hits)
 
 
+def quat_from_matrix(rotation):
+    quat = np.zeros(4)
+    mujoco.mju_mat2Quat(quat, np.asarray(rotation, dtype=float).reshape(9))
+    return quat
+
+
+def placement_pose_keeping_orientation(sim, body, region, xy, dyaw=0., gap=.003, margin=.01):
+    """R_new = Rz(dyaw) @ R_current: world yaw change, asset's own roll/pitch preserved.
+
+    placement_pose() rewrites the orientation as a pure world yaw, which lays y-up THOR assets on
+    their side; the case construction paths use this variant instead. Footprint margin and
+    downward support-ray checks are identical to placement_pose.
+    """
+    points = body_points(sim, body)
+    bpos, bmat = sim.data.xpos[body], sim.data.xmat[body].reshape(3,3)
+    local = (points-bpos) @ bmat
+    c, s = np.cos(dyaw), np.sin(dyaw)
+    rotation = np.array([[c,-s,0],[s,c,0],[0,0,1.]]) @ bmat
+    rotated = local @ rotation.T
+    center = np.asarray(region.origin) + np.asarray(region.axes) @ [*xy, 0]
+    center[2] = region.height - rotated[:,2].min() + gap
+    projected = rotated + center
+    footprint = region.local(projected)
+    a,b,c,d = region.bounds
+    if not (footprint[:,0].min() >= a+margin and footprint[:,0].max() <= b-margin
+            and footprint[:,1].min() >= c+margin and footprint[:,1].max() <= d-margin):
+        return None
+    if not support_rays(sim, body, region, projected): return None
+    return [*center.tolist(), *quat_from_matrix(rotation).tolist()]
+
+
+def geom_local_bounds(sim, g):
+    """Conservative AABB of a collision geom in its own frame; meshes use their vertices."""
+    m = sim.model
+    kind, size = m.geom_type[g], m.geom_size[g]
+    if kind == mujoco.mjtGeom.mjGEOM_MESH:
+        mesh = int(m.geom_dataid[g]); a, n = int(m.mesh_vertadr[mesh]), int(m.mesh_vertnum[mesh])
+        vertices = m.mesh_vert[a:a+n]
+        return vertices.min(axis=0).copy(), vertices.max(axis=0).copy()
+    if kind == mujoco.mjtGeom.mjGEOM_SPHERE:
+        return np.full(3, -size[0]), np.full(3, size[0])
+    if kind == mujoco.mjtGeom.mjGEOM_CYLINDER:
+        return np.array([-size[0], -size[0], -size[1]]), np.array([size[0], size[0], size[1]])
+    if kind == mujoco.mjtGeom.mjGEOM_CAPSULE:
+        half = size[1] + size[0]
+        return np.array([-size[0], -size[0], -half]), np.array([size[0], size[0], half])
+    if kind == mujoco.mjtGeom.mjGEOM_BOX:
+        return -size.copy(), size.copy()
+    return None
+
+
+def obstacle_geoms(sim, exclude_bodies):
+    """Collision geoms that can obstruct a standing robot, in one precomputed list."""
+    m = sim.model
+    return [g for g in range(m.ngeom)
+            if int(m.geom_bodyid[g]) not in exclude_bodies
+            and not m.body(int(m.geom_bodyid[g])).name.startswith('robot_0/')
+            and (m.geom_contype[g] or m.geom_conaffinity[g])
+            and m.geom_type[g] != mujoco.mjtGeom.mjGEOM_PLANE]
+
+
+def _geom_world_bounds(sim, g, entry):
+    """Conservative world AABB of one geom from its local AABB: the box is rotated, not re-fit."""
+    low, high = entry
+    centre = sim.data.geom_xpos[g]
+    rotation = sim.data.geom_xmat[g].reshape(3, 3)
+    mid = (low + high) / 2; half = (high - low) / 2
+    reach = np.abs(rotation) @ half
+    centre = centre + rotation @ mid
+    return centre - reach, centre + reach
+
+
+def free_space_distance(sim, point, radius, *, geoms, bounds, heights=(.05, .20, .35, .50, .65, .80)):
+    """Free horizontal distance around a standing position: ray fan over the robot's body volume.
+
+    The fan is cast at several heights inside the standing volume and the smallest hit is taken.
+    This is what a bounding sphere cannot do: one wide wall mesh makes its bounding sphere cover a
+    whole room, so every nearby point reads as fully blocked, while the thin wall mesh itself is
+    metres away along most directions. Sampling several heights also keeps a low slab (a tabletop
+    apron, the floor plane) from being mistaken for a floor-level obstruction.
+    Geometric proxy for "is this side clear", never navigation evidence.
+    """
+    m, d = sim.model, sim.data
+    point = np.asarray(point, dtype=float)
+    best = float(radius)
+    for height in heights:
+        start = np.array([point[0], point[1], float(point[2]) + height])
+        for g in geoms:
+            low, high = _geom_world_bounds(sim, g, bounds[g])
+            if high[2] < start[2] or low[2] > start[2]: continue
+            # Cheap rejection against the geom's conservative world AABB before any ray is cast.
+            gap = float(np.linalg.norm(np.maximum(np.maximum(low[:2] - start[:2], start[:2] - high[:2]), 0.)))
+            if gap >= best: continue
+            for index in range(24):
+                angle = 2 * np.pi * index / 24
+                direction = np.array([np.cos(angle), np.sin(angle), 0.])
+                if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                    distance = mujoco.mj_rayMesh(m, d, g, start, direction)
+                else:
+                    distance = mujoco.mju_rayGeom(d.geom_xpos[g], d.geom_xmat[g], m.geom_size[g],
+                                                  start, direction, m.geom_type[g])
+                if 0. <= distance < best: best = float(distance)
+                if best <= 0.: return 0.
+    return best
+
+
 def placement_pose(sim, body, region, xy, yaw, gap=.003):
     points = body_points(sim, body)
     bpos, bmat = sim.data.xpos[body], sim.data.xmat[body].reshape(3,3)

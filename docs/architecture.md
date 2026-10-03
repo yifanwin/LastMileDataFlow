@@ -55,8 +55,9 @@ LastMileDataFlow/
 ```
 
 未来能力目录目前只放职责说明；README 的“规划”不等于功能已实现。
-避免按 case 复制仿真、机器人、视频和验收代码。case1/1.5/2/3 的差异将放到
-`construction/templates/` 与 `validation/cases/`，以配置选择。
+避免按 case 复制仿真、机器人、视频和验收代码。case1/1.5/2/3 的差异集中在
+`construction/cases/`（`base.py` 共用层 + `case1.py` / `case1_5.py` / `legacy.py`），
+由配置选择构造器，`templates.py` 只作为兼容转发保留。
 
 ## 3. 五阶段的完整数据流
 
@@ -187,8 +188,16 @@ SceneVersion 内容寻址、attempt 唯一且不覆盖；拆出共享模型后�
 ## 阶段二已落地接口
 
 `construction/config.py` 定义独立 v2 契约，`catalog/index.py`/`assets.py` 负责检索与资产资格，
-`scenes/geometry.py` 提取实际水平碰撞区域，`construction/candidates.py`/`templates.py` 提供规则候选与四类要求。
+`scenes/geometry.py` 提取实际水平碰撞区域，`construction/generate.py` 提供沿支撑局部线的候选生成。
+`construction/cases/` 是 case 共用层：每个构造器给出 `preflight` / `generate` / `local_check` /
+`pending_hypotheses`，每条要求带 `strength`（`geometric_measurement` / `physical_evidence` /
+`geometric_proxy` / `model_semantic`）与 `layer`（`scene_validity` / `case_intent`）。
+**失败 `case_intent` 要求只表示 case 条件未成立，不表示场景无效**；只有 `scene_validity`
+的物理证据参与 `scene_valid` 判定。
 `runtime/build_session.py` 是构建期唯一仿真编辑/静置入口；不放松 `Simulation` 连续执行期间的禁止恢复规则。
-`validation/placement.py` 检查支撑、稳定性、严重穿透与副作用；`agents/protocol.py` 提供严格观察/决策协议。
-`workflows/build.py` 管预算、冻结、独立恢复和阶段一交接，反馈以追加文件记录。
+`validation/placement.py` 检查支撑、稳定性、严重穿透与副作用；`agents/protocol.py` 提供严格观察/决策协议，
+并支持 `rank` / `shortlist`（只排序或取子集程序已枚举的候选，不给数值）与按用途计数的调用预算。
+诊断视图（含 case 专属示意图）标记 `diagnostic` / `schematic` / `vla_input: False`，不进入机器人或 VLA 输入。
+`workflows/build.py` 管预算、preflight 拒绝、显式 `edited` 标记、冻结、独立恢复和阶段一交接，
+反馈以追加文件记录；规则降级与预算耗尽在数据中分开记录。
 真实视觉后端与阶段三操作难度/任务成功仍待验证；规则决策不记为模型复查。

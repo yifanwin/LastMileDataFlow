@@ -1,8 +1,8 @@
 """Build-only support, stability, collision and side-effect acceptance."""
 import mujoco
 import numpy as np
+from ..construction.cases import requirement_summary, requirements
 from ..scenes.geometry import body_points, collision_geoms, quat_angle, support_rays, extract_regions
-from ..construction.templates import requirements
 
 
 def poses(sim):
@@ -81,6 +81,10 @@ def inspect_build(session, history, baseline, *, include_requirements=True):
         q = d.qpos[m.jnt_qposadr[j]]
         if m.jnt_limited[j] and not m.jnt_range[j,0]-.01 <= q <= m.jnt_range[j,1]+.01:
             issues.append({'code':'robot_joint_limit','joint':name,'q':float(q)})
-    req = requirements(sim,config) if include_requirements else []
-    return {'valid': not issues and all(c['status']=='pass' for c in req),'scene_valid':not issues,
-            'issues':issues,'placements':placement,'stability':stability,'requirements':req,'protocol':p.version}
+    req = requirements(session) if include_requirements else []
+    # Scene validity counts physical evidence only. A failing case_intent requirement is what the
+    # build loop exists to fix; it must never be reported as an invalid scene.
+    summary = requirement_summary(req)
+    return {'valid': not issues and summary['status'] == 'pass', 'scene_valid': not issues,
+            'issues': issues, 'placements': placement, 'stability': stability, 'requirements': req,
+            'requirement_summary': summary, 'protocol': p.version}

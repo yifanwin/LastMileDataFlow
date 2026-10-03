@@ -11,7 +11,7 @@ from ..robots.action import InvalidAction
 from ..scenes.geometry import body_points
 from ..stations.sampling import coarse_samples,refinements,place_base,filter_station
 from ..stations.execution import run_station_attempt,Budget,BudgetStop
-from ..validation.stations import case1_verdict,audit_station_attempt
+from ..validation.stations import audit_station_attempt,case1_5_verdict,case1_verdict,side_assignment
 
 
 def run_station_map(snapshot,robot,config,collection,*,run_id,build=None,planner_factory=None):
@@ -21,7 +21,7 @@ def run_station_map(snapshot,robot,config,collection,*,run_id,build=None,planner
     frozen=read_json(snapshot/'version.json')
     if build:
         candidate=read_json(Path(build)/'task_candidate.json'); build_result=read_json(Path(build)/'result.json')
-        if build_result['status']!='candidate_ready' or candidate['scene_version_id']!=frozen['version_id'] or candidate['target']!=config.target or candidate['case_type']!='case1': raise ValueError('build handoff mismatch/pending')
+        if build_result['status']!='candidate_ready' or candidate['scene_version_id']!=frozen['version_id'] or candidate['target']!=config.target or candidate['case_type']!=config.case_type: raise ValueError('build handoff mismatch/pending')
     config_packet={'schema_version':'3.0','robot':asdict(robot),'stations':asdict(config),'collection':asdict(collection),
                    'snapshot':str(snapshot),'scene_version':frozen['version_id'],'snapshot_checksums':read_json(snapshot/'checksums.json'),
                    'build':str(Path(build).resolve()) if build else None,'build_candidate_digest':file_digest(Path(build)/'task_candidate.json') if build else None,
@@ -49,11 +49,14 @@ def run_station_map(snapshot,robot,config,collection,*,run_id,build=None,planner
                   'note':'collision body envelopes for background only, not the planner collision geometry'})
     finally: sim.close()
     write_json(path/'candidates.json',samples)
+    assignment=side_assignment(samples,config.side_points,config.max_side_assignment_m) if config.case_type=='case1.5' else {}
+    if assignment: write_json(path/'side_assignment.json',{'sides':config.side_points,'roles':config.side_roles,
+        'assignment':assignment,'radius_m':config.max_side_assignment_m,'evidence_scope':'input partition, not navigation'})
     combos=list(itertools.product(config.arms,config.torso_heights,config.grasp_ids)); rows=[]
     def pending(sample,combo):
         side,h,gid=combo
         check=filters.get(sample['station_id'],{'status':'not_tested'})
-        return {**sample,'arm':side,'torso_h':h,'grasp_row':gid,'approach_offset_m':config.approach_offset_m,'geometry':check['status'],'planning':'not_tested','execution':'not_executed','status':'geometry_filtered' if check['status']=='geometry_filtered' else 'not_tested','reason':'initial_collision_or_floor' if check['status']=='geometry_filtered' else 'not_scheduled','attempt':None}
+        return {**sample,'arm':side,'torso_h':h,'grasp_row':gid,'approach_offset_m':config.approach_offset_m,'geometry':check['status'],'planning':'not_tested','execution':'not_executed','status':'geometry_filtered' if check['status']=='geometry_filtered' else 'not_tested','reason':'initial_collision_or_floor' if check['status']=='geometry_filtered' else 'not_scheduled','attempt':None,'case_side':assignment.get(sample['station_id'])}
     for sample in samples:
         rows.extend(pending(sample,combo) for combo in combos)
     write_json(path/'stations.json',rows)
@@ -96,15 +99,21 @@ def run_station_map(snapshot,robot,config,collection,*,run_id,build=None,planner
     write_json(path/'stations.json',rows)
     audit={r['attempt']:audit_station_attempt(r['attempt']) for r in rows if r['attempt']}
     write_json(path/'audit.json',{'valid':all(a['valid'] for a in audit.values()),'attempts':audit})
-    verdict=case1_verdict(rows,source_base)
+    if config.case_type=='case1.5':
+        verdict=case1_5_verdict(rows,source_base,config.side_points,config.side_roles)
+        scope='fixed-base per-side case1.5 trials only; no navigation/VLA/multi-case claim'
+    else:
+        verdict=case1_verdict(rows,source_base)
+        scope='fixed-base case1 only; no navigation/VLA/multi-case claim'
     summary={'schema_version':'3.0','run_id':run_id,'source_base':source_base,'scene_version':frozen['version_id'],
+             'case_type':config.case_type,
              'successes':sum(r['execution']=='success' for r in rows),'failures':sum(r['execution']=='failure' for r in rows),
              'infrastructure_errors':sum(r['status']=='infrastructure_error' for r in rows),
              'planning_no_solution':sum(r['status']=='planning_no_solution' for r in rows),
              'geometry_filtered':sum(r['status']=='geometry_filtered' for r in rows),'not_tested':sum(r['status']=='not_tested' for r in rows),
              'case_condition':verdict,'stopped':stopped,'budget':{'plans':budget.plans,'executions':budget.executions,'wall_time_s':time.monotonic()-budget.started},
              'limits':{'plans':config.max_plans,'executions':config.max_executions,'wall_time_s':config.timeout_s},
-             'data_collection_complete':False,'scope':'fixed-base case1 only; no navigation/VLA/multi-case claim'}
+             'data_collection_complete':False,'scope':scope}
     summary['data_collection_complete']=bool(summary['successes'] and summary['failures'] and verdict['status']=='pass' and all(a['valid'] for a in audit.values()))
     write_json(path/'summary.json',summary)
     if build:
@@ -112,6 +121,7 @@ def run_station_map(snapshot,robot,config,collection,*,run_id,build=None,planner
         classification='infrastructure_failure' if summary['infrastructure_errors'] else 'success_without_expected_difficulty' if verdict['status']=='fail' else 'valid_unsolved'
         # Existing phase-two feedback vocabulary extended for verified case witnesses.
         if verdict['status']=='pass': classification='case_verified'
+        elif verdict['status']=='partial': classification='partially_verified'
         feedback=record_feedback(build,classification,{'station_run':str(path.resolve()),'summary_sha256':file_digest(path/'summary.json'),'case_condition':verdict})
         write_json(path/'build_feedback.json',{'path':str(feedback)})
     from ..exporting.station_report import export_report

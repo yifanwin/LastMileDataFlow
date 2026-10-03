@@ -1,0 +1,39 @@
+{
+  "task_id": "case1.5-val103-pick",
+  "case_type": "case1.5",
+  "target": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+  "asset_id": "Cup_30",
+  "grasp_path": "../../../molmospaces_data/assets/grasps/droid/Cup_30/Cup_30_grasps_filtered.npz",
+  "grasp_sha256": "e28584580e9ec2c9ff4d42d1fae0cd9da8be0cdc60889dcf0a2bbc9f875e79e3",
+  "robot_planner_dir": "../../../molmospaces_data/assets/robots/rby1m/curobo_config",
+  "arms": ["left"],
+  "torso_heights": [0.738],
+  "grasp_ids": [794],
+  "probes": [
+    [6.263, 2.099, 0.0],
+    [8.363, 2.099, 3.13],
+    [7.313, 2.949, -1.5705]
+  ],
+  "radii_m": [0.55, 0.75],
+  "angle_step_deg": 45,
+  "include_source_base": true,
+  "max_candidates": 20,
+  "max_refinements": 0,
+  "max_plans": 24,
+  "max_executions": 6,
+  "timeout_s": 1800,
+  "attempt_timeout_s": 300,
+  "approach_offset_m": 0.01,
+  "seed": 5,
+  "side_points": {
+    "side_a": [7.31325, 2.94874, 0.0],
+    "side_b": [8.36325, 2.09874, 0.0],
+    "side_c": [6.26325, 2.09874, 0.0]
+  },
+  "side_roles": {
+    "side_a": "near_open_solvable",
+    "side_b": "narrow_passage",
+    "side_c": "far_open"
+  },
+  "max_side_assignment_m": 0.9
+}

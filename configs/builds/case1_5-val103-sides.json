@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.0",
+  "task_id": "case1.5-val103-sides",
+  "case_type": "case1.5",
+  "target": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+  "support": "diningtable_f113cf7f8367e89f709b53cbee1a1c05_1_0_2",
+  "robot_base": [6.3, 2.7, -0.5354],
+  "editable": ["cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2"],
+  "allowed_operations": ["move"],
+  "protected": [],
+  "parameters": {
+    "frame_body": "diningtable_f113cf7f8367e89f709b53cbee1a1c05_1_0_2",
+    "side_a": [-1.397, -0.374, -0.3552],
+    "side_b": [-0.547, 0.676, -0.3552],
+    "side_c": [-0.547, -1.424, -0.3552],
+    "side_roles": {
+      "side_a": "near_open_solvable",
+      "side_b": "narrow_passage",
+      "side_c": "far_open"
+    },
+    "min_distance_difference_m": 0.3,
+    "clearance_radius_m": 0.9,
+    "min_clearance_difference_m": 0.35,
+    "max_side_height_m": 0.05,
+    "line_step_m": 0.02,
+    "max_line_samples": 24
+  },
+  "budget": {"candidates": 48, "edits": 12, "repairs": 3, "agent_calls": 0, "timeout_s": 900}
+}

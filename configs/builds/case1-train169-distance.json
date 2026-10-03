@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0",
+  "task_id": "case1-train169-distance",
+  "case_type": "case1",
+  "target": "cup_05d16f89a21c46b95ab001a518206bad_1_0_6",
+  "support": "diningtable_a2b8eb556a504cc29381a375cd56b397_1_0_6",
+  "robot_base": [2.90, 3.10, 1.179],
+  "editable": ["cup_05d16f89a21c46b95ab001a518206bad_1_0_6"],
+  "allowed_operations": ["move"],
+  "protected": [],
+  "parameters": {
+    "distance_range_m": [1.05, 1.25],
+    "line_step_m": 0.06,
+    "max_line_samples": 20
+  },
+  "budget": {"candidates": 48, "edits": 12, "repairs": 3, "agent_calls": 0, "timeout_s": 900}
+}

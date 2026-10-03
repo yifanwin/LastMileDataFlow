@@ -47,10 +47,33 @@ Python `run_build()` 是用于联调的进程内接口（协作式检查期限�
 | case2 | `handle`、`desired_direction_world` | 经声明验证且有来源的部件局部轴，转换为世界方向 |
 | case3 | `obstacle`、`approach_offset_m`、`obstacle_distance_range_m` | 障碍在世界坐标接近走廊内且稳定；不是实际规划阻断证据 |
 | case1.5 | `frame_body`、`side_a`、`side_b`、`min_distance_difference_m`、`clearance_radius_m`、`min_clearance_difference_m` | 家具局部坐标系中两侧的距离与保守几何净空差异；不是导航验证 |
+| 公共可选 | `line_step_m`、`max_line_samples` | 支撑局部线取样的步长与每条线上限 |
 
 `height_range_m` 可选，指**目标 body 原点**高度。`yaw_candidates_rad` 可声明有限朝向。
 case2 的 `handle` 必须有 `body`、非零 `axis_local`、`source` 与 `verified=true`；
 标注 body 必须属于目标。系统不默认 +X 是把手，配置中的验证声明需要调用者提供可信来源。
+
+### case 共用层
+
+四类 case 走同一条流水线，差异只在"程序生成什么候选"和"Agent 判断什么语义"两处。
+`construction/cases/` 的每个构造器实现 `preflight` / `generate` / `local_check` / `pending_hypotheses`；
+每条要求带 `strength` 与 `layer` 两项标注（见 [construction/README](../../src/lastmile_dataflow/construction/README.md)）：
+
+- `layer=scene_validity` 的物理证据决定场景是否有效；`layer=case_intent` 的要求决定 case 条件是否成立。
+  **失败的意图要求不会被读成场景无效**，它正是编辑循环要修的东西。
+- `strength=geometric_proxy` 明确不是导航或任务证据。
+
+case1 的距离**必须**用会话里冻结的 `initial_robot_base` 计算：同一会话可以包含早先的配置化编辑，
+用当前机器人位姿重算等于换了一个问题。冻结初态被绕过记 `measurement_source_inconsistent` 并判 fail。
+
+case1.5 的方向活在 `frame_body` 的**家具局部系**里，且该局部系是重力对齐的（THOR 家具自身坐标系常带 roll/pitch）。
+前置检查逐侧要求：位点在家具足印之外、位于合理高度、向下射线落在开放地面。
+任一侧不满足时**不生成任何候选**并写 `preflight.json`。可选 `side_c` 与 `side_roles` 支持三侧角色标注；
+净空用保守几何代理（`horizontal_ray_fan_at_base_height_not_navigation`），不是导航证据。
+
+候选沿支撑局部轴过当前目标位置的直线取样（不是全区域网格），排序用同量纲元组
+（越界量 → 位移 → 偏航），不做跨量纲惩罚累加。构建结果显式记录 `edited`：零编辑即满足时
+仍走完整验证、冻结与独立恢复。
 
 `initial_operations` 是需要整体提交的一组操作。每项有 `op`、`instance`，移动/旋转/新增还需
 `pose=[x,y,z,w,x,y,z]`，新增需 `asset_id`。关节编辑、缩放与任意模型导入明确不支持。

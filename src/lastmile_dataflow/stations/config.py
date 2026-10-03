@@ -40,14 +40,22 @@ class StationConfig:
     width: int = 640
     height: int = 480
     render_video: bool = True
+    # case1.5 per-side station labelling. Labels are roles, never outcome claims: a side's physical
+    # result is always read from its own attempts, and a construction-time clearance proxy is never
+    # promoted to navigation evidence.
+    side_points: dict = field(default_factory=dict)
+    side_roles: dict = field(default_factory=dict)
+    max_side_assignment_m: float = 1.5
     # One immutable protocol; callers cannot weaken the physical success gate.
     protocol: str = 'strict-pick-v3'
 
     def __post_init__(self):
         if self.schema_version != '3.0' or self.protocol != 'strict-pick-v3':
             raise ValueError('unknown station schema/protocol')
-        if self.case_type != 'case1':
-            raise ValueError('only ordinary case1 pick is implemented; no handle fallback')
+        if self.case_type not in ('case1', 'case1.5'):
+            raise ValueError('only case1 ordinary pick and case1.5 fixed-base side trials are implemented; no handle fallback')
+        if self.case_type == 'case1.5' and not self.side_points:
+            raise ValueError('case1.5 requires frozen side points from the build evidence')
         for k in ('task_id', 'target', 'grasp_path', 'asset_id', 'robot_planner_dir'):
             if not isinstance(getattr(self,k),str) or not getattr(self,k): raise ValueError(f'missing {k}')
         if len(self.grasp_sha256) != 64 or any(c not in '0123456789abcdef' for c in self.grasp_sha256):
@@ -69,6 +77,16 @@ class StationConfig:
         if type(self.approach_offset_m) not in (float,int) or not math.isfinite(self.approach_offset_m) or not 0 <= self.approach_offset_m <= .02: raise ValueError('invalid bounded approach offset')
         if not 10 <= self.angle_step_deg <= 180 or self.time_dilation > 1 or self.width%2 or self.height%2: raise ValueError('invalid sampling/timing/image dimensions')
         if type(self.render_video) is not bool or type(self.include_source_base) is not bool: raise ValueError('invalid flags')
+        if not isinstance(self.side_points, dict) or not isinstance(self.side_roles, dict):
+            raise ValueError('invalid side assignment')
+        for name, point in self.side_points.items():
+            if name not in ('side_a', 'side_b', 'side_c') or not isinstance(point, list) or len(point) != 3 \
+                    or any(type(x) not in (int, float) or not math.isfinite(x) for x in point):
+                raise ValueError('invalid side point')
+        if set(self.side_roles) - set(self.side_points): raise ValueError('side role without a side point')
+        if any(not isinstance(v, str) or not v for v in self.side_roles.values()): raise ValueError('invalid side role label')
+        if not math.isfinite(self.max_side_assignment_m) or self.max_side_assignment_m <= 0:
+            raise ValueError('invalid side assignment radius')
 
 
 def load_station_config(path):

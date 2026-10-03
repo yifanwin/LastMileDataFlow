@@ -7,9 +7,9 @@ import uuid
 
 import numpy as np
 
-from ..agents.protocol import observe, DecisionGateway
+from ..agents.protocol import observe, DecisionGateway, VisionCallBudget
 from ..construction.candidates import candidates
-from ..construction.templates import pending_hypotheses
+from ..construction.cases import candidate_rank, pending_hypotheses, preflight
 from ..config import TaskConfig
 from ..io import digest, write_json, read_json, file_digest
 from ..runtime.build_session import BuildSession
@@ -28,7 +28,17 @@ class RequestBudget:
         self.used[key]+=count
 
 
-def run_build(source,robot_config,config,collection,*,build_id=None,images=True,regression=True,backend=None,request_budget=None,initial_frozen_dir=None):
+def resolve_decision(decision, rows, observation):
+    """Turn a validated Agent decision into an ordered candidate list (no numbers from the model)."""
+    if decision['action'] in ('select', 'repair'):
+        pick=[r for r in rows if r['candidate_id']==decision['candidate_id']]
+    else:
+        order={cid:i for i,cid in enumerate(decision['candidate_ids'])}
+        pick=sorted([r for r in rows if r['candidate_id'] in order],key=lambda r:order[r['candidate_id']])
+    return pick
+
+
+def run_build(source,robot_config,config,collection,*,build_id=None,images=True,regression=True,backend=None,request_budget=None,initial_frozen_dir=None,agent_purposes=None):
     build_id=build_id or 'build-'+uuid.uuid4().hex[:12]
     if not re.fullmatch(r'[a-zA-Z0-9_-]+',build_id): raise ValueError('unsafe build id')
     root=Path(collection.output_dir); path=root/'builds'/build_id; path.mkdir(parents=True,exist_ok=False)
@@ -39,7 +49,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
             'results':{'scene_validity':{'status':'unknown'},'build_requirements':{'status':'unknown'},
                        'case_condition':{'status':'unknown','reason':'requires_phase3_robot_trials'},
                        'task_completion':{'status':'unknown','reason':'no_task_execution'}}}
-    observations=0
+    observations=0; edited=False
     def observation(cs,stage='settled',views=None):
         nonlocal observations
         packet=observe(session,cs,path/'observations'/f'{observations:04d}',stage=stage,images=images,views=views)
@@ -51,9 +61,18 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         session.record_images=images
         write_json(path/'initialization.json',session.initialization)
         if session.initialization['status'] != 'valid': raise ValueError('invalid_robot_initialization_no_target_repair')
+        # Preflight runs before any candidate exists: a layout whose own sides are not physically
+        # placed (design 2.2) is rejected here, so no candidate is ever generated for it.
+        preflight_records=preflight(session)
+        rejected=[r for r in preflight_records if r['required'] and r['status']!='pass']
+        write_json(path/'preflight.json',{'case_type':config.case_type,'revision':session.revision,
+                                          'requirements':preflight_records,
+                                          'rejected':bool(rejected),
+                                          'candidates_generated':0 if rejected else None})
+        if rejected: raise ValueError('case_preflight_rejected:'+','.join(r['requirement'] for r in rejected))
         observation([],stage='before_edit')
         if config.initial_operations:
-            budget.consume('edits',len(config.initial_operations))
+            edited=True; budget.consume('edits',len(config.initial_operations))
             entry=session.transact(config.initial_operations,revision=session.revision,reason='configured_group')
             if entry['status']!='committed': raise ValueError('initial_operations_failed')
         else:
@@ -61,13 +80,14 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         # Track untouched assets across all transactions; revisions invalidate all previous checks.
         check=session.validate()
         write_json(path/'checks'/'initial.json',check)
-        failed=set(); gateway=DecisionGateway(backend,budget=config.budget.agent_calls,path=path/'decisions')
+        failed=set(); gateway=DecisionGateway(backend,budget=config.budget.agent_calls,path=path/'decisions',purposes=agent_purposes)
         while not check['valid']:
             cs=[c for c in candidates(session) if c['candidate_id'] not in failed]
             cs=cs[:max(0,config.budget.candidates-budget.used['candidates'])]
             if not cs: raise RuntimeError('no_new_qualified_candidates')
             packet=observation(cs)
             if backend:
+                pick=[]
                 while True:
                     budget.consume('agent_calls'); decision=gateway.decide(packet)
                     result['decision_source']='model'
@@ -75,11 +95,19 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
                     if decision['action'] in ('request_views','query_geometry'):
                         if decision['action']=='request_views' and not images: raise RuntimeError('requested_images_unavailable')
                         packet=observation(cs,views=decision.get('views')); continue
-                    choice=next(c for c in cs if c['candidate_id']==decision['candidate_id']); break
+                    pick=resolve_decision(decision,cs,packet); break
             else:
-                choice=cs[0]
-                write_json(path/'decisions'/f'rule-{session.revision:04d}.json',{'source':'rule','revision':session.revision,'observation_id':packet['observation_id'],'candidate_id':choice['candidate_id']})
+                # Rule path is a declared degradation, never a silent substitute for a model call.
+                pick=cs
+                result['degradation']={'agent_calls_used':0,'path':'rule','reason':'vision_backend_unavailable' if backend is None else 'backend_not_configured'}
+            choice=pick[0]
+            write_json(path/'decisions'/f'selection-{session.revision:04d}.json',
+                       {'source':'model' if backend else 'rule','revision':session.revision,
+                        'observation_id':packet['observation_id'],'rank':[c['candidate_id'] for c in pick],
+                        'budget_remaining':gateway.budget.remaining() if backend else None,
+                        'rule_fallback_selection':not backend})
             budget.consume('candidates'); budget.consume('edits',len(choice['operations']))
+            edited=True
             entry=session.transact(choice['operations'],revision=choice['revision'],source='model' if backend else 'rule')
             if entry['status']!='committed':
                 failed.add(choice['candidate_id']); gateway.failed.add(choice['candidate_id']); budget.consume('repairs')
@@ -99,10 +127,12 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
             if not exact: raise ValueError('independent_restore_mismatch')
         finally: restored.close()
         write_json(path/'handoff.json',{'scene_dir':str(version_dir.resolve()),'independent_restore_exact':True})
+        summary=check.get('requirement_summary',{})
         candidate={'schema_version':'2.0','build_id':build_id,'task_id':config.task_id,'case_type':config.case_type,
                    'target':config.target,'operation':config.operation,'robot_initial_state':before_scene['robot'],
                    'scene_version_id':version['version_id'],'model_id':model_id,'checkpoint_id':checkpoint_id,
                    'scene_dir':str(version_dir.resolve()),'requirements':check['requirements'],
+                   'requirement_summary':summary,'edited':edited,
                    'pending_hypotheses':pending_hypotheses(config.case_type),
                    'phase3_protocol':{'must_use_independent_attempt':True,'fixed_base_trial_required':config.case_type in ('case1','case1.5'),
                                       'task_success_evaluator':'required_not_implemented_in_phase2'},
@@ -111,6 +141,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
                               'task_completion':result['results']['task_completion']}}
         write_json(path/'task_candidate.json',candidate)
         result['results']=candidate['results']; result['status']='candidate_ready'
+        result['edited']=edited; result['scenario_identity']=scenario_identity(candidate)
         if regression:
             from ..runtime.runner import run_attempt,audit_attempt
             task=TaskConfig(task_id=config.task_id+'-handoff',case_type=config.case_type,target=config.target)
@@ -137,10 +168,25 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         if session: session.close()
         result['cost']={'wall_time_s':time.monotonic()-started,'request_cumulative':budget.used,'observations':observations,
                         'simulated_s':session.simulated_s if session else 0}
+        result['edited']=result.get('edited',edited)
         if frozen: result['frozen_scene_dir']=str(frozen)
         write_json(path/'result.json',result)
         write_json(path/'artifacts.json',{'files_sha256':{str(p.relative_to(path)):file_digest(p) for p in path.rglob('*') if p.is_file() and p.name!='artifacts.json'}})
     return path
+
+
+def scenario_identity(candidate):
+    """Distinct layouts must not collapse into one identity.
+
+    Two builds that reach the same requirement values at different target poses or different frozen
+    robot bases are different scenarios, so both enter the identity digest.
+    """
+    return {'scenario_id':digest({'case_type':candidate['case_type'],'target':candidate['target'],
+                                  'scene_version_id':candidate['scene_version_id'],
+                                  'robot_initial_state':candidate['robot_initial_state'],
+                                  'edited':candidate['edited']}),
+            'scene_version_id':candidate['scene_version_id'],'edited':candidate['edited'],
+            'robot_initial_state':candidate['robot_initial_state']}
 
 
 def build_request(sources,robot_config,config,collection,**options):
@@ -157,7 +203,8 @@ def build_request(sources,robot_config,config,collection,**options):
 
 def record_feedback(build_path,classification,evidence,*,new_build_id=None):
     actions={'case_verified':'retain_verified_case_and_evidence','scene_invalid':'repair_or_change_candidate','success_without_expected_difficulty':'retain_and_reclassify',
-             'valid_unsolved':'retain_unsolved_do_not_remove_obstacles','infrastructure_failure':'retry_infrastructure_without_scene_edits'}
+             'valid_unsolved':'retain_unsolved_do_not_remove_obstacles','infrastructure_failure':'retry_infrastructure_without_scene_edits',
+             'partially_verified':'retain_per_side_evidence_without_overall_pass'}
     if classification not in actions or not isinstance(evidence,dict) or not evidence: raise ValueError('invalid downstream feedback')
     candidate=read_json(Path(build_path)/'task_candidate.json')
     if classification=='case_verified':
@@ -174,6 +221,19 @@ def record_feedback(build_path,classification,evidence,*,new_build_id=None):
             source=read_json(Path(witness)/'source.json'); result=read_json(Path(witness)/'result.json')
             if not audit['valid'] or result['results']['task_completion']['status']!='success' or source.get('scene_version')!=candidate['scene_version_id'] or source.get('target')!=candidate['target']:
                 raise ValueError('case_verified witness is invalid or mismatched')
+    elif classification=='partially_verified':
+        # Per-side evidence only: never manufacture an overall pass out of partial witnesses.
+        summary_path=Path(evidence.get('station_run',''))/'summary.json'
+        if not summary_path.is_file() or file_digest(summary_path)!=evidence.get('summary_sha256'):
+            raise ValueError('partially_verified requires matching real station summary')
+        summary=read_json(summary_path)
+        if summary.get('scene_version')!=candidate['scene_version_id']:
+            raise ValueError('partially_verified summary belongs to another scene version')
+        verdict=summary.get('case_condition',{})
+        if verdict.get('status')=='pass':
+            raise ValueError('partially_verified must not be used when the full case condition passed')
+        if not (verdict.get('per_side') or verdict.get('success_witnesses')):
+            raise ValueError('partially_verified requires per-side or success evidence')
     feedback={'schema_version':'2.0','parent_build_id':candidate['build_id'],'scene_version_id':candidate['scene_version_id'],
               'classification':classification,'action':actions[classification],'evidence':evidence,'new_build_id':new_build_id}
     # Append-only sibling records, never modify frozen/collected artifacts.

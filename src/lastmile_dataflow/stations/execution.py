@@ -39,7 +39,7 @@ def prepare(snapshot,robot,station,target):
 
 
 def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root,attempt_id,budget,planner_factory=NativePlanner):
-    cfg={'schema_version':'3.0','robot':asdict(robot),'task':{'task_id':config.task_id,'target':config.target,'operation':'pick','case_type':'case1','fixed_base':True},
+    cfg={'schema_version':'3.0','robot':asdict(robot),'task':{'task_id':config.task_id,'target':config.target,'operation':'pick','case_type':config.case_type,'fixed_base':True},
          'collection':asdict(collection),'station_protocol':asdict(config),'station':station,'side':side,'h':h,'grasp_row':gid,'pick_protocol':PROTOCOL}
     recorder=AttemptRecorder(root,cfg,attempt_id=attempt_id,strategy='fixed_base_curobo_v3',parent=str(Path(snapshot).resolve()))
     sim=None; monitor=None; phase='initialize'; samples=[]; replay=[]; plans=[]

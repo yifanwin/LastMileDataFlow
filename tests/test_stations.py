@@ -38,8 +38,38 @@ def evidence():
 
 class ConfigSamplingTests(unittest.TestCase):
     def test_config_rejects_unsupported_case_and_weak_protocol(self):
-        for kwargs in ({'case_type':'case2'},{'protocol':'lenient'},{'max_plans':True},{'grasp_ids':[-1]}, {'probes':[[0,0,float('nan')]]}):
+        for kwargs in ({'case_type':'case2'},{'case_type':'case3'},{'protocol':'lenient'},{'max_plans':True},{'grasp_ids':[-1]}, {'probes':[[0,0,float('nan')]]}):
             with self.assertRaises(ValueError): config(**kwargs)
+    def test_case15_requires_frozen_side_points_and_labels_them(self):
+        sides={'side_a':[0,0,0],'side_b':[1,0,0]}
+        with self.assertRaises(ValueError): config(case_type='case1.5')
+        for bad in ({'side_d':[0,0,0]},{'side_a':[0,0]},{'side_a':[0,0,float('nan')]}):
+            with self.assertRaises(ValueError): config(case_type='case1.5',side_points=bad)
+        with self.assertRaises(ValueError):
+            config(case_type='case1.5',side_points={'side_a':[0,0,0]},side_roles={'side_b':'narrow'})
+        cfg=config(case_type='case1.5',side_points=sides,side_roles={'side_a':'narrow','side_b':'far'})
+        self.assertEqual(cfg.side_roles['side_a'],'narrow')
+    def test_case15_per_side_verdict_never_promotes_partial_evidence(self):
+        from lastmile_dataflow.validation.stations import case1_5_verdict,side_assignment
+        points={'side_a':[0,0,0],'side_b':[2,0,0]}
+        samples=[{'station_id':'S000','base':[.05,0,0]},{'station_id':'S001','base':[1.9,0,0]},
+                 {'station_id':'S002','base':[9,9,0]}]
+        self.assertEqual(side_assignment(samples,points,.5),{'S000':'side_a','S001':'side_b','S002':None})
+        rows=[{'station_id':'S000','base':[.05,0,0],'side':'side_a','execution':'failure','status':'executed_failure','planning':'no_solution','attempt':'a0'},
+              {'station_id':'S001','base':[1.9,0,0],'side':'side_b','execution':'success','status':'executed_success','planning':'success','attempt':'a1'}]
+        verdict=case1_5_verdict(rows,[0,0,0],points,{'side_a':'narrow','side_b':'far'})
+        # A fixed-base success on one side plus a failure on another is a per-side difference, and
+        # the overall case condition must stay short of `pass`.
+        self.assertEqual(verdict['status'],'partial')
+        self.assertEqual(verdict['per_side']['side_a']['status'],'failed')
+        self.assertEqual(verdict['per_side']['side_b']['status'],'succeeded')
+        self.assertEqual(verdict['per_side']['side_a']['role'],'narrow')
+        self.assertEqual(verdict['narrow_side_passage']['status'],'unknown')
+        self.assertEqual(verdict['success_witnesses'] if 'success_witnesses' in verdict else None,None)
+        only_success=case1_5_verdict([rows[1]], [0,0,0], points)
+        self.assertEqual(only_success['status'],'unknown')
+        no_success=case1_5_verdict([rows[0]], [0,0,0], points)
+        self.assertEqual(no_success['status'],'unknown')
     def test_sampling_is_deterministic_bounded_with_yaw(self):
         cfg=config(max_candidates=12,probes=[[0,0,0],[0,0,2*np.pi]])
         a=coarse_samples(cfg,[1,0,1],[0,0,0]); b=coarse_samples(cfg,[1,0,1],[0,0,0])

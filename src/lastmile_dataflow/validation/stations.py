@@ -18,6 +18,73 @@ def case1_verdict(rows,source_base):
             'success_witnesses':[r['attempt'] for r in success], 'difficulty_witnesses':[r['attempt'] for r in difficult]}
 
 
+def side_assignment(samples, side_points, radius):
+    """Nearest frozen side point per station, or None; assignment is input, not navigation evidence."""
+    result={}
+    for sample in samples:
+        xy=np.asarray(sample['base'][:2],dtype=float)
+        best=None
+        for name,point in sorted(side_points.items()):
+            distance=float(np.linalg.norm(xy-np.asarray(point[:2],dtype=float)))
+            if distance<=radius and (best is None or distance<best[1]): best=(name,distance)
+        result[sample['station_id']]=best[0] if best else None
+    return result
+
+
+def _row_side(row):
+    """Station rows carry `case_side`; accept `side` as well so both spellings read the same."""
+    return row.get('case_side', row.get('side'))
+
+
+def case1_5_verdict(rows, source_base, side_points, side_roles=None):
+    """Per-side fixed-base evidence only.
+
+    Case 2.2's construction-time clearance difference is a geometric proxy. Phase three can only
+    record what each side's fixed-base trials measured; narrow-side *passage* needs the robot to
+    navigate, which this stage does not do, so it stays `unknown` rather than being inferred from
+    geometry. The overall verdict is deliberately never `pass`: a partial per-side result must not
+    read as a verified case condition.
+    """
+    side_roles=side_roles or {}
+    physical=[r for r in rows if r['status'] not in ('infrastructure_error','budget_exhausted','interrupted')]
+    per_side={}
+    for name in sorted(side_points):
+        members=[r for r in physical if _row_side(r)==name]
+        successes=[r for r in members if r['execution']=='success']
+        failures=[r for r in members if r['execution']=='failure']
+        no_solution=[r for r in members if r['planning']=='no_solution']
+        untested=[r for r in members if r['status']=='not_tested']
+        filtered=[r for r in members if r['status']=='geometry_filtered']
+        if not members: status='unknown'; reason='side_not_assigned_or_not_tested'
+        elif successes and failures: status='mixed'; reason='side_has_both_success_and_failure'
+        elif successes: status='succeeded'; reason='physical_success_at_this_side_only'
+        elif failures: status='failed'; reason='physical_failure_at_this_side'
+        elif no_solution: status='no_solution'; reason='finite_budget_planning_no_solution_not_impossibility'
+        elif filtered: status='geometry_filtered'; reason='station_filtered_before_execution'
+        elif untested: status='unknown'; reason='side_measured_but_not_executed'
+        else: status='unknown'; reason='no_physical_evidence'
+        per_side[name]={'role':side_roles.get(name),'status':status,'reason':reason,
+                        'stations':sorted({r['station_id'] for r in members}),
+                        'trials':len(members),'successes':len(successes),'failures':len(failures),
+                        'planning_no_solution':len(no_solution),'geometry_filtered':len(filtered),
+                        'success_witnesses':[r['attempt'] for r in successes],
+                        'failure_witnesses':[r['attempt'] for r in failures]}
+    successes=[r for r in physical if r['execution']=='success']
+    differences_measured=bool(any(s['successes'] for s in per_side.values()) and any(
+        s['failures'] or s['planning_no_solution'] for s in per_side.values()))
+    if not successes:
+        verdict={'status':'unknown','reason':'no_physical_success_witness'}
+    elif differences_measured:
+        verdict={'status':'partial','reason':'per_side_fixed_base_difference_measured_no_navigation_evidence'}
+    else:
+        verdict={'status':'unknown','reason':'only_part_of_the_side_difference_observed'}
+    verdict.update(per_side=per_side,
+                   narrow_side_passage={'status':'unknown','reason':'navigation_not_available_in_phase_three',
+                                        'construction_evidence':'construction_time_horizontal_clearance_proxy_only'},
+                   scope='fixed-base per-side trials only; construction-time clearance is a geometric proxy, never navigation evidence')
+    return verdict
+
+
 def audit_station_attempt(path):
     path=Path(path); issues=[]
     try:

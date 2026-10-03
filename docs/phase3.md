@@ -1,6 +1,6 @@
 # 阶段三：站位图与真实成败采集
 
-实现 **case1 普通抓取**的“构建 → 分层站位 → 原生 cuRobo → 严格物理执行 → 自动审计/反馈 → 浏览导出”。
+实现 **case1 普通抓取**与 **case1.5 固定底盘分侧试验**的“构建 → 分层站位 → 原生 cuRobo → 严格物理执行 → 自动审计/反馈 → 浏览导出”。
 不依赖旧管线或 MolmoSpaces Python 包，也不需要人工逐例批准。连续导航示教仍属于阶段四。
 
 ## 运行
@@ -99,5 +99,12 @@ PYTHONPATH=src ../molmospaces/.venv/bin/python -m unittest discover -s tests -v
 ```
 
 程序测试用 synthetic fixture，不代表真实物理成功。真实结果见[交付报告](../reports/phase3-delivery.md)。
-当前不支持 case2 把手归因、case3 障碍因果和 case1.5 三侧导航验收；不借普通抓取通过宣称这些模板成立。
+支持 case1 普通抓取与 case1.5 固定底盘分侧试验；**不支持** case2 把手归因、case3 障碍因果与 case1.5 三侧导航验收，
+不借普通抓取通过宣称这些模板成立。
+
+case1.5 的判定与 case1 分开：`case1_5_verdict` 逐侧给出 `succeeded` / `failed` / `no_solution` /
+`geometry_filtered` / `unknown`，并按 `side_points` 与 `side_roles` 落到每条真实试验上。
+**窄侧"能否通行"在阶段三保持 `unknown`**——固定底盘试验不产生导航证据，构建期净空只是几何代理；
+只要各侧证据不齐（例如窄侧全部被几何过滤、远侧只有规划无解），总体结论就是 `partial` 而不是 `pass`，
+反馈记为 `partially_verified`。分侧标签是站位划分输入，不是站位成败的归因。
 没有 VLA、连续导航或批量发布结论。普通资产/房屋多样性与大规模成功率仍未知。
