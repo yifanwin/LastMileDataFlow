@@ -10,11 +10,6 @@ from pathlib import Path
 import numpy as np
 
 
-def _axes(frames, key):
-    frame = frames[key]
-    return np.asarray(frame.origin, dtype=float), np.asarray(frame.rotation, dtype=float)
-
-
 def _figure_path(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -22,7 +17,11 @@ def _figure_path(path):
 
 
 def candidate_distribution(path, session, candidates, frames):
-    """Case 1: the layout that makes a distance meaningful — tabletop bounds, target, candidates."""
+    """Case 1: the layout that makes a distance meaningful — tabletop bounds, target, candidates.
+
+    The frozen robot base is usually outside the tabletop, so the axes are widened to include it
+    rather than drawing a legend entry for a point that is off-screen.
+    """
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -31,10 +30,10 @@ def candidate_distribution(path, session, candidates, frames):
         return {'available': False, 'reason': f'matplotlib_unavailable:{exc}'}
     region = session.placements[session.config.target]
     frame = frames[region.region_id]
-    origin, rotation = _axes(frames, region.region_id)
     target = session.sim.data.xpos[session.sim.model.body(session.config.target).id]
     local_target = frame.local(target)
-    figure, axis = plt.subplots(figsize=(4.2, 3.4), dpi=110)
+    base_local = frame.local(np.r_[session.initial_robot_base[:2], 0.])
+    figure, axis = plt.subplots(figsize=(4.4, 3.6), dpi=110)
     a, b, c, d = region.bounds
     axis.add_patch(plt.Rectangle((a, c), b - a, d - c, fill=False, edgecolor='#666', lw=1.0,
                                  label='support region bounds'))
@@ -51,10 +50,13 @@ def candidate_distribution(path, session, candidates, frames):
         axis.scatter(violations[:, 0], violations[:, 1], s=14, c='#d05a3a', marker='x',
                      label='candidate (out of range)')
     axis.scatter([local_target[0]], [local_target[1]], s=42, c='#111', marker='*', label='target now')
-    base_local = frame.local(np.r_[session.initial_robot_base[:2], 0.])
     axis.scatter([base_local[0]], [base_local[1]], s=42, c='#2f8f4e', marker='s',
                  label='frozen robot base')
-    axis.set_xlim(a - .18, b + .18); axis.set_ylim(c - .18, d + .18)
+    axis.annotate(f'frozen base ({base_local[0]:.2f}, {base_local[1]:.2f}) m in this frame',
+                  xy=(base_local[0], base_local[1]), xytext=(4, 4), textcoords='offset points',
+                  fontsize=6, color='#2f8f4e')
+    axis.set_xlim(min(a - .18, base_local[0] - .18), max(b + .18, base_local[0] + .18))
+    axis.set_ylim(min(c - .18, base_local[1] - .18), max(d + .18, base_local[1] + .18))
     axis.set_aspect('equal'); axis.grid(alpha=.25, lw=.4)
     axis.set_xlabel('support-local x (m)'); axis.set_ylabel('support-local y (m)')
     axis.set_title(f'{session.config.case_type}: candidate distribution', fontsize=9)

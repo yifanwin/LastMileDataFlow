@@ -103,6 +103,27 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 
 落位、抓持、把手专用验收和成功条件在第二/三阶段实现；阶段一不提供这些检查的假实现。
 
+## 阶段二构建产物（schema 2.0）
+
+`outputs/builds/<id>/` 中与本格式相关的新增字段：
+
+- `preflight.json`：case 前置检查结果，含 `rejected` 与 `candidates_generated`
+  （前置检查拒绝时显式记 `0`，表示**没有生成任何候选**）。
+- `checks/*.json` 与 `task_candidate.json` 的 `requirements[]`：每条带
+  `strength`（`geometric_measurement` / `physical_evidence` / `geometric_proxy` / `model_semantic`）与
+  `layer`（`scene_validity` / `case_intent`）；未通过的必要项还带 `failure_kind` 与 `reason`。
+  同文件另有 `requirement_summary`，把 `engineering_failures` 与 `case_intent_failures` 分开计数。
+- `task_candidate.json` 的 `edited`：显式记录本次构建是否真的改过场景；零编辑仍走完整验证与冻结。
+- `result.json` 的 `status` 与 `degradation`：`budget_exhausted` 与"规则路径降级"必须能区分，
+  降级时记 `degradation={path:'rule', reason:..., agent_calls_used:...}`。
+- `observations/*/observation.json` 的 `frames`（坐标系列表）与 `images[]`：
+  每张图带 `diagnostic`、`vla_input`，case 专属示意图额外带 `schematic`；示意图不得作为 VLA 输入。
+- `decisions/*.json`：规则路径记 `rule_fallback_selection` 与候选排序；模型路径的
+  `rank`/`shortlist` 只允许重排或取子集**已枚举**候选，日志另记 `purpose` 与 `budget_remaining`。
+
+阶段三 case1.5 的分侧产物：`station_maps/<run>/side_assignment.json` 记录站位到冻结侧点的归属
+（划分输入，不是导航证据），`stations.json` 每行带 `case_side`。
+
 ## 外部格式边界
 
 `import-legacy` 只读取显式传入 episode 和资产根目录，转换成独立 JSON。

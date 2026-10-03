@@ -15,9 +15,16 @@
 资产资格与资源异常、冻结身份、离线恢复、硬期限监督进程和累计预算测试。
 所有简化 fixture 只证明程序接口，不是实机 RBY-1 或真实抓取证据。
 
+`test_case_shared_layer.py` 覆盖 case 共用层：逐条要求的 `strength` / `layer` 标注完整性、
+零编辑显式标记、同量纲候选排序、`rank`/`shortlist` 决策语法与按用途计数的网关，
+以及设计 5.B 的两条必测故障——case1 冻结初态被绕过（`measurement_source_inconsistent`）与
+case1.5 侧向向量指向家具内部（前置检查拒绝且**不生成候选**）。合成 fixture 不是真实 RBY-1 证据。
+
 `phase2_real_smoke.py` 显式使用阶段一已保存的真实 ProcTHOR/RBY-1 编译模型，重新执行
 零编辑/移动、静置、冻结独立恢复及三相机短动作/解码。默认唯一 ID，不覆盖已有输出。
-见 [阶段二交付报告](../reports/phase2/phase2-delivery.md)。
+见 [阶段二交付报告](../reports/phase2/phase2-delivery.md)；
+case 共用层与 case1/case1.5 的真实运行见
+[共用层交付报告](../reports/phase2/phase2-case-shared-layer-delivery.md)。
 
 ## 阶段三
 
