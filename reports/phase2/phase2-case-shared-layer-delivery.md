@@ -172,16 +172,43 @@
 
 ## 六、编辑前后图片
 
-均在 `outputs/builds/<id>/`（git 忽略，属运行产物）：
+原图在 `outputs/builds/<id>/`（git 忽略，属运行产物）；便于查阅的副本已复制到
+[`case-images/`](case-images/)，命名统一为 `*_before_edit.png` / `*_after_edit.png`。
 
-- case1：`observations/0000/`（编辑前）与 `observations/0002/`（编辑后静置），
-  另加 `transaction_observations/0000-unsettled/` 与 `0000-settled/` 的成对图。
-  含 `diagnostic_top` / `diagnostic_target` / `diagnostic_side` / `robot_head` /
-  `diagnostic_distribution`（候选分布示意图：蓝点为命中距离区间的候选，红叉为越界候选，
-  ★ 为目标当前位置，绿方块为冻结机器人底盘）。
-- case1.5：同名结构，case 专属图为 `diagnostic_furniture_sides`（家具局部系三侧示意图）。
+### case1（train_169）
+
+| 视图 | 编辑前 | 编辑后 |
+|---|---|---|
+| 俯视 | ![前](case-images/case1-train169/diagnostic_top_before_edit.png) | ![后](case-images/case1-train169/diagnostic_top_after_edit.png) |
+| 目标局部 | ![前](case-images/case1-train169/diagnostic_target_before_edit.png) | ![后](case-images/case1-train169/diagnostic_target_after_edit.png) |
+| 候选分布（支撑局部系） | ![前](case-images/case1-train169/diagnostic_distribution_before_edit.png) | ![后](case-images/case1-train169/diagnostic_distribution_after_edit.png) |
+
+候选分布图中：蓝点为落入距离区间的候选（编辑后仅剩 2 个，位于当前目标西侧），红叉为越界候选，
+★ 为目标当前位置，绿方块为冻结机器人底盘（在本局部系下位于 `(-0.65, -1.02)` 附近，坐标轴已扩到可见）。
+
+### case1.5（val_103）
+
+| 视图 | 编辑前 | 编辑后 |
+|---|---|---|
+| 俯视 | ![前](case-images/case1_5-val103/diagnostic_top_before_edit.png) | ![后](case-images/case1_5-val103/diagnostic_top_after_edit.png) |
+| 目标局部 | ![前](case-images/case1_5-val103/diagnostic_target_before_edit.png) | ![后](case-images/case1_5-val103/diagnostic_target_after_edit.png) |
+| 家具局部系三侧 | ![前](case-images/case1_5-val103/diagnostic_furniture_sides_before_edit.png) | ![后](case-images/case1_5-val103/diagnostic_furniture_sides_after_edit.png) |
+
+三侧示意图给出每侧在**家具局部系**中的位点、到目标的距离与保守净空；编辑后近侧距离由 0.85 m 降到 0.75 m，
+远侧升到 1.055 m，距离差由 0.20 变为 0.305。
+
+### 阶段三真实执行画面
+
+| 内容 | 图 |
+|---|---|
+| case1 真实成功（S003, h=0.369, grasp 700） | ![成功](case-images/phase3/case1_success_final.png) |
+| case1 真实失败（同站位 h=0.738, grasp 700） | ![失败](case-images/phase3/case1_failure_final.png) |
+| case1.5 近侧真实成功（S006, side_a） | ![成功](case-images/phase3/case1_5_side_a_success_final.png) |
+| case1 离散站位图 | ![站位图](case-images/phase3/case1_station_map.png) |
+| case1.5 分侧站位图 | ![分侧站位图](case-images/phase3/case1_5_station_map.png) |
 
 全部图像都标 `diagnostic=true`、`vla_input=false`，示意图额外标 `schematic=true`。
+阶段三画面是**实际 qpos 回放的最后一帧**，没有运动插值。
 
 ---
 
