@@ -1,4 +1,16 @@
-"""Budgeted rule-first construction, immutable freeze and independent handoff."""
+"""Budgeted rule-first construction, immutable freeze and independent handoff.
+
+【编排层】这个文件把阶段二的各领域模块串成一个流程，自身不含几何/物理算法。
+
+【要理解的三件事】
+  1. 预算贯穿整个 request：RequestBudget 在多个房屋之间共享，换房屋不会重置计数。
+     这是为了防止“多试几所房子总有能过的”式作弊。
+  2. 规则优先：默认没有 AI 后端，直接取 cost 最小的候选；
+     若传入 backend，才走 DecisionGateway（但仍受严格协议约束）。
+  3. 结果状态是有限枚举：candidate_ready / candidate_ready_regression_pending /
+     handoff_failed / budget_exhausted / interrupted / failed。
+     注意 case_condition 与 task_completion 始终是 unknown——阶段二不管任务成功。
+"""
 from dataclasses import asdict, replace
 from pathlib import Path
 import re
@@ -17,7 +29,12 @@ from ..runtime.simulation import Simulation
 
 
 class RequestBudget:
-    """Shared across candidates/houses; a new build never resets request accounting."""
+    """Shared across candidates/houses; a new build never resets request accounting.
+
+    四类预算：候选数、编辑次数、修复次数、Agent 调用数；外加一个总墙钟期限。
+    任何一次 consume 超限就抛 RuntimeError('budget_exhausted:...')。
+    """
+
     def __init__(self, budget):
         self.limits=budget; self.used={'candidates':0,'edits':0,'repairs':0,'agent_calls':0}
         self.start=time.monotonic()
@@ -29,27 +46,36 @@ class RequestBudget:
 
 
 def run_build(source,robot_config,config,collection,*,build_id=None,images=True,regression=True,backend=None,request_budget=None,initial_frozen_dir=None):
+    """在**进程内**执行一次构建（协作式检查期限）。需要硬截止请用 supervised_build/build_request。
+
+    主循环逻辑见文件顶部流程图：初始化 → (validate 不通过就反复候选-编辑-静置-验证) →
+    冻结 → 独立恢复逐字节比对 → 写 task_candidate → 可选短动作交接回归。
+    """
     build_id=build_id or 'build-'+uuid.uuid4().hex[:12]
     if not re.fullmatch(r'[a-zA-Z0-9_-]+',build_id): raise ValueError('unsafe build id')
     root=Path(collection.output_dir); path=root/'builds'/build_id; path.mkdir(parents=True,exist_ok=False)
     write_json(path/'config.json',{'build':asdict(config),'robot':asdict(robot_config),'collection':asdict(collection),'initial_frozen_dir':str(initial_frozen_dir) if initial_frozen_dir else None})
     budget=request_budget or RequestBudget(config.budget)
     started=time.monotonic(); session=None; frozen=None
+    # 默认“失败但未知”：只有真正走到 candidate_ready 才会改写。三个结论先全设 unknown。
     result={'schema_version':'2.0','build_id':build_id,'status':'failed','decision_source':'rule',
             'results':{'scene_validity':{'status':'unknown'},'build_requirements':{'status':'unknown'},
                        'case_condition':{'status':'unknown','reason':'requires_phase3_robot_trials'},
                        'task_completion':{'status':'unknown','reason':'no_task_execution'}}}
     observations=0
     def observation(cs,stage='settled',views=None):
+        """按序号建观察包目录（0000,0001,...），供决策与事后复查。"""
         nonlocal observations
         packet=observe(session,cs,path/'observations'/f'{observations:04d}',stage=stage,images=images,views=views)
         observations+=1; return packet
     try:
         budget.consume('candidates')
         session=BuildSession(source,robot_config,config,collection,path=path,initial_frozen_dir=initial_frozen_dir)
+        # 构建期限取“会话自身期限”和“request 总期限”中较早的那个。
         session.deadline=min(session.deadline,budget.start+budget.limits.timeout_s)
         session.record_images=images
         write_json(path/'initialization.json',session.initialization)
+        # 机器人初态不合法时不做“修复目标”式的乱试，直接失败（避免掩盖场景问题）。
         if session.initialization['status'] != 'valid': raise ValueError('invalid_robot_initialization_no_target_repair')
         observation([],stage='before_edit')
         if config.initial_operations:
@@ -62,12 +88,14 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         check=session.validate()
         write_json(path/'checks'/'initial.json',check)
         failed=set(); gateway=DecisionGateway(backend,budget=config.budget.agent_calls,path=path/'decisions')
+        # ★ 主循环：只要检查不通过就继续找候选，直到通过或预算/候选耗尽。
         while not check['valid']:
             cs=[c for c in candidates(session) if c['candidate_id'] not in failed]
             cs=cs[:max(0,config.budget.candidates-budget.used['candidates'])]
             if not cs: raise RuntimeError('no_new_qualified_candidates')
             packet=observation(cs)
             if backend:
+                # 有模型后端：走严格决策协议；每轮都要重算 observation 身份，过期决策直接拒绝。
                 while True:
                     budget.consume('agent_calls'); decision=gateway.decide(packet)
                     result['decision_source']='model'
@@ -77,11 +105,13 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
                         packet=observation(cs,views=decision.get('views')); continue
                     choice=next(c for c in cs if c['candidate_id']==decision['candidate_id']); break
             else:
+                # 规则路径：直接取 cost 最小的候选，并记录“这是规则决定，不是模型复查”。
                 choice=cs[0]
                 write_json(path/'decisions'/f'rule-{session.revision:04d}.json',{'source':'rule','revision':session.revision,'observation_id':packet['observation_id'],'candidate_id':choice['candidate_id']})
             budget.consume('candidates'); budget.consume('edits',len(choice['operations']))
             entry=session.transact(choice['operations'],revision=choice['revision'],source='model' if backend else 'rule')
             if entry['status']!='committed':
+                # 候选失败：加入黑名单，消耗一次修复预算，并重新静置（回滚已清空窗口）。
                 failed.add(choice['candidate_id']); gateway.failed.add(choice['candidate_id']); budget.consume('repairs')
                 # Rollback cleared the window: re-settle restored state, then recompute facts.
                 session.settle()
@@ -91,8 +121,10 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         # Fresh full-scene checks before freeze; stable IDs cover dynamic state and topology.
         model_id=session.model_id; checkpoint_id=session.checkpoint_id
         before_state=session.sim.state_vector().copy(); before_scene=session.sim.observe_state()
+        # 场景版本目录名由“模型身份 + 检查点身份 + 构建 ID”的摘要决定 → 内容寻址。
         version_dir=root/'scene_versions'/digest({'model_id':model_id,'checkpoint_id':checkpoint_id,'build_id':build_id})
         version=session.freeze(version_dir,build_id=build_id); frozen=version_dir
+        # ★ 关键验证：从冻结目录独立恢复，状态与现场必须**逐字节相等**，否则拒绝交付。
         restored=Simulation.from_snapshot(version_dir,robot_config,target=config.target)
         try:
             exact=bool(np.array_equal(before_state,restored.state_vector()) and before_scene==restored.observe_state())
@@ -112,6 +144,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
         write_json(path/'task_candidate.json',candidate)
         result['results']=candidate['results']; result['status']='candidate_ready'
         if regression:
+            # 交接回归：用这个冻结场景跑一次 6 步短动作，证明“场景能被阶段一正常加载执行”。
             from ..runtime.runner import run_attempt,audit_attempt
             task=TaskConfig(task_id=config.task_id+'-handoff',case_type=config.case_type,target=config.target)
             short=replace(collection,max_steps=min(collection.max_steps,6))
@@ -125,6 +158,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
     except KeyboardInterrupt:
         result.update(status='interrupted',error='operator_interrupted_build')
     except Exception as exc:
+        # 失败也要尽力给出“最后一次检查”的结论，供后续反馈使用。
         result.update(error_type=type(exc).__name__,error=str(exc))
         if session and not session.closed:
             write_json(path/'failure_state.json',session.sim.observe_state())
@@ -134,6 +168,7 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
                 result['results']['build_requirements']={'status':'pass' if all(r['status']=='pass' for r in session.last_check['requirements']) else 'fail'}
         if isinstance(exc,TimeoutError) or 'budget_exhausted' in str(exc): result['status']='budget_exhausted'
     finally:
+        # 无论成败都写成本与全文件摘要。
         if session: session.close()
         result['cost']={'wall_time_s':time.monotonic()-started,'request_cumulative':budget.used,'observations':observations,
                         'simulated_s':session.simulated_s if session else 0}
@@ -144,6 +179,10 @@ def run_build(source,robot_config,config,collection,*,build_id=None,images=True,
 
 
 def build_request(sources,robot_config,config,collection,**options):
+    """对多个来源依次构建，共用一个 RequestBudget；一旦某个来源成功（或预算耗尽）就停止。
+
+    这样设计是为了“尽力找一个能构建成功的场景，但不靠无限重试堆成功”。
+    """
     budget=RequestBudget(config.budget); paths=[]
     isolated=options.pop('isolated',True)
     for item in sources:
@@ -156,11 +195,17 @@ def build_request(sources,robot_config,config,collection,**options):
 
 
 def record_feedback(build_path,classification,evidence,*,new_build_id=None):
+    """追加下游（阶段三）反馈。**只追加新文件，绝不修改原 build 或冻结场景。**
+
+    classification 五选一，且 case_verified 需要真实站位 run 的摘要与物理见证，
+    不是调用方说了算——这里会重新审计 witness attempt。
+    """
     actions={'case_verified':'retain_verified_case_and_evidence','scene_invalid':'repair_or_change_candidate','success_without_expected_difficulty':'retain_and_reclassify',
              'valid_unsolved':'retain_unsolved_do_not_remove_obstacles','infrastructure_failure':'retry_infrastructure_without_scene_edits'}
     if classification not in actions or not isinstance(evidence,dict) or not evidence: raise ValueError('invalid downstream feedback')
     candidate=read_json(Path(build_path)/'task_candidate.json')
     if classification=='case_verified':
+        # 要求：summary 摘要匹配 + case 判定为 pass + 存在成功见证 + 每个见证都被独立审计通过。
         from ..validation.stations import audit_station_attempt
         run=Path(evidence.get('station_run',''))
         summary_path=run/'summary.json'
@@ -182,7 +227,10 @@ def record_feedback(build_path,classification,evidence,*,new_build_id=None):
 
 
 def _build_worker(connection, source, robot, config, collection, budget, options):
-    """Separate process so cold NAS/model compilation cannot defeat CLI timeout."""
+    """Separate process so cold NAS/model compilation cannot defeat CLI timeout.
+
+    在子进程里跑 run_build：这样即使原生模型加载卡住，主进程也能按墙钟强杀。
+    """
     try:
         path=run_build(source,robot,config,collection,request_budget=budget,**options)
         connection.send({'path':str(path)})
@@ -193,6 +241,11 @@ def _build_worker(connection, source, robot, config, collection, budget, options
 
 
 def supervised_build(source,robot_config,config,collection,*,request_budget=None,**options):
+    """隔离进程 + 硬墙钟期限的构建入口（CLI 默认走它）。
+
+    超时/子进程异常退出时，不是“什么都不留”，而是写一份 status=budget_exhausted 或
+    infrastructure_error 的结果，并注明部分证据，保持“不伪造终态”的原则。
+    """
     import multiprocessing
     budget=request_budget or RequestBudget(config.budget)
     if options.get('backend') is not None:
@@ -214,13 +267,14 @@ def supervised_build(source,robot_config,config,collection,*,request_budget=None
             worker.join(max(0.,remaining))
             timed_out=worker.is_alive()
             if timed_out:
+                # 先 terminate，2 秒还没死再 kill（原生库可能不响应 SIGTERM）。
                 worker.terminate(); worker.join(2)
                 if worker.is_alive(): worker.kill(); worker.join(2)
             elif reader.poll():
                 message=reader.recv()
                 if 'error' in message: raise RuntimeError(f"build worker {message['type']}: {message['error']}")
                 result=read_json(path/'result.json')
-                budget.used.update(result['cost']['request_cumulative'])
+                budget.used.update(result['cost']['request_cumulative'])   # 把子进程里的预算消耗同步回主进程
                 return Path(message['path'])
         path.mkdir(parents=True,exist_ok=True)
         result={'schema_version':'2.0','build_id':build_id,'status':'budget_exhausted' if timed_out else 'infrastructure_error',

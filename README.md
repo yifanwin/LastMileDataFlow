@@ -3,11 +3,14 @@
 面向**完整五阶段数据采集管线**的独立工程，当前实现第一阶段底座、第二阶段规则式场景构建与第三阶段 case1 固定底盘成败采集：原始场景加载、RBY-1 20 维动作、
 可回滚编辑/静置验收、任务候选冻结与独立恢复、轨迹/相机/视频/结果记录。
 
+- [代码导览（初学者版）](docs/代码导览.md)：代码树、架构图、数据流图、流程图、时序图与推荐阅读顺序。
+- [从 case 描述到具体编辑操作](docs/case-to-edit-pipeline.md)：设计意图如何经人工配置变成场景编辑候选，
+  四类 case 的差异落在哪三个函数，以及设计文档中尚未实现的部分。
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
 - [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
 - [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。
 - [阶段二运行、v2 构建配置与边界](docs/phase2.md) · [阶段二交付总结](reports/phase2/phase2-delivery.md)。
-- [阶段三站位图、原生 cuRobo 与成败采集](docs/phase3.md) · [阶段三交付报告](reports/phase3-delivery.md)。
+- [阶段三站位图、原生 cuRobo 与成败采集](docs/phase3.md) · [阶段三交付报告](reports/phase3/phase3-delivery.md)。
 - [阶段一交付总结](reports/phase1/phase1-delivery.md)。
 
 **不依赖 `lastmile_pipeline` 的代码、运行入口、配置、人工批准或历史输出。**

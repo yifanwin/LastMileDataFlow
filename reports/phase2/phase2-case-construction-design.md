@@ -2,6 +2,8 @@
 
 如果要增加object，资产库使用：@molmospaces_data/assets/objects
 
+agent api:  @LastMileDataFlow/configs/agent_api.json
+
 ## 本次执行摘要
 
 - 依据[阶段二场景构建参考报告](phase2-scene-editing-reference.md)的机制取舍，在[各 case 构建方案](phase2-case-build-plan.md)与[外部 Agent 接入方案](phase2-agent-integration-plan.md)的基础上，给出**四类 case 的构建设计**。

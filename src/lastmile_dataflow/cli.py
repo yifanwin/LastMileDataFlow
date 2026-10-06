@@ -1,4 +1,21 @@
-"""单一命令入口。默认只执行有界短动作，不调用 Agent 或 GPU 规划器。"""
+"""单一命令入口。默认只执行有界短动作，不调用 Agent 或 GPU 规划器。
+
+【设计原则：薄命令入口】这个文件只做三件事：
+  1. parser() 声明所有子命令及其参数；
+  2. main() 按 args.command 分发到对应模块（真正逻辑都在各领域模块里）；
+  3. 把结果状态映射成进程退出码（0=符合预期，1=不符合）。
+
+所以读这个文件时不要期待算法——它是一张“命令 → 哪个模块负责”的地图。
+子命令一览：
+  run           阶段一 有界短动作 attempt
+  build         阶段二 规则式场景构建
+  index/search  阶段二 静态检索
+  feedback      阶段二 追加下游反馈（不改原结果）
+  station-map   阶段三 固定底盘站位图采集
+  vision-review 阶段三 可选只读视觉复查
+  export-stations / render-delivery / audit-station  阶段三 导出与审计
+  import-legacy / audit  兼容与阶段一审计
+"""
 import argparse
 from dataclasses import replace
 from pathlib import Path
@@ -10,8 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def parser():
+    """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    # ---- 阶段一：run。四种互斥来源：--house / --scene-xml / --imported-scene / --snapshot ----
     run = sub.add_parser("run", help="load raw scene and execute bounded short actions")
     sources = run.add_mutually_exclusive_group(required=True)
     sources.add_argument("--house", type=int)
@@ -38,6 +57,7 @@ def parser():
     conv.add_argument("--output", required=True, type=Path)
     audit = sub.add_parser("audit", help="check evidence consistency")
     audit.add_argument("attempt", type=Path)
+    # ---- 阶段二：build / index / search / feedback ----
     build = sub.add_parser("build", help="rule-based v2 scene construction and independent handoff")
     bs = build.add_mutually_exclusive_group(required=True)
     bs.add_argument("--house", type=int)
@@ -69,6 +89,7 @@ def parser():
     feedback.add_argument("--classification", required=True, choices=["scene_invalid", "success_without_expected_difficulty", "valid_unsolved", "infrastructure_failure", "case_verified"])
     feedback.add_argument("--evidence", required=True, type=Path)
     feedback.add_argument("--new-build-id")
+    # ---- 阶段三：station-map / audit-station / vision-review / export-stations / render-delivery ----
     stations = sub.add_parser("station-map", help="v3 fixed-base cuRobo success/failure collection")
     origin = stations.add_mutually_exclusive_group(required=True)
     origin.add_argument("--build", type=Path, help="ready phase-two build directory")
@@ -96,8 +117,10 @@ def parser():
 
 
 def main(argv=None):
+    """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
     if args.command == "render-delivery":
+        # 从已审计的真实轨迹派生视频；绝不重跑物理。
         from .exporting.replay import render_delivery
         print(render_delivery(args.attempt, args.output_dir, view_id=args.view_id))
         return 0
@@ -118,12 +141,14 @@ def main(argv=None):
         print(f"{result['status']}: {path}")
         return 0 if result['status'] == 'accepted' else 1
     if args.command == "station-map":
+        # 阶段三：验证 build 交接 → 隔离进程跑站位图 → 用 summary 判定完成度。
         from .stations.config import load_station_config
         from .workflows.stations import supervised_station_map
         robot = load_config(RobotConfig, args.robot_config)
         config = load_station_config(args.station_config)
         collection = load_config(CollectionConfig, args.collection_config)
         if args.output_dir: collection = replace(collection, output_dir=str(args.output_dir.resolve()))
+        # build 模式下，冻结场景路径从 task_candidate.json 里读；否则显式 --snapshot。
         snapshot = Path(read_json(args.build / "task_candidate.json")['scene_dir']) if args.build else args.snapshot
         path = supervised_station_map(snapshot, robot, config, collection, run_id=args.run_id, build=args.build)
         print(path)
@@ -154,6 +179,7 @@ def main(argv=None):
         print(record_feedback(args.build, args.classification, read_json(args.evidence), new_build_id=args.new_build_id))
         return 0
     if args.command == "build":
+        # 阶段二：加载 v2 构建配置，按来源（房屋/显式 XML/检索结果）组织 source 列表。
         from .construction.config import load_build_config
         from .scenes.source import SceneSource
         from .workflows.build import build_request
@@ -166,6 +192,7 @@ def main(argv=None):
         elif args.scene_xml:
             sources = [SceneSource(args.scene_xml.stem, str(args.scene_xml.resolve()), str(args.metadata.resolve()) if args.metadata else None)]
         else:
+            # 从索引检索；@retrieved / @parent 引用允许把配置里的目标/支撑写成占位符。
             from .catalog.index import search_index
             records = search_index(args.index, category=args.category, dynamic=True, limit=config.budget.candidates)
             if config.target == "@retrieved":
@@ -183,9 +210,11 @@ def main(argv=None):
         paths = build_request(sources, robot, config, collection, build_id=args.build_id, images=not args.no_images, regression=not args.no_regression, initial_frozen_dir=args.initial_snapshot)
         for path in paths: print(f"{read_json(path / 'result.json')['status']}: {path}")
         return 0 if paths and read_json(paths[-1] / "result.json")["status"] == "candidate_ready" else 1
+    # ---- 下面是 run 分支 ----
     robot = load_config(RobotConfig, args.robot_config)
     task = load_config(TaskConfig, args.task_config)
     collection = load_config(CollectionConfig, args.collection_config)
+    # 命令行显式参数覆盖配置文件（只覆盖这几项，其余保持冻结值）。
     overrides = {}
     if args.output_dir is not None:
         overrides["output_dir"] = str(args.output_dir.resolve())
@@ -208,6 +237,7 @@ def main(argv=None):
         source = SceneSource(args.scene_xml.stem, str(args.scene_xml.resolve()),
                              str(args.metadata.resolve()) if args.metadata else None)
     elif args.imported_scene:
+        # 导入来源自带 schema 版本与 restoration 初态；忽略未知 schema。
         imported = read_json(args.imported_scene)
         if imported["schema_version"] != "1.0":
             raise ValueError("unknown imported schema")
@@ -216,6 +246,7 @@ def main(argv=None):
         if task.target is None:
             task = replace(task, target=imported["target"])
     if args.base and (args.snapshot or args.imported_scene):
+        # 快照/导入的初态是冻结的，不允许再叠加 --base，否则就不是“独立恢复”了。
         raise ValueError("cannot alter initial base of a restored snapshot/import")
     actions = read_json(args.actions) if args.actions else None
     if actions is not None and not isinstance(actions, list):
