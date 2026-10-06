@@ -6,6 +6,8 @@
 - [代码导览（初学者版）](docs/代码导览.md)：代码树、架构图、数据流图、流程图、时序图与推荐阅读顺序。
 - [从 case 描述到具体编辑操作](docs/case-to-edit-pipeline.md)：设计意图如何经人工配置变成场景编辑候选，
   四类 case 的差异落在哪三个函数，以及设计文档中尚未实现的部分。
+- [Case → 场景编辑分阶段实施计划](docs/case-to-edit-pipeline-plan.md)：新 Agent + 规则程序入口的 S0–S7 任务、交付物与验收条件；实施状态和真实验收分开记录。
+- [自动 Case 编辑运行说明](docs/case-edit-pipeline.md) · [交付与验证报告](reports/case-edit-delivery.md)：新 `case-edit` 入口、三 Agent、四种操作、六图与批量预算。
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
 - [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
 - [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。

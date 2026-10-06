@@ -1,0 +1,9 @@
+{
+  "tests": 124,
+  "passed": true,
+  "render_tests_enabled": true,
+  "scope": "unit_regression_and_synthetic_real_EGL_not_real_house_agent_acceptance",
+  "command": "MUJOCO_GL=egl CASE_EDIT_RENDER_TESTS=1 PYTHONPATH=src ../molmospaces/.venv/bin/python -m unittest discover -s tests -v",
+  "provider_routing_tests": true,
+  "independent_joint_coverage_test": true
+}

@@ -1,0 +1,28 @@
+{
+  "proposal_id": "p1",
+  "bindings": {
+    "target": "target",
+    "support": "table"
+  },
+  "operations": [
+    {
+      "op": "move",
+      "subject": "$target",
+      "search_space": {
+        "support": "$support",
+        "xy": {
+          "mode": "uniform",
+          "margin": 0.01
+        }
+      }
+    }
+  ],
+  "goals": [],
+  "invariants": [],
+  "sampling": {
+    "selection": "coverage",
+    "max_samples": 16
+  },
+  "description": "",
+  "dsl_version": "0.1"
+}

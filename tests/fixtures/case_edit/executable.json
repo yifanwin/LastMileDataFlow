@@ -1,0 +1,26 @@
+{
+  "proposal_id": "p1",
+  "sample_id": "s1",
+  "operations": [
+    {
+      "op": "move",
+      "instance": "target",
+      "pose": {
+        "frame": "world",
+        "position": [
+          2.2,
+          0,
+          0.493
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "sampled_parameters": {},
+  "dsl_version": "0.1"
+}

@@ -1,0 +1,21 @@
+{
+  "request_version": "0.1",
+  "case_description": "让一个小物体仍被支撑，但与机器人初始站位在水平面上明显拉开距离，布局变化应可见；这只是距离困难的几何代理，不要求宣称真正不可达。",
+  "scene_source": {
+    "scene_id": "procthor-10k-train/train_2",
+    "xml_path": "../../../molmospaces_data/assets/scenes/procthor-10k-train/train_2.xml",
+    "metadata_path": "../../../molmospaces_data/assets/scenes/procthor-10k-train/train_2_metadata.json",
+    "dataset": "procthor-10k-train",
+    "split": "train"
+  },
+  "generation": {
+    "target_scene_count": 3,
+    "proposals_per_round": 4,
+    "samples_per_proposal": 12,
+    "max_rounds": 4,
+    "max_samples": 48,
+    "max_agent_calls": 24,
+    "timeout_s": 600,
+    "seed": 42
+  }
+}

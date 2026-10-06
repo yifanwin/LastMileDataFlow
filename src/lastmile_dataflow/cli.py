@@ -30,6 +30,18 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    case_edit = sub.add_parser('case-edit', help='abstract case to reviewed edited scenes; separate bounded worker')
+    case_edit.add_argument('--request', required=True, type=Path, help='v0.1 request JSON; no target/support/pose required')
+    case_edit.add_argument('--api-settings', required=True, type=Path, help='authorized external model service JSON or .env')
+    case_edit.add_argument('--provider', help='auto or configured provider name; overrides API JSON selection')
+    case_edit.add_argument('--robot-config', type=Path, default=ROOT/'configs/robots/rby1.json')
+    case_edit.add_argument('--collection-config', type=Path, default=ROOT/'configs/collection/smoke.json')
+    case_edit.add_argument('--asset-catalog', type=Path)
+    case_edit.add_argument('--settle-config', type=Path)
+    case_edit.add_argument('--view-config', type=Path)
+    case_edit.add_argument('--initial-snapshot', type=Path, help='optional matching frozen scene; no target binding or old build whitelist')
+    case_edit.add_argument('--output-dir', type=Path)
+    case_edit.add_argument('--run-id')
     # ---- 阶段一：run。四种互斥来源：--house / --scene-xml / --imported-scene / --snapshot ----
     run = sub.add_parser("run", help="load raw scene and execute bounded short actions")
     sources = run.add_mutually_exclusive_group(required=True)
@@ -119,6 +131,26 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'case-edit':
+        from .construction.case_schema import CaseEditRequest
+        from .runtime.preparation import SettleConfig
+        from .recording.edit_views import ViewConfig
+        from .workflows.case_edit_supervisor import supervised_case_edit
+        value = read_json(args.request)
+        for key in ('xml_path', 'metadata_path'):
+            if value['scene_source'].get(key):
+                value['scene_source'][key] = str((args.request.resolve().parent/value['scene_source'][key]).resolve())
+        request = CaseEditRequest.from_dict(value)
+        robot = load_config(RobotConfig, args.robot_config)
+        collection = load_config(CollectionConfig, args.collection_config)
+        if args.output_dir:
+            collection = replace(collection, output_dir=str(args.output_dir.resolve()))
+        path = supervised_case_edit(request, robot, collection, api_settings=args.api_settings,
+            run_id=args.run_id, asset_catalog=args.asset_catalog, initial_snapshot=args.initial_snapshot, provider=args.provider,
+            settle_config=SettleConfig(**read_json(args.settle_config)) if args.settle_config else None,
+            view_config=ViewConfig(**read_json(args.view_config)) if args.view_config else None)
+        print(path)
+        return 0 if read_json(path/'result.json')['status'] == 'completed' else 1
     if args.command == "render-delivery":
         # 从已审计的真实轨迹派生视频；绝不重跑物理。
         from .exporting.replay import render_delivery

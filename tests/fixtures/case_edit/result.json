@@ -1,0 +1,17 @@
+{
+  "run_id": "example",
+  "status": "budget_exhausted",
+  "target_scene_count": 3,
+  "attempted_count": 0,
+  "accepted_count": 0,
+  "accepted_samples": [],
+  "results": {
+    "scene_validity": "unknown",
+    "edit_satisfaction": "unknown",
+    "semantic_alignment": "unknown",
+    "case_condition": "unknown",
+    "task_completion": "unknown"
+  },
+  "reason": "example only",
+  "result_version": "0.1"
+}

@@ -1,0 +1,52 @@
+{
+  "case_type": "layout",
+  "intent": "Change the supported layout",
+  "roles": {
+    "target": {
+      "type": "object",
+      "required": true
+    },
+    "support": {
+      "type": "surface",
+      "required": true
+    }
+  },
+  "parameters": {},
+  "requirements": [
+    {
+      "predicate": "supported_by",
+      "args": [
+        "$target",
+        "$support"
+      ],
+      "id": null,
+      "value": true,
+      "range": null,
+      "min": null,
+      "max": null,
+      "required": true,
+      "tolerance": 1e-06
+    }
+  ],
+  "invariants": [
+    {
+      "predicate": "supported",
+      "args": [
+        "$target"
+      ],
+      "id": null,
+      "value": true,
+      "range": null,
+      "min": null,
+      "max": null,
+      "required": true,
+      "tolerance": 1e-06
+    }
+  ],
+  "semantic_checks": [
+    "The layout changed visibly"
+  ],
+  "pending_hypotheses": [],
+  "template_version": "0.1",
+  "source_description": null
+}

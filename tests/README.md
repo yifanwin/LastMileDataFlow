@@ -35,4 +35,27 @@ PYTHONPATH=src ../molmospaces/.venv/bin/python tests/verify_phase3_delivery.py \
   --output reports/checks/phase3-artifacts.json
 ```
 
-真实成败、视频与未测范围见[阶段三交付报告](../reports/phase3-delivery.md)。
+真实成败、视频与未测范围见[阶段三交付报告](../reports/phase3/phase3-delivery.md)。
+
+## 自动 Case → 场景编辑
+
+新增 `test_case_edit_*`、`test_scene_graph`、`test_edit_{sampling,compiler,views,review,topology}`：契约、实测支撑、相对旋转、联合采样、事务、四操作、Agent 协议、共享预算、去重及硬期限。
+默认两个渲染测试需显式启用；fixture / mock 验证不代替真实房屋或真实模型验收。
+
+```bash
+MUJOCO_GL=egl CASE_EDIT_RENDER_TESTS=1 PYTHONPATH=src \
+  ../molmospaces/.venv/bin/python -m unittest discover -s tests -v
+# 获得数据发送授权后才运行：真实服务 + 两房屋 + 两种抽象现象，每组目标 3
+MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_real_smoke.py \
+  --api-settings configs/agent_api.json --settle-config configs/case_edits/settling.json \
+  --snapshot-root outputs/attempts --timeout 600
+```
+
+`case_edit_agent_smoke.py` 验证真实 Agent1/2；`case_edit_three_agent_smoke.py` 为真实三个 Agent + 合成场景真实 RGB。
+`case_edit_asset_smoke.py` 验证真实 THOR 资产 + 合成场景的 add/remove/rollback，**不含视觉模型最终接受**。
+`case_edit_real_smoke.py --prepare-only` 仅验证真实房屋无人工目标的准备与 RGB，不产生 accepted。
+诊断重跑可用 `--cases distance --skip-expected-failures`，不能据此声称完整 S7 gate。
+实际结果及失败目录见[交付报告](../reports/case-edit-delivery.md)。
+
+Provider 回归覆盖独立密钥、auto 故障切换计费、下一调用恢复第一优先级、显式 provider 不切换及 CLI 覆盖。
+真实烟测也支持 `--provider auto|dmx|xera`；只指定名字，不在命令行放密钥。
