@@ -1,47 +1,16 @@
 """Agent1: one fresh normalization per run, no retrieval or template cache."""
-from .case_gateway import COMMON, CONDITIONS
+import re
+from .case_gateway import CONDITIONS
+from .prompts import NORMALIZER
+from ..construction.scene_request import MobileCaseTemplate
+from ..construction.case_schema import PREDICATES, require
 from ..construction.case_schema import CaseTemplate
 
 
-SYSTEM = COMMON + CONDITIONS + '''
-Normalize the raw description to CaseTemplate v0.1 with fields:
-case_type, intent, roles {role:{type,required:true}}, parameters
-{name:{source:"user_input/difficulty_profile/heuristic_default",range:[lo,hi] OR value}},
-requirements, invariants, semantic_checks [text], pending_hypotheses [text].
-Use no concrete object IDs, exact scene coordinates or poses. Abstract required roles
-and supported final layouts are okay. Invariants apply ONLY at settled before and
-settled after endpoints. Put geometric proxies into requirements, unverified robot
-difficulty into pending_hypotheses. Preserve every explicit user requirement and
-original intent. Distances/angles not specified by the user must identify their
-difficulty_profile source or be clearly labelled heuristic_default, not user_input.
-For numeric requirements/invariants ALWAYS use range:{"parameter":"name"} and
-declare that named range in parameters, so its provenance is retained. A source of
-difficulty_profile is allowed only when the request supplies an explicit profile.
-Do not infer specific reach limits. IMPORTANT: a relative request such as "farther
-from the initial station" does NOT specify an absolute final distance interval.
-With no explicit numeric user range/profile, express the before/after increase in
-semantic_checks; do NOT invent a hard absolute-distance range that could exclude
-all actually farther layouts. Absolute numeric requirements should reflect explicit
-user quantities/profile, or an intentionally requested geometric proxy with declared
-heuristic provenance. No absolute distance condition is required merely to use a
-robot_station role. Both endpoints still require actual supported invariants. Avoid impossible optional-as-required directions.
-semantic_checks must include a meaningful visible criterion for the requested phenomenon.
-Only normalize USER-requested scene phenomena. semantic_checks must be decidable for
-ONE settled before/after image pair. Never add candidate-set coverage, sampling,
-deduplication, budgets, or diversity-of-the-entire-run as required scene checks;
-the PROGRAM owns those, and one image pair cannot establish them. Do not add a
-robot_station role unless the description actually needs robot-relative context.
-Use implemented role types: object/manipulable_object/movable_object,
-support_surface/surface, robot_station/station, region, reference_object, obstacle_object.
-Roles bind actual scene objects/parts/regions or station_start, NOT imaginary reference
-locations. Do NOT introduce initial_target_location or initial_orientation roles:
-these are not graph nodes. Changes from BEFORE are assessed by paired semantic checks
-and non-baseline layout deduplication, not distance between two versions of one node.
-One invariant is automatically checked at both endpoints; don't duplicate it by stage.
-Use only the listed predicate vocabulary; do not encode function expressions as strings.'''
+SYSTEM = NORMALIZER
 
 
-def normalize_case(request, gateway):
+def _normalize_rule_template(request, gateway):
     def parse(value):
         template = CaseTemplate.from_dict(value)
         normalized = template.to_dict()
@@ -63,3 +32,51 @@ def normalize_case(request, gateway):
         return CaseTemplate.from_dict(normalized)
     return gateway.call('normalizer', SYSTEM, {'case_description': request.case_description,
                         'difficulty_profile': request.difficulty_profile, 'task_context': request.task_context}, parse)
+
+
+def normalize_case(request, gateway):
+    if not hasattr(request, "case_type"):
+        return _normalize_rule_template(request, gateway)
+    def parse(value):
+        template = MobileCaseTemplate.from_dict(value)
+        require(template.case_type == request.case_type and template.task_type == request.task_type
+                and template.objective_mode == request.objective_mode, 'template', 'input objective/type changed')
+        require('target' in template.roles, 'roles.target', 'target required')
+        forbidden = ('底盘移动后', '移动底盘后', '实际底盘运动', '机器人移动后', '抓取成功率', '抓取成功',
+                     '机械臂可达', 'task success', 'robot reachability')
+        def task_claim(check):
+            for clause in re.split(r'[。；;\n，,]|但是|但|然而', check.lower()):
+                if not any(word in clause for word in forbidden):
+                    continue
+                # A limitation is not a demand to execute a task. The previous
+                # keyword-only guard rejected "不将…作为抓取成功的证明" itself.
+                disclaimer = (re.search(r'不(?:把|将|以).*(?:证明|证据|依据)', clause)
+                              or re.search(r'不能(?:证明|确认|判断|验证)', clause))
+                if not disclaimer:
+                    return True
+            return False
+        require(not any(task_claim(check) for check in template.semantic_checks),
+                'semantic_checks', 'actual motion/reachability/success belongs in task_hypotheses, not static visual checks')
+        require(template.roles['target'].required, 'roles.target', 'observed target must remain required')
+        require(request.difficulty_profile is not None or not any(p.source == 'difficulty_profile' for p in template.parameters.values()),
+                'parameters', 'difficulty_profile source unavailable')
+        for c in template.requirements + template.invariants:
+            if PREDICATES[c.predicate][0] == 'number':
+                require(isinstance(c.range, dict), 'condition', 'numeric condition needs named parameter provenance')
+        return MobileCaseTemplate.from_dict({**template.to_dict(), 'source_description': request.case_description})
+    return gateway.call('normalizer', NORMALIZER, {'case_description': request.case_description,
+        'case_type': request.case_type, 'task_type': request.task_type, 'objective_mode': request.objective_mode,
+        'difficulty_profile': request.difficulty_profile, 'registered_predicates': CONDITIONS,
+        'condition_contract': {'boolean': {'predicate': 'supported', 'args': ['$target'], 'value': True},
+                               'numeric': {'predicate': 'distance_xy', 'args': ['$target', '$robot_start'],
+                                           'range': {'parameter': 'named_range'}}},
+        'output_shape_example_not_case_requirements': {
+            'case_type': request.case_type, 'intent': '保留用户机制的抽象描述',
+            'task_type': request.task_type, 'objective_mode': request.objective_mode,
+            'roles': {'target': {'type': 'manipulable_object', 'required': True},
+                      'support': {'type': 'support_surface', 'required': True}},
+            'parameters': {}, 'requirements': [],
+            'invariants': [{'predicate': 'supported_by', 'args': ['$target', '$support'], 'value': True}],
+            'semantic_checks': ['只填写前后可见的布局变化'], 'pending_hypotheses': [],
+            'task_hypotheses': ['保留用户要求、待真实仿真验证的任务假设'], 'assumptions': [],
+            'template_version': '0.1'}}, parse)

@@ -139,7 +139,7 @@ def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station
         free = count == 1 and m.jnt_type[int(m.body_jntadr[body])] == mujoco.mjtJoint.mjJNT_FREE
         roots[name] = body
         node = {'kind': 'object', 'instance_id': name, 'mjcf_body': m.body(body).name,
-                'asset_id': item.get('asset_id'), 'category': item.get('category'),
+                'asset_id': item.get('asset_id'), 'category': item.get('category'), 'room_id': item.get('room_id'),
                 'category_status': 'known' if item.get('category') is not None else 'unknown',
                 'manipulable': 'unknown', 'parent_hint': item.get('parent_instance_id'),
                 'root_motion': 'free' if free else 'fixed' if not count else 'articulated',

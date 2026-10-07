@@ -16,17 +16,17 @@
 
 ## 自动 case-edit
 
-- `case_edits/distance-train2.json`：只给抽象现象、真实场景来源和预算，不给实例/编辑坐标。
-- `case_edits/settling.json`：max_settle_s=10，延长 train_0 静置时间；未放宽稳定/穿透阈值。
-- `case_edits/views.json`：640×480，fovy_rad=π/4，有限成对补拍。
-- `agent_api.json` 或三键 `.env`：使用已有服务配置；不要把密钥提交或复制到报告。
+- `case_edits/case1-val103.json`、`case1-5-val103.json`、`case3-val103.json`：当前单场景请求，不提供人工目标/支撑/机器人 base/编辑位姿。
+- `case_edits/settling.json`：宽松构造阈值；取消源场景稳定窗口门槛，编辑范围仍检查稳定、严重穿透和支撑。
+- `case_edits/views.json`：head 与动态辅助配对视图；辅助相机数量和搜索次数有界，覆盖不足明确记录。
+- `agent_api.json`：用户本地独立 provider 配置；不要把密钥提交或复制到报告。
 
-可选资产目录结构：`{"asset_catalog_version":"0.1","assets":[{"asset_id":"clock","xml_path":"clock.xml","root_body":"clock","category":"AlarmClock","type":"object"}]}`。
-路径相对资产目录 JSON；普通单顶层固定/自由根 MJCF，不要求人工 verified 标签。
-资产需实际可编译、有有限碰撞几何；关节化根、世界几何/灯光/控制/约束尚不支持。
-详见 [case-edit 运行说明](../docs/case-edit-pipeline.md)。
+请求版本 0.2；数据集检索和真实移动任务验收当前明确 unsupported。
+`asset_library` 为 THOR 根目录，按计划需求检索类别并实际编译，不需要人工资产资格表。
 
-`agent_api.json` 现为 `provider` + `providers`：两个 provider 分别名为 `dmx`、`xera`，各自保存独立三项 LLM 配置。
-`provider: auto` 每次逻辑调用先第一个，服务失败再第二个；指定 `dmx` / `xera` 时不切换。
-CLI `--provider` 覆盖文件选择；所有实际 HTTP 请求仍计入共享预算。空密钥默认禁用，`enabled:false` 可显式关闭。
-本次用户指定第二个服务 `https://newapi.x-era.com/v1`，模型沿用 `gpt-5.6-sol`。完整脱敏示例见运行说明。
+当前仅启用 `xera`，默认选择 `xera`，DMX 已禁用；`auto` 也只会访问 Xera，显式选择 DMX 被拒绝。
+使用 `gpt-5.6-sol`、`/v1/chat/completions` 和 `structured_output=json_schema`，不自动退回文本模式。
+`json_schema_strict=false` 兼容动态 roles/parameters 等字典及可选字段；服务端接收同一份 JSON Schema，程序仍逐项严格校验，不把非 strict 输出直接当作通过。
+CLI `--provider`/`--model` 仅覆盖本次选择，所有实际 HTTP 请求均计入预算。
+
+详见 [运行说明](../docs/case-edit-pipeline.md) 和 [当前实施计划](../docs/case-to-edit-pipeline-plan.md)。

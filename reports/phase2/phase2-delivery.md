@@ -11,7 +11,7 @@
 执行顺序：核对阶段一生命周期与配置 → 新增 v2 构建契约 → 事务/模型重建/静置检查 →
 四类规则模板、检索与严格 Agent 协议 → 故障注入 → 真实模型冻结恢复与三相机回归 → 文档和证据整理。
 
-入口：[使用说明](../README.md) · [阶段二配置与范围](../docs/phase2.md) · [原阶段二计划](phase2--plan-scene-editing-ruled-based.md)。
+入口：[使用说明](../README.md) · [阶段二配置与范围](../docs/phase2.md) · [当前 Case 构造计划](../../docs/case-to-edit-pipeline-plan.md)。
 
 ## 交付内容和验收范围
 

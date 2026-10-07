@@ -1,17 +1,21 @@
 """Paired three-view RGB with a fixed union framing; all API angles adapted to degrees."""
 import copy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import itertools
 import math
+import shutil
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import imageio.v2 as imageio
 import mujoco
 import numpy as np
 
-from ..io import digest, write_json
+from ..io import digest, file_digest, write_json
 from ..scenes.geometry import descendants, geom_points
 from ..runtime.preparation import preparation_guard
+from ..scenes.initialization import floor_support
 
 
 class RenderError(RuntimeError):
@@ -25,6 +29,12 @@ class ViewConfig:
     fovy_rad: float = math.pi/4
     max_expansions: int = 3
     max_review_retries: int = 1
+    initial_group_tolerance: float = .002
+    camera_position_tolerance_m: float = .002
+    camera_matrix_tolerance: float = .003
+    initial_aux_views: int = 2
+    max_aux_views: int = 3
+    max_camera_trials: int = 32
 
     def __post_init__(self):
         if any(type(v) is not int or v <= 0 for v in (self.width, self.height)):
@@ -33,6 +43,14 @@ class ViewConfig:
             raise ValueError('invalid fovy_rad')
         if any(type(v) is not int or not 0 <= v <= 5 for v in (self.max_expansions, self.max_review_retries)):
             raise ValueError('invalid view retry budget')
+        if not (type(self.initial_aux_views) is int and type(self.max_aux_views) is int
+                and 0 <= self.initial_aux_views <= self.max_aux_views <= 5
+                and type(self.max_camera_trials) is int and 1 <= self.max_camera_trials <= 128):
+            raise ValueError('invalid auxiliary view budget')
+        for name in ('initial_group_tolerance', 'camera_position_tolerance_m', 'camera_matrix_tolerance'):
+            value = getattr(self, name)
+            if type(value) not in (float, int) or not math.isfinite(value) or value <= 0:
+                raise ValueError('invalid pairing tolerance: ' + name)
 
 
 @dataclass(frozen=True)
@@ -218,3 +236,252 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
             renderer.close()
         for model, fovy in originals.values():
             model.vis.global_.fovy = fovy
+
+
+class AuxiliaryViews:
+    """Bounded, actual indoor camera selection. Never moves a robot or hides walls.
+
+    A camera may cover a subset of requested regions; the selected set must cover
+    their union. Before RGB is immutable and reused by proposals and reviews.
+    """
+    LIGHT_FIELDS = ('ambient', 'attenuation', 'bulbradius', 'castshadow', 'cutoff', 'diffuse',
+                    'dir', 'exponent', 'headlight', 'id', 'intensity', 'pos', 'range', 'specular', 'texid', 'type')
+
+    def __init__(self, sim, graph, context, observation, path, *, config=None, deadline=None):
+        self.sim, self.graph, self.context, self.observation = sim, graph, context, observation
+        self.path, self.config, self.deadline = Path(path), config or ViewConfig(), deadline
+        self.path.mkdir(parents=True, exist_ok=True)
+        self.views, self.requests = [], []
+        self._renderers = {}
+        self._publish()
+
+    def _publish(self):
+        self.observation['images'] = [self.observation['image'], *[
+            {'view': 'before/' + v['name'], 'path': v['before_path'], 'not_robot_input': True,
+             'sha256': v['sha256']} for v in self.views]]
+        self.observation['auxiliary_views'] = [{k: v[k] for k in ('name', 'rig', 'coverage', 'sha256')} for v in self.views]
+        write_json(self.path/'views.json', {'graph_id': self.graph.to_dict()['graph_id'],
+                    'views': [{k: v[k] for k in ('name', 'rig', 'coverage', 'sha256', 'before_path', 'actual_position')} for v in self.views],
+                    'requests': self.requests, 'not_robot_input': True})
+
+    def _deadline(self):
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise TimeoutError('auxiliary_camera_wall_clock_budget')
+
+    @contextmanager
+    def rendering(self, *sims):
+        try:
+            for sim in sims:
+                if sim is not None and id(sim.model) not in self._renderers:
+                    self._renderers[id(sim.model)] = mujoco.Renderer(sim.model, height=self.config.height, width=self.config.width)
+            yield
+        finally:
+            for renderer in self._renderers.values():
+                renderer.close()
+            self._renderers = {}
+
+    def _points(self, graph, nodes, regions, other_graph=None):
+        result = {}
+        for name in nodes:
+            node = graph.nodes.get(name) or (other_graph.nodes.get(name) if other_graph else None)
+            if node and node.get('pose'):
+                box = node.get('collision_bounds_world')
+                center = (np.asarray(box[0])+box[1])/2 if box else np.asarray(node['pose']['position'])
+                result[name] = {'point': center, 'node': name, 'present': name in graph.nodes}
+        work_regions = {r['region_id']: r for r in replace(self.context, graph=graph).work_regions()}
+        for name in regions:
+            if name not in work_regions:
+                raise ValueError('unknown_auxiliary_work_region')
+            result[name] = {'point': np.r_[work_regions[name]['center_xy_m'], .08], 'node': None, 'present': True}
+        return result
+
+    @staticmethod
+    def _ray(sim, start, point):
+        delta = np.asarray(point)-start
+        distance = float(np.linalg.norm(delta))
+        if distance < 1e-8:
+            return False
+        geom = np.array([-1], dtype=np.int32)
+        hit = mujoco.mj_ray(sim.model, sim.data, start, delta/distance, None, True, -1, geom)
+        # Empty work-region markers are not objects. Seeing the local floor or
+        # an obstacle occupying that marker is useful layout evidence, not reachability.
+        return bool(hit < 0 or hit >= distance-.15 or
+                    np.linalg.norm((start+delta/distance*hit)[:2]-np.asarray(point)[:2]) < .25)
+
+    def _coverage(self, sim, renderer, rois, *, segmentation=None):
+        camera = renderer.scene.camera[0]
+        pos = np.asarray(camera.pos, dtype=float)
+        result = []
+        for name, roi in rois.items():
+            point = roi['point']
+            if not in_frame(np.asarray([point]), camera, self.config.width, self.config.height):
+                continue
+            if not self._ray(sim, pos, point):
+                continue
+            if segmentation is not None and roi['node'] and roi['present']:
+                try:
+                    bodies = descendants(sim.model, sim.model.body(roi['node']).id)
+                except KeyError:
+                    continue
+                ids = np.flatnonzero(np.isin(sim.model.geom_bodyid, list(bodies)))
+                mask = (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(segmentation[:, :, 0], ids)
+                if int(mask.sum()) < 8:
+                    continue
+            result.append(name)
+        return result
+
+    def _frame(self, sim, rig, rois, *, lights=None, clearance=False, require_coverage=True):
+        preparation_guard(sim)
+        self._deadline()
+        original = float(sim.model.vis.global_.fovy)
+        renderer = self._renderers.get(id(sim.model))
+        own = renderer is None
+        try:
+            sim.model.vis.global_.fovy = math.degrees(rig.fovy_rad)
+            renderer = renderer or mujoco.Renderer(sim.model, height=rig.height, width=rig.width)
+            renderer.disable_segmentation_rendering()
+            renderer.update_scene(sim.data, camera=rig.camera(0))
+            actual = renderer.scene.camera[0]
+            pos = np.asarray(actual.pos, dtype=float)
+            if clearance:
+                if not floor_support(sim, pos[:2]) or pos[2] < .25:
+                    return None
+                for g in range(sim.model.ngeom):
+                    local = (pos-sim.data.geom_xpos[g]) @ sim.data.geom_xmat[g].reshape(3, 3)
+                    size, kind = sim.model.geom_size[g], sim.model.geom_type[g]
+                    if kind == mujoco.mjtGeom.mjGEOM_BOX and np.all(np.abs(local) <= size+.03):
+                        return None
+                    if kind == mujoco.mjtGeom.mjGEOM_SPHERE and np.linalg.norm(local) <= size[0]+.03:
+                        return None
+                # Reject viewpoints in/very near solids using six actual geometry rays.
+                for axis in np.eye(3):
+                    for sign in (-1, 1):
+                        g = np.array([-1], dtype=np.int32)
+                        hit = mujoco.mj_ray(sim.model, sim.data, pos, axis*sign, None, True, -1, g)
+                        if 0 <= hit < .06:
+                            return None
+            rough = self._coverage(sim, renderer, rois)
+            if not rough and require_coverage:
+                return None
+            if lights is not None:
+                renderer.scene.nlight = len(lights)
+                for light, values in zip(renderer.scene.lights, lights):
+                    for key, value in values.items():
+                        setattr(light, key, value)
+            snapshot = [{k: copy.deepcopy(getattr(light, k)) for k in self.LIGHT_FIELDS}
+                        for light in renderer.scene.lights[:renderer.scene.nlight]]
+            rgb = renderer.render().copy()
+            renderer.enable_segmentation_rendering()
+            segmentation = renderer.render().copy()
+            coverage = self._coverage(sim, renderer, rois, segmentation=segmentation)
+            return {'rgb': rgb, 'coverage': coverage, 'lights': snapshot,
+                    'actual_position': pos.tolist(), 'actual_forward': np.asarray(actual.forward).tolist()}
+        finally:
+            if renderer is not None and own:
+                renderer.close()
+            sim.model.vis.global_.fovy = original
+
+    def _rigs(self, points, hint):
+        points = np.asarray(points)
+        center = points.mean(axis=0)
+        radius = max(float(np.linalg.norm(points-center, axis=1).max()), .35)
+        elevations = {'top': [-1.35, -1.1], 'side': [-.3, -.55], 'overview': [-.7, -1.0],
+                      'auto': [-.8, -1.2]}[hint]
+        distance = max(.9, radius*1.6)
+        for i in range(self.config.max_camera_trials):
+            azimuth = (i % 12)*math.pi/6
+            elevation = elevations[(i//12) % len(elevations)]
+            scale = (1., 1.35)[(i//24) % 2]
+            yield CameraRig(center.tolist(), distance*scale, self.config.fovy_rad,
+                            self.config.width, self.config.height, ((azimuth, elevation),))
+
+    def ensure(self, request, *, after_sim=None, after_graph=None, minimum_views=0):
+        """Fulfil a structured aux_view request, without changing either state."""
+        with self.rendering(self.sim, after_sim):
+            return self._ensure(request, after_sim=after_sim, after_graph=after_graph, minimum_views=minimum_views)
+
+    def _ensure(self, request, *, after_sim=None, after_graph=None, minimum_views=0):
+        if hasattr(request, 'to_dict'):
+            request = request.to_dict()
+        nodes = request.get('node_ids') or [self.context.target]
+        regions = request.get('work_region_ids', [])
+        before_rois = self._points(self.graph, nodes, regions, after_graph)
+        after_rois = self._points(after_graph, nodes, regions, self.graph) if after_graph else None
+        if not before_rois:
+            raise ValueError('no_renderable_information_request_ROI')
+        wanted = set(before_rois)
+        covered = set()
+        for view in self.views:
+            before = self._frame(self.sim, CameraRig(**view['rig']), before_rois)
+            after = self._frame(after_sim, CameraRig(**view['rig']), after_rois, lights=view['lights']) if after_sim else None
+            covered |= set(before['coverage'] if before else ()) & (set(after['coverage'] if after else ()) if after_sim else wanted)
+        while (wanted-covered or len(self.views) < minimum_views) and len(self.views) < self.config.max_aux_views:
+            best = None
+            search = [roi['point'] for name, roi in before_rois.items() if name not in covered] or [r['point'] for r in before_rois.values()]
+            if after_rois:
+                search += [r['point'] for name, r in after_rois.items() if name not in covered]
+            for rig in self._rigs(search, request.get('view_hint', 'auto')):
+                if any(v['rig'] == rig.to_dict() for v in self.views):
+                    continue
+                before = self._frame(self.sim, rig, before_rois, clearance=True)
+                if not before:
+                    continue
+                after = self._frame(after_sim, rig, after_rois, lights=before['lights'], clearance=True) if after_sim else None
+                coverage = set(before['coverage']) & (set(after['coverage']) if after else set() if after_sim else wanted)
+                if not coverage:
+                    continue
+                score = len(coverage-covered)
+                if best is None or score > best[0]:
+                    best = (score, rig, before, coverage)
+                if score == len(wanted-covered) and (score > 0 or len(self.views) < minimum_views):
+                    break
+            if best is None or (best[0] == 0 and len(self.views) >= minimum_views):
+                break
+            _, rig, before, coverage = best
+            name = f'aux_{len(self.views):03d}'
+            image = self.path/('before_' + name + '.png')
+            imageio.imwrite(image, before['rgb'])
+            self.views.append({'name': name, 'rig': rig.to_dict(), 'before_path': str(image.resolve()),
+                'sha256': file_digest(image), 'coverage': sorted(coverage), 'lights': before['lights'],
+                'actual_position': before['actual_position']})
+            covered |= coverage
+        result = {'request': request, 'status': 'fulfilled' if wanted <= covered else 'information_insufficient',
+                  'covered': sorted(covered), 'uncovered': sorted(wanted-covered), 'view_count': len(self.views)}
+        self.requests.append(result)
+        self._publish()
+        return result
+
+    def extend_pair(self, packet, after_sim, after_graph, path):
+        """Append fixed auxiliary pairs and rebind every image to the new packet ID."""
+        with self.rendering(after_sim):
+            return self._extend_pair(packet, after_sim, after_graph, path)
+
+    def _extend_pair(self, packet, after_sim, after_graph, path):
+        packet = copy.deepcopy(packet)
+        path = Path(path)
+        packet['view_rigs'] = {}
+        packet['auxiliary_coverage'] = {}
+        packet['images'] = [i for i in packet['images'] if i['view'].endswith('/head')]
+        for view in self.views:
+            if file_digest(view['before_path']) != view['sha256']:
+                raise ValueError('modified_before_auxiliary_image')
+            # Work-region IDs are geometrical markers, not graph nodes.
+            node_ids = [n for n in view['coverage'] if n in self.graph.nodes or n in after_graph.nodes]
+            regions = [n for n in view['coverage'] if n not in node_ids]
+            rois = self._points(after_graph, node_ids, regions, self.graph)
+            frame = self._frame(after_sim, CameraRig(**view['rig']), rois, lights=view['lights'], require_coverage=False)
+            for stage in ('before', 'after'):
+                image = path/(stage + '_' + view['name'] + '.png')
+                if stage == 'before':
+                    shutil.copyfile(view['before_path'], image)
+                else:
+                    imageio.imwrite(image, frame['rgb'])
+                packet['images'].append({'view': stage + '/' + view['name'], 'path': str(image.resolve()),
+                                         'not_robot_input': True, 'sha256': file_digest(image)})
+            packet['view_rigs'][view['name']] = view['rig']
+            packet['auxiliary_coverage'][view['name']] = {'before': view['coverage'], 'after': frame['coverage']}
+        packet['pair_id'] = digest({k: v for k, v in packet.items() if k not in ('pair_id', 'images')})
+        for entry in packet['images']:
+            entry['pair_id'] = packet['pair_id']
+        write_json(path/'pair.json', packet)
+        return packet

@@ -39,23 +39,42 @@ PYTHONPATH=src ../molmospaces/.venv/bin/python tests/verify_phase3_delivery.py \
 
 ## 自动 Case → 场景编辑
 
-新增 `test_case_edit_*`、`test_scene_graph`、`test_edit_{sampling,compiler,views,review,topology}`：契约、实测支撑、相对旋转、联合采样、事务、四操作、Agent 协议、共享预算、去重及硬期限。
-默认两个渲染测试需显式启用；fixture / mock 验证不代替真实房屋或真实模型验收。
+离线测试包含契约、图/支撑、相对旋转、采样、事务、资产、四角色协议、head 配对、预算与硬期限。
+`test_local_construction.py` 覆盖精确场景身份、局部图、派生资产和实际分割可见性。
+`test_case_edit_workflow.py` 使用 Mock Agent，不能证明真实 case 机制或任务成功。
 
 ```bash
 MUJOCO_GL=egl CASE_EDIT_RENDER_TESTS=1 PYTHONPATH=src \
   ../molmospaces/.venv/bin/python -m unittest discover -s tests -v
-# 获得数据发送授权后才运行：真实服务 + 两房屋 + 两种抽象现象，每组目标 3
+# 不调用外部服务：真实房屋、自动选目标和可观察初态
 MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_real_smoke.py \
-  --api-settings configs/agent_api.json --settle-config configs/case_edits/settling.json \
-  --snapshot-root outputs/attempts --timeout 600
+  --request configs/case_edits/case1-val103.json --prepare-only
+# 已获数据发送授权后：真实服务的三类构造烟测，不是移动任务验收
+MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_real_smoke.py \
+  --request configs/case_edits/case1-val103.json configs/case_edits/case1-5-val103.json configs/case_edits/case3-val103.json \
+  --api-settings configs/agent_api.json --provider xera
 ```
 
-`case_edit_agent_smoke.py` 验证真实 Agent1/2；`case_edit_three_agent_smoke.py` 为真实三个 Agent + 合成场景真实 RGB。
-`case_edit_asset_smoke.py` 验证真实 THOR 资产 + 合成场景的 add/remove/rollback，**不含视觉模型最终接受**。
-`case_edit_real_smoke.py --prepare-only` 仅验证真实房屋无人工目标的准备与 RGB，不产生 accepted。
-诊断重跑可用 `--cases distance --skip-expected-failures`，不能据此声称完整 S7 gate。
-实际结果及失败目录见[交付报告](../reports/case-edit-delivery.md)。
+`case_edit_asset_smoke.py` 继续覆盖资产增删、事务和 RGB。Provider 回归继续覆盖独立密钥、auto 切换计费和显式不切换。
+旧三角色集成脚本、旧批量 gate 和旧请求配置已替换。旧输出不覆盖，也不作为当前三类 case 成立证据。
 
-Provider 回归覆盖独立密钥、auto 故障切换计费、下一调用恢复第一优先级、显式 provider 不切换及 CLI 覆盖。
-真实烟测也支持 `--provider auto|dmx|xera`；只指定名字，不在命令行放密钥。
+新增 `test_agent_contracts.py` 覆盖同一 Schema 的本地校验、错误路径/上一响应反馈、能力降级计费、截断拒绝及显式模型覆盖。工作流回归覆盖实际多初态放置、提议补图、检查补图，以及格式失败不重新编辑。
+
+同输入模型对照（只检查协议和图像判断，不接受场景、不升级任务结论）：
+
+```bash
+MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_model_compare.py \
+  --call outputs/case_construction/<run_id>/agents/<编号>-reviewer.json \
+  --api-settings configs/agent_api.json --provider xera --models gpt-5.6-sol glm-5.3
+```
+
+该脚本要求新契约的真实 reviewer 输入和现存 RGB；不支持图片的模型会明确报错，不静默丢弃图片。
+
+当前正式配置仅 Xera + Chat Completions + JSON Schema（服务端 strict=false，本地严格检查）。
+回归还覆盖禁用 DMX 后 auto 无法访问 DMX、显式 Schema 不降级、非有限响应修复及错误字段路径。
+
+`test_mjcf_loading.py` 对比原生与字符串/VFS 加载后的名称、网格、质量和几何数组，覆盖相对资源、同名 include、循环拒绝和目录覆盖回退；不改原始 XML。
+
+`test_agent_retries.py` 离线覆盖临时 HTTP/超时/连接异常、2/4/8/16秒退避、最多5次总尝试、格式与网络共用上限、图片保持、永久错误和余额不足不重试，以及共享调用/时间预算提前终止。
+
+局部候选回归覆盖拥挤台面不能占满所有槽位：先按支撑面分层、再随机选择各支撑目标；固定种子可复现，完整物理图不变。wire Schema 回归确保布尔支撑条件必须提供 value，非法条件不依赖模型自觉补齐。

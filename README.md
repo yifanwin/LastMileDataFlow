@@ -4,10 +4,9 @@
 可回滚编辑/静置验收、任务候选冻结与独立恢复、轨迹/相机/视频/结果记录。
 
 - [代码导览（初学者版）](docs/代码导览.md)：代码树、架构图、数据流图、流程图、时序图与推荐阅读顺序。
-- [从 case 描述到具体编辑操作](docs/case-to-edit-pipeline.md)：设计意图如何经人工配置变成场景编辑候选，
-  四类 case 的差异落在哪三个函数，以及设计文档中尚未实现的部分。
-- [Case → 场景编辑分阶段实施计划](docs/case-to-edit-pipeline-plan.md)：新 Agent + 规则程序入口的 S0–S7 任务、交付物与验收条件；实施状态和真实验收分开记录。
-- [自动 Case 编辑运行说明](docs/case-edit-pipeline.md) · [交付与验证报告](reports/case-edit-delivery.md)：新 `case-edit` 入口、三 Agent、四种操作、六图与批量预算。
+- [Case 构造完整设计](docs/case-to-edit-pipeline.md)：四个 Agent、局部上下文、观察基准、资产与独立任务验收。
+- [当前实施计划](docs/case-to-edit-pipeline-plan.md)：目标 case1、case1.5、case3；构造通过不表示真实移动操作验证通过。
+- [Case 编辑运行说明](docs/case-edit-pipeline.md)：唯一 `case-edit` 入口和单场景请求。
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
 - [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
 - [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。
@@ -17,7 +16,7 @@
 
 **不依赖 `lastmile_pipeline` 的代码、运行入口、配置、人工批准或历史输出。**
 仅借鉴旧工程的控制/快照思路；旧样例以小型输入 fixture 的形式保留一次性转换回归。
-MuJoCo、NumPy、imageio/ffmpeg 是显式第三方依赖；ProcTHOR 与机器人模型是只读外部资产。
+MuJoCo、NumPy、imageio/ffmpeg、jsonschema 是显式第三方依赖；ProcTHOR 与机器人模型是只读外部资产。
 
 ## 快速运行
 

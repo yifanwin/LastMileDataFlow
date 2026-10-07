@@ -45,7 +45,7 @@ def instance_catalog(model, source):
         used.add(key)
         result.append({"instance_id": key, "mjcf_body": key, "body_id": body_names[key],
                        "asset_id": obj.get("asset_id"), "source_object_id": obj.get("object_id"),
-                       "category": obj.get("category"), "parent_instance_id": obj.get("parent"),
+                       "category": obj.get("category"), "parent_instance_id": obj.get("parent"), "room_id": obj.get("room_id"),
                        "name_map": present, "pose_frame": "world", "pose_order": "xyz_wxyz"})
     for i in range(1, model.nbody):
         name = model.body(i).name

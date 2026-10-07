@@ -183,13 +183,22 @@ class CaseEditSession:
                     if name not in names or name.startswith(self.sim.robot.config.namespace):
                         raise ValueError('operation requires an ordinary scene instance')
                 self._apply(operation)
-            settling = settle_scene(self.sim, self.config, deadline=self.deadline)
+            affected = {o['instance'] for o in executable.operations}
+            stability_instances = None
+            if not self.config.require_source_stability:
+                # Official source dynamics are observed, not a global gate.
+                # Only edited/added/carried bodies must settle. Unedited source
+                # neighbours still undergo collision and changed-support checks.
+                stability_instances = set(affected)
+            settling = settle_scene(self.sim, self.config, deadline=self.deadline,
+                                    stability_instances=stability_instances)
             self.revision += 1
             after = build_scene_graph(self.sim, revision=self.revision,
-                        stage='settled' if settling['stable'] else 'observed', station=self.prepared.station)
+                        stage='settled' if settling['observed_scene_stable'] else 'observed', station=self.prepared.station,
+                        config=self.config.graph_config())
             bindings = executable.sampled_parameters.get('bindings', proposal.bindings)
             checks += physical_checks(self.sim, after, settling,
-                      affected={o['instance'] for o in executable.operations}, config=self.config, before_graph=before)
+                      affected=affected, config=self.config, before_graph=before)
             checks += endpoint_checks(template, proposal, after, endpoint='after', bindings=bindings)
             trial.after_graph, trial.checks, trial.settling = after, checks, settling
             if not rules_pass(checks):

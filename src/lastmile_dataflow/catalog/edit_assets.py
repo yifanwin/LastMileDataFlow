@@ -8,6 +8,7 @@ import numpy as np
 
 from ..io import read_json
 from ..scenes.geometry import body_points, descendants, extract_regions
+from ..scenes.mjcf import load_spec
 
 
 class EditAssetCatalog:
@@ -32,7 +33,7 @@ class EditAssetCatalog:
         if not path.is_file():
             raise ValueError('asset_file_unreadable')
         if asset_id not in self._cache:
-            spec = mujoco.MjSpec.from_file(str(path))
+            spec = load_spec(path)
             body = spec.body(entry['root_body'])
             if body is None or body.parent != spec.worldbody or len(list(spec.worldbody.bodies)) != 1:
                 raise ValueError('asset requires one top-level root body')

@@ -23,6 +23,7 @@ import numpy as np
 from ..io import file_digest, read_json, write_json
 from ..robots.rby1 import RBY1Adapter, prepare_robot_spec
 from ..scenes.source import instance_catalog, resolve_target, scene_version
+from ..scenes.mjcf import load_spec
 
 
 class InitializationError(ValueError):
@@ -79,8 +80,8 @@ class Simulation:
         `spec.attach(...)` 把机器人整体挂到世界坐标系下的一个新 frame 上；
         之后所有机器人 body 名都会带 `robot_0/` 前缀（对应 config.namespace）。
         """
-        spec = mujoco.MjSpec.from_file(str(source.xml_path))
-        robot_spec = mujoco.MjSpec.from_file(robot_config.model_path)
+        spec = load_spec(source.xml_path)
+        robot_spec = load_spec(robot_config.model_path)
         prepare_robot_spec(robot_spec, robot_config)
         spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
         spec.option.timestep = robot_config.physics_dt

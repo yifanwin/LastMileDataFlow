@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--root-body', required=True)
     parser.add_argument('--wrap-free', action='store_true', help='derive movable wrapper via exact rigid-body fusion; source remains read-only')
     args = parser.parse_args()
-    path = Path('outputs/case_edits/real-asset-smoke-' + str(time.time_ns()))
+    path = Path('outputs/case_construction/real-asset-smoke-' + str(time.time_ns()))
     path.mkdir(parents=True, exist_ok=False)
     report = {'scope': 'real_mesh_asset_synthetic_scene_robot_rule_checks_RGB_not_agent_acceptance', 'status': 'failed'}
     source_hash = file_digest(args.asset_xml)

@@ -1,0 +1,30 @@
+{
+  "request_version": "0.2",
+  "scene_input": {
+    "kind": "single",
+    "dataset_dir": "../../../molmospaces_data/assets/scenes/procthor-10k-val",
+    "scene_id": "val-103"
+  },
+  "case_type": "case3",
+  "case_description": "抓取目标的接近、抬升或撤离路径会受到桌面其他物体阻挡，例如需要越过杂乱桌面的物体直接抓取，存在机械臂与环境碰撞风险。通过底盘平移和转向改变操作方向后存在更有利的抓取路径。可增加真实的小物体资产，但不能仅靠杂物数量或目标距离作为case成立证据。",
+  "task_type": "pick",
+  "objective_mode": "beneficial_reposition",
+  "verification_mode": "construction_only",
+  "target_variant_count": 1,
+  "seed": 42,
+  "budgets": {
+    "max_rounds": 2,
+    "proposals_per_round": 3,
+    "samples_per_proposal": 4,
+    "max_samples": 24,
+    "max_agent_calls": 20,
+    "timeout_s": 900,
+    "agent_timeout_s": 240
+  },
+  "construction": {
+    "asset_library": "../../../molmospaces_data/assets/objects/thor",
+    "max_contexts": 6,
+    "max_nodes": 240,
+    "assets_per_category": 2
+  }
+}

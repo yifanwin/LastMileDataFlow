@@ -1,45 +1,14 @@
-"""Agent2: scene-bound, multi-strategy symbolic suggestions, without edit ACLs."""
-from .case_gateway import COMMON, CONDITIONS, DSL_HELP
+"""Agent3: scene-bound, multi-strategy symbolic suggestions, without edit ACLs."""
+from .case_gateway import CONDITIONS, DSL_HELP
+from .prompts import PROPOSER
+from .contracts import validate_information
+from ..scenes.local_context import agent_context
+from ..construction.case_schema import require, text
 from ..construction.dsl import SymbolicDSL
 import numpy as np
 
 
-SYSTEM = COMMON + CONDITIONS + DSL_HELP + '''
-Return {"proposals":[proposal,...]}. Respect requested maximum. Bind actual graph
-object IDs, station_start and regions; do not guess IDs or asset categories. Prefer
-diverse meaningful layouts, NOT minimal edits. Roles for additional objects are
-allowed. Parent hints are not support proof. Unsupported articulated roots and
-unknown complex support geometry cannot be treated as reliable placement surfaces.
-construction_capabilities are measured PROGRAM editing capabilities. The separate
-manipulable="unknown" field concerns ROBOT manipulation and does not prohibit ordinary
-construction move/rotate. Do not require known robot graspability for a layout edit.
-Use coverage/random sampling within each meaningful search space and distribute
-strategies across feasible layouts. Large moves/relative angles, multiple objects and
-furniture are welcome; no edit-size cost exists. Full-space exploration is a PROGRAM
-generation policy, not a required visible property of each individual sample.
-Region axes are matrix COLUMNS: world = origin + axes @ [local_x,local_y,0].
-The program supplies distance_context with measured object distances and region
-corner local/world coordinates; use it to avoid transposing axes or inventing distances.
-Corners are not certified placements: still leave footprint/margin and check rules.
-For a before/after distance increase, compute each candidate object's baseline XY
-distance to station_start from actual graph positions. Choose destination regions
-farther than THAT baseline, not an arbitrary generic final-distance range. You may
-add an after distance goal whose minimum is baseline_distance plus a meaningful
-margin. Use multiple different exposed object bindings, not only different supports
-for one hidden object. Visual evidence must show the chosen objects BEFORE and AFTER the edit. Prefer
-exposed supported objects; objects inside closed fridges/cabinets may be hidden even
-when supported. Geometry is not visibility proof. After uncertain visibility feedback,
-change the binding/strategy rather than repeat parameters on the same hidden object.
-Local coordinate axes are geometric proxies, not automatically the visible long
-axis or semantic front of an asset. A 90-degree proxy difference can still leave
-two DIFFERENT assets visually parallel. If visual feedback rejects that discrepancy,
-change the relative-angle strategy and prefer a broad angle RANGE rather than
-repeating the same hardcoded quarter-turn. Rule predicates filter sampled angles;
-Agent3 still checks actual visible orientation. Do not redefine template criteria.
-Maintain required endpoint invariants; furniture can be moved before placing objects
-on its NEW region. No generated Python, executable poses, control settings or permissions.
-If roles cannot be bound or layout cannot express the intent, return proposals:[];
-do not invent scene facts or upgrade pending hypotheses to proven difficulty.'''
+SYSTEM = PROPOSER
 
 
 def distance_context(graph):
@@ -63,7 +32,11 @@ def distance_context(graph):
             'object_baseline_distance_xy_m': objects, 'region_corners': regions}
 
 
-def propose_edits(template, graph, gateway, *, count=4, feedback=None, operations=('move', 'rotate'), assets=None):
+def propose_edits(template, graph, gateway, *, count=4, feedback=None, operations=('move', 'rotate'), assets=None,
+                  context=None, plan=None, observation=None, asset_categories=()):
+    if context is not None:
+        return _propose_observed(template, context, plan, observation, assets, gateway, count=count, feedback=feedback or (),
+                                 asset_categories=asset_categories)
     def parse(value):
         if not isinstance(value, dict) or set(value) != {'proposals'} or not isinstance(value['proposals'], list) or len(value['proposals']) > count:
             raise ValueError('invalid proposals envelope')
@@ -82,3 +55,30 @@ def propose_edits(template, graph, gateway, *, count=4, feedback=None, operation
     return gateway.call('proposer', SYSTEM, {'template': template.to_dict(), 'graph': graph.to_dict(),
         'distance_context': distance_context(graph) if any(r.type in ('station', 'robot_station') for r in template.roles.values()) else {},
         'max_proposals': count, 'operations': list(operations), 'assets': assets or [], 'feedback': feedback or []}, parse)
+
+
+def _propose_observed(template, context, plan, observation, assets, gateway, *, count=3, feedback=(), asset_categories=()):
+    def parse(value):
+        require(isinstance(value, dict) and set(value) == {'decision', 'information_request', 'proposals'}, 'proposal', 'invalid envelope')
+        require(value['decision'] in ('propose', 'request_information', 'no_proposal'), 'decision', 'unknown decision')
+        require(isinstance(value['proposals'], list) and len(value['proposals']) <= count, 'proposals', 'too many proposals')
+        if value['decision'] != 'propose':
+            require(not value['proposals'], 'proposals', 'information request cannot execute proposals')
+            if value['decision'] == 'request_information':
+                information = validate_information(value['information_request'], context)
+                return value['decision'], [], information
+            require(value['information_request'] is None, 'information_request', 'no_proposal uses null')
+            return value['decision'], [], None
+        require(value['information_request'] is None, 'information_request', 'propose uses null')
+        require(bool(value['proposals']), 'proposals', 'propose requires at least one proposal')
+        proposals = [SymbolicDSL.from_dict(p) for p in value['proposals']]
+        require(len({p.proposal_id for p in proposals}) == len(proposals), 'proposals', 'duplicate IDs')
+        for p in proposals:
+            require(all(n in context.graph.nodes for n in p.bindings.values()), 'bindings', 'node absent from local context')
+            require(p.bindings.get('target') == context.target, 'target', 'target differs from observation baseline')
+            require(not p.semantic_conflicts(template), 'proposal', 'template conflict')
+        return value['decision'], proposals, None
+    return gateway.call('proposer', PROPOSER, {'template': template.to_dict(), 'context': agent_context(context),
+        'plan': plan.to_dict(), 'observation': observation, 'assets': assets, 'available_asset_categories': list(asset_categories), 'max_proposals': count,
+        'dsl_contract': DSL_HELP, 'conditions': CONDITIONS, 'feedback': list(feedback)}, parse,
+        images=observation.get('images', [observation['image']]))

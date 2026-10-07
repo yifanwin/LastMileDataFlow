@@ -1,7 +1,9 @@
 # Case → 场景编辑实施与验证报告
 
+> 历史报告：以下 S0–S7 指旧版距离/朝向编辑验收，不覆盖当前 case1/case1.5/case3 的移动操作目标。当前进度见[构造进度报告](case-edit-progress.md)；历史输出保留，不作为新版本成功证据。
+
 日期：2026-10-06。**S0–S7 已实现并完成对应验证；完整真实批量 gate 通过。**
-任务细目见[阶段计划](../docs/case-to-edit-pipeline-plan.md)，运行接口见[自动编辑说明](../docs/case-edit-pipeline.md)。
+当前任务细目见[阶段计划](../../docs/case-to-edit-pipeline-plan.md)，运行接口见[自动编辑说明](../../docs/case-edit-pipeline.md)。
 
 ## 执行过程与交付
 
@@ -230,4 +232,3 @@ EGL 真正生成了 RGB，但 NVIDIA 驱动不可用，不声称 NVIDIA GPU/机�
 | 俯视 | [编辑前](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/before_top.png) | [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/after_top.png) |
 | 斜视 A | [编辑前](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/before_oblique_a.png) | [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/after_oblique_a.png) |
 | 斜视 B | [编辑前](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/before_oblique_b.png) | [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000002/rgb/after_oblique_b.png) |
-

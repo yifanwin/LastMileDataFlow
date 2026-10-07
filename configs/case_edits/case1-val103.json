@@ -1,0 +1,30 @@
+{
+  "request_version": "0.2",
+  "scene_input": {
+    "kind": "single",
+    "dataset_dir": "../../../molmospaces_data/assets/scenes/procthor-10k-val",
+    "scene_id": "val-103"
+  },
+  "case_type": "case1",
+  "case_description": "由于目标、支撑家具和周围障碍的几何布局，原来的接近或工作位置不利于抓取，需要通过底盘平移和转向调整到更合适的工作位置。请构造实际空间或接近方向的差异，不能仅把目标移得更远。",
+  "task_type": "pick",
+  "objective_mode": "beneficial_reposition",
+  "verification_mode": "construction_only",
+  "target_variant_count": 1,
+  "seed": 42,
+  "budgets": {
+    "max_rounds": 2,
+    "proposals_per_round": 3,
+    "samples_per_proposal": 4,
+    "max_samples": 24,
+    "max_agent_calls": 20,
+    "timeout_s": 900,
+    "agent_timeout_s": 240
+  },
+  "construction": {
+    "asset_library": "../../../molmospaces_data/assets/objects/thor",
+    "max_contexts": 6,
+    "max_nodes": 240,
+    "assets_per_category": 2
+  }
+}

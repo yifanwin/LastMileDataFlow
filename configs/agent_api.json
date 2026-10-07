@@ -5,13 +5,17 @@
       "name": "dmx",
       "LLM_API_KEY": "sk-A8UaqkmcWIZwy0uEeoHsPThBRLkqfc9yka75m6l96NIeDBMG",
       "LLM_BASE_URL": "https://www.dmxapi.cn/v1",
-      "LLM_MODEL": "gpt-5.6-sol"
+      "LLM_MODEL": "gpt-5.6-sol",
+      "enabled": false
     },
     {
       "name": "xera",
       "LLM_API_KEY": "sk-Nh8qVbEWlNRDHnux2xgc5e8HX5EIFtboMeEoLqTZV17Qnu0U",
       "LLM_BASE_URL": "https://newapi.x-era.com/v1",
-      "LLM_MODEL": "gpt-5.6-sol"
+      "LLM_MODEL": "gpt-5.6-sol",
+      "enabled": true,
+      "structured_output": "json_schema",
+      "json_schema_strict": false
     }
   ]
 }
