@@ -90,3 +90,9 @@
 三类真实构造接受样本尚未全部齐备。完整工作区域覆盖、CuRobo/底盘搜索与实际任务对照仍未完成。dataset 房屋检索、Objaverse/向量资产检索未接入。
 
 所有样本 `case_verified_count=0`、`version_delivery_complete=false`；构造通过、case 成立、任务成功分别报告。
+
+## 逐例完整解读
+
+- [case1：锅铲不动、盐罐换侧](case-edit-val103-case1-sample000000-walkthrough.md)：构造接受样本。
+- [case1.5：三侧差异的构造与失败](case-edit-val103-case1-5-walkthrough.md)：两轮独立运行均未接受，无编辑后RGB。
+- [case3：把锅移到喷雾瓶近旁](case-edit-val103-case3-sample000006-walkthrough.md)：实际编辑和规则通过，视觉检查未闭环。
