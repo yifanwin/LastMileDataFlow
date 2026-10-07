@@ -1,5 +1,7 @@
 # Case 构造 Pipeline 完整修正计划
 
+> **已被取代（2026-10-07）**：本文已被 [数据管线重构提议](pipeline-restructure-proposal.md) 取代，原文保留供查阅，不再作为设计或实施依据。四类 case 的定义见 [Case 描述具体化提议](case-definition-proposal.md)。
+
 ## 执行摘要
 
 已核对当前工作流、机器人初始化、图像检查及 CuRobo 封装。本轮**只给计划，不修改代码、配置或文件**。

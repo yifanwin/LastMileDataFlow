@@ -1,5 +1,7 @@
 # 新 Pipeline 完整方案
 
+> **已被取代（2026-10-07）**：本文已被 [数据管线重构提议](pipeline-restructure-proposal.md) 取代，原文保留供查阅，不再作为设计或实施依据。四类 case 的定义见 [Case 描述具体化提议](case-definition-proposal.md)。
+
 ## 方案总结
 
 本方案采用 **4 个主 Agent + 程序化构造与验证模块**：
