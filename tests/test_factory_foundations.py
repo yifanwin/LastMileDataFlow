@@ -156,6 +156,17 @@ class NativeBoundaryTests(unittest.TestCase):
             edges=[{'predicate':'supported_by','args':[a,b]} for a,b in (('cup','table'),('near','table'),('far','table'),('other','shelf'))])
         self.assertEqual(task_scope(graph,{'target':'cup','support':'table'}),{'cup','near'})
 
+    def test_strict_pick_never_calls_a_finger_nonfinger(self):
+        from lastmile_dataflow.validation.pick import classify_target_contact as role, PROTOCOL
+        fingers,robot={1,2},{1,2,3}
+        self.assertEqual(PROTOCOL['version'],'strict-pick-v3'); self.assertEqual(PROTOCOL['revision'],2)
+        self.assertEqual(role(1,fingers,robot,True,-.0005),'finger_force')
+        self.assertIsNone(role(2,fingers,robot,False,-.0031))          # replayed val-103 cup failure: finger, not bearing
+        self.assertEqual(role(2,fingers,robot,False,-.02),'finger_target_penetration')
+        self.assertEqual(role(3,fingers,robot,True,-.002),'nonfinger_target')  # palm/wrist still forbidden
+        self.assertIsNone(role(3,fingers,robot,True,-.0005))
+        self.assertEqual(role(9,fingers,robot,True,0.),'support'); self.assertIsNone(role(9,fingers,robot,False,0.))
+
     def test_asset_identity_ignores_instance_names(self):
         from lastmile_dataflow.grasping.geometry import asset_collision_digest
         a=[{'vertices':[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.]],'faces':[[0,1,2]],'source_geom':'instance1'}]

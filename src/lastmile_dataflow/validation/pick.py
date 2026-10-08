@@ -24,7 +24,21 @@ PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_
           'base_yaw_rad':np.deg2rad(.2),'torso_error_rad':.002,'head_error_rad':.002,
           'idle_arm_error_rad':.002,'relative_translation_m':.01,
           'relative_rotation_rad':np.deg2rad(5),'max_sample_gap_s':.0041,
-          'finger_force_min_n':1e-6}
+          'finger_force_min_n':1e-6,
+          # Revision 2 (2026-10-08): a finger touching the target is never classified as a non-finger body.
+          # Revision 1 sent penetrating-but-not-load-bearing finger contacts to nonfinger_target (misclassification);
+          # deep finger penetration is now its own failure instead.
+          'revision':2,'finger_target_penetration_m':.01}
+
+
+def classify_target_contact(other,fingers,robot_bodies,bearing,dist):
+    """Role of a contact between the target and `other` body: finger_force / support / nonfinger_target /
+    finger_target_penetration / None (ignored)."""
+    if other in fingers:
+        if dist < -PROTOCOL['finger_target_penetration_m']: return 'finger_target_penetration'
+        return 'finger_force' if bearing else None
+    if other not in robot_bodies: return 'support' if bearing else None
+    return 'nonfinger_target' if dist < -.001 else None
 
 
 def rotation_error(a,b): return float(np.arccos(np.clip((np.trace(a.T@b)-1)/2,-1,1)))
@@ -64,9 +78,10 @@ class PickMonitor:
             if ta!=tb:
                 # 目标 vs 其它：可能是指尖抓握、桌面支撑、或手指以外的机器人部位非法压目标
                 other=b if ta else a
-                if other in self.fingers and bearing: forces[other]=forces.get(other,0.)+float(f[0])
-                elif other not in self.robot_bodies and bearing: support=True      # 目标仍被桌面支撑
-                elif other in self.robot_bodies and c.dist<-.001: illegal.append('nonfinger_target')
+                role=classify_target_contact(other,self.fingers,self.robot_bodies,bearing,c.dist)
+                if role=='finger_force': forces[other]=forces.get(other,0.)+float(f[0])
+                elif role=='support': support=True      # 目标仍被桌面支撑
+                elif role in ('nonfinger_target','finger_target_penetration'): illegal.append(role)
             elif ra and rb and c.dist<-.002: illegal.append('self_collision')
             elif ra!=rb and c.dist<-.001:
                 # 机器人 vs 环境：豁免“底盘/轮 vs 地板”的正常支撑接触

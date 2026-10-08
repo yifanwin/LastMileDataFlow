@@ -11,7 +11,7 @@ from ..io import digest
 from ..grasping.geometry import geom_mesh
 from ..planning.curobo import pose7
 
-FILTER_VERSION = 'isolated-close-lift-shake-v2'
+FILTER_VERSION = 'isolated-close-lift-shake-v3'
 # Stand-in for the arm behind the wrist: heavy enough that finger reaction forces barely move the hand.
 HAND_MASS_KG = 2.
 HAND_INERTIA = .01
@@ -33,9 +33,13 @@ def extract_gripper(sim,side='left'):
     view=SimpleNamespace(model=m,data=data); site=m.site(f'robot_0/ee_site_{side[0]}').id
     frame=np.eye(4); frame[:3,:3]=data.site_xmat[site].reshape(3,3); frame[:3,3]=data.site_xpos[site]
     groups=[]
+    finger_bodies={m.body(f'robot_0/ee_finger_{side[0]}{i}').id for i in (1,2)}
+    # The rigid hand: every body welded to the palm's moving link (wrist link, FT sensor, EE body), not just EE_BODY.
+    root=int(m.body_weldid[m.body(f'robot_0/EE_BODY_{side[0].upper()}').id])
+    hand={b for b in range(m.nbody) if int(m.body_weldid[b])==root and b not in finger_bodies}
     for name,suffix in ((f'robot_0/EE_BODY_{side[0].upper()}',None),(f'robot_0/ee_finger_{side[0]}1',1),(f'robot_0/ee_finger_{side[0]}2',2)):
-        body=m.body(name).id
-        meshes=[geom_mesh(view,g,frame) for g in range(m.ngeom) if m.geom_bodyid[g]==body and (m.geom_contype[g] or m.geom_conaffinity[g])]
+        body=m.body(name).id; bodies=hand if suffix is None else {body}
+        meshes=[geom_mesh(view,g,frame) for g in range(m.ngeom) if int(m.geom_bodyid[g]) in bodies and (m.geom_contype[g] or m.geom_conaffinity[g])]
         group={'name':'palm' if suffix is None else 'finger'+str(suffix),'meshes':meshes}
         if suffix is not None:
             j=m.joint(f'robot_0/gripper_finger_{side[0]}{suffix}').id; dof=m.jnt_dofadr[j]
@@ -181,6 +185,7 @@ def filter_grasps(gripper,meshes,candidates,*,mass=.1,object_rotation=None,objec
     hand_adr=model.jnt_qposadr[model.joint('hand_free').id]; hand_dof=model.jnt_dofadr[model.joint('hand_free').id]
     object_geoms={g for g in range(model.ngeom) if model.geom_bodyid[g]==obj}
     finger_geoms={g for g in range(model.ngeom) if model.body(int(model.geom_bodyid[g])).name in ('finger1','finger2')}
+    palm_geoms={g for g in range(model.ngeom) if model.body(int(model.geom_bodyid[g])).name=='palm'}
     gripper_geoms={g for g in range(model.ngeom) if model.body(int(model.geom_bodyid[g])).name in ('finger1','finger2','palm')}
     open_command,closed_command=gripper['actuator']['ctrlrange']
     open_q=_joint_open_positions(model,gripper,open_command)
@@ -205,14 +210,23 @@ def filter_grasps(gripper,meshes,candidates,*,mass=.1,object_rotation=None,objec
             result.append(dict(candidate,simulation_pass=False,filter_reason='approach_collision',
                                simulation_evidence={'protocol':FILTER_VERSION,'stage':'approach_geometry','not_task_success':True,'collisions':approach_collisions})); continue
         set_tcp(goal,teleport=True); mujoco.mj_forward(model,data); initial_height=float(data.xpos[obj,2])
+        nonfinger=[]
+        def check_nonfinger(stage):
+            # strict-pick-v3 forbids any non-finger robot body touching the target beyond 1 mm.
+            for c in data.contact:
+                pair={int(c.geom1),int(c.geom2)}
+                if c.dist<-.001 and pair & palm_geoms and pair & object_geoms and len(nonfinger)<8:
+                    nonfinger.append({'stage':stage,'distance_m':float(c.dist),'geoms':[model.geom(int(c.geom1)).name,model.geom(int(c.geom2)).name]})
         close_steps,settle_steps=steps(1.),steps(.6)
         for step in range(close_steps+settle_steps):
             alpha=min(1.,step/close_steps); data.ctrl[0]=open_command+(closed_command-open_command)*alpha; mujoco.mj_step(model,data)
+            check_nonfinger('close')
         lift_steps,hold_steps=steps(1.2),steps(1.2)
         for step in range(lift_steps+hold_steps):
             pose=goal.copy(); pose[2,3]+=.12*min(1.,step/lift_steps)
             if step>lift_steps: pose[0,3]+=.015*np.sin((step-lift_steps)*dt*20)
             set_tcp(pose); mujoco.mj_step(model,data)
+            check_nonfinger('lift_hold')
         mujoco.mj_forward(model,data)
         contacts=set()
         for contact_id,c in enumerate(data.contact):
@@ -222,12 +236,13 @@ def filter_grasps(gripper,meshes,candidates,*,mass=.1,object_rotation=None,objec
                 if force[0]>.01: contacts.add(model.body(int(model.geom_bodyid[f])).name)
         lift=float(data.xpos[obj,2]-initial_height)
         healthy=all(np.isfinite(v).all() for v in (data.qpos,data.qvel,data.qacc)) and not any(w.number for w in data.warning)
-        passed=bool(healthy and lift>.08 and len(contacts)==2)
+        passed=bool(healthy and lift>.08 and len(contacts)==2 and not nonfinger)
         evidence={'isolated_model_digest':digest({'gripper':gripper,'meshes':meshes,'mass':mass,'object_inertial':object_inertial}),
                   'lift_m':lift,'bilateral_contacts':len(contacts)==2,'shake_amplitude_m':.015,
                   'simulated_s':float((close_steps+settle_steps+lift_steps+hold_steps)*dt),'timestep_s':float(dt),
-                  'protocol':FILTER_VERSION,'not_task_success':True}
-        row=dict(candidate,simulation_pass=passed,filter_reason='pass' if passed else 'lift_or_bilateral_contact_failed')
+                  'protocol':FILTER_VERSION,'not_task_success':True,'nonfinger_contacts':nonfinger}
+        reason='pass' if passed else 'nonfinger_contact' if nonfinger else 'lift_or_bilateral_contact_failed'
+        row=dict(candidate,simulation_pass=passed,filter_reason=reason)
         row['simulation_evidence']={**evidence,'physics_healthy':healthy}
         result.append(row)
     return result
