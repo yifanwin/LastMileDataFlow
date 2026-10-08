@@ -4,9 +4,10 @@
 可回滚编辑/静置验收、任务候选冻结与独立恢复、轨迹/相机/视频/结果记录。
 
 - [代码导览（初学者版）](docs/代码导览.md)：代码树、架构图、数据流图、流程图、时序图与推荐阅读顺序。
-- [Case 构造完整设计](docs/case-to-edit-pipeline.md)：四个 Agent、局部上下文、观察基准、资产与独立任务验收。
-- [当前实施计划](docs/case-to-edit-pipeline-plan.md)：目标 case1、case1.5、case3；构造通过不表示真实移动操作验证通过。
-- [Case 编辑运行说明](docs/case-edit-pipeline.md)：唯一 `case-edit` 入口和单场景请求。
+- [Case 构造设计入口](docs/case-to-edit-pipeline.md)：当前程序化 Case 工厂方案与冻结的旧 Agent 路线。
+- [当前实施计划](reports/phase2/case-factory-implementation-plan.md)：第 0–8 阶段；不编辑优先、配对比较、原生 RBY-1 抓取。
+- [Case 工厂运行与当前边界](docs/case-factory.md) · [首批实施报告](reports/phase2/case-factory-initial-implementation-20261008.md)：已接入新入口，但抓取缓存和 L2 产出仍未验收；第 5 阶段宽松复核暂不要求金标准。
+- [旧 Case 编辑运行说明](docs/case-edit-pipeline.md)：保留 `case-edit` 入口，Agent 层冻结开发。
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
 - [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
 - [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。

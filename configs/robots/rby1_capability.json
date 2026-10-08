@@ -1,0 +1,38 @@
+{
+  "base_footprint_m": {
+    "bounds_xy": [
+      [
+        -0.3533225090820244,
+        -0.30360099694259507
+      ],
+      [
+        0.3493225010749022,
+        0.30360099906739735
+      ]
+    ],
+    "depth_m": 0.6072019960099924,
+    "method": "conservative_low_collision_envelope_z_below_0.25m_in_base_frame",
+    "rotation_radius_m": 0.4435184160005256,
+    "width_m": 0.7026450101569266
+  },
+  "compiled_model_sha256": "d6bace48b3d647261817be77f9528a82001b9597f93ca381843225e67e72757a",
+  "gripper": {
+    "approach_axis_tcp": "z",
+    "closing_axis_tcp": "y",
+    "collision_geometry": "native RBY-1 finger and palm meshes, not DROID",
+    "digest": "3180bb3a41c95c9cc1f231145d8e1d4558475f7a9fc5e1719b0428e8196dad6d",
+    "finger_length_m": 0.0626820022435013,
+    "finger_open_positions_m": [
+      -0.05,
+      0.0
+    ],
+    "finger_width_m": 0.032682002491382506,
+    "max_opening_m": 0.09931799943289374
+  },
+  "measurement_status": "measured",
+  "model_sha256": "9854cf4ea024b50d857abac1f02ffc8f29d205c3859fdc493cec58db6f389b19",
+  "note": "Measured native model geometry; reach calibration and strict scene validation are not yet completed.",
+  "reach_table": null,
+  "robot": "rby1m",
+  "schema_version": "robot-capability-v1"
+}

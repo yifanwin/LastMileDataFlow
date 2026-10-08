@@ -78,3 +78,14 @@ MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_mod
 `test_agent_retries.py` 离线覆盖临时 HTTP/超时/连接异常、2/4/8/16秒退避、最多5次总尝试、格式与网络共用上限、图片保持、永久错误和余额不足不重试，以及共享调用/时间预算提前终止。
 
 局部候选回归覆盖拥挤台面不能占满所有槽位：先按支撑面分层、再随机选择各支撑目标；固定种子可复现，完整物理图不变。wire Schema 回归确保布尔支撑条件必须提供 value，非法条件不依赖模型自觉补齐。
+
+## Case 工厂首批实现
+
+- `test_case_factory.py`：五份规格、配对公平性、整边/yaw/路径覆盖、L1/L2 分离、
+  case2/3 反事实、case1.5 三侧角色、宽松复核、一次调用、冻结、硬期限/不覆盖。
+- `test_factory_foundations.py`：原生抓取缓存门禁、点对/深度采样、局部边、失败起点、
+  资产身份、孤立筛选状态隔离、完整四段规划与基础设施异常、XML 符号链接资源根。
+- `factory_reach_real_smoke.py`：显式原生 RBY-1/cuRobo IK smoke，不随离线回归执行。
+
+这些 fixture 不代替可达范围表标定、真实资产抓取、金标准校准或 L2/导航任务验收。
+新增真实运行结果与局限见 [首批实施报告](../reports/phase2/case-factory-initial-implementation-20261008.md)。

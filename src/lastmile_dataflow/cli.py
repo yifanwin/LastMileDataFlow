@@ -30,6 +30,34 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    factory = sub.add_parser('case-factory', help='program-first pure-scene paired comparison (native case1; no benchmark tasks)')
+    factory.add_argument('--case-spec', type=Path, default=ROOT/'configs/case_specs/case1.json')
+    factory.add_argument('--factory-config', type=Path, default=ROOT/'configs/case_factory/default.json')
+    factory.add_argument('--dataset-dir', type=Path, default=ROOT.parent/'molmospaces_data/assets/scenes/procthor-10k-train')
+    factory.add_argument('--houses', nargs='+', type=int, help='default: all raw scene XMLs in train')
+    factory.add_argument('--robot-config', type=Path, default=ROOT/'configs/robots/rby1.json')
+    factory.add_argument('--collection-config', type=Path, default=ROOT/'configs/collection/smoke.json')
+    factory.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    factory.add_argument('--run-id')
+    factory.add_argument('--quota', type=int, default=5)
+    factory.add_argument('--max-pairs', type=int, default=4)
+    factory.add_argument('--planning-only', action='store_true', help='L1 only, never formal delivery')
+    factory.add_argument('--api-settings', type=Path, help='optional one-shot review; authorizes sending fixed images')
+    factory.add_argument('--provider')
+    factory.add_argument('--model')
+    factory.add_argument('--review-config', type=Path, default=ROOT/'configs/case_factory/plausibility.json')
+    capability = sub.add_parser('robot-capability', help='measure native RBY-1 chassis and gripper, not reach calibration')
+    capability.add_argument('--robot-config', type=Path, default=ROOT/'configs/robots/rby1.json')
+    capability.add_argument('--output', type=Path, required=True)
+    grasp = sub.add_parser('grasp-generate', help='RBY-1 antipodal proposals and isolated close/lift/shake filter')
+    grasp.add_argument('--scene-xml', required=True, type=Path)
+    grasp.add_argument('--metadata', required=True, type=Path)
+    grasp.add_argument('--target', required=True)
+    grasp.add_argument('--robot-config', type=Path, default=ROOT/'configs/robots/rby1.json')
+    grasp.add_argument('--capability', required=True, type=Path)
+    grasp.add_argument('--output', required=True, type=Path)
+    grasp.add_argument('--seed', type=int, default=0)
+    grasp.add_argument('--max-candidates', type=int, default=64)
     case_edit = sub.add_parser('case-edit', help='four-agent local single-scene construction; NOT mobile task verification')
     case_edit.add_argument('--request', required=True, type=Path, help='v0.2 single-scene request JSON')
     case_edit.add_argument('--api-settings', required=True, type=Path)
@@ -130,6 +158,41 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'robot-capability':
+        from .robots.capability import save_capability
+        save_capability(args.output, load_config(RobotConfig, args.robot_config))
+        print(args.output.resolve())
+        return 0
+    if args.command == 'grasp-generate':
+        from .workflows.grasp_generation import run_grasp_generation
+        path = run_grasp_generation(args.scene_xml, args.metadata, args.target,
+                load_config(RobotConfig, args.robot_config), read_json(args.capability), args.output,
+                seed=args.seed, max_candidates=args.max_candidates)
+        print(path)
+        return 0 if read_json(path/'result.json')['status'] == 'isolated_candidates_verified' else 1
+    if args.command == 'case-factory':
+        from .construction.case_spec import load_case_spec
+        from .construction.factory_config import load_factory_config
+        from .workflows.case_factory import supervised_case_factory
+        from .scenes.source import SceneSource
+        import re
+        spec = load_case_spec(args.case_spec)
+        config = load_factory_config(args.factory_config)
+        dataset = args.dataset_dir.resolve()
+        split = dataset.name.rsplit('-', 1)[-1]
+        if split != 'train' and (split != 'val' or args.houses != [103]):
+            raise ValueError('production uses train; only val-103 is supported for debugging')
+        houses = args.houses if args.houses is not None else sorted(int(m.group(1)) for p in dataset.glob('train_*.xml')
+                        if (m := re.fullmatch(r'train_(\d+)\.xml', p.name)))
+        sources = [SceneSource.procthor(dataset, h) for h in houses]
+        robot = load_config(RobotConfig, args.robot_config)
+        collection = replace(load_config(CollectionConfig, args.collection_config), output_dir=str(args.output_dir.resolve()))
+        path = supervised_case_factory(sources, spec, robot, collection, config,
+                output=args.output_dir, run_id=args.run_id, quota=args.quota, max_pairs=args.max_pairs,
+                execute=not args.planning_only, api_settings=args.api_settings, provider=args.provider,
+                model=args.model, review_config=read_json(args.review_config))
+        print(path)
+        return 0 if read_json(path/'summary.json')['status'] == 'quota_reached' else 1
     if args.command == 'case-edit':
         from .construction.scene_request import load_scene_request
         from .runtime.preparation import SettleConfig

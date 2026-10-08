@@ -1,0 +1,44 @@
+{
+  "schema_version": "case-spec-v1",
+  "preconditions": {
+    "min_edges": 2,
+    "target_categories": [
+      "Cup",
+      "Mug",
+      "Bowl",
+      "Bottle",
+      "Apple",
+      "Tomato",
+      "SaltShaker",
+      "PepperShaker",
+      "Can"
+    ],
+    "requires_handle_annotation": false,
+    "min_surface_objects": 2
+  },
+  "predicates": [
+    "standable",
+    "reach_ok",
+    "plan_ok",
+    "yaw_exclusion",
+    "ground_path",
+    "corridor",
+    "counterfactual"
+  ],
+  "thresholds": {
+    "edge_gap_max_m": 0.2,
+    "min_success_stations": 2,
+    "translation_min_m": 0.05
+  },
+  "case_type": "case3",
+  "description": "原地够得着但抓取通道被挡，移除杂物对照成功，平移后能抓。",
+  "attribution": "corridor",
+  "move_types": [
+    "same_edge",
+    "switch_edge"
+  ],
+  "counterfactual": "remove_corridor_clutter",
+  "edit_recipes": [
+    "move_clutter"
+  ]
+}

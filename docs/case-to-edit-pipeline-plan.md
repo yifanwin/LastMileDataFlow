@@ -1,5 +1,7 @@
 # Case 构造修正计划与实施状态
 
+> 本旧计划已被 [Case 工厂分阶段实施计划](../reports/phase2/case-factory-implementation-plan.md) 取代；原文保留，Agent 层冻结。当前实现和边界见 [case-factory.md](case-factory.md)。
+
 更新：2026-10-07。当前目标是指定单场景 `val-103` 的 **case1、case1.5、case3 自动构造**，不要求本轮执行移动和抓取。
 
 实体机器人会实际加载、采样和放置；编辑前后保持同一初态。Agent 的移动收益意见单独保存，不能作为最终验证。CuRobo 比较留待后续。偶发 SIGTERM 暂不专项处理，保留原硬期限和失败记录。

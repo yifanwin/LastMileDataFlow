@@ -1,0 +1,41 @@
+{
+  "schema_version": "case-spec-v1",
+  "preconditions": {
+    "min_edges": 2,
+    "target_categories": [
+      "Cup",
+      "Mug",
+      "Bowl",
+      "Bottle",
+      "Apple",
+      "Tomato",
+      "SaltShaker",
+      "PepperShaker",
+      "Can"
+    ],
+    "requires_handle_annotation": false,
+    "min_surface_objects": 1
+  },
+  "predicates": [
+    "standable",
+    "reach_ok",
+    "plan_ok",
+    "yaw_exclusion",
+    "ground_path"
+  ],
+  "thresholds": {
+    "edge_gap_max_m": 0.2,
+    "min_success_stations": 2,
+    "translation_min_m": 0.05
+  },
+  "case_type": "case1-S",
+  "description": "原地够不着，沿同边平移后能抓；不计入case1。",
+  "attribution": "reach",
+  "move_types": [
+    "same_edge"
+  ],
+  "counterfactual": null,
+  "edit_recipes": [
+    "move_target"
+  ]
+}

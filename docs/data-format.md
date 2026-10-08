@@ -110,5 +110,36 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 非法躯干联动、源场景摘要错配、资产路径越界、未支持删除必须报错，不能忽略。
 独立导入数据包含全部物体位姿与新增资产清单；转换后运行仅需要新 JSON 与原始资产。
 
-`integrations/waypoints.py` 声明 PlanResult 和执行格式转换；没有 cuRobo 规划器或 A* 搜索实现。
+`integrations/waypoints.py` 仅声明 PlanResult 和执行格式转换；当前规划算法在 `planning/curobo.py`，
+构造阶段的地面 A* 搜索在 `navigation/grid.py`，后者不提供连续导航控制。
 绝对 arm waypoint 按当前实测位置转换为 20 维相对动作；超步长必须先重采样，不能静默截断。
+
+## Case 工厂记录 v1（新增，不改变旧 attempt 格式）
+
+`case-task-v1` 使用 `io.validate_case_task()` 校验。关键字段：
+
+| 字段 | 约定 |
+|---|---|
+| `construction_branch` / `edits` | `unedited` 必须为空编辑；`edited` 必须给出编辑清单 |
+| `case_type` / `requested_case_type` | `case1-S` 单独记录，不能充入 case1 配额 |
+| `move_type` / `attribution` | 平移类型与机制归因分开；yaw_only 不冻结为移动改善任务 |
+| `improvement_level` | 当前只支持 L1/L2；不伪造 L3 成功率 |
+| `construction_validity` / `case_condition` / `task_success` | 三层独立结论；L1 的任务成功必须为 unknown |
+| `S0` / `S1` | 位姿、边、合法性/可见性、求解状态、同一预算策略和证据引用 |
+| `station_map` / `comparison_evidence` | 原始站位图与 C0/C-yaw/C1、覆盖范围、地面路径、对照证据 |
+| `scene_dir` / `scene_checksums` | 独立冻结场景和校验清单；禁止复用历史成功标签 |
+| `review` / `manual_review` | 宽松策略配置摘要、逐项结果；unknown 保留并进入人工抽检 |
+| `navigation_success` | 当前恒为 unknown；地面 A* 路径不算实际导航 |
+| `record_digest` | 全记录摘要，防止事后改标 |
+
+求解状态包括 success、no_solution、unknown、not_tested、budget_exhausted、infrastructure_error。
+执行状态单独记录；无动作时不得标为物理失败。
+L2 需要双方 strict-pick-v3 attempt 的有效审计和 C1 真实成功；
+C0 可以是真实失败或审计通过的预算内规划无解，不为后者伪造动作/视频。
+L1 冻结仅供后续验证，`delivery_status=L1_not_formal_delivery`，不是正式数据集交付。
+
+运行根目录 `outputs/case_factory/<唯一ID>/` 保存 inputs、funnel、failures、routing、tasks 和 summary。
+监督进程预先独占预约 ID，超时记录 interruption 并回收 worker；同 ID 不能覆盖或重复启动。
+缺少前置缓存标为 dependencies_missing，不等同于抓取失败。
+原生抓取缓存使用 `rby1-grasps-v1`：物体坐标系位姿、宽度、分数、区域、孤立仿真筛选证据，
+绑定资产碰撞几何摘要、夹爪摘要与 NPZ 校验和。DROID 缓存不符合此格式。

@@ -67,3 +67,23 @@ def refinements(config, rows, all_samples):
             seen.append(base)
             if len(result)>=config.max_refinements: return result
     return result
+
+
+def edge_samples(region, target_xyz, *, base_radius_m, edge_gap_m=.1, spacing_m=.2, yaw_offsets_rad=(0.,)):
+    """Support-local edges, not world north/south. Samples still need physical filtering."""
+    if any(type(v) not in (float, int) or not np.isfinite(v) or v <= 0 for v in (base_radius_m, spacing_m)) or not np.isfinite(edge_gap_m) or edge_gap_m < 0:
+        raise ValueError('invalid edge sampling dimensions')
+    if not yaw_offsets_rad or any(not np.isfinite(v) for v in yaw_offsets_rad): raise ValueError('invalid yaw samples')
+    a,b,c,d=region.bounds; result=[]; axes=np.asarray(region.axes); origin=np.asarray(region.origin)
+    for edge,lo,hi,fixed,axis,sign in (('u-',c,d,a,0,-1),('u+',c,d,b,0,1),('v-',a,b,c,1,-1),('v+',a,b,d,1,1)):
+        positions=np.linspace(lo,hi,max(2,int(np.ceil((hi-lo)/spacing_m))+1))
+        for v in positions:
+            xy=np.array([fixed,v] if axis==0 else [v,fixed],float)
+            xy[axis]+=sign*(base_radius_m+edge_gap_m)
+            world=origin+axes@np.r_[xy,0.]
+            yaw=np.arctan2(target_xyz[1]-world[1],target_xyz[0]-world[0])
+            for offset in yaw_offsets_rad:
+                angle=float(np.arctan2(np.sin(yaw+offset),np.cos(yaw+offset)))
+                result.append({'station_id':f'S{len(result):04d}','edge':edge,'base':[float(world[0]),float(world[1]),angle],
+                               'edge_gap_m':float(edge_gap_m),'level':'edge'})
+    return result

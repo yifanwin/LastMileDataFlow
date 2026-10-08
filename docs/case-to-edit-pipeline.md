@@ -1,6 +1,16 @@
-# Case 自动构造设计
+# Case 构造设计入口
 
-## 当前范围
+当前以[数据管线重构提议](../reports/phase2/pipeline-restructure-proposal.md)、
+[Case 具体定义](../reports/phase2/case-definition-proposal.md)和
+[第 0–8 阶段实施计划](../reports/phase2/case-factory-implementation-plan.md)为准。
+新入口、宽松复核和未完成项见 [Case 工厂运行说明](case-factory.md)。
+
+以下为旧四 Agent 路线，**保留供查阅，不再作为新工厂的实施依据**。
+`case-edit` 仅保留兼容入口，当前实施证据见[首批报告](../reports/phase2/case-factory-initial-implementation-20261008.md)。
+
+## 历史四 Agent 设计
+
+### 旧路线范围
 
 采用 **4 个主 Agent + 程序化场景编辑、观察和检查**。单场景输入直接定位 `val-103` 等指定场景，不检索其他房屋。当前交付 case1、case1.5、case3 的构造候选，不执行机器人移动或抓取。
 

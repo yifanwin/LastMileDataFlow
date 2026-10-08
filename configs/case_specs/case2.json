@@ -1,0 +1,38 @@
+{
+  "schema_version": "case-spec-v1",
+  "preconditions": {
+    "min_edges": 2,
+    "target_categories": [
+      "Cup",
+      "Mug"
+    ],
+    "requires_handle_annotation": true,
+    "min_surface_objects": 1
+  },
+  "predicates": [
+    "standable",
+    "reach_ok",
+    "plan_ok",
+    "yaw_exclusion",
+    "ground_path",
+    "handle_only",
+    "counterfactual"
+  ],
+  "thresholds": {
+    "edge_gap_max_m": 0.2,
+    "min_success_stations": 2,
+    "translation_min_m": 0.05
+  },
+  "case_type": "case2",
+  "description": "只抓人工核实的把手，原地失败但杯身对照成功，平移后把手抓取可行。",
+  "attribution": "handle",
+  "move_types": [
+    "same_edge",
+    "switch_edge"
+  ],
+  "counterfactual": "body_grasp",
+  "edit_recipes": [
+    "rotate_target",
+    "replace_target"
+  ]
+}

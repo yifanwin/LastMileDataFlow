@@ -66,3 +66,33 @@ def write_json(path, value):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def validate_case_task(record):
+    """Factory v1 task envelope. Existing attempt/scene serialization is unchanged."""
+    required={'schema_version','task_id','case_type','requested_case_type','construction_branch','edits',
+              'move_type','attribution','improvement_level','construction_validity','case_condition','task_success',
+              'S0','S1','station_map','comparison_evidence','review','manual_review','scene_dir','scene_checksums',
+              'spec_digest','delivery_status','navigation_success','record_digest'}
+    if not isinstance(record,dict) or set(record)!=required or record['schema_version']!='case-task-v1':
+        raise ValueError('invalid task envelope')
+    raw=dict(record); identity=raw.pop('record_digest')
+    if digest(raw)!=identity: raise ValueError('task record digest mismatch')
+    branch=record['construction_branch']
+    if branch not in ('unedited','edited') or not isinstance(record['edits'],list) or (branch=='unedited' and record['edits']) or (branch=='edited' and not record['edits']):
+        raise ValueError('construction branch/edit mismatch')
+    if record['case_type'] not in ('case1','case1.5','case1-S','case2','case3') or record['requested_case_type'] not in ('case1','case1.5','case1-S','case2','case3'):
+        raise ValueError('unknown case type')
+    if record['move_type'] not in ('same_edge','switch_edge') or (record['case_type'] in ('case1','case1.5') and record['move_type']!='switch_edge') or (record['case_type']=='case1-S' and record['move_type']!='same_edge'):
+        raise ValueError('case/move mismatch')
+    if record['improvement_level'] not in ('L1','L2') or record['construction_validity']!='pass' or record['case_condition']!='pass':
+        raise ValueError('only measured L1/L2 comparisons can be frozen')
+    if record['task_success'] != ('success' if record['improvement_level']=='L2' else 'unknown'):
+        raise ValueError('planning is not execution evidence')
+    if record['navigation_success']!='unknown': raise ValueError('v1 does not certify navigation')
+    if type(record['manual_review']) is not bool or (record['review']['conclusion']=='unknown' and not record['manual_review']):
+        raise ValueError('unknown review must enter manual queue')
+    if record['review']['conclusion']=='implausible': raise ValueError('rejected review cannot be frozen')
+    from .validation.comparison import validate_station
+    fingerprint=validate_station(record['S0']); validate_station(record['S1'],fingerprint)
+    return record

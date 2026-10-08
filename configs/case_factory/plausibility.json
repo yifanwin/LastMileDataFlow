@@ -1,0 +1,12 @@
+{
+  "schema_version": "plausibility-v1",
+  "mode": "relaxed_uncalibrated",
+  "blocking": [
+    "P1"
+  ],
+  "min_block_confidence": 0.98,
+  "gold_standard_required": false,
+  "calibration_status": "deferred_by_user",
+  "max_calls_per_task": 1,
+  "unknown_action": "manual_review"
+}

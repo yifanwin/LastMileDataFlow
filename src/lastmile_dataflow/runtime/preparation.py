@@ -26,14 +26,17 @@ class SettleConfig:
     rotation_rad: float = .04
     penetration_m: float = .01
     require_source_stability: bool = True
+    # False: judge stability by displacement/rotation over the window only; instantaneous speed is a jitter
+    # warning. Thin objects chatter in contact (m/s spikes) while moving <1 mm, which is not instability.
+    gate_on_velocity: bool = True
     support_tolerance_m: float = .008
     boundary_tolerance_m: float = .001
 
     def __post_init__(self):
         for key, value in self.__dict__.items():
-            if key == 'require_source_stability':
+            if key in ('require_source_stability', 'gate_on_velocity'):
                 if type(value) is not bool:
-                    raise ValueError('require_source_stability must be boolean')
+                    raise ValueError(key + ' must be boolean')
                 continue
             if type(value) not in (int, float) or not np.isfinite(value) or value <= 0:
                 raise ValueError('invalid settling setting: ' + key)
@@ -44,6 +47,27 @@ class SettleConfig:
         return GraphConfig(support_tolerance_m=self.support_tolerance_m,
                            boundary_tolerance_m=self.boundary_tolerance_m,
                            penetration_tolerance_m=self.penetration_m)
+
+
+def body_stable(metric, config):
+    keys = ('speed_m_s', 'angular_speed_rad_s', 'drift_m', 'rotation_rad') if config.gate_on_velocity else ('drift_m', 'rotation_rad')
+    return all(metric[k] <= getattr(config, k) for k in keys)
+
+
+def velocity_jitter(metric, config):
+    """Speed above the velocity thresholds while displacement stays within them."""
+    return (metric['speed_m_s'] > config.speed_m_s or metric['angular_speed_rad_s'] > config.angular_speed_rad_s) \
+        and metric['drift_m'] <= config.drift_m and metric['rotation_rad'] <= config.rotation_rad
+
+
+def scoped_stability(settling, config, instances):
+    """Stability of task-relevant bodies only, from metrics recorded over the whole-scene settle."""
+    metrics = settling['metrics']; scope = sorted(set(instances))
+    missing = [n for n in scope if n not in metrics]
+    unstable = {n: metrics[n] for n in scope if n in metrics and not body_stable(metrics[n], config)}
+    return {'stable': not unstable and not missing, 'scope': scope, 'unstable': unstable, 'missing_metrics': missing,
+            'velocity_jitter': sorted(n for n in scope if n in metrics and velocity_jitter(metrics[n], config)),
+            'gate': 'displacement_only' if not config.gate_on_velocity else 'velocity_and_displacement'}
 
 
 def preparation_guard(sim):
@@ -112,10 +136,10 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
                       'drift_m': max(float(np.linalg.norm(s[0]-pos)) for s in states),
                       'rotation_rad': max(quat_angle(s[1], quat) for s in states)}
             metrics[name] = metric
-            body_stable = all(metric[k] <= getattr(config, k) for k in metric)
-            observed_scene_stable &= body_stable
+            ok = body_stable(metric, config)
+            observed_scene_stable &= ok
             if name in checked_names:
-                stable &= body_stable
+                stable &= ok
         if stable or not require_stability:
             break
     penetration = [{'distance_m': float(c.dist),
@@ -128,6 +152,8 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
             'stability_required': require_stability,
             'stability_scope': 'all_nonrobot_dynamic_bodies' if selected is None else sorted(selected),
             'checked_dynamic_bodies': sorted(checked_names),
+            'stability_gate': 'displacement_only' if not config.gate_on_velocity else 'velocity_and_displacement',
+            'velocity_jitter': sorted(n for n, m in metrics.items() if velocity_jitter(m, config)),
             'valid': bool((stable or not require_stability) and not penetration and not warnings), 'steps': steps,
             'simulated_s': float(sim.data.time)-start, 'metrics': metrics,
             'severe_penetration': penetration, 'new_warnings': warnings}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "case-spec-v1",
+  "preconditions": {
+    "min_edges": 3,
+    "target_categories": [
+      "Cup",
+      "Mug",
+      "Bowl",
+      "Bottle",
+      "Apple",
+      "Tomato",
+      "SaltShaker",
+      "PepperShaker",
+      "Can"
+    ],
+    "requires_handle_annotation": false,
+    "min_surface_objects": 1
+  },
+  "predicates": [
+    "standable",
+    "reach_ok",
+    "plan_ok",
+    "yaw_exclusion",
+    "ground_path",
+    "start_edge_unreachable",
+    "strip_clearance"
+  ],
+  "thresholds": {
+    "edge_gap_max_m": 0.2,
+    "min_success_stations": 2,
+    "translation_min_m": 0.05
+  },
+  "case_type": "case1.5",
+  "description": "A侧有缝但站不下，B侧够不着，从B移动到C抓取。",
+  "attribution": "standing",
+  "move_types": [
+    "switch_edge"
+  ],
+  "counterfactual": null,
+  "edit_recipes": [
+    "narrow_floor_strip"
+  ]
+}

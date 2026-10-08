@@ -1,0 +1,29 @@
+{
+  "capability_path": "../robots/rby1_capability.json",
+  "edge_gap_m": 0.1,
+  "grasp_root": "../../outputs/case_factory_assets/grasps",
+  "max_attempts": 3,
+  "max_grasps": 4,
+  "max_stations": 80,
+  "min_target_pixels": 10,
+  "num_ik_seeds": 32,
+  "render_video": true,
+  "robot_planner_dir": "../../../molmospaces_data/assets/robots/rby1m/curobo_config",
+  "schema_version": "case-factory-config-v1",
+  "seed": 0,
+  "spacing_m": 0.3,
+  "station_timeout_s": 180.0,
+  "timeout_s": 3600.0,
+  "torso_heights": [
+    0.0,
+    0.369,
+    0.738
+  ],
+  "yaw_offsets_rad": [
+    -1.57,
+    -0.785,
+    0.785,
+    1.57,
+    3.141592653589793
+  ]
+}
