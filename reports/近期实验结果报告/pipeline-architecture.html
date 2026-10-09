@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>LastMileDataFlow 代码架构与数据流</title>
+<style>
+  :root{
+    color-scheme: light;
+    --page:#f9f9f7; --surface:#fcfcfb; --surface2:#f4f4f1;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --line:#e1e0d9; --border:rgba(11,11,11,.10);
+    --wf:#2a78d6; --wf-bg:#eaf1fd;      /* workflows 编排层 */
+    --rt:#eb6834; --rt-bg:#fdeee7;      /* runtime 运行时层 */
+    --dm:#1baf7a; --dm-bg:#e8f6f0;      /* 领域层 */
+    --base:#4a3aa7; --base-bg:#efedfa;  /* 底座/契约 */
+    --plan:#898781; --plan-bg:#f1f1ee;  /* 未实现 */
+    --ok:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ color-scheme: dark;
+      --page:#0d0d0d; --surface:#1a1a19; --surface2:#232321;
+      --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+      --line:#2c2c2a; --border:rgba(255,255,255,.10);
+      --wf:#3987e5; --wf-bg:#16233a;
+      --rt:#d95926; --rt-bg:#341c13;
+      --dm:#199e70; --dm-bg:#12271f;
+      --base:#9085e9; --base-bg:#1e1b33;
+      --plan:#898781; --plan-bg:#232321; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+       font:14px/1.6 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC",sans-serif}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.3px}
+  code{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  header{padding:16px 22px 13px;background:var(--surface);border-bottom:1px solid var(--border)}
+  h1{margin:0 0 4px;font-size:18px}
+  .sub{color:var(--ink2);font-size:12.6px;max-width:1200px}
+  main{max-width:1420px;margin:0 auto;padding:20px 22px 60px}
+  h2{font-size:15px;margin:30px 0 5px}
+  h2:first-of-type{margin-top:4px}
+  .lead{color:var(--ink2);font-size:12.7px;margin:0 0 13px;max-width:1200px}
+
+  .legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-bottom:12px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;
+            vertical-align:-1px;border:1px solid var(--border)}
+
+  /* ---------- 分层图 ---------- */
+  .stackwrap{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .tier{border:1px solid var(--border);border-radius:11px;padding:12px 14px;position:relative}
+  .tier .hdr{display:flex;align-items:baseline;gap:9px;margin-bottom:9px}
+  .tier .nm{font-weight:700;font-size:13.5px}
+  .tier .rule{color:var(--muted);font-size:11.5px}
+  .tier.wf{background:var(--wf-bg);border-color:var(--wf)}
+  .tier.rt{background:var(--rt-bg);border-color:var(--rt)}
+  .tier.dm{background:var(--dm-bg);border-color:var(--dm)}
+  .tier.base{background:var(--base-bg);border-color:var(--base)}
+  .tier.wf .nm{color:var(--wf)} .tier.rt .nm{color:var(--rt)}
+  .tier.dm .nm{color:var(--dm)} .tier.base .nm{color:var(--base)}
+  .cards{display:flex;flex-wrap:wrap;gap:7px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+        padding:6px 9px;min-width:150px;flex:1 1 150px}
+  .card .c1{font-weight:600;font-size:12.5px}
+  .card .c2{color:var(--muted);font-size:11.3px;margin-top:1px}
+  .card.plan{opacity:.55;border-style:dashed}
+  .down{text-align:center;color:var(--muted);font-size:12px;margin:-4px 0}
+
+  /* ---------- 阶段 IO ---------- */
+  .stages{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .stg{background:var(--surface);border:1px solid var(--border);border-radius:11px;
+       padding:11px 12px;display:flex;flex-direction:column;gap:7px}
+  .stg.off{opacity:.6;border-style:dashed}
+  .stg h3{margin:0;font-size:13.2px;display:flex;align-items:center;gap:7px}
+  .n{width:19px;height:19px;border-radius:5px;background:var(--wf);color:#fff;font-size:11px;
+     font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .stg.off .n{background:var(--plan)}
+  .stg .sec{font-size:12px}
+  .stg .sec>span{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+                 color:var(--muted);margin-bottom:2px}
+  .stg ul{margin:0;padding-left:14px;color:var(--ink2)}
+  .stg li{margin:1px 0}
+  .stg .fn{color:var(--ink2)}
+  .pill{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:20px;
+        border:1px solid var(--border);margin:0 3px 3px 0;color:var(--ink2)}
+  .pill.a{border-color:var(--base);color:var(--base)}
+
+  /* ---------- 调用链 ---------- */
+  .chain{background:var(--surface);border:1px solid var(--border);border-radius:11px;
+         padding:13px 15px;margin-bottom:11px}
+  .chain h4{margin:0 0 9px;font-size:12.8px}
+  .row{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+  .box{background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+       padding:5px 9px;font-size:12px;line-height:1.35}
+  .box b{font-weight:600}
+  .box .d{color:var(--muted);font-size:11.2px}
+  .box.hi{border-color:var(--wf)}
+  .box.hi2{border-color:var(--rt)}
+  .box.hi3{border-color:var(--dm)}
+  .ar{color:var(--muted);font-size:13px}
+  .note{font-size:12px;color:var(--ink2);margin-top:9px}
+  .note b{color:var(--ink)}
+
+  /* ---------- 表 ---------- */
+  table{border-collapse:collapse;width:100%;font-size:12.2px}
+  th,td{text-align:left;padding:4px 7px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:11.4px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px 14px}
+  .panel h3{margin:0 0 8px;font-size:12.8px}
+  pre{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+      padding:11px 13px;font-size:11.7px;line-height:1.55;overflow:auto;margin:0}
+  .bar{height:8px;border-radius:3px;background:var(--wf);display:inline-block;vertical-align:middle}
+  @media (max-width:1240px){
+    .stackwrap{grid-template-columns:1fr} .stages{grid-template-columns:1fr 1fr}
+    .two{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header>
+  <h1>LastMileDataFlow：代码架构与数据流</h1>
+  <div class="sub">
+    模块归属、依赖方向、函数级调用链与落盘产物。依据
+    <code>docs/architecture.md</code> 与 <code>src/lastmile_dataflow/</code> 当前实现；
+    体积数字取自真实运行 <code>construct-29365f8d6330</code>。
+    面向初学者、不讲代码的版本见 <code>pipeline-beginner.html</code>。
+  </div>
+</header>
+
+<main>
+<div class="legend">
+  <span><i style="background:var(--wf)"></i>workflows · 编排层</span>
+  <span><i style="background:var(--dm)"></i>领域层 · 算法与契约</span>
+  <span><i style="background:var(--rt)"></i>runtime · 唯一真实运动入口</span>
+  <span><i style="background:var(--base)"></i>底座与契约</span>
+  <span><i style="background:var(--plan)"></i>已设计未实现</span>
+</div>
+
+<h2>一、依赖方向：三层，箭头只向下</h2>
+<p class="lead">
+  <code>docs/architecture.md</code> 的三个长期约束：<b>领域模块负责算法，workflows 负责串联，
+  runtime 是唯一真实运动入口</b>。因此调用只能自上而下：编排层调领域层，领域层需要真实运动时调 runtime；
+  runtime 不反向依赖任何业务模块。
+</p>
+
+<div class="stackwrap">
+  <div class="stack">
+    <div class="tier wf">
+      <div class="hdr"><span class="nm">编排层 workflows/</span>
+        <span class="rule">串联全链路，自己不实现算法</span></div>
+      <div class="cards">
+        <div class="card"><div class="c1">case_edit.py</div>
+          <div class="c2">run_case_edit() · 四 Agent 构造主循环</div></div>
+        <div class="card"><div class="c1">case_edit_supervisor.py</div>
+          <div class="c2">进程级硬期限与回收</div></div>
+        <div class="card"><div class="c1">build.py</div>
+          <div class="c2">规则式 v2 构建入口</div></div>
+        <div class="card"><div class="c1">stations.py</div>
+          <div class="c2">supervised_station_map() · 站位采集</div></div>
+      </div>
+    </div>
+    <div class="down">↓ 调用领域模块，不自己实现算法</div>
+
+    <div class="tier dm">
+      <div class="hdr"><span class="nm">领域层</span>
+        <span class="rule">算法与契约，按职责分包</span></div>
+      <div class="cards">
+        <div class="card"><div class="c1">scenes/</div>
+          <div class="c2">source · graph · local_context · initialization</div></div>
+        <div class="card"><div class="c1">construction/</div>
+          <div class="c2">dsl · compiler · sampling · templates</div></div>
+        <div class="card"><div class="c1">agents/</div>
+          <div class="c2">case_gateway · contracts · prompts · protocol</div></div>
+        <div class="card"><div class="c1">validation/</div>
+          <div class="c2">placement · pick · edit · stations · lightweight</div></div>
+        <div class="card"><div class="c1">stations/</div>
+          <div class="c2">sampling · execution · config</div></div>
+        <div class="card"><div class="c1">planning/</div>
+          <div class="c2">curobo · NativePlanner · collision_world</div></div>
+        <div class="card"><div class="c1">catalog/</div>
+          <div class="c2">index · library(ThorLibrary) · assets</div></div>
+        <div class="card"><div class="c1">recording/</div>
+          <div class="c2">recorder(AttemptRecorder) · head_views · edit_views</div></div>
+        <div class="card"><div class="c1">exporting/</div>
+          <div class="c2">collection · station_report · replay</div></div>
+        <div class="card"><div class="c1">scenes/ · robots/</div>
+          <div class="c2">action(20D) · rby1 适配</div></div>
+        <div class="card plan"><div class="c1">navigation/ policies/ demonstrations/ scheduling/</div>
+          <div class="c2">阶段 4–5，仅目录占位</div></div>
+      </div>
+    </div>
+    <div class="down">↓ 真实运动只走这一条路</div>
+
+    <div class="tier rt">
+      <div class="hdr"><span class="nm">运行时层 runtime/</span>
+        <span class="rule">唯一真实运动入口</span></div>
+      <div class="cards">
+        <div class="card"><div class="c1">simulation.py</div>
+          <div class="c2">Simulation · 生命周期 / 快照 / stepping</div></div>
+        <div class="card"><div class="c1">build_session.py</div>
+          <div class="c2">BuildSession · 编辑事务</div></div>
+        <div class="card"><div class="c1">preparation.py</div>
+          <div class="c2">prepare_scene() · settle_scene() 静置判定</div></div>
+        <div class="card"><div class="c1">runner.py</div>
+          <div class="c2">短动作 attempt 编排</div></div>
+        <div class="card"><div class="c1">visible_initialization.py</div>
+          <div class="c2">初态采样与可见性</div></div>
+      </div>
+    </div>
+
+    <div class="tier base">
+      <div class="hdr"><span class="nm">底座</span>
+        <span class="rule">配置 / 序列化 / 命令入口</span></div>
+      <div class="cards">
+        <div class="card"><div class="c1">config.py</div><div class="c2">配置契约与校验</div></div>
+        <div class="card"><div class="c1">io.py</div><div class="c2">canonical / write_json 序列化</div></div>
+        <div class="card"><div class="c1">cli.py</div><div class="c2">薄命令入口，只做参数与调度</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>模块边界（arch 文档原文）</h3>
+    <table>
+      <tr><td><code>catalog/</code></td><td>检索</td></tr>
+      <tr><td><code>construction/</code></td><td>编辑候选</td></tr>
+      <tr><td><code>stations/</code> <code>planning/</code></td><td>按职责扩展</td></tr>
+      <tr><td><code>integrations/</code></td><td>只做格式转换，不包装旧工程</td></tr>
+      <tr><td><code>workflows/</code></td><td>跨模块编排</td></tr>
+    </table>
+    <div class="note" style="margin-top:10px">
+      两条硬性禁止：<br>
+      ① 不导入 / 不调用 / 不 source <code>lastmile_pipeline</code>；<br>
+      ② 不按 case 复制仿真、机器人与记录代码，也不把 <code>runtime/runner.py</code>
+      扩成全阶段巨型入口。
+    </div>
+  </div>
+</div>
+
+<h2>二、五阶段的模块调用与产物</h2>
+<p class="lead">
+  每张卡从上到下：<b>输入 → 调用的函数 → 产物文件</b>。函数名后括注所属模块，便于定位。
+  卡底体积来自一次真实运行。
+</p>
+<div class="stages" id="stages"></div>
+
+<h2>三、函数级调用链（四条）</h2>
+<p class="lead">这四条链决定了「场景怎么被读懂」「改动怎么落地」「验证怎么闭环」「结果怎么导出」。</p>
+<div id="chains"></div>
+
+<h2>四、落盘结构与体积</h2>
+<div class="two">
+  <div class="panel">
+    <h3>一次真实运行的产物（58 文件 / 691 MB）</h3>
+<pre id="tree"></pre>
+  </div>
+  <div class="panel">
+    <h3>Agent 调用的输入/输出体积</h3>
+    <table id="agentTable"></table>
+    <div class="note">
+      请求是响应的 40–190 倍。<code>request</code> 里装的是几何与布局事实，
+      <code>response</code> 只是一次结构化决策 —— 这也决定了契约必须由程序侧校验：
+      模型输出只占极小的信息量，任何字段缺失都要靠 <code>contracts.py</code> 拦住。
+    </div>
+    <h3 style="margin-top:16px">关键契约（agents/contracts.py）</h3>
+    <table>
+      <tr><td><code>dsl_schema(nodes)</code></td><td>Symbolic DSL 的 wire Schema</td></tr>
+      <tr><td><code>information_schema()</code></td><td>补图 / 扩图请求</td></tr>
+      <tr><td><code>condition_schema()</code></td><td>谓词条件（supported_by 等）</td></tr>
+    </table>
+    <div class="note">同一份 Schema 同时用于：提示输入、HTTP 请求体、本地校验。</div>
+  </div>
+</div>
+
+<h2>五、编辑事务：BuildSession.transact() 的六步</h2>
+<div class="two">
+  <div class="panel">
+    <table>
+      <tr><th>步</th><th>动作</th><th>对应方法</th></tr>
+      <tr><td>1</td><td>预算与可序列化检查</td><td><code>canonical(operations)</code></td></tr>
+      <tr><td>2</td><td>存检查点，记录事务前状态</td><td><code>snapshot()</code></td></tr>
+      <tr><td>3</td><td>权限 / 合法性预检</td><td><code>_precheck()</code></td></tr>
+      <tr><td>4</td><td>逐个执行，必要时重编译</td><td><code>_pose()</code> / <code>_rebuild()</code></td></tr>
+      <tr><td>5</td><td>真实静置 → 检查</td><td><code>settle()</code> → <code>validate()</code></td></tr>
+      <tr><td>6</td><td>通过 = committed；失败 = 回滚</td><td><code>restore()</code></td></tr>
+    </table>
+    <div class="note">
+      事务是<b>整组原子</b>的：要么全部提交，要么全部回滚。失败记录照样写入
+      <code>transactions/</code>，证据不丢。
+    </div>
+  </div>
+  <div class="panel">
+    <h3>运行时只有 3 条分支</h3>
+    <table>
+      <tr><th>op</th><th>处理</th><th>代价</th></tr>
+      <tr><td><code>move</code></td><td>_pose() 写 qpos[:7] 并清速度</td><td>快</td></tr>
+      <tr><td><code>rotate</code></td><td>同上（编译期已算出新位姿）</td><td>快</td></tr>
+      <tr><td><code>add</code> / <code>delete</code></td><td>spec 改动 → _rebuild() 重编译</td><td>慢</td></tr>
+    </table>
+    <div class="note">
+      <code>_pose()</code> 内再分叉：自由物体（1 个 FREE joint）直接写 qpos；
+      固定家具（0 关节）必须改 spec 并重编译整个模型。<br>
+      另有硬检查：<code>rotate</code> 不得改变位置（atol 1e-8）。
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+/* ---------- 五阶段 ---------- */
+const STAGES = [
+ { n:1, t:"输入与 case 规格", off:false,
+   in:["自然语言 case 描述","单场景 / 数据集","预算 · 种子 · 模式"],
+   fn:[["normalize_case()","case_edit.py（→ agents/）"],
+       ["SceneConstructionRequest.from_dict()","construction/scene_request.py"],
+       ["source.resolve()","scenes/source.py"]],
+   out:["request.json","template.json"], vol:"6.9 KB → 1.3 KB" },
+ { n:2, t:"场景理解与构建规划", off:false,
+   in:["原始场景","机器人配置","静置配置"],
+   fn:[["prepare_scene()","runtime/preparation.py"],
+       ["build_scene_graph()","scenes/graph.py"],
+       ["crop_context() / sample_contexts()","scenes/local_context.py"],
+       ["ThorLibrary","catalog/library.py"]],
+   out:["source_baseline/graph.json","local_graph.json","construction_plan.json"],
+   vol:"359 KB → 238 KB → 137 KB" },
+ { n:3, t:"DSL 构造与执行", off:false,
+   in:["Construction Plan","Agent 局部图 + 实拍图","资产库"],
+   fn:[["SymbolicDSL / ExecutableDSL","construction/dsl.py"],
+       ["compile_sample() / placement()","construction/compiler.py"],
+       ["sample_xy() / SamplingRNG","construction/sampling.py"],
+       ["BuildSession.transact()","runtime/build_session.py"]],
+   out:["proposals.json","executable_edit.json","transactions/","graph_after.json"],
+   vol:"提议 4 KB → 编辑后图 359 KB" },
+ { n:4, t:"构造验证", off:false,
+   in:["编辑后状态","编辑前后配对图","规则结果"],
+   fn:[["validate() / inspect_build()","validation/placement.py"],
+       ["observe() 固定配对相机","agents/protocol.py"],
+       ["contracts.dsl_schema() 校验","agents/contracts.py"]],
+   out:["rule_checks.json","semantic_review.json","pair.json"],
+   vol:"152 KB（4 图） → 0.8 KB" },
+ { n:5, t:"任务验证（真实执行）", off:true,
+   in:["冻结场景版本","站位配置","抓取缓存"],
+   fn:[["coarse_samples() / refinements()","stations/sampling.py"],
+       ["NativePlanner","planning/curobo.py"],
+       ["run_station_attempt()","stations/execution.py"],
+       ["evaluate_pick() / PickMonitor","validation/pick.py"],
+       ["export_collection()","exporting/collection.py"]],
+   out:["station_maps/","attempts/","collections/"],
+   vol:"38 规划 / 6 执行 / 982.4 s" },
+];
+document.getElementById("stages").innerHTML = STAGES.map(s=>`
+ <div class="stg ${s.off?'off':''}">
+   <h3><span class="n">${s.n}</span>${s.t}</h3>
+   <div class="sec"><span>输入</span><ul>${s.in.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+   <div class="sec"><span>调用的函数</span>
+     <ul>${s.fn.map(([f,m])=>`<li><span class="fn">${f}</span><br>
+       <span style="color:var(--muted);font-size:11.2px">${m}</span></li>`).join("")}</ul></div>
+   <div class="sec"><span>产物</span>${s.out.map(x=>`<span class="pill">${x}</span>`).join("")}</div>
+   <div style="font-size:11.5px;color:var(--muted)">体积：${s.vol}</div>
+ </div>`).join("");
+
+/* ---------- 调用链 ---------- */
+const row = ns => ns.map((x,i)=>
+  `<span class="box ${x.c||''}"><b>${x.t}</b>${x.d?`<br><span class="d">${x.d}</span>`:""}</span>` +
+  (i<ns.length-1?'<span class="ar">→</span>':"")).join("");
+
+document.getElementById("chains").innerHTML = `
+<div class="chain">
+  <h4>链 1 · 场景读取：从文件到可用视图</h4>
+  <div class="row">${row([
+    {t:"SceneSource.resolve()", d:"scenes/source.py", c:"hi"},
+    {t:"prepare_scene()", d:"加载 + 静置 → PreparedScene", c:"hi2"},
+    {t:"build_scene_graph()", d:"201 节点 / 171 边", c:"hi3"},
+    {t:"crop_context()", d:"radius 2.5 → 101 节点", c:"hi3"},
+    {t:"agent_context()", d:"裁剪成可喂模型的 137 KB", c:"hi3"},
+    {t:"Agent2 strategist", d:"返回 1.1 KB 决策", c:"hi3"},
+  ])}</div>
+  <div class="note">物理场景<b>从不裁剪</b>（<code>scope: agent_context_only_full_physics_preserved</code>），
+   只有交给模型的那份被裁。</div>
+</div>
+
+<div class="chain">
+  <h4>链 2 · 编辑落地：范围 → 确定位姿 → 写进物理模型</h4>
+  <div class="row">${row([
+    {t:"SymbolicDSL.operations", d:"xy 面局部范围", c:"hi3"},
+    {t:"compile_sample()", d:"construction/compiler.py", c:"hi3"},
+    {t:"placement()", d:"区域局部 → 世界系", c:"hi3"},
+    {t:"ExecutableDSL.validate_pose()", d:"强制 frame=world", c:"hi3"},
+    {t:"to_runtime_operations()", d:"仅格式适配", c:"hi3"},
+    {t:"BuildSession.transact()", d:"六步事务", c:"hi2"},
+    {t:"_pose() / _rebuild()", d:"写 qpos 或重编译", c:"hi2"},
+  ])}</div>
+  <div class="note">同一份 Symbolic DSL 在不同种子/索引下采到不同位姿；范围由 Agent 给，
+   具体落点由程序采样决定。运行时<b>不区分 move / rotate</b>，都只是「设一个位姿」。</div>
+</div>
+
+<div class="chain">
+  <h4>链 3 · 验证闭环：要么提交，要么整体回滚</h4>
+  <div class="row">${row([
+    {t:"snapshot()", d:"存检查点", c:"hi2"},
+    {t:"_precheck()", d:"权限 / 合法性", c:"hi2"},
+    {t:"_pose()", d:"逐个执行", c:"hi2"},
+    {t:"settle()", d:"真实静置", c:"hi2"},
+    {t:"validate()", d:"validation/placement.py", c:"hi2"},
+    {t:"committed / restore()", d:"二选一，证据都留", c:"hi2"},
+  ])}</div>
+  <div class="note">四层结论分开：<code>scene_validity</code> / <code>construction_satisfaction</code> /
+   <code>case_condition</code> / <code>task_completion</code>。前三层通过也不许把最后一层升格。</div>
+</div>
+
+<div class="chain">
+  <h4>链 4 · 站位采集与导出（阶段 3）</h4>
+  <div class="row">${row([
+    {t:"coarse_samples()", d:"stations/sampling.py", c:"hi"},
+    {t:"filter_station()", d:"几何 / 碰撞 / 限位过滤", c:"hi"},
+    {t:"run_station_attempt()", d:"20D 动作桥真实执行", c:"hi2"},
+    {t:"evaluate_pick()", d:"strict-pick-v3", c:"hi3"},
+    {t:"export_collection()", d:"站位图 + 表 + 报告", c:"hi3"},
+  ])}</div>
+  <div class="note">规划无解<b>不产生可执行路径</b>，也不生成视频 —— 所以 16 个无解 attempt 的目录里没有 mp4。</div>
+</div>`;
+
+/* ---------- 目录树 ---------- */
+document.getElementById("tree").textContent =
+`construct-29365f8d6330/
+├── request.json                    输入
+├── template.json                   Case Template
+├── result.json                     四层结论
+├── agents/0000-normalizer.json     各次调用：request + response + images
+│         ├─ 0001-strategist.json
+│         ├─ 0002-proposer.json
+│         └─ 0003-reviewer.json
+├── source_baseline/                ← 未编辑基准
+│   ├── graph.json                  359 KB
+│   ├── preparation.json            411 KB
+│   └── scene/                      model.mjb 227.8 MB ← 冻结场景
+├── contexts/round_000/
+│   ├── candidates.json             1.27 MB（6 个上下文候选）
+│   ├── local_graph.json            238 KB（喂 Agent）
+│   ├── construction_plan.json
+│   ├── proposals.json              Symbolic DSL
+│   └── initialization/
+│       ├── baseline/scene/         model.mjb 227.8 MB
+│       ├── candidates/*.png        初态候选图
+│       └── observation/            head / aux / mask
+└── samples/sample_000000/
+    ├── executable_edit.json        确定位姿
+    ├── graph_after.json            359 KB
+    ├── rule_checks.json
+    ├── semantic_review.json
+    ├── rgb/                        before + after + pair.json
+    ├── task_validation/status.json not_tested
+    └── scene/                      model.mjb 227.8 MB ← 编辑后冻结`;
+
+/* ---------- Agent 表 ---------- */
+const AG = [{"role":"normalizer","images":0,"reqKB":6.9,"resKB":1.3},{"role":"strategist","images":0,"reqKB":137.4,"resKB":1.1},{"role":"proposer","images":2,"reqKB":94.7,"resKB":2.3},{"role":"reviewer","images":4,"reqKB":152.6,"resKB":0.8}];
+const mx = Math.max(...AG.map(a=>a.reqKB));
+document.getElementById("agentTable").innerHTML =
+ "<tr><th>Agent</th><th class=num>图</th><th class=num>请求 KB</th><th></th><th class=num>响应 KB</th><th class=num>倍数</th></tr>" +
+ AG.map(a=>`<tr><td>${a.role}</td><td class="num">${a.images}</td>
+   <td class="num">${a.reqKB}</td>
+   <td><span class="bar" style="width:${Math.max(3,Math.round(56*a.reqKB/mx))}px"></span></td>
+   <td class="num">${a.resKB}</td>
+   <td class="num">${a.resKB?(a.reqKB/a.resKB).toFixed(0)+"×":"—"}</td></tr>`).join("");
+</script>
+</body>
+</html>

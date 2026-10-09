@@ -12,7 +12,7 @@
 
 | 编辑前 head | 编辑后 head |
 |---|---|
-| ![case1 编辑前 head](../../outputs/case_construction/construct-29365f8d6330/samples/sample_000000/rgb/before_head.png) | ![case1 编辑后 head](../../outputs/case_construction/construct-29365f8d6330/samples/sample_000000/rgb/after_head.png) |
+| ![case1 编辑前 head](../../../outputs/case_construction/construct-29365f8d6330/samples/sample_000000/rgb/before_head.png) | ![case1 编辑后 head](../../../outputs/case_construction/construct-29365f8d6330/samples/sample_000000/rgb/after_head.png) |
 
 图中央黑柄白头的是锅铲目标。橙色顶盖、透明瓶身的是本轮记录为 `SaltShaker / Salt_Shaker_2` 的盐罐：从左侧移到右后侧。画面中部另一只白色小罐不是此次编辑对象。
 

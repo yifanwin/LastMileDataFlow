@@ -12,7 +12,7 @@
 
 | 第一轮构造前head | 请求后新增的构造前aux_001 |
 |---|---|
-| ![case1.5 构造前 head；不是编辑后图](../../outputs/case_construction/construct-1246813fc0b7/contexts/round_000/initialization/observation/before_head.png) | ![case1.5 补充的构造前辅助图；不是编辑后图](../../outputs/case_construction/construct-1246813fc0b7/contexts/round_000/initialization/observation/auxiliary/before_aux_001.png) |
+| ![case1.5 构造前 head；不是编辑后图](../../../outputs/case_construction/construct-1246813fc0b7/contexts/round_000/initialization/observation/before_head.png) | ![case1.5 补充的构造前辅助图；不是编辑后图](../../../outputs/case_construction/construct-1246813fc0b7/contexts/round_000/initialization/observation/auxiliary/before_aux_001.png) |
 
 两张都是**未编辑场景**，只是不同相机。不能把右图当作“新增椅子之后”，也不能用两视角的差异冒充编辑变化。补图中没有本次新增的椅子，因为`add`提议没有完成编译和执行。
 

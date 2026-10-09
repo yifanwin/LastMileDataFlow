@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>给机器人出一道「最后一公里」的难题 — 数据管线入门图解</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f7f7f4; --card:#ffffff; --ink:#141414; --ink2:#5a5852; --muted:#8f8d86;
+    --line:#e6e4dc; --accent:#2a6fdb; --accent-soft:#eaf1fd;
+    --agent:#7b56c9; --agent-soft:#f1ecfc;
+    --prog:#1c8a5e; --prog-soft:#e8f6f0;
+    --warn:#c9821a; --warn-soft:#fdf3e2;
+    --bad:#c04545; --bad-soft:#fceeee;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ color-scheme: dark;
+      --bg:#111110; --card:#1b1b19; --ink:#f4f3ef; --ink2:#c3c1b8; --muted:#8b8981;
+      --line:#2e2e2b; --accent:#6ba2f0; --accent-soft:#1b2a42;
+      --agent:#a98be8; --agent-soft:#251f3a;
+      --prog:#4fc394; --prog-soft:#152a22;
+      --warn:#e0a94a; --warn-soft:#2f2717;
+      --bad:#e07575; --bad-soft:#2f1d1d; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC",sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:44px 22px 90px}
+
+  header{text-align:center;margin-bottom:14px}
+  h1{font-size:29px;margin:0 0 10px;letter-spacing:-.01em;line-height:1.35}
+  .lede{color:var(--ink2);font-size:16px;margin:0 auto;max-width:660px}
+
+  .one-line{background:var(--accent-soft);border-radius:14px;padding:18px 22px;margin:26px 0 40px;
+            display:flex;gap:14px;align-items:flex-start}
+  .one-line .ico{font-size:22px;line-height:1.3}
+  .one-line p{margin:0;font-size:16.5px}
+  .one-line b{color:var(--accent)}
+
+  h2{font-size:15px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+     margin:52px 0 20px;font-weight:700}
+
+  /* ---- 流程总览 ---- */
+  .flowline{display:flex;align-items:stretch;gap:0;margin:0 0 34px;flex-wrap:wrap}
+  .fl-step{flex:1 1 0;min-width:120px;text-align:center;position:relative;padding:0 4px}
+  .fl-step .dot{width:38px;height:38px;border-radius:50%;background:var(--card);
+                border:2px solid var(--accent);color:var(--accent);
+                display:flex;align-items:center;justify-content:center;
+                font-weight:700;font-size:16px;margin:0 auto 9px}
+  .fl-step .t{font-size:13.5px;font-weight:600;line-height:1.45}
+  .fl-step .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .fl-step::after{content:"";position:absolute;top:19px;left:calc(50% + 26px);
+                  right:calc(-50% + 26px);height:2px;background:var(--line)}
+  .fl-step:last-child::after{display:none}
+
+  /* ---- 步骤卡 ---- */
+  .step{background:var(--card);border:1px solid var(--line);border-radius:16px;
+        padding:24px 26px;margin-bottom:18px;position:relative}
+  .step-head{display:flex;align-items:center;gap:13px;margin-bottom:6px}
+  .step-num{width:34px;height:34px;border-radius:10px;background:var(--accent);color:#fff;
+            display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex:none}
+  .step-title{font-size:19.5px;font-weight:700}
+  .analogy{color:var(--muted);font-size:14px;margin:2px 0 16px;font-style:italic}
+  .step-body{font-size:15.5px;color:var(--ink2)}
+  .step-body p{margin:0 0 12px}
+  .step-body p:last-child{margin-bottom:0}
+  .step-body b{color:var(--ink)}
+
+  .who{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .tag{font-size:12.5px;padding:5px 11px;border-radius:20px;font-weight:600}
+  .tag.p{background:var(--prog-soft);color:var(--prog)}
+  .tag.a{background:var(--agent-soft);color:var(--agent)}
+  .tag.n{background:var(--line);color:var(--muted);font-weight:400}
+
+  /* ---- 小插图 ---- */
+  .ill{margin:16px 0 4px;border-radius:12px;background:var(--bg);padding:14px;
+       display:flex;justify-content:center;overflow:hidden}
+  svg{max-width:100%;height:auto}
+
+  /* ---- 结果区 ---- */
+  .results{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}
+  .res{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+  .res .big{font-size:30px;font-weight:800;line-height:1.15;letter-spacing:-.02em}
+  .res .lbl{font-size:13.5px;color:var(--muted);margin-top:5px}
+  .res.good .big{color:var(--prog)}
+  .res.warn .big{color:var(--warn)}
+  .res.bad .big{color:var(--bad)}
+
+  .problem{background:var(--warn-soft);border-radius:14px;padding:22px 24px;margin-top:14px}
+  .problem h3{margin:0 0 10px;font-size:17px}
+  .problem p{margin:0 0 12px;font-size:15.5px;color:var(--ink2)}
+  .problem p:last-child{margin-bottom:0}
+  .quote{background:var(--card);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;
+         padding:10px 14px;font-size:14.5px;color:var(--ink2);margin:10px 0}
+  .qlist{list-style:none;padding:0;margin:10px 0 0}
+  .qlist li{font-size:14.5px;color:var(--ink2);padding:5px 0 5px 22px;position:relative}
+  .qlist li::before{content:"?";position:absolute;left:0;top:5px;width:15px;height:15px;
+     border-radius:50%;background:var(--warn);color:#fff;font-size:11px;font-weight:700;
+     display:flex;align-items:center;justify-content:center;line-height:1}
+
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:50px;
+         padding-top:22px;border-top:1px solid var(--line)}
+  @media (max-width:680px){
+    .results{grid-template-columns:1fr}
+    .fl-step::after{display:none}
+    .fl-step{margin-bottom:12px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>给机器人出一道「最后一公里」的难题</h1>
+  <p class="lede">我们想造一批训练数据，让机器人学会：<b>站在够不着的地方时，先挪一下位置再动手</b>。
+  这份图解讲清楚这件事是怎么一步步做出来的。</p>
+</header>
+
+<div class="one-line">
+  <span class="ico">🎯</span>
+  <p>一句话说完整条管线：<b>先造出一个「有难度」的场景，再让机器人真的去试，成功和失败都如实记下来。</b></p>
+</div>
+
+<h2>整体流程</h2>
+
+<div class="flowline">
+  <div class="fl-step"><div class="dot">1</div><div class="t">出题</div><div class="s">说清要什么</div></div>
+  <div class="fl-step"><div class="dot">2</div><div class="t">看房</div><div class="s">摸清场景</div></div>
+  <div class="fl-step"><div class="dot">3</div><div class="t">改造</div><div class="s">制造难度</div></div>
+  <div class="fl-step"><div class="dot">4</div><div class="t">复核</div><div class="s">确认改对了</div></div>
+  <div class="fl-step"><div class="dot">5</div><div class="t">实考</div><div class="s">让机器人试</div></div>
+</div>
+
+<!-- ============ 1 ============ -->
+<div class="step">
+  <div class="step-head"><span class="step-num">1</span><span class="step-title">出题：人用一段话描述想要的难题</span></div>
+  <div class="analogy">就像给学生出一道题，而不是写好每一步的解题过程。</div>
+
+  <div class="ill">
+    <svg width="620" height="130" viewBox="0 0 620 130" role="img" aria-label="一段自然语言描述被交给系统">
+      <rect x="10" y="24" width="290" height="82" rx="12" fill="var(--card)" stroke="var(--line)"/>
+      <text x="28" y="50" font-size="13" fill="var(--muted)">人写的需求（自然语言）</text>
+      <text x="28" y="72" font-size="13" fill="var(--ink)">「机器人到了桌边仍抓不到，</text>
+      <text x="28" y="91" font-size="13" fill="var(--ink)">　需要换个位置。」</text>
+      <path d="M310 65 H360" stroke="var(--line)" stroke-width="2.5" marker-end="url(#a1)"/>
+      <rect x="372" y="24" width="238" height="82" rx="12" fill="var(--agent-soft)" stroke="var(--agent)"/>
+      <text x="390" y="50" font-size="13" fill="var(--agent)" font-weight="700">AI 把它整理成任务单</text>
+      <text x="390" y="70" font-size="13" fill="var(--ink2)">目标是什么 · 要改哪些东西</text>
+      <text x="390" y="89" font-size="13" fill="var(--ink2)">· 改完应该看到什么变化</text>
+      <defs><marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6"
+        orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
+    </svg>
+  </div>
+
+  <div class="step-body">
+    <p>我们不说「把杯子往左挪 30 厘米」，只说<b>想要什么样的困难</b>——比如「机器人已经贴着桌子了但还是够不到」。
+    至于具体挪谁、挪多远，留给流程自己决定。</p>
+    <p>输入还包括：用哪个房间（ProcTHOR 场景库）、哪台机器人（RBY-1）、总共允许花多少时间。</p>
+  </div>
+  <div class="who"><span class="tag n">这一步由 AI 助手完成整理</span></div>
+</div>
+
+<!-- ============ 2 ============ -->
+<div class="step">
+  <div class="step-head"><span class="step-num">2</span><span class="step-title">看房：把场景摸清，画出「地图」</span></div>
+  <div class="analogy">像进入一个陌生房间，先量一遍家具都在哪、哪些面能放东西。</div>
+
+  <div class="ill">
+    <svg width="620" height="150" viewBox="0 0 620 150" role="img" aria-label="房间被测量成一张关系图">
+      <rect x="14" y="18" width="250" height="114" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+      <text x="28" y="40" font-size="12.5" fill="var(--muted)">真实房间</text>
+      <rect x="34" y="58" width="112" height="46" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <text x="46" y="86" font-size="12" fill="var(--accent)">桌子</text>
+      <circle cx="196" cy="82" r="9" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <circle cx="224" cy="106" r="7" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <rect x="176" y="44" width="34" height="16" rx="4" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <path d="M272 75 H318" stroke="var(--line)" stroke-width="2.5" marker-end="url(#a2)"/>
+      <text x="286" y="66" font-size="11.5" fill="var(--muted)">测量</text>
+      <rect x="330" y="18" width="276" height="114" rx="10" fill="var(--card)" stroke="var(--line)"/>
+      <text x="344" y="40" font-size="12.5" fill="var(--muted)">关系图（谁在谁上面 · 哪能放东西）</text>
+      <circle cx="392" cy="74" r="13" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <text x="382" y="78" font-size="10.5" fill="var(--accent)">桌</text>
+      <circle cx="510" cy="60" r="10" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <circle cx="540" cy="96" r="10" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <circle cx="466" cy="106" r="10" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <path d="M404 70 L500 62 M404 78 L532 92 M404 82 L470 102" stroke="var(--prog)" stroke-width="1.4" opacity=".7"/>
+      <rect x="418" y="62" width="82" height="34" rx="5" fill="none" stroke="var(--accent)" stroke-dasharray="3 3" opacity=".7"/>
+      <text x="418" y="128" font-size="11.5" fill="var(--muted)">虚线框 = 这里可以放东西</text>
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6"
+        orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
+    </svg>
+  </div>
+
+  <div class="step-body">
+    <p>程序把房间<b>真实跑起来</b>（不是只看文件），然后逐样测量：每个物体的实际位置、大小，
+    谁压在谁上面（<b>靠真的接触力判断，不是猜的</b>），哪些表面是水平、能放东西。</p>
+    <p>测完得到一张「关系图」。如果房间里东西太多，只会把<b>目标附近的一小片</b>交给 AI 看，
+    免得信息过载。</p>
+  </div>
+  <div class="who"><span class="tag p">程序负责测量</span><span class="tag a">AI 选看哪些区域</span></div>
+</div>
+
+<!-- ============ 3 ============ -->
+<div class="step">
+  <div class="step-head"><span class="step-num">3</span><span class="step-title">改造：动手把场景改成「有难度」</span></div>
+  <div class="analogy">像出题人故意把关键道具挪到不好够的位置。</div>
+
+  <div class="ill">
+    <svg width="620" height="152" viewBox="0 0 620 152" role="img" aria-label="改造前后对比">
+      <text x="14" y="22" font-size="12.5" fill="var(--muted)">改造前</text>
+      <rect x="14" y="34" width="256" height="104" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+      <rect x="40" y="86" width="176" height="34" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <circle cx="96" cy="76" r="11" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <text x="86" y="80" font-size="10" fill="var(--prog)">目标</text>
+      <circle cx="164" cy="76" r="10" fill="var(--line)" stroke="var(--muted)"/>
+      <text x="154" y="80" font-size="10" fill="var(--muted)">走开</text>
+      <path d="M286 86 H326" stroke="var(--line)" stroke-width="2.5" marker-end="url(#a3)"/>
+      <text x="292" y="76" font-size="11.5" fill="var(--muted)">挪一下</text>
+      <text x="344" y="22" font-size="12.5" fill="var(--muted)">改造后</text>
+      <rect x="344" y="34" width="262" height="104" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+      <rect x="370" y="86" width="196" height="34" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <circle cx="430" cy="76" r="11" fill="var(--prog-soft)" stroke="var(--prog)"/>
+      <text x="420" y="80" font-size="10" fill="var(--prog)">目标</text>
+      <circle cx="552" cy="76" r="10" fill="var(--warn-soft)" stroke="var(--warn)"/>
+      <text x="540" y="80" font-size="10" fill="var(--warn)">挡住</text>
+      <text x="352" y="130" font-size="11.5" fill="var(--warn)">障碍移到了目标与机器人之间</text>
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6"
+        orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
+    </svg>
+  </div>
+
+  <div class="step-body">
+    <p>AI 只做<b>选择题</b>：选哪张桌子、要动哪个东西、往哪个方向动。它不给精确坐标，
+    而是给出一个<b>大致范围</b>（「挪到桌子后侧那一带」）。</p>
+    <p>然后由<b>程序</b>在这个范围里挑一个具体位置，真的把东西搬过去。
+    这一步不会一次性大幅重排整个房间，而是<b>一次只动少数几个东西</b>，方便判断改动是否有效。</p>
+    <p>搬完之后，让房间<b>真的静置一会儿</b>，看东西有没有掉下来、滑走、卡进桌面。
+    只有真正稳住、并且落在该在的位置，这一步才算过。</p>
+  </div>
+  <div class="who">
+    <span class="tag a">AI 选方案</span>
+    <span class="tag p">程序算坐标并动手</span>
+    <span class="tag p">程序检查有没有掉/穿</span>
+  </div>
+</div>
+
+<!-- ============ 4 ============ -->
+<div class="step">
+  <div class="step-head"><span class="step-num">4</span><span class="step-title">复核：改完拍照片，确认改得对</span></div>
+  <div class="analogy">像改完试卷再看一遍：字是不是写歪了、题目有没有变样。</div>
+
+  <div class="step-body">
+    <p>程序在<b>同一个机位</b>拍下改造前、改造后两张照片，交给 AI 对比：东西真的挪了吗？
+    目标还在桌上吗？布局变化看起来是「有意图的」还是「乱七八糟的」？</p>
+    <p>如果检查不过，就<b>撤销这次改动，从头再来</b>——原来的房间不会被弄坏。
+    每一次尝试、包括失败的，都会完整留存。</p>
+  </div>
+  <div class="who"><span class="tag a">AI 看图复核</span><span class="tag p">程序拍图 · 不合格就回滚</span></div>
+</div>
+
+<!-- ============ 5 ============ -->
+<div class="step">
+  <div class="step-head"><span class="step-num">5</span><span class="step-title">实考：让机器人真的去抓一次</span></div>
+  <div class="analogy">题目出好了，最后要看答卷——机器人真的站上去、伸手、抓住没有。</div>
+
+  <div class="step-body">
+    <p>在冻结好的场景里，程序尝试<b>许多个不同的站立位置</b>，让机器人手臂真的伸出去抓。
+    每个位置都记录：能不能规划出动作、有没有真的执行、抓住没有。</p>
+    <p>把这些结果画在一张<b>俯视图</b>上——这就是我们最想要的产物：
+    <b>一张「站在哪里能成功」的地图</b>，后面要教机器人「该挪到哪去」就靠它。</p>
+    <p><b>失败和成功一样有价值</b>，两边都要留视频和轨迹。</p>
+  </div>
+  <div class="who"><span class="tag p">程序规划并真实执行</span><span class="tag n">这一步目前只在一个场景、一个物体上跑通</span></div>
+</div>
+
+<h2>目前的结果</h2>
+
+<div class="results">
+  <div class="res good">
+    <div class="big">3 次</div>
+    <div class="lbl">真实抓住（严格标准：抬起 11.5 厘米、稳稳保持 3.5 秒）</div>
+  </div>
+  <div class="res warn">
+    <div class="big">1 张</div>
+    <div class="lbl">成功「改造」出的困难场景（另外两类全部失败）</div>
+  </div>
+  <div class="res bad">
+    <div class="big">0 次</div>
+    <div class="lbl">真正验证过「挪位置确实有用」</div>
+  </div>
+  <div class="res warn">
+    <div class="big">单场景</div>
+    <div class="lbl">目前只在一个房间、一个杯子上跑通，还不能说普遍有效</div>
+  </div>
+</div>
+
+<h2>最难的地方在哪</h2>
+
+<div class="problem">
+  <h3>不是机器人不聪明，是题目出得太含糊</h3>
+  <p>我们给 AI 的描述听起来很明白，但每一句都<B>没法变成程序能算的东西</B>：</p>
+  <div class="quote">「A 面太窄，底盘站不下；B 面够不到；C 面更适合抓。」</div>
+  <ul class="qlist">
+    <li>「太窄」是多少厘米才算窄？</li>
+    <li>「够不到」是手臂根本伸不过去，还是被东西挡住了？</li>
+    <li>「更适合」是成功机会更大，还是仅仅存在一种可行办法？</li>
+  </ul>
+  <p style="margin-top:14px">没人给标准答案，AI 只能<b>自己猜</b>——于是同一句话，在不同场景会被执行成
+  完全不同的改动。这就是为什么尝试了 20 次，只成功了 1 次。</p>
+  <p><b>下一步要做的</b>，就是把这些模糊的说法，改写成程序能直接计算的判断标准
+  （比如「这条边上所有站位都伸不到」「换个边之后能规划出完整路径」）。</p>
+</div>
+
+<footer>
+  LastMileDataFlow · 数据生成管线入门图解<br>
+  配套：详细技术版本见 <b>pipeline-architecture.html</b>
+</footer>
+
+</div>
+</body>
+</html>

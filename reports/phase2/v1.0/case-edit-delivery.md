@@ -54,10 +54,10 @@ train_0 方向样本的独立恢复见 [恢复检查](checks/case-edit-train0-di
 
 | 场景 / 类型 | 通过样本编号 | RGB 子目录 | 示例图 |
 |---|---|---|---|
-| train_0 / direction | `000000、000002、000004` | `rgb_retry_1/` | [编辑前](../../outputs/case_edits/case-edit-e2e-1791293533-train0-direction/samples/sample_000000/rgb_retry_1/before_top.png) · [编辑后](../../outputs/case_edits/case-edit-e2e-1791293533-train0-direction/samples/sample_000000/rgb_retry_1/after_top.png) |
-| train_0 / distance | `000000、000001、000002` | `rgb/` | [编辑前](../../outputs/case_edits/case-edit-geometry-1791295215-train0-distance/samples/sample_000000/rgb/before_top.png) · [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train0-distance/samples/sample_000000/rgb/after_top.png) |
-| train_2 / direction | `000002、000003、000008` | `rgb/` | [编辑前](../../outputs/case_edits/case-edit-dual-channel-1791297540-train2-direction/samples/sample_000002/rgb/before_top.png) · [编辑后](../../outputs/case_edits/case-edit-dual-channel-1791297540-train2-direction/samples/sample_000002/rgb/after_top.png) |
-| train_2 / distance | `000000、000001、000002` | `rgb/` | [编辑前](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000000/rgb/before_top.png) · [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000000/rgb/after_top.png) |
+| train_0 / direction | `000000、000002、000004` | `rgb_retry_1/` | [编辑前](../../../outputs/case_edits/case-edit-e2e-1791293533-train0-direction/samples/sample_000000/rgb_retry_1/before_top.png) · [编辑后](../../../outputs/case_edits/case-edit-e2e-1791293533-train0-direction/samples/sample_000000/rgb_retry_1/after_top.png) |
+| train_0 / distance | `000000、000001、000002` | `rgb/` | [编辑前](../../../outputs/case_edits/case-edit-geometry-1791295215-train0-distance/samples/sample_000000/rgb/before_top.png) · [编辑后](../../outputs/case_edits/case-edit-geometry-1791295215-train0-distance/samples/sample_000000/rgb/after_top.png) |
+| train_2 / direction | `000002、000003、000008` | `rgb/` | [编辑前](../../../outputs/case_edits/case-edit-dual-channel-1791297540-train2-direction/samples/sample_000002/rgb/before_top.png) · [编辑后](../../../outputs/case_edits/case-edit-dual-channel-1791297540-train2-direction/samples/sample_000002/rgb/after_top.png) |
+| train_2 / distance | `000000、000001、000002` | `rgb/` | [编辑前](../../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000000/rgb/before_top.png) · [编辑后](../../../outputs/case_edits/case-edit-geometry-1791295215-train2-distance/samples/sample_000000/rgb/after_top.png) |
 
 共 12 个不同接受样本、72 张接受样本 RGB，全部独立恢复与实际位姿核对通过。
 缺角色、百万米无候选、零调用预算的预期失败输入均如期未接受样本：缺角色/百万米描述返回无提议，零预算在调用前结束，见[失败验收](checks/case-edit-failures-1791295900.json)。
