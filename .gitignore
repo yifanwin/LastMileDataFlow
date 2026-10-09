@@ -5,3 +5,4 @@ outputs/
 .pytest_cache/
 reports/logs/
 .claude/
+.worktrees/
