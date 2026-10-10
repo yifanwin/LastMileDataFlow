@@ -1,0 +1,1043 @@
+{
+  "summary": {
+    "active": {
+      "1": 103
+    },
+    "completed_scenes": 0,
+    "generation_timing": {
+      "elapsed_active_s": 30.544070897856727,
+      "elapsed_wall_s": 30.544067,
+      "ended_at_utc": null,
+      "session_count": 1,
+      "started_at_utc": "2026-10-10T03:22:21.666847+00:00",
+      "status": "running",
+      "updated_at_utc": "2026-10-10T03:22:52.210914+00:00"
+    },
+    "pending_scenes": 0,
+    "retained_segments": 0,
+    "scene_results": {},
+    "scenes": 1,
+    "schema_version": "no-edit-v1",
+    "status": "running",
+    "updated_at_utc": "2026-10-10T03:22:52.214305+00:00"
+  },
+  "tasks": [
+    {
+      "anchor_world": [
+        2.359975078614154,
+        4.153781952297794,
+        0.8970225549708272
+      ],
+      "asset_id": "Spray_Bottle_1",
+      "category": "SprayBottle",
+      "center_world": [
+        2.359975078614154,
+        4.153781952297794,
+        0.8970225549708272
+      ],
+      "dimensions_m": [
+        0.03209037144241171,
+        0.24781235903888554,
+        0.11140547699145328
+      ],
+      "instance_id": "atomizer_e0cab0ef1fe80f6fe596048b9bc862a1_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7SprayBottle|surface|2|10\u7684SprayBottle\u3002",
+      "local_bounds": [
+        [
+          -0.01583549486384443,
+          -0.12465187999981264,
+          -0.06467998120403717
+        ],
+        [
+          0.016254876578567282,
+          0.12316047903907289,
+          0.0467254957874161
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "SprayBottle|surface|2|10",
+      "target_body": "atomizer_e0cab0ef1fe80f6fe596048b9bc862a1_1_0_2",
+      "task_id": "pick-5a86ecebea93"
+    },
+    {
+      "anchor_world": [
+        2.378042034448171,
+        4.049159817692119,
+        0.05974496803778554
+      ],
+      "asset_id": "Book_23",
+      "category": "Book",
+      "center_world": [
+        2.378042034448171,
+        4.049159817692119,
+        0.05974496803778554
+      ],
+      "dimensions_m": [
+        0.2193002064875642,
+        0.028512288430936707,
+        0.31518014269120886
+      ],
+      "instance_id": "book_be4d759484637aeb579b28e6a954b18d_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Book|surface|2|2\u7684\u4e66\u3002",
+      "local_bounds": [
+        [
+          -0.1094310233235196,
+          -0.014252551315475447,
+          -0.15758988952160494
+        ],
+        [
+          0.1098691831640446,
+          0.014259737115461258,
+          0.15759025316960393
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Book|surface|2|2",
+      "target_body": "book_be4d759484637aeb579b28e6a954b18d_1_0_2",
+      "task_id": "pick-7841b37260b5"
+    },
+    {
+      "anchor_world": [
+        5.050970881313228,
+        4.053989817806696,
+        0.7749503880403337
+      ],
+      "asset_id": "Book_23",
+      "category": "Book",
+      "center_world": [
+        5.050970881313228,
+        4.053989817806696,
+        0.7749503880403337
+      ],
+      "dimensions_m": [
+        0.21930020648756451,
+        0.028512288430936825,
+        0.31518014269120936
+      ],
+      "instance_id": "book_be4d759484637aeb579b28e6a954b18d_2_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Book|surface|2|9\u7684\u4e66\u3002",
+      "local_bounds": [
+        [
+          -0.10943102332351895,
+          -0.01425255131547553,
+          -0.15758988952160455
+        ],
+        [
+          0.10986918316404556,
+          0.014259737115461293,
+          0.15759025316960482
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Book|surface|2|9",
+      "target_body": "book_be4d759484637aeb579b28e6a954b18d_2_0_2",
+      "task_id": "pick-02948c7dc368"
+    },
+    {
+      "anchor_world": [
+        3.2861261540508973,
+        4.053989957096358,
+        0.4209810154059111
+      ],
+      "asset_id": "Book_16",
+      "category": "Book",
+      "center_world": [
+        3.2861261540508973,
+        4.053989957096358,
+        0.4209810154059111
+      ],
+      "dimensions_m": [
+        0.13008751229607354,
+        0.019941600000000052,
+        0.21786817755237808
+      ],
+      "instance_id": "book_c62db15891607d44173a3d995755f638_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Book|surface|2|33\u7684\u4e66\u3002",
+      "local_bounds": [
+        [
+          -0.06375760191568083,
+          -0.00996870000000003,
+          -0.10893404586696252
+        ],
+        [
+          0.06632991038039271,
+          0.009972900000000022,
+          0.10893413168541558
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Book|surface|2|33",
+      "target_body": "book_c62db15891607d44173a3d995755f638_1_0_2",
+      "task_id": "pick-c7879f1827d1"
+    },
+    {
+      "anchor_world": [
+        8.061715873738489,
+        3.483819931587973,
+        0.9508182749843335
+      ],
+      "asset_id": "Book_13",
+      "category": "Book",
+      "center_world": [
+        8.061715873738489,
+        3.483819931587973,
+        0.9508182749843335
+      ],
+      "dimensions_m": [
+        0.21130271935883907,
+        0.02525637229249196,
+        0.28165036647213343
+      ],
+      "instance_id": "book_e1f55dff5055aaeae07a75960a0dd7ea_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Book|surface|2|1\u7684\u4e66\u3002",
+      "local_bounds": [
+        [
+          -0.10507455567941934,
+          -0.012630059646246014,
+          -0.14082512246388462
+        ],
+        [
+          0.10622816367941973,
+          0.012626312646245948,
+          0.1408252440082488
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Book|surface|2|1",
+      "target_body": "book_e1f55dff5055aaeae07a75960a0dd7ea_1_0_2",
+      "task_id": "pick-2ca7004d4517"
+    },
+    {
+      "anchor_world": [
+        7.683913133301872,
+        1.7542681299086378,
+        0.7545336923591934
+      ],
+      "asset_id": "RoboTHOR_butter_knife_ai2_1_v",
+      "category": "ButterKnife",
+      "center_world": [
+        7.683913133301872,
+        1.7542681299086378,
+        0.7545336923591934
+      ],
+      "dimensions_m": [
+        0.006786998706827195,
+        0.03016899957450883,
+        0.24098099643913312
+      ],
+      "instance_id": "butterknife_f211d9b5a6beb604cda0c1df985a0093_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7ButterKnife|surface|2|8\u7684ButterKnife\u3002",
+      "local_bounds": [
+        [
+          -0.0036670421511679355,
+          -0.014999000185909713,
+          -0.12036500077672337
+        ],
+        [
+          0.0031199565556592587,
+          0.015169999388599116,
+          0.12061599566240974
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "ButterKnife|surface|2|8",
+      "target_body": "butterknife_f211d9b5a6beb604cda0c1df985a0093_1_0_2",
+      "task_id": "pick-badc9d384193"
+    },
+    {
+      "anchor_world": [
+        7.3134564528010175,
+        2.098837342592207,
+        0.8003474302649876
+      ],
+      "asset_id": "Cup_30",
+      "category": "Cup",
+      "center_world": [
+        7.3134564528010175,
+        2.098837342592207,
+        0.8003474302649876
+      ],
+      "dimensions_m": [
+        0.12441200004007899,
+        0.09802799800473214,
+        0.12446999948441534
+      ],
+      "instance_id": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Cup|surface|2|28\u7684\u676f\u5b50\u3002",
+      "local_bounds": [
+        [
+          -0.062231998938367436,
+          -0.0499509996563358,
+          -0.062231999222187945
+        ],
+        [
+          0.06218000110171156,
+          0.04807699834839633,
+          0.0622380002622274
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Cup|surface|2|28",
+      "target_body": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
+      "task_id": "pick-bf2b057e9916"
+    },
+    {
+      "anchor_world": [
+        7.407880696549568,
+        3.981484175906492,
+        0.9438463126401067
+      ],
+      "asset_id": "Knife_1",
+      "category": "Knife",
+      "center_world": [
+        7.407880696549568,
+        3.981484175906492,
+        0.9438463126401067
+      ],
+      "dimensions_m": [
+        0.013398306503800778,
+        0.04772945099698507,
+        0.33399464276606844
+      ],
+      "instance_id": "knife_d1a1d17c285fd8977f4a313d2a06c8e2_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Knife|surface|2|5\u7684Knife\u3002",
+      "local_bounds": [
+        [
+          -0.006544856415856974,
+          -0.022789663812026295,
+          -0.16653605387725473
+        ],
+        [
+          0.006853450087943804,
+          0.024939787184958772,
+          0.1674585888888137
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Knife|surface|2|5",
+      "target_body": "knife_d1a1d17c285fd8977f4a313d2a06c8e2_1_0_2",
+      "task_id": "pick-2ef82e2331be"
+    },
+    {
+      "anchor_world": [
+        5.844495588184077,
+        3.5587136072096395,
+        0.9476006236207523
+      ],
+      "asset_id": "Ladle_2",
+      "category": "Ladle",
+      "center_world": [
+        5.844495588184077,
+        3.5587136072096395,
+        0.9476006236207523
+      ],
+      "dimensions_m": [
+        0.08031299684081122,
+        0.04525452777381578,
+        0.30701195788751284
+      ],
+      "instance_id": "ladle_9c306e3043202395854ae4a3cba13e79_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Ladle|surface|2|20\u7684Ladle\u3002",
+      "local_bounds": [
+        [
+          -0.03720702855045843,
+          -0.02349337187867867,
+          -0.15258705998139946
+        ],
+        [
+          0.0431059682903528,
+          0.021761155895137108,
+          0.15442489790611338
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Ladle|surface|2|20",
+      "target_body": "ladle_9c306e3043202395854ae4a3cba13e79_1_0_2",
+      "task_id": "pick-071c52bd57e9"
+    },
+    {
+      "anchor_world": [
+        8.058238077299464,
+        1.0046799853080335,
+        0.7549482857003341
+      ],
+      "asset_id": "Pencil_1",
+      "category": "Pencil",
+      "center_world": [
+        8.058238077299464,
+        1.0046799853080335,
+        0.7549482857003341
+      ],
+      "dimensions_m": [
+        0.00945580236770154,
+        0.009455618542591398,
+        0.16545926400202665
+      ],
+      "instance_id": "pencil_871b1f13539d25a379dac1c4f20e3fae_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Pencil|surface|2|23\u7684Pencil\u3002",
+      "local_bounds": [
+        [
+          -0.004727888416721017,
+          -0.004727800887173695,
+          -0.08911137200098761
+        ],
+        [
+          0.004727913950980524,
+          0.004727817655417703,
+          0.07634789200103903
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Pencil|surface|2|23",
+      "target_body": "pencil_871b1f13539d25a379dac1c4f20e3fae_1_0_2",
+      "task_id": "pick-9397debd132f"
+    },
+    {
+      "anchor_world": [
+        6.232748688728411,
+        3.712209094696888,
+        0.9945642756838372
+      ],
+      "asset_id": "Pepper_Shaker_1",
+      "category": "PepperShaker",
+      "center_world": [
+        6.232748688728411,
+        3.712209094696888,
+        0.9945642756838372
+      ],
+      "dimensions_m": [
+        0.05339999980259519,
+        0.11071899773407817,
+        0.05239999648516942
+      ],
+      "instance_id": "peppershaker_d3a7b2ab4bd62388f7ea7dd2ef7c1fdc_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7PepperShaker|surface|2|21\u7684PepperShaker\u3002",
+      "local_bounds": [
+        [
+          -0.02647999859324611,
+          -0.05719999831721792,
+          -0.026139998279167853
+        ],
+        [
+          0.026920001209349082,
+          0.053518999416860245,
+          0.026259998206001573
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "PepperShaker|surface|2|21",
+      "target_body": "peppershaker_d3a7b2ab4bd62388f7ea7dd2ef7c1fdc_1_0_2",
+      "task_id": "pick-960b8710cd27"
+    },
+    {
+      "anchor_world": [
+        8.285505477869705,
+        3.326592142692591,
+        0.9506245066774652
+      ],
+      "asset_id": "Plate_1",
+      "category": "Plate",
+      "center_world": [
+        8.285505477869705,
+        3.326592142692591,
+        0.9506245066774652
+      ],
+      "dimensions_m": [
+        0.20682531790109737,
+        0.024562607678677573,
+        0.21052234302736988
+      ],
+      "instance_id": "plate_ad540817fe2632d8b49916da70118c0a_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Plate|surface|2|4\u7684\u76d8\u5b50\u3002",
+      "local_bounds": [
+        [
+          -0.10723863765676905,
+          -0.012283094094441198,
+          -0.10525938251350508
+        ],
+        [
+          0.0995866802443283,
+          0.012279513584236375,
+          0.1052629605138648
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Plate|surface|2|4",
+      "target_body": "plate_ad540817fe2632d8b49916da70118c0a_1_0_2",
+      "task_id": "pick-b2838945ef0e"
+    },
+    {
+      "anchor_world": [
+        0.3794161600841982,
+        1.5608351702744572,
+        0.16613582449904743
+      ],
+      "asset_id": "Fridge_12",
+      "category": "Fridge",
+      "center_world": [
+        0.38413329107052346,
+        1.7086093790109023,
+        0.8893749723258586
+      ],
+      "dimensions_m": [
+        0.8269367191848822,
+        1.7853698486406935,
+        0.7283188437882427
+      ],
+      "explicit_handle": false,
+      "handle_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_2_2",
+      "handle_local_bounds": [
+        [
+          -0.1507134311453211,
+          -0.29044818712191417,
+          -0.3846151605856899
+        ],
+        [
+          0.15041777169423542,
+          0.042523836120008984,
+          0.011325480754086237
+        ]
+      ],
+      "instance_id": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_0_2",
+      "instruction": "\u6253\u5f00\u623f\u95f42\u4e2d\u7f16\u53f7Fridge|2|1\u7684\u51b0\u7bb1\u7684\u7b2c1\u4e2a\u62bd\u5c49\u3002",
+      "joint_anchor_world": [
+        0.566061,
+        1.560983,
+        0.290098
+      ],
+      "joint_axis_world": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "joint_goal": 0.1,
+      "joint_initial": 0.0,
+      "joint_kind": "slide",
+      "joint_name": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_2_2_joint_0",
+      "joint_range": [
+        0.0,
+        0.298
+      ],
+      "operation": "open",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Fridge|2|1",
+      "target_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_2_2",
+      "task_id": "open-85af7c5fc574"
+    },
+    {
+      "anchor_world": [
+        0.379313592590432,
+        1.8528741194458385,
+        0.1660768637991757
+      ],
+      "asset_id": "Fridge_12",
+      "category": "Fridge",
+      "center_world": [
+        0.38413329107052346,
+        1.7086093790109023,
+        0.8893749723258586
+      ],
+      "dimensions_m": [
+        0.8269367191848822,
+        1.7853698486406935,
+        0.7283188437882427
+      ],
+      "explicit_handle": false,
+      "handle_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_3_2",
+      "handle_local_bounds": [
+        [
+          -0.14680096287151434,
+          -0.2904996685320046,
+          -0.3848202946264434
+        ],
+        [
+          0.1477552017631909,
+          0.04245739613035593,
+          0.01132547980730736
+        ]
+      ],
+      "instance_id": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_0_2",
+      "instruction": "\u6253\u5f00\u623f\u95f42\u4e2d\u7f16\u53f7Fridge|2|1\u7684\u51b0\u7bb1\u7684\u7b2c2\u4e2a\u62bd\u5c49\u3002",
+      "joint_anchor_world": [
+        0.566061,
+        1.852397,
+        0.290098
+      ],
+      "joint_axis_world": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "joint_goal": 0.1,
+      "joint_initial": 0.0,
+      "joint_kind": "slide",
+      "joint_name": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_3_2_drawer295584c4c1_1",
+      "joint_range": [
+        0.0,
+        0.298
+      ],
+      "operation": "open",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Fridge|2|1",
+      "target_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_3_2",
+      "task_id": "open-302c141c596b"
+    },
+    {
+      "anchor_world": [
+        0.7028738785760541,
+        1.3662467025988936,
+        1.426464303832465
+      ],
+      "asset_id": "Fridge_12",
+      "category": "Fridge",
+      "center_world": [
+        0.38413329107052346,
+        1.7086093790109023,
+        0.8893749723258586
+      ],
+      "dimensions_m": [
+        0.8269367191848822,
+        1.7853698486406935,
+        0.7283188437882427
+      ],
+      "explicit_handle": true,
+      "handle_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_5_2",
+      "handle_local_bounds": [
+        [
+          -0.030372069541669156,
+          -0.23027549791692326,
+          -0.0004360103838543239
+        ],
+        [
+          0.03049747473945641,
+          0.23029210558185276,
+          0.08716636753596241
+        ]
+      ],
+      "instance_id": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_0_2",
+      "instruction": "\u6253\u5f00\u623f\u95f42\u4e2d\u7f16\u53f7Fridge|2|1\u7684\u51b0\u7bb1\u7684\u7b2c3\u4e2a\u95e8\u3002",
+      "joint_anchor_world": [
+        0.564714,
+        2.1046829701977,
+        1.541036119209
+      ],
+      "joint_axis_world": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "joint_goal": -0.5235987755982988,
+      "joint_initial": 0.0,
+      "joint_kind": "hinge",
+      "joint_name": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_4_2_Mesh984510701_2",
+      "joint_range": [
+        -1.5708,
+        0.0
+      ],
+      "operation": "open",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Fridge|2|1",
+      "target_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_4_2",
+      "task_id": "open-85a589b6c418"
+    },
+    {
+      "anchor_world": [
+        0.7021898031310183,
+        1.366194382078564,
+        0.8396103856812676
+      ],
+      "asset_id": "Fridge_12",
+      "category": "Fridge",
+      "center_world": [
+        0.38413329107052346,
+        1.7086093790109023,
+        0.8893749723258586
+      ],
+      "dimensions_m": [
+        0.8269367191848822,
+        1.7853698486406935,
+        0.7283188437882427
+      ],
+      "explicit_handle": true,
+      "handle_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_7_2",
+      "handle_local_bounds": [
+        [
+          -0.030993280042476146,
+          -0.33284080544208694,
+          -0.003510506702608329
+        ],
+        [
+          0.031014044199604074,
+          0.33290557680462196,
+          0.08869531296464483
+        ]
+      ],
+      "instance_id": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_0_2",
+      "instruction": "\u6253\u5f00\u623f\u95f42\u4e2d\u7f16\u53f7Fridge|2|1\u7684\u51b0\u7bb1\u7684\u7b2c4\u4e2a\u95e8\u3002",
+      "joint_anchor_world": [
+        0.564714,
+        2.1046829701977,
+        0.642167
+      ],
+      "joint_axis_world": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "joint_goal": -0.5235987755982988,
+      "joint_initial": 0.0,
+      "joint_kind": "hinge",
+      "joint_name": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_6_2_Mesh5e9b26211_3",
+      "joint_range": [
+        -1.5708,
+        0.0
+      ],
+      "operation": "open",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Fridge|2|1",
+      "target_body": "refrigerator_2c47eb19b983297ad27dd38b449e9660_1_6_2",
+      "task_id": "open-f348afd24bb7"
+    },
+    {
+      "anchor_world": [
+        5.851422441553115,
+        3.7089778256406483,
+        1.036069033960698
+      ],
+      "asset_id": "Salt_Shaker_2",
+      "category": "SaltShaker",
+      "center_world": [
+        5.851422441553115,
+        3.7089778256406483,
+        1.036069033960698
+      ],
+      "dimensions_m": [
+        0.07489799831858801,
+        0.19340097945123202,
+        0.07482397533208568
+      ],
+      "instance_id": "saltshaker_4a6645cf2cdf6c8afa19b4998a0f4061_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7SaltShaker|surface|2|7\u7684SaltShaker\u3002",
+      "local_bounds": [
+        [
+          -0.03778500371024942,
+          -0.09723800085190111,
+          -0.0368749969299449
+        ],
+        [
+          0.037112994608338584,
+          0.0961629785993309,
+          0.03794897840214078
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "SaltShaker|surface|2|7",
+      "target_body": "saltshaker_4a6645cf2cdf6c8afa19b4998a0f4061_1_0_2",
+      "task_id": "pick-dcefd040eab3"
+    },
+    {
+      "anchor_world": [
+        6.161628955586672,
+        3.8667301122036246,
+        0.9470156623122576
+      ],
+      "asset_id": "Spatula_1",
+      "category": "Spatula",
+      "center_world": [
+        6.161628955586672,
+        3.8667301122036246,
+        0.9470156623122576
+      ],
+      "dimensions_m": [
+        0.06300800065236767,
+        0.016156175780150904,
+        0.29552532853121616
+      ],
+      "instance_id": "spatula_291e31b285474249721c8a7b1bac877a_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Spatula|surface|2|22\u7684Spatula\u3002",
+      "local_bounds": [
+        [
+          -0.03150324098480876,
+          -0.008273758635556305,
+          -0.14827632497652163
+        ],
+        [
+          0.03150475966755892,
+          0.0078824171445946,
+          0.14724900355469453
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Spatula|surface|2|22",
+      "target_body": "spatula_291e31b285474249721c8a7b1bac877a_1_0_2",
+      "task_id": "pick-7f3461ec33ce"
+    },
+    {
+      "anchor_world": [
+        8.139483601712488,
+        3.7896210439273332,
+        0.9522491098570766
+      ],
+      "asset_id": "Dish_Sponge_1",
+      "category": "DishSponge",
+      "center_world": [
+        8.139483601712488,
+        3.7896210439273332,
+        0.9522491098570766
+      ],
+      "dimensions_m": [
+        0.0726559609484036,
+        0.025741744367861773,
+        0.13985397947584383
+      ],
+      "instance_id": "sponge_41cc9aa65073b4cd1fc4d9871335148d_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7DishSponge|surface|2|25\u7684DishSponge\u3002",
+      "local_bounds": [
+        [
+          -0.03632390404658431,
+          -0.012959372149778402,
+          -0.06992701019223342
+        ],
+        [
+          0.036332056901819294,
+          0.012782372218083373,
+          0.0699269692836104
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "DishSponge|surface|2|25",
+      "target_body": "sponge_41cc9aa65073b4cd1fc4d9871335148d_1_0_2",
+      "task_id": "pick-2b28b8a7b4dc"
+    },
+    {
+      "anchor_world": [
+        6.617540277124215,
+        3.8802419569104063,
+        0.9477350768041543
+      ],
+      "asset_id": "Spoon_1",
+      "category": "Spoon",
+      "center_world": [
+        6.617540277124215,
+        3.8802419569104063,
+        0.9477350768041543
+      ],
+      "dimensions_m": [
+        0.04139141105370673,
+        0.019056317812056717,
+        0.20742506038196484
+      ],
+      "instance_id": "spoon_573130d7496422c068be3abf14b0dcf0_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Spoon|surface|2|11\u7684Spoon\u3002",
+      "local_bounds": [
+        [
+          -0.018553756526853656,
+          -0.009530154436492246,
+          -0.10370903296515735
+        ],
+        [
+          0.022837654526853074,
+          0.00952616337556447,
+          0.10371602741680751
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Spoon|surface|2|11",
+      "target_body": "spoon_573130d7496422c068be3abf14b0dcf0_1_0_2",
+      "task_id": "pick-709082db9507"
+    },
+    {
+      "anchor_world": [
+        8.448132040299608,
+        3.4181051858007607,
+        0.9477719212409609
+      ],
+      "asset_id": "Spoon_1",
+      "category": "Spoon",
+      "center_world": [
+        8.448132040299608,
+        3.4181051858007607,
+        0.9477719212409609
+      ],
+      "dimensions_m": [
+        0.04139141105370701,
+        0.01905631781205675,
+        0.20742506038196562
+      ],
+      "instance_id": "spoon_573130d7496422c068be3abf14b0dcf0_2_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Spoon|surface|2|12\u7684Spoon\u3002",
+      "local_bounds": [
+        [
+          -0.01855375652685374,
+          -0.00953015443649217,
+          -0.10370903296515799
+        ],
+        [
+          0.022837654526853268,
+          0.009526163375564582,
+          0.10371602741680765
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Spoon|surface|2|12",
+      "target_body": "spoon_573130d7496422c068be3abf14b0dcf0_2_0_2",
+      "task_id": "pick-d8594f8a1a8b"
+    },
+    {
+      "anchor_world": [
+        6.246605187599418,
+        4.171977961580987,
+        0.9477719178275763
+      ],
+      "asset_id": "Spoon_1",
+      "category": "Spoon",
+      "center_world": [
+        6.246605187599418,
+        4.171977961580987,
+        0.9477719178275763
+      ],
+      "dimensions_m": [
+        0.04139141105370757,
+        0.019056317812056633,
+        0.20742506038196445
+      ],
+      "instance_id": "spoon_573130d7496422c068be3abf14b0dcf0_3_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Spoon|surface|2|13\u7684Spoon\u3002",
+      "local_bounds": [
+        [
+          -0.0185537565268542,
+          -0.00953015443649218,
+          -0.10370903296515728
+        ],
+        [
+          0.022837654526853372,
+          0.009526163375564452,
+          0.10371602741680719
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Spoon|surface|2|13",
+      "target_body": "spoon_573130d7496422c068be3abf14b0dcf0_3_0_2",
+      "task_id": "pick-cf9bf8b2cd1f"
+    },
+    {
+      "anchor_world": [
+        5.050605123359666,
+        4.053983125546491,
+        0.44811092138184216
+      ],
+      "asset_id": "Vase_Flat_2",
+      "category": "Vase",
+      "center_world": [
+        5.050605123359666,
+        4.053983125546491,
+        0.44811092138184216
+      ],
+      "dimensions_m": [
+        0.15861199806345777,
+        0.07215399663429117,
+        0.15864200220162172
+      ],
+      "instance_id": "vase_177d512e3a9fe64690d3df0c325413fe_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Vase|surface|2|16\u7684Vase\u3002",
+      "local_bounds": [
+        [
+          -0.07932800050263417,
+          -0.035621999947492426,
+          -0.07956500007144451
+        ],
+        [
+          0.07928399756082362,
+          0.03653199668679874,
+          0.0790770021301772
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "Vase|surface|2|16",
+      "target_body": "vase_177d512e3a9fe64690d3df0c325413fe_1_0_2",
+      "task_id": "pick-a1e715907038"
+    },
+    {
+      "anchor_world": [
+        8.218499184809431,
+        3.4836581501552977,
+        1.1033445510209234
+      ],
+      "asset_id": "Wine_Bottle_1",
+      "category": "WineBottle",
+      "center_world": [
+        8.218499184809431,
+        3.4836581501552977,
+        1.1033445510209234
+      ],
+      "dimensions_m": [
+        0.09263199941833206,
+        0.3279789877477679,
+        0.09263499840883341
+      ],
+      "instance_id": "winebottle_201eb4050e30f10e57909e4c975910e9_1_0_2",
+      "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7WineBottle|surface|2|19\u7684WineBottle\u3002",
+      "local_bounds": [
+        [
+          -0.046307001081478574,
+          -0.1646280000413579,
+          -0.046294998381829745
+        ],
+        [
+          0.04632499833685349,
+          0.16335098770641,
+          0.04634000002700366
+        ]
+      ],
+      "operation": "pick",
+      "operation_base_mode": "holonomic_joint_planning",
+      "room_id": 2,
+      "source_object_id": "WineBottle|surface|2|19",
+      "target_body": "winebottle_201eb4050e30f10e57909e4c975910e9_1_0_2",
+      "task_id": "pick-89497866526b"
+    }
+  ],
+  "scope": "full val103 eligible-target enumeration; no task or trial smoke limits"
+}

@@ -1,0 +1,211 @@
+{
+  "result": {
+    "attempt": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-probe-20261010/scenes/val_103/attempts/four-view-continuous-smoke-e3522dd4",
+    "attribution": {
+      "category": "PlanningFailure",
+      "collisions": [],
+      "planning_diagnostic": {
+        "finite_budget_not_impossibility": true,
+        "free_ik_success": true,
+        "max_attempts": 3,
+        "num_ik_seeds": 32,
+        "scope": "finite candidate/seed budget, not proof of global unreachability",
+        "status": "MotionGenStatus.IK_FAIL",
+        "wall_time_s": 0.7080513308756053
+      },
+      "reason": "planning_no_solution"
+    },
+    "continuous_simulation": true,
+    "control": null,
+    "executed_steps": 143,
+    "gpu": 1,
+    "manipulation_protocol": "mobile-pick-v1",
+    "navigation": {
+      "actual_base": [
+        6.427350633292952,
+        2.099114370456071,
+        0.00010992083800590588
+      ],
+      "status": "success",
+      "steps": 123
+    },
+    "operation_base_mode": "holonomic_joint_planning",
+    "path": {
+      "cells": [
+        [
+          31,
+          22
+        ],
+        [
+          32,
+          22
+        ],
+        [
+          33,
+          22
+        ],
+        [
+          34,
+          22
+        ],
+        [
+          35,
+          22
+        ],
+        [
+          36,
+          22
+        ],
+        [
+          37,
+          22
+        ],
+        [
+          38,
+          22
+        ],
+        [
+          39,
+          22
+        ],
+        [
+          40,
+          22
+        ]
+      ],
+      "length_m": 0.44999999999999996,
+      "xy": [
+        [
+          6.426419620799966,
+          1.6553189265916814
+        ],
+        [
+          6.413456452801018,
+          1.6488373425922072
+        ],
+        [
+          6.413456452801018,
+          1.6988373425922072
+        ],
+        [
+          6.413456452801018,
+          1.7488373425922072
+        ],
+        [
+          6.413456452801018,
+          1.7988373425922073
+        ],
+        [
+          6.413456452801018,
+          1.8488373425922071
+        ],
+        [
+          6.413456452801018,
+          1.8988373425922072
+        ],
+        [
+          6.413456452801018,
+          1.9488373425922072
+        ],
+        [
+          6.413456452801018,
+          1.9988373425922072
+        ],
+        [
+          6.413456452801018,
+          2.0488373425922073
+        ],
+        [
+          6.413456452801018,
+          2.098837342592207
+        ],
+        [
+          6.426419620799966,
+          2.098837342592207
+        ]
+      ]
+    },
+    "reason": "planning_no_solution",
+    "retry_history": [
+      {
+        "attribution": {
+          "category": "PlanningFailure",
+          "collisions": [],
+          "planning_diagnostic": {
+            "finite_budget_not_impossibility": true,
+            "free_ik_success": true,
+            "max_attempts": 3,
+            "num_ik_seeds": 32,
+            "scope": "finite candidate/seed budget, not proof of global unreachability",
+            "status": "MotionGenStatus.IK_FAIL",
+            "wall_time_s": 0.6785463870037347
+          },
+          "reason": "planning_no_solution"
+        },
+        "reason": "planning_no_solution",
+        "retry": 0
+      },
+      {
+        "attribution": {
+          "category": "PlanningFailure",
+          "collisions": [],
+          "planning_diagnostic": {
+            "finite_budget_not_impossibility": true,
+            "free_ik_success": true,
+            "max_attempts": 3,
+            "num_ik_seeds": 32,
+            "scope": "finite candidate/seed budget, not proof of global unreachability",
+            "status": "MotionGenStatus.IK_FAIL",
+            "wall_time_s": 0.7080513308756053
+          },
+          "reason": "planning_no_solution"
+        },
+        "reason": "planning_no_solution",
+        "retry": 1
+      }
+    ],
+    "s0": "S0023",
+    "s1": "S0032",
+    "scope": "real continuous smoke, incomplete station statistics, not final dataset",
+    "seed": 1268201259,
+    "station_id": "S0023",
+    "status": "failure",
+    "third_person_video": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-probe-20261010/scenes/val_103/attempts/four-view-continuous-smoke-e3522dd4/videos/third_person_camera.mp4",
+    "video_status": "recorded",
+    "videos": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-probe-20261010/scenes/val_103/attempts/four-view-continuous-smoke-e3522dd4/videos.json"
+  },
+  "decoded_videos": {
+    "head_camera.mp4": {
+      "frames": 144,
+      "shape": [
+        240,
+        320,
+        3
+      ]
+    },
+    "third_person_camera.mp4": {
+      "frames": 144,
+      "shape": [
+        720,
+        1280,
+        3
+      ]
+    },
+    "wrist_camera_l.mp4": {
+      "frames": 144,
+      "shape": [
+        240,
+        320,
+        3
+      ]
+    },
+    "wrist_camera_r.mp4": {
+      "frames": 144,
+      "shape": [
+        240,
+        320,
+        3
+      ]
+    }
+  }
+}

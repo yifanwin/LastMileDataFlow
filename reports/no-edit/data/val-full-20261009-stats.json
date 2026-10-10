@@ -1,0 +1,343 @@
+{
+ "run_dir": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-full-20261009",
+ "summary": {
+  "active": {},
+  "completed_scenes": 4,
+  "pending_scenes": 0,
+  "retained_segments": 0,
+  "scene_results": {
+   "0": {
+    "house": 0,
+    "processed_tasks": 80,
+    "retained_tasks": 0,
+    "status": "completed",
+    "successful_rollouts": 0,
+    "tasks": 80
+   },
+   "1": {
+    "error_type": "ValueError",
+    "gpu": 5,
+    "house": 1,
+    "message": "invalid grasp shape",
+    "status": "infrastructure_error"
+   },
+   "2": {
+    "error_type": "ValueError",
+    "gpu": 2,
+    "house": 2,
+    "message": "invalid grasp shape",
+    "status": "infrastructure_error"
+   },
+   "3": {
+    "house": 3,
+    "processed_tasks": 24,
+    "retained_tasks": 0,
+    "status": "completed",
+    "successful_rollouts": 0,
+    "tasks": 24
+   }
+  },
+  "scenes": 1000,
+  "schema_version": "no-edit-v1",
+  "status": "infrastructure_error",
+  "updated_at_utc": "2026-10-09T20:10:44.965849+00:00"
+ },
+ "code_sha256": "6400bde4312c1f6fce4bda78b1e5b195c5155234e4c2e035f644736a756b1cc4",
+ "schema_version": "no-edit-v1",
+ "protocol": {
+  "agent_call_budget": 0,
+  "feedback_warning_rad": 0.05,
+  "height": 240,
+  "max_initialization_trials": 80,
+  "max_steps": 10,
+  "output_dir": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs",
+  "penetration_ceiling_m": 0.03,
+  "penetration_floor_m": 0.01,
+  "penetration_ratio": 0.1,
+  "protocol_version": "lightweight-v1",
+  "record_video": true,
+  "seed": 20261009,
+  "width": 320
+ },
+ "gpu_selection": {
+  "active": [
+   1,
+   5,
+   2
+  ],
+  "available": [
+   {
+    "free_mb": 49104,
+    "index": 1,
+    "memory_used_mb": 36,
+    "utilization": 0
+   },
+   {
+    "free_mb": 36219,
+    "index": 5,
+    "memory_used_mb": 12921,
+    "utilization": 0
+   },
+   {
+    "free_mb": 32941,
+    "index": 2,
+    "memory_used_mb": 16199,
+    "utilization": 0
+   },
+   {
+    "free_mb": 24603,
+    "index": 7,
+    "memory_used_mb": 24537,
+    "utilization": 18
+   }
+  ],
+  "policy": "lowest current utilization, then most free memory; <=50%, >=10000 MB free"
+ },
+ "scene_index_status": {
+  "ready": 1000
+ },
+ "scenes": {
+  "val_0": {
+   "summary": {
+    "house": 0,
+    "processed_tasks": 80,
+    "retained_tasks": 0,
+    "status": "completed",
+    "successful_rollouts": 0,
+    "tasks": 80
+   },
+   "enumerated_tasks": 80,
+   "task_dirs": 80,
+   "task_results": 80,
+   "attempts": 4710,
+   "executed": 32,
+   "success": 2,
+   "termination": {
+    "outside_conservative_reach_bound": 4588,
+    "planning_no_solution": 85,
+    "torso_protocol": 10,
+    "robot_collision": 23,
+    "strict_pick": 2,
+    "nonfinger_target": 1,
+    "lift_contact_hold_or_slip": 1
+   },
+   "ops_enumerated": {
+    "pick": 55,
+    "open": 25
+   },
+   "statuses": {
+    "discarded_low_success": 71,
+    "no_valid_stations": 9
+   }
+  },
+  "val_1": {
+   "summary": {
+    "error_type": "ValueError",
+    "gpu": 5,
+    "house": 1,
+    "message": "invalid grasp shape",
+    "status": "infrastructure_error"
+   },
+   "enumerated_tasks": 23,
+   "task_dirs": 23,
+   "task_results": 22,
+   "attempts": 1860,
+   "executed": 29,
+   "success": 0,
+   "termination": {
+    "outside_conservative_reach_bound": 1794,
+    "planning_no_solution": 46,
+    "torso_protocol": 6,
+    "robot_collision": 14
+   },
+   "ops_enumerated": {
+    "pick": 15,
+    "open": 8
+   },
+   "statuses": {
+    "discarded_low_success": 20,
+    "no_valid_stations": 2
+   }
+  },
+  "val_2": {
+   "summary": {
+    "error_type": "ValueError",
+    "gpu": 2,
+    "house": 2,
+    "message": "invalid grasp shape",
+    "status": "infrastructure_error"
+   },
+   "enumerated_tasks": 72,
+   "task_dirs": 12,
+   "task_results": 11,
+   "attempts": 575,
+   "executed": 5,
+   "success": 0,
+   "termination": {
+    "outside_conservative_reach_bound": 570,
+    "planning_no_solution": 5
+   },
+   "ops_enumerated": {
+    "pick": 50,
+    "open": 22
+   },
+   "statuses": {
+    "discarded_low_success": 10,
+    "no_valid_stations": 1
+   }
+  },
+  "val_3": {
+   "summary": {
+    "house": 3,
+    "processed_tasks": 24,
+    "retained_tasks": 0,
+    "status": "completed",
+    "successful_rollouts": 0,
+    "tasks": 24
+   },
+   "enumerated_tasks": 24,
+   "task_dirs": 24,
+   "task_results": 24,
+   "attempts": 2125,
+   "executed": 0,
+   "success": 0,
+   "termination": {
+    "outside_conservative_reach_bound": 2084,
+    "planning_no_solution": 41
+   },
+   "ops_enumerated": {
+    "pick": 16,
+    "open": 8
+   },
+   "statuses": {
+    "discarded_low_success": 22,
+    "no_valid_stations": 2
+   }
+  }
+ },
+ "totals": {
+  "attempts": 9270,
+  "status": {
+   "planning_no_solution": 9204,
+   "failure": 64,
+   "success": 2
+  },
+  "termination": {
+   "outside_conservative_reach_bound": 9036,
+   "planning_no_solution": 177,
+   "robot_collision": 37,
+   "torso_protocol": 16,
+   "strict_pick": 2,
+   "nonfinger_target": 1,
+   "lift_contact_hold_or_slip": 1
+  },
+  "executed_gt0": 66,
+  "max_executed_steps": 673
+ },
+ "by_operation": {
+  "pick": {
+   "attempts": 6115,
+   "executed": 47,
+   "success": 2,
+   "termination": {
+    "outside_conservative_reach_bound": 5968,
+    "planning_no_solution": 109,
+    "robot_collision": 30,
+    "torso_protocol": 4,
+    "strict_pick": 2,
+    "nonfinger_target": 1,
+    "lift_contact_hold_or_slip": 1
+   }
+  },
+  "open": {
+   "attempts": 3155,
+   "executed": 19,
+   "success": 0,
+   "termination": {
+    "outside_conservative_reach_bound": 3068,
+    "planning_no_solution": 68,
+    "torso_protocol": 12,
+    "robot_collision": 7
+   }
+  }
+ },
+ "attribution_category": {
+  "Reachability": 9158,
+  "PlanningFailure": 55,
+  "TrackingFailure": 16,
+  "Collision": 38,
+  "null": 2,
+  "GraspSlip": 1
+ },
+ "phase": {
+  "initialize": 9025,
+  "dry_pregrasp": 179,
+  "approach": 26,
+  "pregrasp": 18,
+  "lift_attached": 11,
+  "close": 5,
+  "hold": 3,
+  "lift": 2,
+  "open": 1
+ },
+ "navigation_status": {
+  "not_requested": 9270
+ },
+ "tasks": {
+  "total": 137,
+  "status": {
+   "discarded_low_success": 123,
+   "no_valid_stations": 14
+  },
+  "with_success_rate": 123,
+  "success_rate_gt0": 2,
+  "terminal_trials_sum": 9270,
+  "successes_sum": 2,
+  "dataset_eligible": {
+   "false": 137
+  },
+  "successful": [
+   {
+    "task_id": "pick-ed4fde20087f",
+    "scene": 0,
+    "op": "pick",
+    "instruction": "拿起房间5中编号SprayBottle|surface|5|52的SprayBottle。",
+    "successes": 1,
+    "trials": 45,
+    "rate": 0.022222222222222223
+   },
+   {
+    "task_id": "pick-5a86ecebea93",
+    "scene": 0,
+    "op": "pick",
+    "instruction": "拿起房间2中编号SprayBottle|surface|2|7的SprayBottle。",
+    "successes": 1,
+    "trials": 105,
+    "rate": 0.009523809523809525
+   }
+  ]
+ },
+ "skipped_targets": {
+  "pick|not_free_moving_instance": 34,
+  "open|no_eligible_articulation": 23,
+  "None|already_open_or_no_travel": 20
+ },
+ "artifacts": {
+  "mp4": 0,
+  "videos_json": 9270,
+  "videos_enabled": 0,
+  "events_nonempty": 0,
+  "trajectory_nonempty": 66,
+  "planning_nonempty": 245,
+  "physics_gz": 9270,
+  "heatmaps": 137
+ },
+ "timing": {
+  "first_attempt": "2026-10-09T16:00:35.047373+00:00",
+  "last_finish": "2026-10-09T20:10:31.333309+00:00",
+  "dur_median_s": 0.0880695,
+  "dur_mean_s": 2.264,
+  "dur_p99_s": 102.546031,
+  "dur_max_s": 197.774338
+ }
+}

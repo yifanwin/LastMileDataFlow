@@ -1,0 +1,62 @@
+[
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t0-43392f4e",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.002005968514765965,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t2-1b1aa9df",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.0020054897346559516,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t1-ad427bed",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.002036204284956588,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0014-t0-3cc64573",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.0020319494976381858,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t3-6dc3eeae",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.0020441025690594535,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t1-a06a2370",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.0020412450275636303,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t0-a3615685",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.002064418362067797,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t4-64f2c30f",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.002024186895571649,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t2-1a6da9c2",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.002000071549663343,
+    "scope": "recorded prefix only; no new future execution inferred"
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t3-50558d53",
+    "new_rule_issues_on_recorded_prefix": [],
+    "max_torso_error_rad": 0.0020230792964421023,
+    "scope": "recorded prefix only; no new future execution inferred"
+  }
+]

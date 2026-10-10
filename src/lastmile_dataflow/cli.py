@@ -30,6 +30,26 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    raw = sub.add_parser('collect-no-edit', help='raw val scenes: station trials, Gaussian maps and continuous 1–3 successful rollouts')
+    raw.add_argument('--assets-dir', required=True, type=Path)
+    raw.add_argument('--dataset-dir', type=Path)
+    raw.add_argument('--robot-config', type=Path, help='optional existing RBY1M configuration')
+    raw.add_argument('--config', type=Path, default=ROOT/'configs/no_edit/val.json')
+    raw.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    raw.add_argument('--run-id', required=True)
+    raw.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))
+    raw.add_argument('--workers', type=int, default=2)
+    raw.add_argument('--houses', nargs='+', type=int)
+    raw.add_argument('--targets', nargs='+', help='explicit subset: instance IDs, asset IDs or task IDs')
+    raw.add_argument('--spacing-m', type=float)
+    raw.add_argument('--trials-per-station', type=int)
+    raw.add_argument('--max-tasks', type=int, help='explicit per-house smoke subset, not full collection')
+    raw.add_argument('--max-trials', type=int, help='explicit smoke budget, leaves unfinished tasks incomplete')
+    raw.add_argument('--resume', action='store_true')
+    raw.add_argument('--index-only', action='store_true')
+    raw.add_argument('--no-video', action='store_true', help='retain RGB but disable MP4')
+    status = sub.add_parser('no-edit-status', help='read no-edit batch progress without starting physics')
+    status.add_argument('run', type=Path)
     case_edit = sub.add_parser('case-edit', help='four-agent local single-scene construction; NOT mobile task verification')
     case_edit.add_argument('--request', required=True, type=Path, help='v0.2 single-scene request JSON')
     case_edit.add_argument('--api-settings', required=True, type=Path)
@@ -130,6 +150,29 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'no-edit-status':
+        import json
+        print(json.dumps(read_json(args.run/'summary.json'),ensure_ascii=False,indent=2))
+        return 0
+    if args.command == 'collect-no-edit':
+        from .stations.no_edit_config import load_no_edit_config
+        from .workflows.no_edit import collect_batch
+        config=load_no_edit_config(args.config)
+        if args.spacing_m is not None: config=replace(config,spacing_m=args.spacing_m)
+        if args.trials_per_station is not None: config=replace(config,trials_per_station=args.trials_per_station)
+        for key in ('max_tasks','max_trials'):
+            if getattr(args,key) is not None and getattr(args,key)<=0: raise ValueError('invalid '+key)
+        if any(g<0 for g in args.gpu_ids) or len(set(args.gpu_ids))!=len(args.gpu_ids): raise ValueError('invalid GPU list')
+        assets=args.assets_dir.resolve()
+        robot=load_config(RobotConfig,args.robot_config) if args.robot_config else RobotConfig(
+            str(assets/'robots/rby1m/rby1_v1.2_site_control.xml'))
+        collection=CollectionConfig(output_dir=str(args.output_dir.resolve()),seed=config.seed,
+            width=config.width,height=config.height,record_video=not args.no_video)
+        path=collect_batch(args.dataset_dir or assets/'scenes/procthor-10k-val',assets,robot,config,collection,
+            run_id=args.run_id,gpu_ids=args.gpu_ids,max_workers=args.workers,houses=args.houses,resume=args.resume,
+            index_only=args.index_only,targets=args.targets,max_tasks=args.max_tasks,max_trials=args.max_trials)
+        print(path)
+        return 0 if read_json(path/'summary.json')['status'] in ('completed','indexed_only') else 1
     if args.command == 'case-edit':
         from .construction.scene_request import load_scene_request
         from .runtime.preparation import SettleConfig

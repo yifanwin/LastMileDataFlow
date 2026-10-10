@@ -86,23 +86,23 @@ class PickMonitor:
                 'sampler':'force-aware-v3'}
 
 
-def constraint_failure(row,initial):
+def constraint_failure(row,initial, *, check_base=True,check_torso=True):
     """逐行判违约，返回首个违约原因字符串，全部合规返回 None。
 
     检查顺序：目标没换 → 底盘漂移 → 头/闲置臂漂移 → 躯干联动 → 非法接触。
     """
     if row['target']!=initial['target']: return 'wrong_target'
     base=np.array(row['base']); delta=base-np.array(initial['base'])
-    if np.linalg.norm(delta[:2])>PROTOCOL['base_translation_m'] or abs(np.arctan2(np.sin(delta[2]),np.cos(delta[2])))>PROTOCOL['base_yaw_rad']: return 'base_drift'
+    if check_base and (np.linalg.norm(delta[:2])>PROTOCOL['base_translation_m'] or abs(np.arctan2(np.sin(delta[2]),np.cos(delta[2])))>PROTOCOL['base_yaw_rad']): return 'base_drift'
     for key,tol in (('head','head_error_rad'),('idle_arm','idle_arm_error_rad')):
         if np.max(np.abs(np.array(row[key])-initial[key]))>PROTOCOL[tol]: return key+'_drift'
     torso=np.array(row['torso']); h=torso[1] if row['phase']=='torso_adjust' else row['command_h']
-    if np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
+    if check_torso and np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
     if row['illegal']: return row['illegal'][0]
     return None
 
 
-def evaluate_pick(samples,initial):
+def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     """汇总全部物理样本，判定这次抓取尝试的最终结论。
 
     返回 status 为 success / failure / infrastructure_error 三者之一，并带诊断。
@@ -127,7 +127,7 @@ def evaluate_pick(samples,initial):
                 not np.allclose(pose[3],[0,0,0,1]) or not np.allclose(pose[:3,:3].T@pose[:3,:3],np.eye(3),atol=1e-5) or not np.isclose(np.linalg.det(pose[:3,:3]),1) or
                 any(not np.isfinite(v) or v<=PROTOCOL['finger_force_min_n'] for v in forces.values())):
                 return {'status':'infrastructure_error','reason':'invalid_physics_evidence'}
-            fail=constraint_failure(r,initial)
+            fail=constraint_checker(r,initial)
             # 任何一行违约 → 直接 failure，并记录首个违约来自哪个阶段/时刻（便于归因）。
             if fail: return {'status':'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
             lift=r['height_m']-initial['height_m']; max_lift=max(max_lift,lift)

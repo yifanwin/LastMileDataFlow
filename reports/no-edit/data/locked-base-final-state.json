@@ -1,0 +1,42 @@
+{
+  "active": {},
+  "completed_scenes": 4,
+  "pending_scenes": 0,
+  "retained_segments": 0,
+  "scene_results": {
+    "0": {
+      "house": 0,
+      "processed_tasks": 80,
+      "retained_tasks": 0,
+      "status": "completed",
+      "successful_rollouts": 0,
+      "tasks": 80
+    },
+    "1": {
+      "error_type": "ValueError",
+      "gpu": 5,
+      "house": 1,
+      "message": "invalid grasp shape",
+      "status": "infrastructure_error"
+    },
+    "2": {
+      "error_type": "ValueError",
+      "gpu": 2,
+      "house": 2,
+      "message": "invalid grasp shape",
+      "status": "infrastructure_error"
+    },
+    "3": {
+      "house": 3,
+      "processed_tasks": 24,
+      "retained_tasks": 0,
+      "status": "completed",
+      "successful_rollouts": 0,
+      "tasks": 24
+    }
+  },
+  "scenes": 1000,
+  "schema_version": "no-edit-v1",
+  "status": "infrastructure_error",
+  "updated_at_utc": "2026-10-09T20:10:44.965849+00:00"
+}

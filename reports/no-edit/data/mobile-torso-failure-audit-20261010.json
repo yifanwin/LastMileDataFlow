@@ -1,0 +1,212 @@
+[
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t0-43392f4e",
+    "executed_steps": 626,
+    "first_torso_error": {
+      "time_s": 31.284000000003786,
+      "phase": "pregrasp",
+      "command_h": 0.738,
+      "actual_torso": [
+        0.002005968514765965,
+        0.7383818465102255,
+        -1.4757631604690646,
+        0.7381047272815222,
+        0.0005652452306736803,
+        -0.00013920072815063521
+      ],
+      "max_error_rad": 0.002005968514765965,
+      "joint_index": 0,
+      "ratio_shape_error": 0.002005968514765965
+    },
+    "max_error": 0.002005968514765965
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t2-1b1aa9df",
+    "executed_steps": 32,
+    "first_torso_error": {
+      "time_s": 1.5720000000000012,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        0.0020054897346559516,
+        0.00026077125153109123,
+        0.0001328949511045374,
+        4.207101419451288e-05,
+        0.0003587734261046438,
+        -7.846893549572247e-05
+      ],
+      "max_error_rad": 0.0020054897346559516,
+      "joint_index": 0,
+      "ratio_shape_error": 0.0020054897346559516
+    },
+    "max_error": 0.0020054897346559516
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t1-ad427bed",
+    "executed_steps": 32,
+    "first_torso_error": {
+      "time_s": 1.5760000000000012,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        0.002036204284956588,
+        0.0002410283239849756,
+        0.00012124141873334912,
+        3.543898554432661e-05,
+        0.00036432596530880065,
+        -5.289624144748864e-05
+      ],
+      "max_error_rad": 0.002036204284956588,
+      "joint_index": 0,
+      "ratio_shape_error": 0.002036204284956588
+    },
+    "max_error": 0.002036204284956588
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0014-t0-3cc64573",
+    "executed_steps": 618,
+    "first_torso_error": {
+      "time_s": 30.888000000003654,
+      "phase": "pregrasp",
+      "command_h": 0.738,
+      "actual_torso": [
+        -0.0008258124782517511,
+        0.7359680505023618,
+        -1.477145509872379,
+        0.7374508012281236,
+        -0.0001531628605094102,
+        0.00042357057464679
+      ],
+      "max_error_rad": 0.0020319494976381858,
+      "joint_index": 1,
+      "ratio_shape_error": 0.005209408867655307
+    },
+    "max_error": 0.0020319494976381858
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t3-6dc3eeae",
+    "executed_steps": 620,
+    "first_torso_error": {
+      "time_s": 30.96800000000368,
+      "phase": "pregrasp",
+      "command_h": 0.738,
+      "actual_torso": [
+        0.0020441025690594535,
+        0.7380186825772491,
+        -1.4759766195241584,
+        0.7379781670194936,
+        0.0005361548997462548,
+        0.00012830764120389887
+      ],
+      "max_error_rad": 0.0020441025690594535,
+      "joint_index": 0,
+      "ratio_shape_error": 0.0020441025690594535
+    },
+    "max_error": 0.0020441025690594535
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t1-a06a2370",
+    "executed_steps": 108,
+    "first_torso_error": {
+      "time_s": 5.379999999999851,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        0.0010567857887970526,
+        0.0020412450275636303,
+        0.0011171796433042257,
+        0.0003765848101523827,
+        0.00020355359786281804,
+        -0.00023366621418631272
+      ],
+      "max_error_rad": 0.0020412450275636303,
+      "joint_index": 1,
+      "ratio_shape_error": 0.005199669698431487
+    },
+    "max_error": 0.0020412450275636303
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t0-a3615685",
+    "executed_steps": 84,
+    "first_torso_error": {
+      "time_s": 4.163999999999985,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        0.0018190726736844794,
+        0.002064418362067797,
+        0.0011130142957720616,
+        0.00039107585217158775,
+        0.00036686372156629905,
+        -0.0009245874448644609
+      ],
+      "max_error_rad": 0.002064418362067797,
+      "joint_index": 1,
+      "ratio_shape_error": 0.005241851019907656
+    },
+    "max_error": 0.002064418362067797
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t4-64f2c30f",
+    "executed_steps": 105,
+    "first_torso_error": {
+      "time_s": 5.215999999999869,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        -0.002024186895571649,
+        -0.00040055057544704164,
+        -0.00025587673788079096,
+        -0.0001356952946749087,
+        -0.00039660535580402314,
+        -0.000263405175974842
+      ],
+      "max_error_rad": 0.002024186895571649,
+      "joint_index": 0,
+      "ratio_shape_error": 0.002024186895571649
+    },
+    "max_error": 0.002024186895571649
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t2-1a6da9c2",
+    "executed_steps": 239,
+    "first_torso_error": {
+      "time_s": 11.939999999999129,
+      "phase": "approach",
+      "command_h": 0.0,
+      "actual_torso": [
+        -0.002000071549663343,
+        -0.0004242587535947317,
+        -0.00025145697399529154,
+        -0.00010270350959570596,
+        -0.0005432568243853989,
+        9.331180307743714e-05
+      ],
+      "max_error_rad": 0.002000071549663343,
+      "joint_index": 0,
+      "ratio_shape_error": 0.002000071549663343
+    },
+    "max_error": 0.002000071549663343
+  },
+  {
+    "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-48350e0680ab-S0041-t3-50558d53",
+    "executed_steps": 32,
+    "first_torso_error": {
+      "time_s": 1.5680000000000012,
+      "phase": "pregrasp",
+      "command_h": 0.0,
+      "actual_torso": [
+        -0.0020230792964421023,
+        -0.0011725683302739537,
+        -0.0007045669359630181,
+        -0.00028197891877660845,
+        -0.0004043264430104954,
+        0.00028743906595520236
+      ],
+      "max_error_rad": 0.0020230792964421023,
+      "joint_index": 0,
+      "ratio_shape_error": 0.0030497035965109257
+    },
+    "max_error": 0.0020230792964421023
+  }
+]

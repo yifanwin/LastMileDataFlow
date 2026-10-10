@@ -1,0 +1,56 @@
+{
+  "run": "no-edit-val-native-probe-20261009",
+  "house": 103,
+  "task_id": "pick-bf2b057e9916",
+  "station_id": "S0033",
+  "sampling": {
+    "total": 69,
+    "valid": 21,
+    "geometry_filtered": 48
+  },
+  "terminal_trials": 5,
+  "successes": 4,
+  "station_success_rate": 0.8,
+  "final_dataset_demonstration": false,
+  "trials": [
+    {
+      "trial": 0,
+      "status": "success",
+      "executed_steps": 256,
+      "reason": "strict_pick",
+      "attribution": null
+    },
+    {
+      "trial": 1,
+      "status": "success",
+      "executed_steps": 262,
+      "reason": "strict_pick",
+      "attribution": null
+    },
+    {
+      "trial": 2,
+      "status": "success",
+      "executed_steps": 262,
+      "reason": "strict_pick",
+      "attribution": null
+    },
+    {
+      "trial": 3,
+      "status": "success",
+      "executed_steps": 256,
+      "reason": "strict_pick",
+      "attribution": null
+    },
+    {
+      "trial": 4,
+      "status": "failure",
+      "executed_steps": 89,
+      "reason": "torso_protocol",
+      "attribution": {
+        "category": "TrackingFailure",
+        "collisions": [],
+        "reason": "torso_protocol"
+      }
+    }
+  ]
+}

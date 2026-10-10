@@ -1,0 +1,88 @@
+{
+  "head_camera.mp4": {
+    "frames": 322,
+    "shape": [
+      240,
+      320,
+      3
+    ],
+    "fps": 20.0
+  },
+  "third_person_camera.mp4": {
+    "frames": 322,
+    "shape": [
+      720,
+      1280,
+      3
+    ],
+    "fps": 20.0
+  },
+  "wrist_camera_l.mp4": {
+    "frames": 322,
+    "shape": [
+      240,
+      320,
+      3
+    ],
+    "fps": 20.0
+  },
+  "wrist_camera_r.mp4": {
+    "frames": 322,
+    "shape": [
+      240,
+      320,
+      3
+    ],
+    "fps": 20.0
+  },
+  "result": {
+    "executed_steps": 321,
+    "extra": {
+      "navigation": {
+        "status": "not_requested"
+      },
+      "no_edit": true,
+      "operation_base_mode": "holonomic_joint_planning",
+      "phase": "hold"
+    },
+    "recording_errors": [],
+    "results": {
+      "case_condition": {
+        "reason": "no_scene_edit",
+        "status": "not_applicable"
+      },
+      "scene_validity": {
+        "scope": "robot initialization",
+        "status": "valid"
+      },
+      "task_completion": {
+        "reason": "mobile_pick",
+        "status": "success"
+      }
+    },
+    "schema_version": "1.0",
+    "status": "success",
+    "termination_reason": "mobile_pick"
+  },
+  "timing": {
+    "active_time_scope": "sum of monotonic process-session elapsed times; not sum of parallel workers",
+    "elapsed_active_s": 80.35559644387104,
+    "elapsed_wall_s": 80.355593,
+    "ended_at_utc": "2026-10-10T02:24:34.131370+00:00",
+    "schema_version": "generation-timing-v1",
+    "session_count": 1,
+    "sessions": [
+      {
+        "elapsed_s": 80.35559644387104,
+        "ended_at_utc": "2026-10-10T02:24:34.131370+00:00",
+        "started_at_utc": "2026-10-10T02:23:13.775777+00:00",
+        "status": "incomplete"
+      }
+    ],
+    "started_at_utc": "2026-10-10T02:23:13.775777+00:00",
+    "status": "incomplete",
+    "updated_at_utc": "2026-10-10T02:24:34.131370+00:00",
+    "wall_time_scope": "includes GPU waits, setup and pauses between resumes"
+  },
+  "attempt": "outputs/no_edit/no-edit-val-four-view-probe-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t0-0a855680"
+}

@@ -1,0 +1,23 @@
+{
+  "captured_at_utc": "2026-10-09T16:02:38.648587+00:00",
+  "pid": 1748272,
+  "base_commit": "118b1b7282a1e8b1ba03456210ab7885ef193a35",
+  "code_sha256": "6400bde4312c1f6fce4bda78b1e5b195c5155234e4c2e035f644736a756b1cc4",
+  "input_digest": "d462dc1d90557df5ff04ce0d6df59066c7b5543030c134b6c335db315233cdd0",
+  "summary": {
+    "active": {
+      "1": 0,
+      "2": 2,
+      "5": 1,
+      "7": 3
+    },
+    "completed_scenes": 0,
+    "pending_scenes": 996,
+    "retained_segments": 0,
+    "scene_results": {},
+    "scenes": 1000,
+    "schema_version": "no-edit-v1",
+    "status": "running",
+    "updated_at_utc": "2026-10-09T16:02:28.602300+00:00"
+  }
+}

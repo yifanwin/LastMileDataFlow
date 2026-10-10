@@ -41,6 +41,7 @@ class Simulation:
         self.started = False       # 是否已 begin()（连续执行纪律的开关）
         self.closed = False
         self.renderer = None
+        self.third_person_camera = None
         self.state_spec = mujoco.mjtState.mjSTATE_INTEGRATION  # 快照包含的完整积分状态
         self.model_hash = None
         self._clock_remainder = 0.0  # 控制周期与物理步长之间的余数，保证长期平均控制频率
@@ -293,7 +294,15 @@ class Simulation:
         for alias, camera in self.robot.camera_names.items():
             self.renderer.update_scene(self.data, camera=camera)
             frames[alias] = self.renderer.render().copy()
+        if self.third_person_camera is not None:
+            frames[self.third_person_camera.name] = self.third_person_camera.render(self,self.renderer,width,height)
         return frames
+
+    def enable_third_person(self,config=None):
+        """Reusable optional observer, independent of the robot's fixed MJCF cameras."""
+        from ..recording.third_person import ThirdPersonCamera
+        self.third_person_camera=ThirdPersonCamera(config)
+        return self.third_person_camera
 
     def close(self):
         """释放渲染器并标记关闭；幂等。"""

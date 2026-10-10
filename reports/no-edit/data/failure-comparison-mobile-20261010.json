@@ -1,0 +1,318 @@
+{
+  "scope": "live current mobile run snapshot, separate from locked-base history",
+  "scenes": [
+    {
+      "scene": "val_0",
+      "attempts": 169,
+      "executed_attempts": 5,
+      "successes": 0,
+      "reasons": {
+        "planning_no_solution": 164,
+        "torso_protocol": 5
+      },
+      "categories": {
+        "Reachability": 146,
+        "PlanningFailure": 18,
+        "TrackingFailure": 5
+      },
+      "planner_status": {
+        "MotionGenStatus.IK_FAIL": 164,
+        "None": 5
+      },
+      "free_ik": {
+        "False": 146,
+        "True": 18,
+        "None": 5
+      },
+      "phases": {
+        "dry_pregrasp": 164,
+        "pregrasp": 5
+      },
+      "task_results": [
+        {
+          "collection_error": null,
+          "dataset_eligible": false,
+          "heatmap": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/tasks/pick-1be77437bb5c/maps/success_heatmap.png",
+          "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Potato|surface|2|24\u7684Potato\u3002",
+          "minimum_rollouts": 1,
+          "operation": "pick",
+          "preferred_rollouts": 3,
+          "rate": {
+            "status": "discarded_low_success",
+            "success_rate": 0.0,
+            "successes": 0,
+            "terminal_trials": 145,
+            "threshold": 0.05
+          },
+          "schema_version": "no-edit-v1",
+          "status": "discarded_low_success",
+          "successful_rollouts": 0,
+          "task_id": "pick-1be77437bb5c"
+        }
+      ]
+    },
+    {
+      "scene": "val_1",
+      "attempts": 108,
+      "executed_attempts": 5,
+      "successes": 0,
+      "reasons": {
+        "robot_collision": 45,
+        "planning_no_solution": 58,
+        "torso_protocol": 5
+      },
+      "categories": {
+        "Collision": 45,
+        "PlanningFailure": 58,
+        "TrackingFailure": 5
+      },
+      "planner_status": {
+        "None": 50,
+        "MotionGenStatus.IK_FAIL": 58
+      },
+      "free_ik": {
+        "None": 50,
+        "True": 58
+      },
+      "phases": {
+        "initialize": 45,
+        "dry_pregrasp": 58,
+        "pregrasp": 4,
+        "approach": 1
+      },
+      "task_results": [
+        {
+          "collection_error": null,
+          "dataset_eligible": false,
+          "heatmap": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/tasks/pick-a77d189261cb/maps/success_heatmap.png",
+          "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7AlarmClock|surface|2|2\u7684AlarmClock\u3002",
+          "minimum_rollouts": 1,
+          "operation": "pick",
+          "preferred_rollouts": 3,
+          "rate": {
+            "status": "discarded_low_success",
+            "success_rate": 0.0,
+            "successes": 0,
+            "terminal_trials": 80,
+            "threshold": 0.05
+          },
+          "schema_version": "no-edit-v1",
+          "status": "discarded_low_success",
+          "successful_rollouts": 0,
+          "task_id": "pick-a77d189261cb"
+        }
+      ]
+    },
+    {
+      "scene": "val_2",
+      "attempts": 132,
+      "executed_attempts": 0,
+      "successes": 0,
+      "reasons": {
+        "planning_no_solution": 132
+      },
+      "categories": {
+        "PlanningFailure": 51,
+        "Reachability": 81
+      },
+      "planner_status": {
+        "MotionGenStatus.IK_FAIL": 129,
+        "MotionGenStatus.FINETUNE_TRAJOPT_FAIL": 3
+      },
+      "free_ik": {
+        "True": 48,
+        "False": 81,
+        "None": 3
+      },
+      "phases": {
+        "dry_pregrasp": 132
+      },
+      "task_results": [
+        {
+          "collection_error": null,
+          "dataset_eligible": false,
+          "heatmap": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_2/tasks/pick-684790c08129/maps/success_heatmap.png",
+          "instruction": "\u62ff\u8d77\u623f\u95f46\u4e2d\u7f16\u53f7AlarmClock|surface|6|51\u7684AlarmClock\u3002",
+          "minimum_rollouts": 1,
+          "operation": "pick",
+          "preferred_rollouts": 3,
+          "rate": {
+            "status": "discarded_low_success",
+            "success_rate": 0.0,
+            "successes": 0,
+            "terminal_trials": 70,
+            "threshold": 0.05
+          },
+          "schema_version": "no-edit-v1",
+          "status": "discarded_low_success",
+          "successful_rollouts": 0,
+          "task_id": "pick-684790c08129"
+        },
+        {
+          "collection_error": null,
+          "dataset_eligible": false,
+          "heatmap": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_2/tasks/pick-5d367821ec90/maps/success_heatmap.png",
+          "instruction": "\u62ff\u8d77\u623f\u95f410\u4e2d\u7f16\u53f7AlarmClock|surface|10|68\u7684AlarmClock\u3002",
+          "minimum_rollouts": 1,
+          "operation": "pick",
+          "preferred_rollouts": 3,
+          "rate": {
+            "status": "discarded_low_success",
+            "success_rate": 0.0,
+            "successes": 0,
+            "terminal_trials": 50,
+            "threshold": 0.05
+          },
+          "schema_version": "no-edit-v1",
+          "status": "discarded_low_success",
+          "successful_rollouts": 0,
+          "task_id": "pick-5d367821ec90"
+        }
+      ]
+    },
+    {
+      "scene": "val_3",
+      "attempts": 56,
+      "executed_attempts": 0,
+      "successes": 0,
+      "reasons": {
+        "planning_no_solution": 56
+      },
+      "categories": {
+        "Reachability": 16,
+        "PlanningFailure": 40
+      },
+      "planner_status": {
+        "MotionGenStatus.IK_FAIL": 56
+      },
+      "free_ik": {
+        "False": 16,
+        "True": 40
+      },
+      "phases": {
+        "dry_pregrasp": 56
+      },
+      "task_results": [
+        {
+          "collection_error": null,
+          "dataset_eligible": false,
+          "heatmap": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_3/tasks/pick-8a69c88e7776/maps/success_heatmap.png",
+          "instruction": "\u62ff\u8d77\u623f\u95f42\u4e2d\u7f16\u53f7Apple|surface|2|5\u7684\u82f9\u679c\u3002",
+          "minimum_rollouts": 1,
+          "operation": "pick",
+          "preferred_rollouts": 3,
+          "rate": {
+            "status": "discarded_low_success",
+            "success_rate": 0.0,
+            "successes": 0,
+            "terminal_trials": 40,
+            "threshold": 0.05
+          },
+          "schema_version": "no-edit-v1",
+          "status": "discarded_low_success",
+          "successful_rollouts": 0,
+          "task_id": "pick-8a69c88e7776"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "attempts": 465,
+    "executed_attempts": 10,
+    "successes": 0,
+    "reasons": {
+      "planning_no_solution": 410,
+      "torso_protocol": 10,
+      "robot_collision": 45
+    },
+    "categories": {
+      "Reachability": 243,
+      "PlanningFailure": 167,
+      "TrackingFailure": 10,
+      "Collision": 45
+    },
+    "planner_status": {
+      "MotionGenStatus.IK_FAIL": 407,
+      "None": 55,
+      "MotionGenStatus.FINETUNE_TRAJOPT_FAIL": 3
+    },
+    "free_ik": {
+      "False": 243,
+      "True": 164,
+      "None": 58
+    },
+    "phases": {
+      "dry_pregrasp": 410,
+      "pregrasp": 9,
+      "initialize": 45,
+      "approach": 1
+    }
+  },
+  "examples": {
+    "Reachability": {
+      "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-1be77437bb5c-S0015-t1-24e715d6",
+      "status": "planning_no_solution",
+      "reason": "planning_no_solution",
+      "phase": "dry_pregrasp",
+      "steps": 0,
+      "category": "Reachability",
+      "planner_status": "MotionGenStatus.IK_FAIL",
+      "free_ik_success": false
+    },
+    "PlanningFailure": {
+      "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0007-t1-30df5253",
+      "status": "planning_no_solution",
+      "reason": "planning_no_solution",
+      "phase": "dry_pregrasp",
+      "steps": 0,
+      "category": "PlanningFailure",
+      "planner_status": "MotionGenStatus.IK_FAIL",
+      "free_ik_success": true
+    },
+    "Collision": {
+      "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_1/attempts/pick-a77d189261cb-S0068-t3-628a3887",
+      "status": "planning_no_solution",
+      "reason": "robot_collision",
+      "phase": "initialize",
+      "steps": 0,
+      "category": "Collision",
+      "planner_status": null,
+      "free_ik_success": null
+    },
+    "TrackingFailure": {
+      "attempt": "outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-99178612c276-S0008-t0-43392f4e",
+      "status": "failure",
+      "reason": "torso_protocol",
+      "phase": "pregrasp",
+      "steps": 626,
+      "category": "TrackingFailure",
+      "planner_status": null,
+      "free_ik_success": null
+    }
+  },
+  "summary_snapshot": {
+    "active": {
+      "1": 3,
+      "2": 1,
+      "5": 0,
+      "7": 2
+    },
+    "completed_scenes": 0,
+    "generation_timing": {
+      "elapsed_active_s": 6067.055777112953,
+      "elapsed_wall_s": 6067.05578,
+      "ended_at_utc": null,
+      "session_count": 1,
+      "started_at_utc": "2026-10-10T02:26:53.477653+00:00",
+      "status": "running",
+      "updated_at_utc": "2026-10-10T04:08:00.533433+00:00"
+    },
+    "pending_scenes": 996,
+    "retained_segments": 0,
+    "scene_results": {},
+    "scenes": 1000,
+    "schema_version": "no-edit-v1",
+    "status": "running",
+    "updated_at_utc": "2026-10-10T04:08:00.555379+00:00"
+  }
+}
