@@ -247,6 +247,9 @@ def rebuild_dataset_index(run_path):
 
 def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_ids,max_workers=2,
                   houses=None,resume=False,index_only=False,targets=None,max_tasks=None,max_trials=None):
+    if config.planner_backend == 'curobo_v2_v080' and not index_only:
+        from ..planning.curobo_v2 import verify_version
+        verify_version()
     if not re.fullmatch(r'[A-Za-z0-9_-]+',run_id): raise ValueError('unsafe run id')
     if max_workers < 1 or not gpu_ids: raise ValueError('workers/GPU list required')
     root=Path(collection.output_dir)/'no_edit'/run_id

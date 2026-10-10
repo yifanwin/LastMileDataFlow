@@ -129,18 +129,24 @@ class ContinuousContext:
     def mobile_tick(self,planner,point,side,grip,h):
         """One synchronized base+arm waypoint increment; never writes qpos."""
         point=np.asarray(point)
-        if tuple(planner.names) != tuple(['base_x','base_y','base_theta']+[f'{side}_arm_{i}' for i in range(7)]):
+        torso_active=getattr(planner,'torso_active',False)
+        expected=['base_x','base_y','base_theta']+[f'{side}_arm_{i}' for i in range(7)]
+        if torso_active: expected.append('torso_1')
+        if tuple(planner.names) != tuple(expected) or point.shape != (len(expected),):
             raise ValueError('mobile planner joint ordering mismatch')
         target=planner.base_target_world(point)
         base_gap=target-self.sim.robot.group('base'); base_gap[2]=(base_gap[2]+np.pi)%(2*np.pi)-np.pi
-        arm_gap=point[3:]-self.sim.robot.group(side+'_arm')
+        arm_gap=point[3:10]-self.sim.robot.group(side+'_arm')
+        measured_h=float(self.sim.robot.group('torso')[1])
+        h_gap=float(point[10])-measured_h if torso_active else 0.
         limit=min(self.sim.robot.config.max_base_delta,self.config.navigation_speed_m_s/self.sim.robot.config.control_hz)
         yaw_limit=min(self.sim.robot.config.max_yaw_delta,self.config.navigation_yaw_speed_rad_s/self.sim.robot.config.control_hz)
         scale=max(1.,np.linalg.norm(base_gap[:2])/limit,abs(base_gap[2])/yaw_limit,
-                  np.max(np.abs(arm_gap))/(self.sim.robot.config.max_arm_delta*.9))
+                  np.max(np.abs(arm_gap))/(self.sim.robot.config.max_arm_delta*.9),
+                  abs(h_gap)/getattr(planner,'h_step_limit',.00125))
         a=self.sim.robot.neutral_action(); a[:3]=base_gap/scale
         offset=3 if side=='left' else 11; a[offset:offset+7]=arm_gap/scale
-        a[10 if side=='left' else 18]=grip; a[19]=h
+        a[10 if side=='left' else 18]=grip; a[19]=float(np.clip(measured_h+h_gap/scale,*self.sim.robot.config.torso_limits)) if torso_active else h
         if self.monitor:
             idle='right' if side=='left' else 'left'; i=11 if side=='left' else 3
             a[i:i+7]=np.asarray(self.monitor.initial['idle_arm'])-self.sim.robot.group(idle+'_arm')
@@ -169,22 +175,26 @@ class ContinuousContext:
 
     def follow(self,planner,goal,side,grip,h):
         result=self.plan(planner,goal)
+        self.follow_points(planner,result.positions,side,grip,h,goal)
+
+    def follow_points(self,planner,positions,side,grip,h,goal=None):
+        if not positions: raise OperationFailure('empty_trajectory')
         if not planner.mobile_base: raise ValueError('no-edit operation requires mobile-base cuRobo plan')
-        for point in result.positions:
+        for point in positions:
             for _ in range(120):
                 if self.mobile_tick(planner,point,side,grip,h) <= 1.: break
             else: raise OperationFailure('arm_tracking_timeout')
-        goal_q=np.asarray(result.positions[-1])
+        goal_q=np.asarray(positions[-1])
         for _ in range(100):
             base_gap=planner.base_target_world(goal_q)-self.sim.robot.group('base')
             base_gap[2]=(base_gap[2]+np.pi)%(2*np.pi)-np.pi
-            if (np.max(np.abs(self.sim.robot.group(side+'_arm')-goal_q[3:])) < .01
+            if (np.max(np.abs(self.sim.robot.group(side+'_arm')-goal_q[3:10])) < .01
                 and np.linalg.norm(base_gap[:2]) < self.config.arrival_tolerance_m
                 and abs(base_gap[2]) < self.config.arrival_tolerance_rad): break
             self.mobile_tick(planner,goal_q,side,grip,h)
         else: raise OperationFailure('mobile_base_arm_tracking_timeout')
         measured=tcp_pose(self.sim,side)
-        if np.linalg.norm(measured[:3,3]-goal[:3,3]) > .015 or rotation_error(measured[:3,:3],goal[:3,:3]) > .06:
+        if goal is not None and (np.linalg.norm(measured[:3,3]-goal[:3,3]) > .015 or rotation_error(measured[:3,:3],goal[:3,:3]) > .06):
             raise OperationFailure('tcp_tracking_timeout')
 
     def finish(self):
@@ -200,6 +210,7 @@ class ContinuousContext:
 
 def planner_options(config,assets_dir,seed):
     return SimpleNamespace(**{**asdict(config),'seed':seed,
+                           'max_candidates':config.max_grasp_candidates,
                            'robot_planner_dir':str(Path(assets_dir)/'robots/rby1m/curobo_config')})
 
 
@@ -267,6 +278,9 @@ def choose_control(ctx,task,candidates,assets_dir,seed,forced=None):
 
 
 def manipulate(ctx,task,candidates,assets_dir,seed,forced=None):
+    if ctx.config.planner_backend == 'curobo_v2_v080':
+        from .no_edit_v2 import manipulate_v2
+        return manipulate_v2(ctx,task,candidates,assets_dir,seed,forced)
     control=choose_control(ctx,task,candidates,assets_dir,seed,forced)
     side,h=control['arm'],control['torso_h']; sim=ctx.sim
     ctx.monitor=PickMonitor(sim,side); ctx.fingers=ctx.monitor.fingers; ctx.samples=[]
@@ -411,6 +425,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         result={'status':status,'reason':reason,'attribution':attribution,'control':control,
                 'navigation':navigation,'retry_history':retries,'continuous_simulation':True,
                 'operation_base_mode':config.operation_base_mode,
+                'planner_backend':config.planner_backend,
                 'manipulation_protocol':'mobile-pick-v2' if task['operation']=='pick' else 'mobile-open-v2',
                 'torso_error_policy':config.torso_error_policy}
         write_json(recorder.path/'outcome.json',result)

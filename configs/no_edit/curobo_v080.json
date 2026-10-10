@@ -1,0 +1,28 @@
+{
+  "schema_version": "no-edit-v1",
+  "operation_base_mode": "holonomic_joint_planning",
+  "torso_error_policy": "record_only",
+  "third_person_enabled": true,
+  "radius_m": 2.0,
+  "spacing_m": null,
+  "trials_per_station": 5,
+  "discard_below": 0.05,
+  "start_count": 3,
+  "min_successful_rollouts": 1,
+  "operation_retries": 1,
+  "operations": [
+    "pick",
+    "open"
+  ],
+  "min_target_pixels": 24,
+  "map_resolution_m": 0.05,
+  "smoothing_sigma_m": null,
+  "attempt_timeout_s": 300.0,
+  "scene_timeout_s": 86400.0,
+  "width": 320,
+  "height": 240,
+  "min_free_disk_gb": 50.0,
+  "seed": 20261009,
+  "planner_backend": "curobo_v2_v080",
+  "max_attempts": 5
+}

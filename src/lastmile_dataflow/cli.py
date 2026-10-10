@@ -34,7 +34,7 @@ def parser():
     raw.add_argument('--assets-dir', required=True, type=Path)
     raw.add_argument('--dataset-dir', type=Path)
     raw.add_argument('--robot-config', type=Path, help='optional existing RBY1M configuration')
-    raw.add_argument('--config', type=Path, default=ROOT/'configs/no_edit/val.json')
+    raw.add_argument('--config', type=Path, default=ROOT/'configs/no_edit/curobo_v080.json')
     raw.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
     raw.add_argument('--run-id', required=True)
     raw.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))

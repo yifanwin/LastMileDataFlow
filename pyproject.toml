@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = ["numpy>=1.26", "mujoco>=3.5,<4", "imageio>=2.34", "imageio-ffmpeg>=0.5", "jsonschema>=4.18,<5"]
 
 [project.optional-dependencies]
+planning-v080 = ["torch>=2.5", "cuda-core[cu12]>=0.7,<2", "warp-lang>=1.11,<2", "yourdfpy>=0.0.53", "PyYAML>=6", "trimesh>=4", "matplotlib>=3.8", "Pillow>=10"]
 phase3 = ["torch>=2.5", "PyYAML>=6", "trimesh>=4", "matplotlib>=3.8", "Pillow>=10"]
 
 [project.scripts]

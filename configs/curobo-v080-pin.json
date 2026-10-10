@@ -1,0 +1,14 @@
+{
+  "tag": "v0.8.0",
+  "git_sha": "4ea77366ca48ee453e7df139e39fa6532af49f3b",
+  "files": {
+    "_src/motion/motion_planner.py": "b3bf79aa6d734fc72dbb85e9fd707373cc31fc610d21a4c850a7b6041af9d5df",
+    "_src/motion/motion_planner_cfg.py": "d97c1fdb089c37c3a41d14726d148289b3f2bb726ee3fed4b6bab286e4ea9313",
+    "_src/robot/parser/parser_urdf.py": "9af7ae7e5badf86bad32d4b045e8a3a827bbee84ec723149490ecf1422a24313",
+    "_src/robot/types/link_params.py": "a86acae1a43b179579a870eaa49d7b1b7f629512f2f235f7b4fa283888efb7df",
+    "_src/geom/data/data_mesh.py": "5b58bbb0fd5adc894b5cabd264ce9da2bb44b0ca144c94287f974d80c8949f33",
+    "_src/solver/solver_trajopt.py": "e1bbd0aaec008cc1d23431c8f9048e5fa27a59337b9247f81c27d9ecd0355de8",
+    "_src/cost/cost_cspace_position.py": "d072761abf328993f07ac781177c627486efa7db93b8468a45dda108d570af3d",
+    "_src/collision/attachment_manager.py": "99c2e2986adc139404d16404abcf6054af1ed9d0b2cd3659f01747da57cb91b9"
+  }
+}

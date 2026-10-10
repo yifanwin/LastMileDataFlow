@@ -10,6 +10,7 @@ from ..io import read_json
 @dataclass(frozen=True)
 class NoEditConfig:
     schema_version: str = 'no-edit-v1'
+    planner_backend: str = 'legacy'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
     third_person_enabled: bool = True
@@ -55,6 +56,12 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if self.planner_backend not in ('legacy', 'curobo_v2_v080'):
+            raise ValueError('unknown planner backend')
+        if self.planner_backend == 'curobo_v2_v080' and self.operation_retries > 1:
+            raise ValueError('S1 permits at most one outer retry')
+        if self.planner_backend == 'curobo_v2_v080' and self.max_attempts != 5:
+            raise ValueError('V2 uses native plan_pose default max_attempts=5')
         if self.schema_version != 'no-edit-v1':
             raise ValueError('unknown no-edit schema')
         if self.operation_base_mode != 'holonomic_joint_planning':
