@@ -1,0 +1,133 @@
+[
+  {
+    "source": "src/lastmile_dataflow/runtime/no_edit_execution.py",
+    "annotated": "reports/no-edit/annotated-src/runtime_no_edit_execution.annotated.py",
+    "sha256": "d2e5a825bf9763a8aedbff4b5bb5b4936eb32b28b91efcf101275724eb4112bb",
+    "notes": [
+      {
+        "original_line": 227,
+        "annotation": "C01：假定资产抓法是 object→RBY TCP。当前代码未逐资产校验 TCP 约定；这是风险，不是已证明的坐标错误。"
+      },
+      {
+        "original_line": 230,
+        "annotation": "C02：仅按当前底盘方位的接近方向选前32，再抽4；不是对所有抓法或移动后底盘姿态做完整搜索。"
+      },
+      {
+        "original_line": 244,
+        "annotation": "C03：高度绑定候选索引而非遍历高度。只有1个候选时 index 总为0，五次重复仍选同一 h。"
+      },
+      {
+        "original_line": 245,
+        "annotation": "C04：目标中心低于0.8m便强制h最大值；AlarmClock12中心0.7968m因此所有候选h=.738，可能引入碰撞。h是关节联动参数，不是世界高度。"
+      },
+      {
+        "original_line": 250,
+        "annotation": "C05：检查的是改变躯干后的NEW dry诊断姿态，不是过滤时的原始站位；预筛合法与这里碰撞并不矛盾。"
+      },
+      {
+        "original_line": 259,
+        "annotation": "C06：只要预抓取可规划就返回，未验证接近/闭爪/抬升整链；后续失败不在同一试验切换其他抓法。"
+      },
+      {
+        "original_line": 286,
+        "annotation": "C07：预抓取沿TCP Z轴后退8cm；该TCP姿态来自完整资产抓法，不是只给位置。"
+      },
+      {
+        "original_line": 288,
+        "annotation": "C08：默认再向前1cm，与预抓取相差9cm。第二次MotionGen从实测预抓取态出发，可能选到不同IK分支。"
+      },
+      {
+        "original_line": 166,
+        "annotation": "C09：这里只做重新创建的free IK诊断。新solver/随机种子/优化状态也与MotionGen不同，不是严格只切掉碰撞的对照。"
+      },
+      {
+        "original_line": 389,
+        "annotation": "C10：无解后结束当前试验；站位五次是独立试验，S1额外重试仅由path分支开启。执行过预抓取时按failure保存。"
+      }
+    ]
+  },
+  {
+    "source": "src/lastmile_dataflow/planning/curobo.py",
+    "annotated": "reports/no-edit/annotated-src/planning_curobo.annotated.py",
+    "sha256": "a5b539cc5de6fa3e3c552dcf167619dd45ab0651e3250e23f8c1fa0f5fa23c3c",
+    "notes": [
+      {
+        "original_line": 49,
+        "annotation": "P01：底盘和单臂活动，但躯干、另一臂、head、夹爪均锁在该候选的姿态。放开base不等于全身自由IK。"
+      },
+      {
+        "original_line": 73,
+        "annotation": "P02：目标整物体从规划碰撞世界排除，其他家具仍保留；目标非指碰撞由实际物理检查拒绝。"
+      },
+      {
+        "original_line": 147,
+        "annotation": "P03：使用机器人碰撞球、5mm sphere buffer与1cm避碰代价激活距离；不等价于MuJoCo精确几何。激活距离不是简单1cm硬拒绝阈值。"
+      },
+      {
+        "original_line": 149,
+        "annotation": "P04：未显式把task seed传给MotionGen的ik_seed/trajopt_seed，本机cuRobo使用固定默认值；五次试验不保证五套IK随机种子。"
+      },
+      {
+        "original_line": 182,
+        "annotation": "P05：无环境且关闭自碰撞，只能做有限种子kinematic可解性诊断；true不能直接证明原失败是某个几何碰撞。"
+      },
+      {
+        "original_line": 221,
+        "annotation": "P06：MotionGen以当前实测关节作为start，还传入其内部IK seed/retract策略；内部IK_FAIL可来自优化搜索不收敛，不是不可达证书。"
+      },
+      {
+        "original_line": 55,
+        "annotation": "P07：注册head及双TCP本身是FK需求，不应等价于固定其世界姿态。旧cuRobo warmup会给这些link建立额外pose目标。"
+      },
+      {
+        "original_line": 151,
+        "annotation": "P08：本机旧cuRobo warmup仍调用plan_single(link_poses=state.link_pose)。后续None不会清空缓存，head/闲置TCP的世界pose代价限制底盘运动。S0042仅抑制这些warmup目标、保留关节锁和全部避碰后，两段规划均成功。"
+      }
+    ]
+  },
+  {
+    "source": "src/lastmile_dataflow/tasks/raw_scene.py",
+    "annotated": "reports/no-edit/annotated-src/tasks_raw_scene.annotated.py",
+    "sha256": "15e510b2f4b6416eba1aaeb39eb87d89e5655dfaa5aa5f67d05eb82548c48dcd",
+    "notes": [
+      {
+        "original_line": 162,
+        "annotation": "G01：有效资产抓法直接返回，程序bbox抓法仅在无有效资产数据时才生成；有效但不适配当前RBY姿态时没有备用候选。"
+      },
+      {
+        "original_line": 165,
+        "annotation": "G02：bbox pinch只是几何候选，不能当实际接触/抓取成功；补充这类候选仍须完整规划与物理验收。"
+      }
+    ]
+  },
+  {
+    "source": "src/lastmile_dataflow/stations/no_edit_sampling.py",
+    "annotated": "reports/no-edit/annotated-src/stations_no_edit_sampling.annotated.py",
+    "sha256": "5d8cff3e4d7f9930d4aa3bdb3a29ba3086c4b52a692b5cc204d4419c81f8458f",
+    "notes": [
+      {
+        "original_line": 91,
+        "annotation": "S01：合法站位检查发生在原始initial躯干/手臂姿态。后续choose_control改躯干时必须另检，不能当作这里漏检。"
+      },
+      {
+        "original_line": 44,
+        "annotation": "S02：这是真实MuJoCo诊断姿态穿透：自碰撞2mm/环境1mm阈值，不是cuRobo的球距离标签。"
+      }
+    ]
+  },
+  {
+    "source": "src/lastmile_dataflow/validation/no_edit.py",
+    "annotated": "reports/no-edit/annotated-src/validation_no_edit.annotated.py",
+    "sha256": "93d3dfc91c887e404c3fba2209c352e20a7c4c6f7735b9048d966e603c321774",
+    "notes": [
+      {
+        "original_line": 35,
+        "annotation": "V01：Reachability仅表示最后记录候选+有限种子free IK无解，未遍历抓法×躯干×手臂，不证明该物体不可达。"
+      },
+      {
+        "original_line": 57,
+        "annotation": "V02：diagnostic可能含dry_collisions，而顶层collisions只收实际执行记录；读取归因必须同时查看这两处。"
+      }
+    ]
+  }
+]

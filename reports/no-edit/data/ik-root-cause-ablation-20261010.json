@@ -1,0 +1,588 @@
+{
+  "scope": "post-hoc mechanism diagnosis; no production code changes or physical grasp execution",
+  "source_commit": "9280253",
+  "sources": {
+    "outputs/diagnostics/cup-s0042-motiongen-20261010-r5/probe.json": "b62d46b1ba577fb4087a3a2333c6463c1bed7dc0dc7397bade95902f30c024ee",
+    "outputs/diagnostics/potato17-torso-20261010/sweep.json": "f7846083ab056911171ad1fc27be295fd78d1bca1cfe107a31f73767b52302b5",
+    "reports/no-edit/data/dry-pose-collision-sweep-20261010.json": "5155b304bcea3138649de53295656c062101bef1fba3b78835967579d26b89a7",
+    "reports/no-edit/data/cup30-code-trace-audit-20261010.json": "714093d8f3ecc070da47ff3e956582fe0894f3dd12b22153034fff77fde0c180"
+  },
+  "cup_s0042": {
+    "attempt": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t0-beb9268c",
+    "results": [
+      {
+        "ik": {
+          "position_error": [
+            [
+              3.280551754869521e-05,
+              0.0005345835816115141,
+              0.0006344336434267461,
+              0.0019184076227247715
+            ]
+          ],
+          "rotation_error": [
+            [
+              4.00517565140035e-05,
+              0.00026681445888243616,
+              0.00031693073105998337,
+              0.00219768937677145
+            ]
+          ],
+          "success": true
+        },
+        "mode": "recorded MotionGen sequence",
+        "phase": "pregrasp",
+        "status": "None",
+        "success": true,
+        "time_s": 1.4505032359156758
+      },
+      {
+        "ik": {
+          "position_error": [
+            [
+              0.05549345165491104,
+              0.05588698387145996,
+              0.05593838170170784,
+              0.056827593594789505
+            ]
+          ],
+          "rotation_error": [
+            [
+              0.08515738695859909,
+              0.06559722870588303,
+              0.0837721899151802,
+              0.07849368453025818
+            ]
+          ],
+          "success": false
+        },
+        "mode": "recorded MotionGen sequence",
+        "phase": "approach",
+        "status": "MotionGenStatus.IK_FAIL",
+        "success": false,
+        "time_s": 0.6741728710476309
+      },
+      {
+        "keys": [
+          "ee_right_tcp",
+          "ee_left_tcp",
+          "link_head_2"
+        ],
+        "mode": "cached world link goals after original MotionGen plans",
+        "poses": {
+          "ee_left_tcp": {
+            "position": [
+              [
+                0.6144416332244873,
+                -0.05034755915403366,
+                0.8415806293487549
+              ]
+            ],
+            "quaternion": [
+              [
+                0.2900867164134979,
+                0.07642161846160889,
+                0.9432628750801086,
+                -0.14235380291938782
+              ]
+            ]
+          },
+          "ee_right_tcp": {
+            "position": [
+              [
+                0.3399065434932709,
+                -0.2783588767051697,
+                1.3393992185592651
+              ]
+            ],
+            "quaternion": [
+              [
+                0.7061635851860046,
+                0.28861111402511597,
+                0.2682846486568451,
+                0.5882685780525208
+              ]
+            ]
+          },
+          "link_head_2": {
+            "position": [
+              [
+                0.02215644344687462,
+                3.709865723067196e-06,
+                1.50600004196167
+              ]
+            ],
+            "quaternion": [
+              [
+                0.8964741826057434,
+                -1.033035459840903e-05,
+                0.4430959224700928,
+                2.0900431991321966e-05
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "base_span": [
+          0.10901399701833725,
+          0.336317777633667,
+          0.8366105556488037
+        ],
+        "mode": "MotionGen warmup auxiliary world link goals suppressed, ALL joint locks and collision constraints retained",
+        "phase": "pregrasp",
+        "planned_points": 49,
+        "status": "None",
+        "success": true
+      },
+      {
+        "base_span": [
+          0.08599112927913666,
+          0.02545103430747986,
+          0.06824357807636261
+        ],
+        "mode": "MotionGen warmup auxiliary world link goals suppressed, ALL joint locks and collision constraints retained",
+        "phase": "approach",
+        "planned_points": 38,
+        "status": "None",
+        "success": true
+      },
+      {
+        "current_start_condition": false,
+        "mode": "MotionGen embedded IK",
+        "phase": "approach",
+        "position_error": [
+          [
+            0.0544930137693882,
+            0.05582922324538231,
+            0.055783405900001526,
+            0.05594388395547867
+          ]
+        ],
+        "rotation_error": [
+          [
+            0.06308875977993011,
+            0.05867013707756996,
+            0.07446124404668808,
+            0.07635210454463959
+          ]
+        ],
+        "success": false
+      },
+      {
+        "current_start_condition": true,
+        "mode": "MotionGen embedded IK",
+        "phase": "approach",
+        "position_error": [
+          [
+            0.05577029660344124,
+            0.05623759329319,
+            0.05581429973244667,
+            0.056532301008701324
+          ]
+        ],
+        "rotation_error": [
+          [
+            0.08386746793985367,
+            0.0743100643157959,
+            0.11820321530103683,
+            0.0587870292365551
+          ]
+        ],
+        "success": false
+      },
+      {
+        "current_start_condition": false,
+        "embedded_constraint_valid": [
+          true
+        ],
+        "kinematic_sphere_max_difference": 0.0,
+        "mode": "IK only",
+        "phase": "approach",
+        "position_error": [
+          [
+            6.596772891498404e-06,
+            3.841751379241032e-07,
+            1.243378846993437e-06,
+            4.520734364632517e-06
+          ]
+        ],
+        "regularization": true,
+        "rotation_error": [
+          [
+            5.008947937312769e-06,
+            4.692535924277763e-07,
+            2.124374304912635e-06,
+            5.3377575568447355e-06
+          ]
+        ],
+        "standalone_constraint_valid": [
+          true
+        ],
+        "success": true
+      },
+      {
+        "current_start_condition": true,
+        "embedded_constraint_valid": [
+          true
+        ],
+        "kinematic_sphere_max_difference": 0.0,
+        "mode": "IK only",
+        "phase": "approach",
+        "position_error": [
+          [
+            4.449309017218184e-06,
+            1.243106453330256e-05,
+            1.2843634067394305e-06,
+            8.497119779349305e-06
+          ]
+        ],
+        "regularization": true,
+        "rotation_error": [
+          [
+            6.594795650016749e-06,
+            7.61135788707179e-06,
+            4.229092610330554e-06,
+            5.506535671884194e-06
+          ]
+        ],
+        "standalone_constraint_valid": [
+          true
+        ],
+        "success": true
+      },
+      {
+        "mode": "fresh standalone IK injected diagnostically into MotionGen",
+        "phase": "approach",
+        "status": "MotionGenStatus.FINETUNE_TRAJOPT_FAIL",
+        "success": false
+      },
+      {
+        "current_start_condition": true,
+        "embedded_constraint_valid": [
+          true
+        ],
+        "kinematic_sphere_max_difference": 0.0,
+        "mode": "IK only",
+        "phase": "approach",
+        "position_error": [
+          [
+            3.596714748255181e-07,
+            3.4721128372439125e-07,
+            8.214472586587362e-07,
+            8.873049068824912e-07
+          ]
+        ],
+        "regularization": false,
+        "rotation_error": [
+          [
+            5.02189141116105e-06,
+            7.132570317480713e-06,
+            2.4601306449767435e-06,
+            3.96318728235201e-06
+          ]
+        ],
+        "standalone_constraint_valid": [
+          true
+        ],
+        "success": true
+      }
+    ],
+    "scope": "planning input replay only; not motion execution"
+  },
+  "potato17": {
+    "attempt": "/data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-val-four-view-full-20261010/scenes/val_0/attempts/pick-1be77437bb5c-S0015-t1-24e715d6",
+    "rows": [
+      {
+        "arm": "left",
+        "freeIK_success": false,
+        "h": 0.0,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            0.007188694551587105,
+            0.008251856081187725,
+            0.009075816720724106,
+            0.009133965708315372,
+            0.008822272531688213,
+            0.008836845867335796,
+            0.009321384131908417,
+            0.00922899879515171
+          ]
+        ],
+        "rotation_error": [
+          [
+            0.0455893836915493,
+            0.033417750149965286,
+            0.027919048443436623,
+            0.02624632604420185,
+            0.0288684144616127,
+            0.05136479064822197,
+            0.02605746127665043,
+            0.026862220838665962
+          ]
+        ]
+      },
+      {
+        "arm": "right",
+        "freeIK_success": false,
+        "h": 0.0,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            0.008569784462451935,
+            0.008523005992174149,
+            0.009007502347230911,
+            0.009082295931875706,
+            0.009185262024402618,
+            0.009635573253035545,
+            0.00968941394239664,
+            0.009773315861821175
+          ]
+        ],
+        "rotation_error": [
+          [
+            0.02997906319797039,
+            0.05220305547118187,
+            0.02995438128709793,
+            0.05074814707040787,
+            0.029789946973323822,
+            0.02881006710231304,
+            0.029421716928482056,
+            0.02967982552945614
+          ]
+        ]
+      },
+      {
+        "arm": "left",
+        "freeIK_success": true,
+        "h": 0.369,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            9.519340892438777e-06,
+            1.3324385008672834e-06,
+            5.5717682698741555e-06,
+            9.248673791262263e-07,
+            5.518284524441697e-06,
+            1.0876697160711046e-06,
+            1.19825642741489e-06,
+            6.138070148153929e-06
+          ]
+        ],
+        "rotation_error": [
+          [
+            5.364526714402018e-06,
+            4.811197868548334e-06,
+            7.0633091127092484e-06,
+            8.264385655820661e-07,
+            6.752262379450258e-06,
+            7.291338874892972e-07,
+            5.087666067993268e-06,
+            2.000628683163086e-06
+          ]
+        ]
+      },
+      {
+        "arm": "right",
+        "freeIK_success": true,
+        "h": 0.369,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            2.3033992420096183e-06,
+            2.9406546673271805e-06,
+            8.190148150788445e-07,
+            1.0953147011605324e-06,
+            1.6319351061611087e-06,
+            7.2167708822235e-06,
+            2.474670054652961e-06,
+            2.1123637452546973e-06
+          ]
+        ],
+        "rotation_error": [
+          [
+            6.73553995511611e-06,
+            3.446622713454417e-06,
+            4.457999239093624e-06,
+            1.4113314819041989e-06,
+            4.971294401912019e-06,
+            4.559198714559898e-06,
+            3.083226602029754e-06,
+            4.311953489377629e-06
+          ]
+        ]
+      },
+      {
+        "arm": "left",
+        "freeIK_success": true,
+        "h": 0.738,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            2.5857104901660932e-06,
+            2.6442567104822956e-06,
+            4.785476903634844e-06,
+            4.7941839511622675e-06,
+            3.8293628676910885e-06,
+            2.712579089347855e-06,
+            1.4507782907458022e-05,
+            7.924752935650758e-06
+          ]
+        ],
+        "rotation_error": [
+          [
+            4.886952410743106e-06,
+            1.35766811126814e-06,
+            2.323563194295275e-06,
+            3.0661637993034674e-06,
+            2.7631758712232113e-06,
+            4.443264515430201e-06,
+            4.632539912563516e-06,
+            6.722946636728011e-06
+          ]
+        ]
+      },
+      {
+        "arm": "right",
+        "freeIK_success": true,
+        "h": 0.738,
+        "pose_collisions": [],
+        "position_error": [
+          [
+            2.2543040358868893e-06,
+            2.0854520244029118e-06,
+            2.8534607281471835e-06,
+            2.325079549336806e-06,
+            4.47722214858004e-07,
+            1.3206473568061483e-06,
+            1.3210818906372879e-05,
+            3.032633003385854e-06
+          ]
+        ],
+        "rotation_error": [
+          [
+            5.3674211812904105e-06,
+            4.114522198506165e-06,
+            3.701905598063604e-06,
+            3.8134858186822385e-06,
+            1.0735340083556366e-06,
+            6.114122243161546e-06,
+            5.309598236635793e-06,
+            6.737354851793498e-06
+          ]
+        ]
+      }
+    ],
+    "scope": "ONE recorded target-pose free IK sweep with 128 seeds; not collision-safe execution"
+  },
+  "alarmclock12": {
+    "task_id": "pick-a77d189261cb",
+    "anchor_height_m": 0.7967743444430795,
+    "by_torso_h": [
+      {
+        "h": 0.0,
+        "stations": 16,
+        "colliding_stations": 0
+      },
+      {
+        "h": 0.369,
+        "stations": 16,
+        "colliding_stations": 2
+      },
+      {
+        "h": 0.738,
+        "stations": 16,
+        "colliding_stations": 9
+      }
+    ],
+    "S0068": [
+      {
+        "h": 0.0,
+        "contacts": 0,
+        "body_pairs": [],
+        "maximum_penetration_m": 0
+      },
+      {
+        "h": 0.369,
+        "contacts": 6,
+        "body_pairs": [
+          [
+            "bed_aed5602affd158c34e7eda83481af599_1_1_2",
+            "robot_0/link_torso_1"
+          ],
+          [
+            "bed_aed5602affd158c34e7eda83481af599_1_1_2",
+            "robot_0/link_torso_2"
+          ]
+        ],
+        "maximum_penetration_m": 0.05034005973395155
+      },
+      {
+        "h": 0.738,
+        "contacts": 20,
+        "body_pairs": [
+          [
+            "bed_aed5602affd158c34e7eda83481af599_1_1_2",
+            "robot_0/link_torso_1"
+          ],
+          [
+            "bed_aed5602affd158c34e7eda83481af599_1_1_2",
+            "robot_0/link_torso_2"
+          ]
+        ],
+        "maximum_penetration_m": 0.14827792519915398
+      }
+    ]
+  },
+  "cup_snapshots": {
+    "no-edit-val103-cup30-20261010-113028": {
+      "attempts": 22,
+      "executed": 16,
+      "statuses": {
+        "failure": 14,
+        "planning_no_solution": 6,
+        "success": 2
+      },
+      "reasons": {
+        "planning_no_solution": 17,
+        "mobile_pick": 2,
+        "torso_protocol": 3
+      },
+      "phases": {
+        "approach": 11,
+        "dry_pregrasp": 6,
+        "hold": 2,
+        "pregrasp": 3
+      },
+      "freeIK": {
+        "True": 17,
+        "None": 5
+      }
+    },
+    "no-edit-val103-cup30-v2-20261010": {
+      "attempts": 45,
+      "executed": 16,
+      "statuses": {
+        "planning_no_solution": 29,
+        "failure": 13,
+        "success": 3
+      },
+      "reasons": {
+        "planning_no_solution": 40,
+        "arm_tracking_timeout": 2,
+        "mobile_pick": 3
+      },
+      "phases": {
+        "dry_pregrasp": 29,
+        "approach": 11,
+        "pregrasp": 2,
+        "hold": 3
+      },
+      "freeIK": {
+        "True": 40,
+        "None": 5
+      }
+    }
+  }
+}

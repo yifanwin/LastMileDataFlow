@@ -1,0 +1,2992 @@
+{
+  "no-edit-val103-cup30-20261010-113028": {
+    "attempts": 22,
+    "executed": 16,
+    "statuses": {
+      "failure": 14,
+      "planning_no_solution": 6,
+      "success": 2
+    },
+    "reasons": {
+      "planning_no_solution": 17,
+      "mobile_pick": 2,
+      "torso_protocol": 3
+    },
+    "phases": {
+      "approach": 11,
+      "dry_pregrasp": 6,
+      "hold": 2,
+      "pregrasp": 3
+    },
+    "freeIK": {
+      "True": 17,
+      "None": 5
+    },
+    "rows": [
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t2-6d9145b4",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 665,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7009164160117507
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t2-871a1523",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6880535180680454
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t3-c4b15a81",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 657,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6891108627896756
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t1-0c9fba62",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 656,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.9249819100368768
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t2-0a9f8984",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 71,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.9317755249794573
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t3-65b1861d",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 655,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7307358698453754
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t0-edfa7641",
+        "status": "success",
+        "reason": "mobile_pick",
+        "phase": "hold",
+        "steps": 322,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "success"
+          ],
+          [
+            "lift",
+            "success"
+          ],
+          [
+            "lift_attached",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t4-7178cadf",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7031735950149596
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t1-5810168d",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 657,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.9021514300256968
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t3-1183b73f",
+        "status": "success",
+        "reason": "mobile_pick",
+        "phase": "hold",
+        "steps": 322,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "success"
+          ],
+          [
+            "lift",
+            "success"
+          ],
+          [
+            "lift_attached",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t0-baba8115",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.9138940870761871
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t4-ce14300d",
+        "status": "failure",
+        "reason": "torso_protocol",
+        "phase": "pregrasp",
+        "steps": 28,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t3-31db4ead",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7411317909136415
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t1-e27ab96a",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 684,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.710727705154568
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t2-a8784bbd",
+        "status": "failure",
+        "reason": "torso_protocol",
+        "phase": "pregrasp",
+        "steps": 28,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t1-e9192552",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7343976648990065
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t4-fc4cfa07",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 361,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7330852427985519
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t4-8b9dd6cb",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 358,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7481046300381422
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t0-1fcc23ed",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 686,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7581086240243167
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t0-beb9268c",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 66,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7467158429790288
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t1-2309c756",
+        "status": "failure",
+        "reason": "torso_protocol",
+        "phase": "pregrasp",
+        "steps": 28,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-20261010-113028/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t0-6f91fb4c",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7398225730285048
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      }
+    ]
+  },
+  "no-edit-val103-cup30-v2-20261010": {
+    "attempts": 45,
+    "executed": 16,
+    "statuses": {
+      "planning_no_solution": 29,
+      "failure": 13,
+      "success": 3
+    },
+    "reasons": {
+      "planning_no_solution": 40,
+      "arm_tracking_timeout": 2,
+      "mobile_pick": 3
+    },
+    "phases": {
+      "dry_pregrasp": 29,
+      "approach": 11,
+      "pregrasp": 2,
+      "hold": 3
+    },
+    "freeIK": {
+      "True": 40,
+      "None": 5
+    },
+    "rows": [
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t3-d6498b55",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7480017219204456
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t3-631ab212",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 657,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7289775561075658
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t1-fad8033c",
+        "status": "failure",
+        "reason": "arm_tracking_timeout",
+        "phase": "pregrasp",
+        "steps": 183,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0015-t1-0fe55150",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7219625818543136
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t0-1c0f32a9",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7486605839803815
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t1-836bb149",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 656,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7439198908396065
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t4-74eb4455",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 361,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7506893288809806
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t3-80916b97",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6945182960480452
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0023-t4-f4fc7a49",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7057580149266869
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t4-de4afc8d",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.729004672029987
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0023-t3-e6edc960",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6947640641592443
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0023-t1-01315aba",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7400698668789119
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t1-5e3e09ed",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7424953489098698
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0023-t2-34e6b90c",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7334633970167488
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t2-cd7763e7",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 665,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.883190562017262
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t2-969af4e6",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6942668680567294
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t4-8123f6df",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 358,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7273976888973266
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0015-t3-a82608f8",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7067049520555884
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0052-t1-367cfd02",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.8067557660397142
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0041-t3-eb224984",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.700608974089846
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t1-1972a81a",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 684,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7311059678904712
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0023-t0-b5008f0f",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7070494249928743
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t1-3504fa38",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 657,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6926208599470556
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t4-203aa031",
+        "status": "success",
+        "reason": "mobile_pick",
+        "phase": "hold",
+        "steps": 299,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "success"
+          ],
+          [
+            "lift",
+            "success"
+          ],
+          [
+            "lift_attached",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t2-4d1168ab",
+        "status": "failure",
+        "reason": "arm_tracking_timeout",
+        "phase": "pregrasp",
+        "steps": 183,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0044-t0-52a23afd",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 686,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7415386659558862
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t2-4a25b6c5",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7095474451780319
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0015-t0-5c16833b",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6934496429748833
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0015-t2-b5ece930",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7032693300861865
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0041-t2-f130e4e4",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.712612803094089
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0041-t4-d199f4a4",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7291572950780392
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0052-t2-27db2d48",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7048912760801613
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0052-t0-959034fb",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7395438789390028
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0032-t0-29144779",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7107116021215916
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0052-t3-8ac164b6",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6965868738479912
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0052-t4-9d9eb0b9",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7265914869494736
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t3-2cbf32db",
+        "status": "success",
+        "reason": "mobile_pick",
+        "phase": "hold",
+        "steps": 321,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "success"
+          ],
+          [
+            "lift",
+            "success"
+          ],
+          [
+            "lift_attached",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t3-80ffef46",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 655,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7467566521372646
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t0-e2d1b053",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 66,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.838635133812204
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0024-t4-ddf31372",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7044842990580946
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0041-t0-cd7e4be3",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7329112580046058
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0041-t1-4de9c2eb",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7942154030315578
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0042-t2-b03c3ebb",
+        "status": "failure",
+        "reason": "planning_no_solution",
+        "phase": "approach",
+        "steps": 71,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.7540422799065709
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "no_solution"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0033-t0-061eab3d",
+        "status": "success",
+        "reason": "mobile_pick",
+        "phase": "hold",
+        "steps": 321,
+        "diagnostic": {},
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "success"
+          ],
+          [
+            "pregrasp",
+            "success"
+          ],
+          [
+            "approach",
+            "success"
+          ],
+          [
+            "lift",
+            "success"
+          ],
+          [
+            "lift_attached",
+            "success"
+          ]
+        ]
+      },
+      {
+        "attempt": "outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/attempts/pick-bf2b057e9916-S0015-t4-31c2d467",
+        "status": "planning_no_solution",
+        "reason": "planning_no_solution",
+        "phase": "dry_pregrasp",
+        "steps": 0,
+        "diagnostic": {
+          "finite_budget_not_impossibility": true,
+          "free_ik_success": true,
+          "max_attempts": 3,
+          "num_ik_seeds": 32,
+          "scope": "finite candidate/seed budget, not proof of global unreachability",
+          "status": "MotionGenStatus.IK_FAIL",
+          "wall_time_s": 0.6964896519202739
+        },
+        "plan_phases": [
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ],
+          [
+            "dry_pregrasp",
+            "no_solution"
+          ]
+        ]
+      }
+    ]
+  }
+}
