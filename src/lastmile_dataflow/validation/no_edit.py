@@ -36,7 +36,7 @@ def attribute(reason, *, samples=(), collisions=(), diagnostic=None):
         result['category']='Reachability'; result['scope']='tested grasp/torso/arm and finite IK seeds only'
     elif 'planning' in reason or 'no_solution' in reason:
         result['category']='PlanningFailure'
-    elif 'tracking' in reason or 'drift' in reason or 'protocol' in reason or 'workspace' in reason:
+    elif reason.startswith('control_limit:') or reason == 'torso_feedback_limit' or 'tracking' in reason or 'drift' in reason or 'protocol' in reason or 'workspace' in reason:
         result['category']='TrackingFailure'
     elif reason in ('lift_contact_hold_or_slip','open_no_grip','open_contact_lost'):
         gripping=[r for r in samples if len(r.get('finger_forces_n',{})) == 2]

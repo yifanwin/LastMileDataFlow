@@ -37,6 +37,9 @@ LastMileDataFlow 是独立的五阶段机器人数据采集工程，使用 Pytho
 - `configs/` 保存显式 JSON 配置；路径以配置文件所在目录为基准。
 - `tests/` 保存单元/故障回归和显式真实 smoke；`fixtures/` 不放大型模型或视频。
 - `outputs/` 保存采集产物，已被 Git 忽略；勿提交虚拟环境、缓存、大型资产或运行输出。
+  统一布局：`outputs/logs/` 放全部 `*.log`/`*.pid`/`*.txt` 运行日志（唯一日志入口，不要再往 `outputs/` 根目录落日志），
+  `outputs/no_edit/<run>/` 放采集产物，`outputs/diagnostics/` 放诊断/验收 run，`outputs/dependencies/` 放环境与缓存证据；
+  散落日志用 `scripts/tidy_outputs.sh` 归集。
 
 算法属于领域模块，编排属于 `workflows`，真实运动属于 `runtime`。不要按 case 复制仿真、机器人和记录代码，也不要把 `runtime/runner.py` 扩成全阶段巨型入口。
 

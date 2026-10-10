@@ -45,8 +45,10 @@ class V2Planner:
         self.workspace = workspace
         center, radius = workspace
         local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
+        from ..robots.action_limits import local_yaw_bounds
+        self.reference_yaw=float(sim.robot.group('base')[2])
         bounds = {'base_x': (local[0]-radius, local[0]+radius),
-                  'base_y': (local[1]-radius, local[1]+radius), 'base_theta': (-np.pi, np.pi)}
+                  'base_y': (local[1]-radius, local[1]+radius), 'base_theta': local_yaw_bounds(sim.robot,self.reference_yaw)}
         root = Path(config.robot_planner_dir)
         urdf = self.path / 'mobile_torso_mimic.urdf'
         coupling = derive_urdf(root/'urdf/model_holobase.urdf', urdf, bounds, sim.robot.config.torso_limits)
@@ -171,7 +173,7 @@ class V2Planner:
 
     def current_joints(self):
         relative = np.linalg.solve(self.base, body_pose(self.sim, self.sim.model.body('robot_0/base').id))
-        return np.r_[relative[:2, 3], np.arctan2(relative[1, 0], relative[0, 0]),
+        return np.r_[relative[:2, 3], float(self.sim.robot.group('base')[2])-self.reference_yaw,
                      self.sim.robot.group(self.side+'_arm'), self.sim.robot.group('torso')[1]]
 
     def state(self):
@@ -191,7 +193,7 @@ class V2Planner:
         local = np.eye(4); local[:2, 3] = [x, y]
         local[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
         world = self.base @ local
-        return np.r_[world[:2, 3], np.arctan2(world[1, 0], world[0, 0])]
+        return np.r_[world[:2, 3], self.reference_yaw+yaw]
 
     def points(self, trajectory, last=None):
         trajectory = trajectory.reorder(list(self.motion.joint_names))

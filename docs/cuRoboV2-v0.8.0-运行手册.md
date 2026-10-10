@@ -45,6 +45,50 @@ DATAFLOW_PYTHON="$PWD/.venv-curobo-v080/bin/python" bin/lastmile-dataflow collec
 
 删除 `--targets Cup_30` 采集 val103 的全部任务；删除 `--houses 103` 扩展整个 val。当前按用户要求只用 CUDA 1。批处理自行设置 worker 的 CUDA/EGL 映射，不在父进程另加 `CUDA_VISIBLE_DEVICES`。`--max-trials` 只用于 smoke，截断结果标为 incomplete，不冒充完整采样。
 
+## 完整 val_103：全部原始目标任务
+
+不指定 `--targets`，枚举 val_103 中所有符合当前 pick/open 任务规则的目标（不是每个装饰物都生成任务），并完成各有效点的默认5次操作：
+
+```bash
+cd /data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/no-edit-lastmile-val
+export DATAFLOW_PYTHON="$PWD/.venv-curobo-v080/bin/python"
+export WARP_CACHE_PATH="$PWD/outputs/dependencies/warp-cache"
+export MPLCONFIGDIR="$PWD/outputs/dependencies/mpl"
+export PYTHONUNBUFFERED=1
+mkdir -p outputs/logs
+RUN_ID="no-edit-v080-val103-all-cuda1-$(date +%Y%m%d-%H%M%S)"
+set -o pipefail
+bin/lastmile-dataflow collect-no-edit \
+  --assets-dir /data0/wenyifan/MoMaTrajGen/molmospaces_data/assets \
+  --dataset-dir /data0/wenyifan/MoMaTrajGen/molmospaces_data/assets/scenes/procthor-10k-val \
+  --config configs/no_edit/curobo_v080.json \
+  --run-id "$RUN_ID" --houses 103 --gpu-ids 1 --workers 1 \
+  2>&1 | tee "outputs/logs/$RUN_ID.log"
+```
+
+## 全部原始 val 场景
+
+不指定 `--houses` 或 `--targets`，枚举整个 `procthor-10k-val`，保持原始场景、不做场景编辑。按当前要求仍只使用 CUDA1：
+
+```bash
+# 在上述 worktree 中执行；复用上一节的环境变量。
+mkdir -p outputs/logs
+RUN_ID="no-edit-v080-val-all-cuda1-$(date +%Y%m%d-%H%M%S)"
+set -o pipefail
+bin/lastmile-dataflow collect-no-edit \
+  --assets-dir /data0/wenyifan/MoMaTrajGen/molmospaces_data/assets \
+  --dataset-dir /data0/wenyifan/MoMaTrajGen/molmospaces_data/assets/scenes/procthor-10k-val \
+  --config configs/no_edit/curobo_v080.json \
+  --run-id "$RUN_ID" --gpu-ids 1 --workers 1 \
+  2>&1 | tee "outputs/logs/$RUN_ID.log"
+```
+
+**运行前注意：** Cup_30 测试 run `no-edit-v080-val103-cup30-20261010-173735` 于 2026-10-10 20:05 异常停止，错误为 rollout 重试时的 `FileExistsError`（证据目录命名冲突），已于本次修复（见文末）。更早的 `InvalidAction:torso height out of range`（15:55）与原 S0024/相同种子重测成功（259步）；yaw 越界问题亦已修复并验收。其他目标仍需验收后再启动全场景；以上是运行命令，不表示全量已启动或通过验收。新版 open 尚未完成真实成功验收。
+
+长任务建议在 `tmux` 的持久终端中运行；不要仅依赖临时工具会话的 `nohup`。不要同时启动多个 CUDA1 批次。父进程不要设置 `CUDA_VISIBLE_DEVICES`，worker 自行映射 GPU。
+
+同一版本、同一源码与配置恢复时，复用**实际原 run-id**并在原命令末尾增加 `--resume`；不要重新生成时间戳。源码/配置修复后应使用新 run-id，不能强行绕过冻结摘要检查。最终以 `summary.json` 与 `timing.json` 的状态为准：`infrastructure_error` 表示本 run 存在基础设施异常的证据（单场景故障已按场景隔离，不再中止其余场景），不是完整完成；查 `scene_results` 定位失败场景，再查该任务 `progress.json` 的 `terminal_trials/expected_trials` 确认进度。
+
 ## 不混用三层预算
 
 | 层级 | 默认规则 |
@@ -82,3 +126,31 @@ PYTHONPATH=src CUDA_VISIBLE_DEVICES=1 MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=1 \
 ```
 
 该 smoke 的 S0 是接口验收起点，**未宣称为新版低成功率点**，也不写入最终数据集。正式采集仍从新版全点统计选择 S0/S1。
+
+## 躯干边界容差修复（2026-10-10）
+
+新版 no-edit 命令 h 保持 `[0,0.738]`：输入超出边界不超过 **0.003rad** 时裁剪回边界；更大越界或非有限输入仍拒绝。裁剪记录在 attempt 的 `torso_command_adjustments.jsonl`，动作记录同时保留原始输入和实际提交命令。此处 h 是联动关节参数，不是米。
+
+实际反馈 h 允许超出边界 **0.003rad（约0.172°）**；物理记录包含 `torso_measured_h`、`torso_limit_excess_rad`、`torso_feedback_tolerance_rad`。超出该容差归为 `torso_feedback_limit` 操作失败，不伪装成成功。躯干联动跟踪误差仍记录，原碰撞与模型/执行器限位不变；不修改实际 qpos。
+
+关闭夹爪和保持阶段沿用最后已提交的合法 h 目标，不把实测超调写成新目标。此修复改变源码摘要，请使用新 run-id 验收/采集，不强行续跑旧冻结 run。原始异常记录保持不变。
+
+CUDA1 原失败点 S0024、相同种子1578639238重测成功：259步、114.306秒；关闭夹爪时实测越界最高0.001510rad，容差内未停止。证据：`outputs/diagnostics/v080-torso-fix-S0024-seed1578639238/summary.json`。回归206项，8项跳过，其余通过。
+
+## yaw 与其他命令限位、单次警告策略（2026-10-10）
+
+- 当前物理模型的 yaw 是有界关节 `[-3.14,3.14]`，不是可无限旋转的 continuous joint。新版规划将这一区间转换到固定规划基准的局部 yaw 范围；状态/目标使用同一连续标量，导航及跟踪不再走跨越硬限位的最短角差。不改模型、不通过写qpos绕过边界；需要时可能走较长旋转路径。
+- 所有20D可控制目标使用关节/执行器/协议范围的交集。角度小幅越界≤0.003rad、底盘平移及夹爪小幅越界≤0.001m时投影回边界；更大越界拒绝。躯干h继续考虑联动关节范围。额外记录在 `command_limit_adjustments.jsonl`，保留原始动作和实际提交命令；底层严格校验仍保留。
+- `InvalidAction`（关节、执行器、增量或协议限位错误）不再是全局 infrastructure_error：本次记 `failure / control_limit:*`，归因 TrackingFailure，写 `control_limit_warning` 事件和控制台 WARNING。结束当前attempt，不再执行非法命令；其他独立试验/点位继续。**警告不等于将失败当成成功。**
+- 真正的环境、GPU、磁盘或视频记录设施异常仍按基础设施错误停止；本次没有将所有异常一概吞掉。原碰撞与成功判定不变。
+
+CUDA1 原S0044、相同种子432661044重测成功：390步、92.818秒，四视角视频已保存。回归211项，跳过8项，其余通过；包括单次限位警告分类与两个点位10次操作全部继续的故障测试。源码已变化，后续用新run-id；未自动启动新全量批次。
+
+## 证据目录唯一性与场景级故障隔离（2026-10-10）
+
+- 证据目录改按单调 `plan_serial` 命名（`v080-<serial>-<side>`、`v080-closed-<serial>-<side>`）。`plan_count` 仍按 attempt 重置（预算按 attempt 计），重试不再落到第一次 attempt 的目录名；两次 attempt 证据各自保留，不互相覆盖。正常路径目录名不变。
+- open 分支的 `world-<index>` 与上述目录统一为 `parents=True, exist_ok=True`。本次修复前，rollout 重试命名冲突会在裸 `mkdir()` 处抛 `FileExistsError`，被归为 `infrastructure_error` 并终止整批（`174137`、`173735` 两次实例）。
+- 单场景 worker 的 `infrastructure_error` 不再清空待办：剩余场景继续派发，证据保留；终态在全部完成后判定，存在 infra 记为 `infrastructure_error`，否则 `completed` / `incomplete`。`worker_no_summary` 同理隔离。
+- legacy 后端 `choose_control` 的 `dry_plans-*` / `measured_planner-*` / `world-*` 仍是裸 `mkdir()`；v2 不进入该路径，本次未改。
+
+`173735` 的 80 次成功试验不因本修复恢复（该 run `retained_segments` 仍为 0），需新 run-id 重采。回归223项、跳过8项，其余通过。

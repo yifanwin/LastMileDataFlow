@@ -7,9 +7,12 @@ from PIL import Image,ImageDraw,ImageFont,ImageOps
 class AnalysisVideo:
     width,height=1280,720
 
-    def __init__(self,task,station, *, path=None,goal=None,radius_m=2.):
+    def __init__(self,task,station, *, path=None,goal=None,radius_m=2.,footprint_radius_m=None):
         self.task,self.station,self.path,self.goal=task,station,path,goal
         self.radius=radius_m;self.history=[]
+        if footprint_radius_m is not None and (not np.isfinite(footprint_radius_m) or footprint_radius_m <= 0):
+            raise ValueError('footprint_radius_m must be finite and positive')
+        self.footprint_radius_m=footprint_radius_m
         fonts=('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
                '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
@@ -50,6 +53,12 @@ class AnalysisVideo:
             return (left+int(v[0]*size),top+size-int(v[1]*size))
         draw.rectangle((left,top,left+size,top+size),outline='#506575')
         draw.ellipse((left,top,left+size,top+size),outline='#506575')
+        for obstacle in self.task.get('support_obstacles',[]):
+            x0,y1=pixel(obstacle['min'][:2]);x1,y0=pixel(obstacle['max'][:2])
+            x0,x1=max(left,x0),min(left+size,x1)
+            y0,y1=max(top,y0),min(top+size,y1)
+            if x0 <= x1 and y0 <= y1:
+                draw.rectangle((x0,y0,x1,y1),fill='#493d2d',outline='#b99a62')
         if self.path:
             planned=[pixel(p) for p in self.path['xy']]
             if len(planned)>1:draw.line(planned,fill='#687785',width=2)
@@ -58,8 +67,17 @@ class AnalysisVideo:
         def dot(xy,color,label):
             x,y=pixel(xy);draw.ellipse((x-4,y-4,x+4,y+4),fill=color)
             draw.text((x+6,y-10),label,font=self.font,fill=color)
-        dot(self.station['xy'],'#ed6b64','S0')
-        if self.goal:dot(self.goal['xy'],'#66d68c','S1')
+        def station_marker(xy,color,label):
+            if self.footprint_radius_m is None:
+                dot(xy,color,label)
+                return
+            x,y=pixel(xy)
+            r=self.footprint_radius_m*size/span
+            draw.ellipse((x-r,y-r,x+r,y+r),outline=color,width=2)
+            draw.ellipse((x-3,y-3,x+3,y+3),fill=color)
+            draw.text((x+r+6,y-10),label,font=self.font,fill=color)
+        station_marker(self.station['xy'],'#ed6b64','S0')
+        if self.goal:station_marker(self.goal['xy'],'#66d68c','S1')
         dot(center,'#ffc55b','T');dot(base_xy,'white','')
         draw.text((18,678),f'仿真时间 {time_s:.3f} s | 1× | 连续物理执行，无重置 | 原场景遮挡保留',font=self.font,fill='white')
         draw.text((973,678),'蓝:实走 灰:规划',font=self.font,fill='#72d8ea')

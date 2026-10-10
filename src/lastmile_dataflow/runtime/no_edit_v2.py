@@ -36,16 +36,20 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         if ctx.plan_count >= ctx.max_plans:
             raise OperationFailure('planning_budget_no_solution')
         ctx.plan_count += 1
+        # Evidence directories key off plan_serial, which survives attempt retries;
+        # plan_count restarts at 0 per attempt, so reusing it would overwrite them.
+        ctx.plan_serial += 1
         ctx.phase = 'plan_' + phase
         ctx.plans.append({'phase': ctx.phase, 'query_index': ctx.plan_count,
+                          'plan_serial': ctx.plan_serial,
                           'planner': 'curobo_v2_v080', 'native_max_attempts': 5})
         write_json(ctx.recorder.path / 'planning.json', ctx.plans)
     try:
         diagnostic = None
         for side in sides:
             ctx.deadline()
-            directory = ctx.recorder.path / f'v080-{ctx.plan_count}-{side}'
-            directory.mkdir()
+            directory = ctx.recorder.path / f'v080-{ctx.plan_serial}-{side}'
+            directory.mkdir(parents=True, exist_ok=True)
             planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
             goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
             for goal in goals:
@@ -81,21 +85,21 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         ctx.phase = 'approach'
         ctx.follow_points(planner, stages['approach'], side, -.05, 0., goal)
         ctx.phase = 'close'; q = sim.robot.group(side + '_arm').copy()
-        h = float(sim.robot.group('torso')[1])
+        h = ctx.hold_torso_target()
         for _ in range(20):
             ctx.arm_tick(side, q, 0., h)
         # Rebuild at measured closed state: relative finger locks must not retain
         # their open value, and the lift must start at the actual executed state.
         planner.close(); planner = None
-        directory = ctx.recorder.path / f'v080-closed-{ctx.plan_count}-{side}'
-        directory.mkdir()
+        directory = ctx.recorder.path / f'v080-closed-{ctx.plan_serial}-{side}'
+        directory.mkdir(parents=True, exist_ok=True)
         planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
         if task['operation'] == 'pick':
             write_json(ctx.recorder.path / 'attached_object.json', planner.attach_target_geometry())
             ctx.phase = 'lift_actual'
             lift = tcp_pose(sim, side).copy(); lift[2, 3] += .10
             ctx.follow(planner, lift, side, 0., h)
-            ctx.phase = 'hold'; q = sim.robot.group(side + '_arm').copy(); h = float(sim.robot.group('torso')[1])
+            ctx.phase = 'hold'; q = sim.robot.group(side + '_arm').copy(); h = ctx.hold_torso_target()
             for _ in range(50):
                 ctx.arm_tick(side, q, 0., h)
             verdict = evaluate_mobile_pick(ctx.samples, initial)
@@ -119,9 +123,9 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
                     rotation = np.eye(3) + np.sin(delta) * skew + (1 - np.cos(delta)) * (skew @ skew)
                     origin = sim.data.xanchor[j]
                     tcp[:3, 3] = origin + rotation @ (tcp[:3, 3] - origin); tcp[:3, :3] = rotation @ tcp[:3, :3]
-                world = directory / f'world-{index}'; world.mkdir(); planner.refresh_world(world)
+                world = directory / f'world-{index}'; world.mkdir(parents=True, exist_ok=True); planner.refresh_world(world)
                 ctx.phase = 'open'; ctx.follow(planner, tcp, side, 0., h)
-                h = float(sim.robot.group('torso')[1])
+                h = ctx.hold_torso_target()
                 if len(ctx.samples[-1]['finger_forces_n']) != 2:
                     raise OperationFailure('open_contact_lost')
             ctx.phase = 'open_hold'; q = sim.robot.group(side + '_arm').copy()

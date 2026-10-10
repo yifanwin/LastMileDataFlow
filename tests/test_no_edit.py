@@ -152,6 +152,38 @@ class TaskAndExecutionTests(unittest.TestCase):
             self.assertEqual(row['status'],'planning_no_solution'); self.assertEqual(row['attribution']['category'],'Reachability')
             self.assertEqual((Path(row['attempt'])/'trajectory.jsonl').read_text(),'')
             self.assertFalse((Path(row['attempt'])/'videos').exists()); sim.close()
+    def test_invalid_action_warns_and_is_not_infrastructure_error(self):
+        from lastmile_dataflow.robots.action import InvalidAction
+        with tempfile.TemporaryDirectory() as d:
+            sim,robot=make_sim(d);root=Path(d);sim.freeze(root/'scene')
+            task={'task_id':'t','operation':'pick','target_body':'target'}
+            st={**station('s',[0,0]),'initial':robot.initial,'base':[0,0,0]}
+            for i in range(2):
+                with patch('lastmile_dataflow.runtime.no_edit_execution.manipulate',side_effect=InvalidAction('joint limit: base_theta')):
+                    row=run_raw_attempt(sim,task,st,[],d,NoEditConfig(third_person_enabled=False),CollectionConfig(output_dir=d),root,f'limit-{i}',seed=i)
+                self.assertEqual(row['status'],'failure')
+                self.assertEqual(row['attribution']['category'],'TrackingFailure')
+                self.assertIn('control_limit_warning',(Path(row['attempt'])/'events.jsonl').read_text())
+            sim.close()
+
+    def test_control_limit_failures_do_not_stop_remaining_stations(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'val_0';tp=root/'tasks'/'t';tp.mkdir(parents=True)
+            write_json(root/'robot_geometry.json',{'radius_m':.4})
+            task={'task_id':'t','operation':'pick','target_body':'target','anchor_world':[0,0,1],
+                  'instruction':'fixture only','house':0}
+            write_json(tp/'stations.json',[station('a',[0,0]),station('b',[0,1])])
+            calls=[]
+            def failed(*args,**kwargs):
+                calls.append(kwargs)
+                return {'status':'failure','reason':'control_limit:joint limit',
+                        'station_id':args[2]['station_id'],'attribution':{'category':'TrackingFailure'},'attempt':'fixture-only'}
+            grid=Grid(np.array([-1.,-1.]),1.,np.ones((6,6),bool))
+            with patch('lastmile_dataflow.tasks.raw_scene.grasp_candidates',return_value=[]),patch('lastmile_dataflow.navigation.astar.task_support_obstacles',return_value=[]),patch('lastmile_dataflow.navigation.astar.scene_grid',return_value=grid),patch('lastmile_dataflow.exporting.no_edit_heatmap.export_heatmap'),patch('lastmile_dataflow.runtime.no_edit_execution.run_raw_attempt',side_effect=failed),patch('lastmile_dataflow.workflows.no_edit.check_disk'):
+                result=collect_task(None,task,d,NoEditConfig(),CollectionConfig(output_dir=d),root)
+            self.assertEqual(len(calls),10)
+            self.assertEqual(result['status'],'discarded_low_success')
+
     def test_open_requires_real_joint_progress_and_contact_hold(self):
         task={'joint_initial':0,'joint_goal':.1}
         samples=[{'time_s':i*.004,'joint_value':.1,'finger_forces_n':{'1':1,'2':1}} for i in range(276)]
@@ -186,7 +218,7 @@ class WorkflowRetentionTests(unittest.TestCase):
                             'navigation':{'status':'success'},'attempt':'fixture-only'}
                 grid=Grid(np.array([-1.,-1.]),1.,np.ones((6,6),bool))
                 with patch('lastmile_dataflow.tasks.raw_scene.grasp_candidates',return_value=[]), \
-                     patch('lastmile_dataflow.navigation.astar.scene_grid',return_value=grid), \
+                     patch('lastmile_dataflow.navigation.astar.task_support_obstacles',return_value=[]),patch('lastmile_dataflow.navigation.astar.scene_grid',return_value=grid), \
                      patch('lastmile_dataflow.exporting.no_edit_heatmap.export_heatmap'), \
                      patch('lastmile_dataflow.runtime.no_edit_execution.run_raw_attempt',side_effect=fake_rollout), \
                      patch('lastmile_dataflow.workflows.no_edit.check_disk'):

@@ -78,6 +78,20 @@ pip 的安装入口为 `lastmile-dataflow`；非 editable 安装时显式传入�
 `execution_complete` 只表示有界短动作执行完毕；case 条件与任务完成在本阶段为 `unknown`，
 不表示抓取、把手抓取或导航成功。加载错误、无效初始化、非法控制、真实物理异常和记录设施异常分别保存。
 
+### 输出目录约定
+
+`outputs/` 已被 Git 忽略，统一按用途分目录，**不要再往 `outputs/` 根目录直接落文件**：
+
+| 目录 | 内容 |
+|---|---|
+| `outputs/logs/` | **全部** `*.log` / `*.pid` / `*.txt` 运行日志（启动、回归、诊断、CLI 帮助）。唯一日志入口。 |
+| `outputs/no_edit/<run>/` | `collect-no-edit` 采集产物，每个 run-id 一个目录。 |
+| `outputs/diagnostics/` | 诊断与验收 run，每个 run 一个子目录（含 `v080-pilot/`）。 |
+| `outputs/dependencies/` | 环境与缓存证据：`warp-cache/`、`mpl/`、`uv-cache/`、`environment-v080.json`、安装日志。 |
+
+新跑批的 stdout 请 `tee` 到 `outputs/logs/<run-id>.log`；已有散落文件用 `scripts/tidy_outputs.sh`
+一键归集（幂等，可重复执行，只移动 `outputs/` 根目录下的日志类文件，不覆盖同名文件、不触碰 run 目录）。
+
 ## 验证
 
 ```bash

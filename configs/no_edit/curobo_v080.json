@@ -17,6 +17,7 @@
   "min_target_pixels": 24,
   "map_resolution_m": 0.05,
   "smoothing_sigma_m": null,
+  "smoothing_support_distance_m": 0.35,
   "attempt_timeout_s": 300.0,
   "scene_timeout_s": 86400.0,
   "width": 320,

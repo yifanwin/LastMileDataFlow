@@ -24,6 +24,7 @@ class NoEditConfig:
     min_target_pixels: int = 24
     map_resolution_m: float = .05
     smoothing_sigma_m: float | None = None
+    smoothing_support_distance_m: float = .35
     navigation_margin_m: float = .02
     navigation_speed_m_s: float = .20
     navigation_yaw_speed_rad_s: float = .4

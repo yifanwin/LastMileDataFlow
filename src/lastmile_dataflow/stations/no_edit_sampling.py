@@ -58,6 +58,12 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     initial = copy.deepcopy(sim.robot.config.initial)
     xy = np.asarray(station['xy'])
     initial['base'] = [*xy, float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))]
+    yaw_adjustments=[]
+    def legal_initial_yaw(value):
+        if getattr(config,'planner_backend',None) != 'curobo_v2_v080': return value
+        from ..robots.action_limits import project, yaw_interval, ANGULAR_TOLERANCE_RAD
+        return project(value,yaw_interval(sim.robot),ANGULAR_TOLERANCE_RAD,'base_theta',yaw_adjustments)
+    initial['base'][2]=legal_initial_yaw(initial['base'][2])
     initial['head'] = [0., .6]
     sim.robot.initialize(initial)
     cid = sim.model.camera(sim.robot.camera_names['head_camera']).id
@@ -66,7 +72,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
         forward = -sim.data.cam_xmat[cid].reshape(3,3)[:,2]
         delta = np.asarray(anchor[:2])-sim.data.cam_xpos[cid,:2]
         error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
-        initial['base'][2] = float((initial['base'][2]+error+np.pi)%(2*np.pi)-np.pi)
+        initial['base'][2] = legal_initial_yaw(float((initial['base'][2]+error+np.pi)%(2*np.pi)-np.pi))
         sim.robot.initialize(initial)
     joint = sim.robot.joints['head_1']
     low,high = sim.model.jnt_range[joint]
@@ -95,7 +101,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
            'head': sim.robot.group('head').tolist(), 'initial': initial,
            'geometry': 'valid' if ground and finite and not collisions else 'geometry_filtered',
            'ground': ground, 'collisions': collisions, 'non_robot_qpos_unchanged': True,
-           'visibility': None}
+           'visibility': None, 'initial_yaw_adjustments':yaw_adjustments}
     if row['geometry'] != 'valid' or not check_visibility:
         return row
     rgb,mask,visible = head_frame(sim, sim.model.body(sim.target_id).name,

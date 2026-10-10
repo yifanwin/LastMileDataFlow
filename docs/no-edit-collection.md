@@ -79,7 +79,10 @@ MissedGrasp、GraspSlip、DroppedObject、LostHandleContact、TrackingFailure �
 - `heatmap.json`：核/观测单位/未知处理声明。
 - `index.html`：离线可读、内嵌 PNG。
 
-Gaussian 核基于地面栅格绕障碍的最短路径距离，σ 默认一个采样间距，截断 3σ。
+Gaussian 核恢复原始地面栅格绕障碍的最短路径距离与加权成功率计算，统一着色，不增加渐淡、中心高亮或额外颜色浓度叠加。σ 默认仍为采样间距；唯一新增的范围限制为 `min(3σ, smoothing_support_distance_m)`，后者默认 0.35 m。
+
+目标下方的支撑物采用完整碰撞几何 AABB 投影：热图内屏蔽该 footprint，A* 还按底盘半径和导航余量膨胀，不能从桌腿间穿过。支撑物同时显示在热图（棕色）和分析视频导航小图，并在 `task.json` / `heatmap.json` 记录几何与来源。parent 仅作为候选优先提示，必须有目标底部附近的重叠几何；缺失时从场景碰撞几何查找。此投影是保守避障，不是精确可通行真值。既有结果不覆盖，新采集使用新 run。
+每个点贡献 `w = exp(-d² / (2σ²))`，所有点的重叠区域累加 `Σ(w × 成功数)` 和 `Σ(w × 有效终局次数)` 后相除；不会用最近点替代，不覆盖前一个点，也不将插值率直接相加到超过 1。地面/支撑物遮罩在累加后应用；热图不证明障碍物两侧可导航连通。
 成功数和有效终局次数分别平滑后相除；障碍、不可见和未测点不是零成功率。
 区域图是插值，不是新增实验；S0/S1 使用原始实测率选择。成功率以采样点为初态，操作中允许移动底盘，不是固定底盘机械臂可达率。
 
@@ -109,7 +112,7 @@ PYTHONPATH=src "$DATAFLOW_PYTHON" -m unittest discover -s tests -v
 单元 fixture 仅证明程序逻辑。真实 CPU/GPU/场景结果以对应 run 产物为准。
 原始场景里有物体在关闭的冰箱/柜子内部，找不到 head 可见无碰撞站位是正常跳过结果，不隐藏遮挡物。
 保守导航栅格可能漏掉狭窄可行路径；不是完整连续空间可达性的证明。
-基础设施故障会停止新派发，正在跑的其他场景收尾；失败证据不伪造成功。
+单场景基础设施故障只结束该场景，保留错误摘要和失败证据，继续派发其余场景；全部场景收尾后，若有基础设施故障，批次状态为 `infrastructure_error`，不会伪造全部成功。主进程异常、磁盘空间不足或用户中断仍会停止批次。
 
 ## 四路视频与复用相机
 
@@ -129,3 +132,66 @@ PYTHONPATH=src "$DATAFLOW_PYTHON" -m unittest discover -s tests -v
 `summary.json` 同步提供 `generation_timing`。运行中每约10秒更新，结束或正常中断写终止时间。
 墙钟耗时包含准备、GPU 等待、规划、渲染编码及断点续跑间隔；活动耗时是各次主进程运行时长之和，**不是并行 worker 时长相加**。
 突发 kill 后无法知道的 session 终止时间明确标为未知，不补造时间。全量未结束时 `ended_at_utc` 为 null。
+
+## 调整扩散范围、测试与全量应用
+
+在 `configs/no_edit/curobo_v080.json`（默认 CLI 配置；旧后端为 `val.json`）填写：
+
+```json
+"smoothing_sigma_m": null,
+"smoothing_support_distance_m": 0.35
+```
+
+单位均为米，必须有限且大于零。最大扩散距离为 **`min(3 × sigma, support_distance)`**，并受障碍物和地面遮罩限制。
+保持 `smoothing_sigma_m: null` 即沿用最初的带宽（采样间距），只改 `smoothing_support_distance_m` 就能调整扩散范围。最大距离仍受原始 3σ 截断限制。
+`spacing_m` 是实测点采样间距，不用于调整扩散边界。5 cm 栅格下小于一个栅格的范围视觉上很难区分；必要时同步降低 `map_resolution_m`，但会增加计算量。
+
+以下命令从 **`LastMileDataFlow/.worktrees/no-edit-lastmile-val/`** 执行：
+
+```bash
+export DATAFLOW_PYTHON=/home/wenyifan/wenyifan/MoMaTrajGen/molmospaces/.venv/bin/python
+export MPLCONFIGDIR=/tmp/lastmile-mpl
+export MUJOCO_GL=egl
+
+# 1. 软件回归：可调截断、桌面障碍、膨胀避障、视频标注与图输出
+PYTHONPATH=src "$DATAFLOW_PYTHON" -m unittest discover -s tests -p test_map_support.py -v
+
+# 2. 使用已有真实记录重绘；不执行机器人、不覆盖旧结果
+# 每次比较不同参数都换一个新的 --output-dir
+PYTHONPATH=src "$DATAFLOW_PYTHON" scripts/replot_no_edit_maps.py \
+  --config configs/no_edit/curobo_v080.json \
+  --task-dir outputs/no_edit/no-edit-val103-cup30-v2-20261010/scenes/val_103/tasks/pick-bf2b057e9916 \
+  --output-dir outputs/diagnostics/maps-radius035-preview
+
+# 3. 单场景 / 单目标采集 smoke（有真实运动与 GPU 成本）
+bin/lastmile-dataflow collect-no-edit \
+  --assets-dir /home/wenyifan/wenyifan/MoMaTrajGen/molmospaces_data/assets \
+  --config configs/no_edit/curobo_v080.json \
+  --run-id maps-radius035-val103-smoke --houses 103 --targets Cup_30 \
+  --max-trials 1 --workers 1 --gpu-ids 0 1 2 3 4 5 6 7
+
+# 4. 全量采集：去掉 houses/targets/max-trials 等子集限制，使用新 run-id
+bin/lastmile-dataflow collect-no-edit \
+  --assets-dir /home/wenyifan/wenyifan/MoMaTrajGen/molmospaces_data/assets \
+  --config configs/no_edit/curobo_v080.json \
+  --run-id maps-radius035-val-full --workers 4 --gpu-ids 0 1 2 3 4 5 6 7
+```
+
+检查重绘目录中的 `index.html`（嵌入热图与 A* 障碍图）、`success_heatmap.png`、`navigation_grid.png`；
+`heatmap.json` 记录配置半径、实际截断距离和支撑物，`success_heatmap.npz` 保留数据。
+全量采集的同一配置自动应用于每个场景、每个任务和每次中间/最终热图导出，并冻结到 run 配置中。
+改变配置或代码后不要对旧 run 使用 `--resume`。重新绘图不会更新旧视频，也不等于新的物理避障验收；新视频标注及新 A* 路径需要新采集。
+
+
+### 恢复初始构建，仅限制到 0.35 m
+
+原始 Gaussian 权重、重叠区域加权归一化与 colormap 恢复不变；不再输出 `kernel_strength` / `display_alpha`，不做中心高亮或渐淡。`smoothing_sigma_m: null` 沿用原始采样间距带宽；`smoothing_support_distance_m: 0.35` 设置最大支持距离。支撑物遮罩与 A* 避障保留。
+
+
+### 导航图显示与规划避障分离
+
+导航图默认显示未按底盘半径膨胀的实际碰撞投影和家具轮廓，取消家具内的文字标注。`navigation_grid.npz` 仍保存原来的膨胀避障网格，A* 搜索、安全余量和物理碰撞检查不变；不要将显示图白色区域当成机器人中心可通行范围。显示方式记录在 `maps/navigation_display.json`。
+
+### 导航视频站位圈
+
+S0/S1 圆心为记录的底盘站位；圆圈半径由实际模型底盘及车轮几何的外接圆 `robot_footprint(sim)['radius_m']` 给出，按地图尺度绘制，不叠加避障安全余量。与高斯扩散半径是不同参数。生产视频记录 `analysis_video.json` 中的 `station_footprint`，已有实测轨迹可用诊断回放脚本重绘到新的输出目录。

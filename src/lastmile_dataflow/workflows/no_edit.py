@@ -61,12 +61,14 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     from ..stations.no_edit_sampling import disk_samples,initialize_station
     from ..stations.no_edit_statistics import aggregate,construction_rate,select_starts,success_goals
     from ..tasks.raw_scene import grasp_candidates
-    from ..navigation.astar import scene_grid,search
+    from ..navigation.astar import scene_grid,search,task_support_obstacles
     from ..exporting.no_edit_heatmap import export_heatmap
+    from ..exporting.navigation_map import export_navigation_map
     task_path=scene_path/'tasks'/task['task_id']; task_path.mkdir(parents=True,exist_ok=True)
     if (task_path/'result.json').exists():
         prior=read_json(task_path/'result.json')
         if prior['status'] not in ('incomplete','infrastructure_error'): return prior
+    task = {**task, 'support_obstacles':task_support_obstacles(baseline,task)}
     write_json(task_path/'task.json',task)
     footprint=read_json(scene_path/'robot_geometry.json'); spacing=config.spacing_m or footprint['radius_m']
     anchor=task['anchor_world']; sigma=config.smoothing_sigma_m or spacing
@@ -88,13 +90,15 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
         write_json(task_path/'stations.json',stations)
     candidates=grasp_candidates(task,assets_dir)
     write_json(task_path/'grasp_candidates.json',candidates)
-    grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,footprint['radius_m'],config.navigation_margin_m)
+    grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,footprint['radius_m'],config.navigation_margin_m,
+                    support_obstacles=task['support_obstacles'])
     # Heatmap uses ground obstacle geometry; navigation additionally inflates by the chassis radius.
-    heat_grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,0.,0.)
+    heat_grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,0.,0.,support_obstacles=task['support_obstacles'])
     np.savez_compressed(task_path/'navigation_grid.npz',origin=grid.origin,resolution_m=grid.resolution,free=grid.free)
+    export_navigation_map(task_path/'maps',grid,anchor,display_grid=heat_grid)
     trials=read_json(task_path/'trials.json') if (task_path/'trials.json').exists() else []
     rows=aggregate(stations,trials,config.trials_per_station)
-    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,title=task['task_id']+' (initial coverage)')
+    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id']+' (initial coverage)')
     error=None; count=0
     for station in sorted(stations,key=lambda s:sum((s['xy'][i]-anchor[i])**2 for i in (0,1))):
         if station['geometry'] != 'valid': continue
@@ -116,7 +120,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                        'expected_trials':sum(s['geometry']=='valid' for s in stations)*config.trials_per_station,
                        'last_attempt':row,'updated_at_utc':datetime.now(timezone.utc).isoformat()})
             if trial == config.trials_per_station-1 or row['status'] not in ('success','failure','planning_no_solution'):
-                export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,title=task['task_id'])
+                export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id'])
             if row['status']=='infrastructure_error': error='infrastructure_error'; break
             if row['status']=='incomplete': error='incomplete'; break
             if max_trials is not None and count >= max_trials: error='incomplete'; break
@@ -161,7 +165,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             if error: break
         status='retained' if len(successful) >= config.min_successful_rollouts else (error or 'no_successful_rollout')
     write_json(task_path/'selection.json',selection)
-    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,selection=selection,title=task['task_id'])
+    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'])
     result={'schema_version':'no-edit-v1','task_id':task['task_id'],'instruction':task['instruction'],
             'operation':task['operation'],'status':status,'rate':rate,'successful_rollouts':len(successful),
             'minimum_rollouts':config.min_successful_rollouts,'preferred_rollouts':config.start_count,
@@ -302,9 +306,8 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
                     process.join(); summary=root/'scenes'/f'val_{record["house"]}'/'summary.json'
                     result=read_json(summary) if summary.exists() else {'status':'infrastructure_error','reason':'worker_no_summary'}
                     completed[record['house']]=result; process.close(); del active[gpu]
-                    if result['status']=='infrastructure_error': stop='infrastructure_error'
-            if stop:
-                pending=[]
+                    # Worker infrastructure errors are isolated to this scene.
+                    # Keep the evidence and continue dispatching the remaining scenes.
             if pending and len(active)<max_workers:
                 devices=available_gpus(gpu_ids)
                 write_json(root/'gpu_selection.json',{'available':devices,'active':list(active),
@@ -317,7 +320,9 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
                     process.start(); active[gpu]=(process,record,time.monotonic())
                     print(f'GPU {gpu}: started val_{record["house"]} ({len(pending)} pending)',flush=True)
             retained=rebuild_dataset_index(root)
-            status='running' if active or pending else (stop or ('completed' if len(completed)==len(records) and all(r['status']=='completed' for r in completed.values()) else 'incomplete'))
+            status='running' if active or pending else (
+                    'infrastructure_error' if any(r['status']=='infrastructure_error' for r in completed.values()) else (
+                    'completed' if len(completed)==len(records) and all(r['status']=='completed' for r in completed.values()) else 'incomplete'))
             write_json(root/'summary.json',{'schema_version':'no-edit-v1','status':status,
                        'generation_timing':timer.update(status,final=not(active or pending)),
                        'scenes':len(records),'completed_scenes':len(completed),'pending_scenes':len(pending),

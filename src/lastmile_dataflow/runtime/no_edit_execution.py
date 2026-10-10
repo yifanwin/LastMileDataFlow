@@ -10,6 +10,9 @@ import numpy as np
 
 from ..io import canonical,read_json,write_json
 from ..planning.curobo import NativePlanner,body_pose,tcp_pose
+from ..robots.action import InvalidAction
+from ..robots.action_limits import sanitize_action
+from ..robots.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD
 from ..recording.recorder import AttemptRecorder
 from ..scenes.geometry import descendants
 from ..stations.no_edit_sampling import place_frozen_station,robot_contacts
@@ -45,8 +48,12 @@ class ContinuousContext:
         self.samples=[]; self.collisions=[]; self.plans=[]; self.replay=[]; self.monitor=None
         self.fingers=set(); self.target_bodies=descendants(sim.model,sim.target_id)
         self.last_frames=None; self.plan_count=0
+        # Monotonic across retries: plan_count is intentionally reset per attempt so
+        # its budget applies to that attempt, but evidence directories must stay unique.
+        self.plan_serial=0
         self.analysis=None;self.initial_target_height=float(sim.data.xpos[sim.target_id,2])
         self.max_plans=config.max_operation_plans
+        self.last_legal_torso_target=None
 
     def deadline(self):
         if time.monotonic()-self.started_at > self.config.attempt_timeout_s:
@@ -64,7 +71,32 @@ class ContinuousContext:
                 self.recorder.observation(self.last_frames,step=0,time_s=float(self.sim.data.time))
         self.replay.append((float(self.sim.data.time),self.sim.data.qpos.copy(),'initial')); self.sim.begin()
 
+    def hold_torso_target(self):
+        """Keep the last submitted target, not a physically overshooting qpos."""
+        target = getattr(self, 'last_legal_torso_target', None)
+        if target is None:
+            target = bounded_torso_command(self.sim.robot.group('torso')[1], self.sim.robot.config.torso_limits)
+        return target
+
     def tick(self,action,*,fixed_base=False):
+        raw_action=np.asarray(action, dtype=float).copy()
+        v2=self.config.planner_backend == 'curobo_v2_v080'
+        if v2:
+            action=raw_action.copy()
+            action[19]=bounded_torso_command(action[19],self.sim.robot.config.torso_limits)
+            if action[19] != raw_action[19]:
+                # Append evidence before stepping; never rewrite qpos or loosen model limits.
+                event={'phase':self.phase,'time_s':float(self.sim.data.time),
+                       'input_h':float(raw_action[19]),'submitted_h':float(action[19]),
+                       'command_tolerance_rad':COMMAND_TOLERANCE_RAD}
+                with (self.recorder.path/'torso_command_adjustments.jsonl').open('ab') as stream:
+                    stream.write(canonical(event)+b'\n')
+        if v2:
+            action,adjustments=sanitize_action(self.sim.robot,action,fixed_base=fixed_base)
+            for adjustment in adjustments:
+                adjustment.update(phase=self.phase,time_s=float(self.sim.data.time))
+                with (self.recorder.path/'command_limit_adjustments.jsonl').open('ab') as stream:
+                    stream.write(canonical(adjustment)+b'\n')
         self.deadline(); self.begin(); before=self.state(); failures=[]
         def check():
             mujoco.mj_forward(self.sim.model,self.sim.data)
@@ -74,6 +106,13 @@ class ContinuousContext:
                 failures.append('nonfinite_physics')
             if any(w.number for w in self.sim.data.warning): failures.append('mujoco_warning')
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
+            if v2:
+                h_actual=float(self.sim.robot.group('torso')[1])
+                margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
+                row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
+                           torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
+                if margin > FEEDBACK_TOLERANCE_RAD:
+                    failures.append('torso_feedback_limit')
             if self.monitor:
                 self.monitor.phase=self.phase; self.monitor.command_h=float(action[19])
                 facts=self.monitor.sample()
@@ -87,8 +126,10 @@ class ContinuousContext:
             self.physics.write(canonical(row)+b'\n')
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
         command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check)
+        if v2:
+            self.last_legal_torso_target=float(action[19])
         self.physics.flush(); after=self.state()
-        self.recorder.record_step(raw_action=np.asarray(action).tolist(),command=command,before=before,after=after,
+        self.recorder.record_step(raw_action=raw_action.tolist(),command=command,before=before,after=after,
             check=stop or {'valid':True,'issues':[]},observations={'phase':self.phase,
                      'index_step':self.recorder.steps+1,
                      'manifest':'observations.json' if self.record_png else 'videos.json'})
@@ -111,6 +152,11 @@ class ContinuousContext:
             side=self.monitor.side if self.monitor is not None else None,collisions=len(self.collisions))
         return result
 
+    def yaw_gap(self, target, current):
+        gap=float(target-current)
+        if self.config.planner_backend == 'curobo_v2_v080': return gap
+        return (gap+np.pi)%(2*np.pi)-np.pi
+
     def arm_tick(self,side,q,grip,h):
         a=self.sim.robot.neutral_action(); offset=3 if side=='left' else 11
         a[offset:offset+7]=np.asarray(q)-self.sim.robot.group(side+'_arm'); a[10 if side=='left' else 18]=grip; a[19]=h
@@ -119,7 +165,7 @@ class ContinuousContext:
             a[i:i+7]=np.asarray(self.monitor.initial['idle_arm'])-self.sim.robot.group(idle+'_arm')
         if hasattr(self,'manip_base_target'):
             delta=self.manip_base_target-self.sim.robot.group('base')
-            delta[2]=(delta[2]+np.pi)%(2*np.pi)-np.pi
+            delta[2]=self.yaw_gap(self.manip_base_target[2],self.sim.robot.group('base')[2])
             limit=min(self.sim.robot.config.max_base_delta,self.config.navigation_speed_m_s/self.sim.robot.config.control_hz)
             yaw_limit=min(self.sim.robot.config.max_yaw_delta,self.config.navigation_yaw_speed_rad_s/self.sim.robot.config.control_hz)
             scale=max(1.,np.linalg.norm(delta[:2])/limit,abs(delta[2])/yaw_limit)
@@ -135,7 +181,7 @@ class ContinuousContext:
         if tuple(planner.names) != tuple(expected) or point.shape != (len(expected),):
             raise ValueError('mobile planner joint ordering mismatch')
         target=planner.base_target_world(point)
-        base_gap=target-self.sim.robot.group('base'); base_gap[2]=(base_gap[2]+np.pi)%(2*np.pi)-np.pi
+        base_gap=target-self.sim.robot.group('base'); base_gap[2]=self.yaw_gap(target[2],self.sim.robot.group('base')[2])
         arm_gap=point[3:10]-self.sim.robot.group(side+'_arm')
         measured_h=float(self.sim.robot.group('torso')[1])
         h_gap=float(point[10])-measured_h if torso_active else 0.
@@ -187,7 +233,7 @@ class ContinuousContext:
         goal_q=np.asarray(positions[-1])
         for _ in range(100):
             base_gap=planner.base_target_world(goal_q)-self.sim.robot.group('base')
-            base_gap[2]=(base_gap[2]+np.pi)%(2*np.pi)-np.pi
+            base_gap[2]=self.yaw_gap(planner.base_target_world(goal_q)[2],self.sim.robot.group('base')[2])
             if (np.max(np.abs(self.sim.robot.group(side+'_arm')-goal_q[3:10])) < .01
                 and np.linalg.norm(base_gap[:2]) < self.config.arrival_tolerance_m
                 and abs(base_gap[2]) < self.config.arrival_tolerance_rad): break
@@ -342,10 +388,10 @@ def navigate(ctx,path,goal):
     start_yaw=sim.robot.group('base')[2]; yaw_goal=goal['base'][2]; points=path['xy']; count=0
     for index,xy in enumerate(points):
         fraction=index/max(1,len(points)-1)
-        yaw=start_yaw+fraction*((yaw_goal-start_yaw+np.pi)%(2*np.pi)-np.pi)
-        target=np.r_[xy,float((yaw+np.pi)%(2*np.pi)-np.pi)]
+        yaw=start_yaw+fraction*ctx.yaw_gap(yaw_goal,start_yaw)
+        target=np.r_[xy,yaw if cfg.planner_backend == 'curobo_v2_v080' else float((yaw+np.pi)%(2*np.pi)-np.pi)]
         while True:
-            current=sim.robot.group('base'); delta=target-current; delta[2]=(delta[2]+np.pi)%(2*np.pi)-np.pi
+            current=sim.robot.group('base'); delta=target-current; delta[2]=ctx.yaw_gap(target[2],current[2])
             if np.linalg.norm(delta[:2]) <= cfg.arrival_tolerance_m and abs(delta[2]) <= cfg.arrival_tolerance_rad: break
             count+=1
             if count > cfg.max_navigation_steps: raise OperationFailure('navigation_tracking_timeout')
@@ -358,7 +404,7 @@ def navigate(ctx,path,goal):
     ctx.phase='arrival'
     for _ in range(10):
         a=sim.robot.neutral_action(); delta=np.asarray(goal['base'])-sim.robot.group('base')
-        delta[2]=(delta[2]+np.pi)%(2*np.pi)-np.pi
+        delta[2]=ctx.yaw_gap(goal['base'][2],sim.robot.group('base')[2])
         if np.linalg.norm(delta[:2]) > sim.robot.config.max_base_delta or abs(delta[2]) > sim.robot.config.max_yaw_delta:
             raise OperationFailure('arrival_tracking_error')
         a[:3]=delta; ctx.tick(a)
@@ -380,9 +426,13 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=bool(path))
     if config.third_person_enabled:
         from ..recording.analysis_video import AnalysisVideo
-        ctx.analysis=AnalysisVideo(task,station,path=path,goal=goal,radius_m=config.radius_m)
+        from ..tasks.raw_scene import robot_footprint
+        footprint=robot_footprint(sim)
+        ctx.analysis=AnalysisVideo(task,station,path=path,goal=goal,radius_m=config.radius_m,
+                                   footprint_radius_m=footprint['radius_m'])
         write_json(recorder.path/'analysis_video.json',{'camera':'third_person_camera',
             'style':'observer + synchronized wrist inset + measured facts + planned/actual path',
+            'station_footprint':footprint,'station_circle_inflation_m':0.,
             'dimensions':[1280,720],'playback_speed':1.,'raw_robot_cameras_unchanged':True,
             'third_person_png':'raw observer RGB','overlays':'actual simulation state; unmeasured contact shown as --'})
     write_json(recorder.path/'initial_state.json',ctx.state())
@@ -415,6 +465,14 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         status='failure' if recorder.steps else 'planning_no_solution'; reason=exc.reason
         if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
         attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions,diagnostic=exc.diagnostic)
+    except InvalidAction as exc:
+        # An illegal command is an isolated trial failure. Do not continue this
+        # simulation, retry an unsafe command, or abort other independent points.
+        status='failure'; reason='control_limit:'+str(exc)
+        attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions)
+        recorder.event('control_limit_warning',phase=ctx.phase,error_type='InvalidAction',message=str(exc))
+        print(f'WARNING {attempt_id}: {reason}; skipping this attempt, continuing sampling',flush=True)
+        if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
     except TimeoutError as exc:
         status='incomplete'; reason=str(exc)
     except Exception as exc:

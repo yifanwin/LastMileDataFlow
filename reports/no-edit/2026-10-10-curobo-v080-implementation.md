@@ -66,7 +66,7 @@ ffprobe 已核验全部可读；连续视频每个478帧、20FPS。独立站位�
 
 运行：`outputs/no_edit/no-edit-v080-val103-cup30-cuda1-20261010-153916/`
 
-日志：`outputs/no_edit/logs/no-edit-v080-val103-cup30-cuda1-20261010-153916.log`；初始后台启动退出后，已按相同冻结配置在持久 PTY 会话 **41289** 续跑；未完成 attempt 保留，原因见 `launch_recovery.json`。仅 CUDA1，worker1，原场景、默认间距、每点5次；未设置 max-trials 截断。`timing.json` 记录整个构建时间，`station_statistics.json` 和 `maps/` 随采样更新。运行完成前不报最终成功率，也不宣称已经保留1–3段正式数据。
+日志：`outputs/logs/no-edit-v080-val103-cup30-cuda1-20261010-153916.log`；初始后台启动退出后，已按相同冻结配置在持久 PTY 会话 **41289** 续跑；未完成 attempt 保留，原因见 `launch_recovery.json`。仅 CUDA1，worker1，原场景、默认间距、每点5次；未设置 max-trials 截断。`timing.json` 记录整个构建时间，`station_statistics.json` 和 `maps/` 随采样更新。运行完成前不报最终成功率，也不宣称已经保留1–3段正式数据。
 
 **15:47 的阶段性检查**：21 个有效采样点、预期105次操作；S0033 首批已落盘3次（2次成功、1次失败），尚不是完整点位或最终成功率。成功 t1 的第三人称视频已核验1280×720、275帧可读。
 
