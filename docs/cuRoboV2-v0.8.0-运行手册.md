@@ -154,3 +154,23 @@ CUDA1 原S0044、相同种子432661044重测成功：390步、92.818秒，四视
 - legacy 后端 `choose_control` 的 `dry_plans-*` / `measured_planner-*` / `world-*` 仍是裸 `mkdir()`；v2 不进入该路径，本次未改。
 
 `173735` 的 80 次成功试验不因本修复恢复（该 run `retained_segments` 仍为 0），需新 run-id 重采。回归223项、跳过8项，其余通过。
+
+## Head camera FOV 约束（2026-10-10）
+
+只对 `curobo_v2_v080` 生效；station xy 采样、base/head 朝向初始化和 initial visibility check 不变，不修改 upstream 或机器人资产。
+
+- `HeadFOVCost` 在正式 `MotionPlannerCfg.create(cost_manager_config_instance_type=...)` 扩展中加入 IK / TrajOpt 的 **soft cost_cfg**，覆盖整个优化 horizon；使用 cuRobo CUDA FK + torch，optimizer 内不调用 MuJoCo。
+- 相机挂载来自真实 `cam_xpos` / `cam_xmat` 相对 `link_head_2` 的 optical frame；水平 FOV 由 `cam_fovy` 和记录图像宽高比推导。不把 base 朝向当作 camera 朝向，不新增 camera pose goal，不释放 head DOF。
+- v0.8.0 此模型的 quaternion FK 梯度未通过 yaw 有限差分。辅助 FK 用固定 optical/TCP 轴探针的 **position FK** 恢复旋转矩阵，保持 GPU 可微；探针只在辅助 FK 配置里，不改变碰撞球或 MuJoCo 模型。
+- v0.8.0 原生 seed ranking 按 pose error / 时间 / 平滑度，不按新增 soft cost 排名。因此正式 metrics 接口额外检查 **终点** 几何 FOV，让原生有限次数重试选择可见目标状态；不把 soft margin 当 hard constraint，不逐点做 MuJoCo 检查。
+- cuRobo 成功后，在返回实际轨迹上做 scratch `MjData` 稀疏硬验证。包含起止、B-spline knot 的时间边界和各 phase 边界；控制点不是物理关节状态。base/torso 变化、camera pose 变化或接近 FOV 边缘时自适应补 midpoint；camera 不动且 target 未搬运时复用检查。检测区间内关节范围，避免起止相同而中间转出的漏检。
+- lift 按 TCP-relative target-origin 预测物体位置，机械臂运动也会触发检查。真实抓取滑移/跟踪误差可能不同于规划近似。
+- 关键状态出 FOV 时，`PlanResult.status=fov_constraint_failed`，无 executable waypoints；attempt 的兼容顶层状态仍为 `planning_no_solution`（未执行）或 `failure`（此前已执行），`reason=fov_constraint_failed`，归因 `PlanningFailure`。原生有限预算内没有成功解时用 `reason=constrained_planning_failure` 区分，不宣称全局无解。
+
+配置（默认开启）：`head_fov_enabled=true`、`head_fov_margin=0.9`、`head_fov_weight=10000`、`head_fov_min_depth_m=0.01`。margin 仅用于 soft cost，hard FOV 使用完整视锥。关闭开关只用于明确的 baseline 对照。配置进入冻结摘要；后续采集必须使用新 run-id。
+
+证据：`head_camera_fk_check.json`、`head_fov_validation.json`（key / adaptive / failed indices 与 geometry check 数）、`solver_trace.json` 的 endpoint feasibility、`planner_identity.json`。`finite_budget_not_impossibility=true` 表示有限种子/attempt 下没找到符合约束的解，不表示全局无解。
+
+**边界**：FOV 约束检查 target body origin 的几何视锥，不保证全物体入画、无遮挡像素或连续时间数学证明。导航不纳入本次操作规划约束。运动目标在 lift 中使用刚性抓持近似；open 逐段刷新实测 target，段内未建立关节物体运动预测模型。
+
+正式扩展接口参考：[cuRobo MotionPlannerCfg.create](https://nvlabs.github.io/curobo/latest/api/curobo.motion_planner.html)。实际行为以本工程 pin 的 v0.8.0 源码为准。

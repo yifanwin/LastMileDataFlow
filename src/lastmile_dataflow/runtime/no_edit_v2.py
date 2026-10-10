@@ -68,7 +68,7 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
                 break
             planner.close(); planner = None
         else:
-            raise OperationFailure('planning_no_solution', diagnostic)
+            raise OperationFailure((diagnostic or {}).get('failure_reason') or 'planning_no_solution', diagnostic)
         c = pool[index]
         goal = goals[index]
         pre = goal.copy(); pre[:3, 3] -= goal[:3, 2] * .08

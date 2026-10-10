@@ -25,7 +25,13 @@ def manager_type(context):
         def initialize_from_config(self, config, transition_model, scene_collision_checker=None, **kwargs):
             super().initialize_from_config(config, transition_model, scene_collision_checker, **kwargs)
             self.target_cost = None
+            self.head_fk = None
+            if (config.head_fov_cost_enabled or config.head_fov_endpoint_check) and context.get('fov_robot') is not None:
+                from curobo._src.robot.kinematics.kinematics import Kinematics
+                self.head_fk = Kinematics(context['fov_robot'].kinematics, compute_spheres=False)
             self.names = transition_model.robot_model.joint_names
+            if self.head_fk is not None:
+                self.head_indices = [self.names.index(n) for n in self.head_fk.joint_names]
             if config.scene_collision_cfg is not None:
                 cfg = copy.copy(config.scene_collision_cfg)
                 cfg.scene_collision_checker = context['target_checker']
@@ -55,10 +61,36 @@ def manager_type(context):
                 center = context['local_center']
                 gap = torch.clamp(torch.linalg.vector_norm(xy - center, dim=-1) - context['radius'], min=0.)
                 result.add(gap.unsqueeze(-1) * self.config.scene_collision_cfg.weight.reshape(-1)[0], 'workspace_circle')
+            if self.head_fk is not None:
+                from .head_fov import target_camera_torch
+                from curobo.types import JointState
+                # Rollout JointState omits names in v0.8.0; order comes from
+                # its transition model, never from an assumed arm/base order.
+                q = state.joint_state.position[..., self.head_indices]
+                if self.config.head_fov_endpoint_check:
+                    # The tag ranks seeds by pose error/time, NOT custom soft
+                    # costs. Endpoint-only metrics reject invisible IK goals,
+                    # so the existing finite retries can choose other seeds.
+                    # This is NOT a dense interpolated-trajectory hard check.
+                    js = JointState.from_position(q[:, -1:].contiguous(), joint_names=self.head_fk.joint_names)
+                    local = target_camera_torch(self.head_fk, js, context)
+                    depth = -local[..., 2]
+                    cost = context['fov_cost']
+                    invalid = ((depth <= cost.min_depth)
+                               | (local[..., 0].abs() >= depth*cost.tan_half_x)
+                               | (local[..., 1].abs() >= depth*cost.tan_half_y))
+                    prefix = torch.zeros((*q.shape[:1], q.shape[1]-1, 1), device=q.device, dtype=q.dtype)
+                    result.add(torch.cat((prefix, invalid.to(q.dtype).unsqueeze(-1)), dim=1), 'head_fov_endpoint')
+                else:
+                    js = JointState.from_position(q, joint_names=self.head_fk.joint_names)
+                    result.add(context['fov_cost'](target_camera_torch(self.head_fk, js, context)), 'head_fov')
             return result
 
     @dataclass
     class ContactManagerCfg(RobotCostManagerCfg):
+        head_fov_cost_enabled: bool = False
+        head_fov_endpoint_check: bool = False
+
         def __post_init__(self):
             super().__post_init__()
             self.class_type = ContactManager
@@ -66,6 +98,24 @@ def manager_type(context):
         @staticmethod
         def create(data_dict, **kwargs):
             original = RobotCostManagerCfg.create(data_dict, **kwargs)
-            return ContactManagerCfg(**vars(original))
+            return ContactManagerCfg(**vars(original), head_fov_cost_enabled=data_dict.get('head_fov_cost_enabled', False),
+                head_fov_endpoint_check=data_dict.get('head_fov_endpoint_check', False))
 
     return ContactManagerCfg
+
+
+def fov_optimizer_configs():
+    """Tag ONLY soft cost_cfg via the supported optimizer-dictionary API.
+
+    The shared factory is also used for constraint/convergence managers; adding
+    FOV there would incorrectly turn the safety margin into a native constraint.
+    """
+    from curobo._src.util_file import get_task_configs_path, load_yaml, join_path
+    result = []
+    for name in ('ik/lbfgs_ik.yml', 'trajopt/lbfgs_bspline_trajopt.yml'):
+        config = load_yaml(join_path(get_task_configs_path(), name))
+        config['rollout']['cost_cfg']['head_fov_cost_enabled'] = True
+        result.append(config)
+    metrics = load_yaml(join_path(get_task_configs_path(), 'metrics_base.yml'))
+    metrics['rollout']['constraint_cfg']['head_fov_endpoint_check'] = True
+    return (*result, metrics)

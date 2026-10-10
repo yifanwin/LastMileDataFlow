@@ -14,6 +14,10 @@ class NoEditConfig:
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
     third_person_enabled: bool = True
+    head_fov_enabled: bool = True
+    head_fov_margin: float = .9
+    head_fov_weight: float = 10000.
+    head_fov_min_depth_m: float = .01
     radius_m: float = 2.0
     spacing_m: float | None = None
     trials_per_station: int = 5
@@ -57,6 +61,12 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if type(self.head_fov_enabled) is not bool:
+            raise ValueError('invalid head FOV flag')
+        if type(self.head_fov_margin) not in (int, float) or not 0 < self.head_fov_margin < 1 or not math.isfinite(self.head_fov_margin):
+            raise ValueError('invalid head FOV margin')
+        if type(self.head_fov_weight) not in (int, float) or not math.isfinite(self.head_fov_weight) or self.head_fov_weight <= 0:
+            raise ValueError('invalid head FOV weight')
         if self.planner_backend not in ('legacy', 'curobo_v2_v080'):
             raise ValueError('unknown planner backend')
         if self.planner_backend == 'curobo_v2_v080' and self.operation_retries > 1:

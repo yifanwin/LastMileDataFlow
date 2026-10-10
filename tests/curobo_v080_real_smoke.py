@@ -26,6 +26,8 @@ def main():
     parser.add_argument('--mode', choices=('model','plan','execute','continuous'), default='execute')
     parser.add_argument('--goal-station', default='S0042')
     parser.add_argument('--winning-attempt', type=Path)
+    parser.add_argument('--head-fov-weight', type=float)
+    parser.add_argument('--head-fov', choices=('enabled','disabled'), default='enabled')
     parser.add_argument('--seed', type=int, default=20261010)
     args=parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -34,14 +36,17 @@ def main():
     scene=args.frozen_run/'scenes/val_103'; task_dir=next((scene/'tasks').glob('pick-*'))
     task=read_json(task_dir/'task.json'); candidates=read_json(task_dir/'grasp_candidates.json')
     station=next(s for s in read_json(task_dir/'stations.json') if s['station_id']==args.station)
-    cfg=NoEditConfig(planner_backend='curobo_v2_v080', max_attempts=5)
+    overrides={'head_fov_enabled':args.head_fov=='enabled'}
+    if args.head_fov_weight is not None:overrides['head_fov_weight']=args.head_fov_weight
+    cfg=construct(NoEditConfig, {**frozen['config'], **overrides})
     robot=construct(RobotConfig,frozen['robot'])
     sim=Simulation.from_snapshot(scene/'scene',robot,target=task['target_body'])
     write_json(args.output/'experiment.json',{'question':'Does the pinned native 11D grasp pipeline complete all stages on the previously failing Cup station?',
         'baseline':'legacy S0042 approach planning failure after physical pregrasp',
         'expected':'native four planning queries or explicit bounded failure; success requires independent physical evidence',
         'success_gate':'real grip, unsupported lift and stable hold; full collection not approved by model-only pass',
-        'station':station,'task':task,'mode':args.mode,'started_utc':utc})
+        'station':station,'task':task,'mode':args.mode,'started_utc':utc,
+        'head_fov':args.head_fov, 'head_fov_weight':cfg.head_fov_weight, 'planning_seed':args.seed})
     result=None
     try:
         if args.mode in ('execute','continuous'):

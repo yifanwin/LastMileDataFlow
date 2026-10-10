@@ -112,3 +112,7 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 
 `integrations/waypoints.py` 声明 PlanResult 和执行格式转换；没有 cuRobo 规划器或 A* 搜索实现。
 绝对 arm waypoint 按当前实测位置转换为 20 维相对动作；超步长必须先重采样，不能静默截断。
+
+### V2 FOV 规划拒绝
+
+`PlanResult.status` 增加 `fov_constraint_failed`；与其他非成功状态一样，`positions` 必须为空。`diagnostics` 保留 `head_fov` 稀疏验证证据、`constrained_planning` 与 `finite_budget_not_impossibility`。原生有限预算未找到合约束解时仍用 `no_solution`，诊断 `failure_reason=constrained_planning_failure`；硬 FOV 检查拒绝用 `failure_reason=fov_constraint_failed`。attempt 顶层状态继续沿用未执行的 `planning_no_solution` / 已执行的 `failure`，原因单独记录，不混作基础设施异常或全局不可达证明。此扩展只用于新版 V2 操作规划，不改变已有 20D 控制协议。

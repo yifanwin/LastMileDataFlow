@@ -216,7 +216,8 @@ class ContinuousContext:
         if result.status != 'success':
             diagnostic=dict(result.diagnostics)
             if 'IK' in str(diagnostic.get('status','')).upper(): diagnostic.update(planner.free_ik_diagnostic(goal))
-            raise OperationFailure('planning_no_solution',diagnostic)
+            raise OperationFailure(diagnostic.get('failure_reason') or
+                                   ('fov_constraint_failed' if result.status == 'fov_constraint_failed' else 'planning_no_solution'),diagnostic)
         return result
 
     def follow(self,planner,goal,side,grip,h):

@@ -10,7 +10,9 @@ from ..integrations.waypoints import PlanResult
 from .curobo import body_pose, tcp_pose, pose7
 from .rby1m_mobile_torso import derive_urdf, robot_config, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
-from .curobo_v2_costs import manager_type
+from .curobo_v2_costs import manager_type, fov_optimizer_configs
+from .head_fov import (HeadFOVCost, SparseFOVValidator, camera_definition,
+                       camera_robot_config, knot_sample_indices)
 
 
 def verify_version():
@@ -65,6 +67,18 @@ class V2Planner:
             'contact_links': [f'ee_finger_{side[0]}1', f'ee_finger_{side[0]}2'],
             'contact_allowed': False, 'attached': False,
             'local_center': self.args.to_device(local), 'radius': radius}
+        self.fov_log = []
+        self.fov_definition = camera_definition(sim, config.width, config.height)
+        self.fov_validator = SparseFOVValidator(sim, self.fov_definition, self.base_target_world, self.names,
+            min_depth=config.head_fov_min_depth_m)
+        if config.head_fov_enabled:
+            from curobo._src.types.robot import RobotCfg
+            fov_cfg = camera_robot_config(cfg, self.fov_definition)
+            self.context.update(fov_robot=RobotCfg.create(fov_cfg, device_cfg=self.args),
+                fov_cost=HeadFOVCost(self.fov_definition['tan_half_x'], self.fov_definition['tan_half_y'],
+                    margin=config.head_fov_margin, min_depth=config.head_fov_min_depth_m, weight=config.head_fov_weight),
+                fov_target=self.args.to_device(np.linalg.solve(self.base, np.r_[sim.data.xpos[sim.target_id], 1.])[:3]),
+                fov_tcp_frame=f'ee_{side}_tcp', fov_attached_offset=None)
         owner = self
 
         class NativeGraspPlanner(MotionPlanner):
@@ -77,6 +91,12 @@ class V2Planner:
                     owner.attach_target_geometry(current_state)
                 started = time.monotonic()
                 result = super().plan_pose(goal_tool_poses, current_state, *args, **kwargs)
+                if (owner.config.head_fov_enabled and result is not None
+                        and bool(result.success.any().item())):
+                    report = owner.validate_fov_result(result, phase)
+                    if not report['valid']:
+                        result.success[:] = False
+                        result.status = 'FOV_CONSTRAINT_FAILED'
                 if result is not None and result.js_solution is not None:
                     # v0.8.0 _get_best_result augments position with locked joints
                     # but then installs ACTIVE-only B-spline knots under FULL joint
@@ -90,7 +110,16 @@ class V2Planner:
                 return result
 
         self.phases = None; self.single_phase = 'pose'; self.on_query = None; self.query_log = []
-        settings = MotionPlannerCfg.create(robot=cfg, scene_model=world, device_cfg=self.args,
+        extra_settings = {}
+        if config.head_fov_enabled:
+            ik_config, trajopt_config, metrics_config = fov_optimizer_configs()
+            # v0.8.0 mutates resolved dictionaries while constructing each
+            # solver. A local YAML gives IK/TrajOpt fresh metrics configs.
+            metrics_path = self.path/'head_fov_metrics.yml'
+            metrics_path.write_text(yaml.safe_dump(metrics_config, sort_keys=False))
+            extra_settings = {'ik_optimizer_configs': [ik_config], 'trajopt_optimizer_configs': [trajopt_config],
+                              'metrics_rollout': str(metrics_path.resolve())}
+        settings = MotionPlannerCfg.create(**extra_settings, robot=cfg, scene_model=world, device_cfg=self.args,
             num_ik_seeds=config.num_ik_seeds, num_trajopt_seeds=config.num_trajopt_seeds,
             max_goalset=config.max_candidates, self_collision_check=True,
             optimizer_collision_activation_distance=.01, use_cuda_graph=False,
@@ -112,8 +141,27 @@ class V2Planner:
             'scope':'initial calibration' if not sim.started else 'measured nonideal mimic tracking telemetry'})
         if not sim.started and (translation_error > .001 or angle_error > .001):
             raise ValueError(f'V2/MuJoCo FK mismatch {translation_error}m/{angle_error}rad')
+        if config.head_fov_enabled:
+            from curobo._src.robot.kinematics.kinematics import Kinematics
+            head_fk = Kinematics(self.context['fov_robot'].kinematics, compute_spheres=False)
+            js = self.state().reorder(head_fk.joint_names)
+            pose = head_fk.compute_kinematics(js).tool_poses.get_link_pose('head_fov_optical').get_numpy_matrix().reshape(4, 4)
+            cid = self.fov_definition['camera_id']
+            actual_camera = np.eye(4)
+            actual_camera[:3, 3] = sim.data.cam_xpos[cid]
+            actual_camera[:3, :3] = sim.data.cam_xmat[cid].reshape(3, 3)
+            actual_camera = np.linalg.solve(self.base, actual_camera)
+            camera_translation_error = float(np.linalg.norm(pose[:3, 3]-actual_camera[:3, 3]))
+            camera_angle_error = float(np.arccos(np.clip((np.trace(pose[:3, :3].T @ actual_camera[:3, :3])-1)/2, -1, 1)))
+            write_json(self.path/'head_camera_fk_check.json', {
+                **self.fov_definition, 'translation_error_m': camera_translation_error,
+                'rotation_error_rad': camera_angle_error, 'head_is_pose_goal': False,
+                'margin': config.head_fov_margin, 'weight': config.head_fov_weight})
+            if not sim.started and (camera_translation_error > .001 or camera_angle_error > .001):
+                raise ValueError('cuRobo/MuJoCo head optical FK mismatch')
         self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
         self.query_log.clear()
+        self.fov_log.clear()
         self.solver_log = []
         # Observe the actual native solves; do not issue additional IK searches.
         for kind, solver in (('ik', self.motion.ik_solver), ('trajopt', self.motion.trajopt_solver)):
@@ -163,9 +211,26 @@ class V2Planner:
         write_json(self.path/'planner_identity.json', {**self.identity, **coupling,
             'joint_names': list(self.names), 'tool_frames': self.motion.tool_frames,
             'default_plan_pose_attempts': 5, 'self_collision': True,
+            'head_fov_enabled': config.head_fov_enabled, 'head_fov_margin': config.head_fov_margin,
+            'head_fov_weight': config.head_fov_weight, 'head_fov_fk': 'position_basis_probes',
             'disabled_collision_links': [], 'target_contact_links': self.context['contact_links']})
         write_json(self.path/'mobile_base.json', {'reference_world': self.base.tolist(),
             'joint_bounds_local': bounds, 'workspace_center_world': list(center[:2]), 'workspace_radius_m': radius})
+
+    def validate_fov_result(self, result, phase):
+        trajectory = result.get_interpolated_plan()
+        active = trajectory.reorder(list(self.motion.joint_names))
+        values = active.position.detach().cpu().numpy().reshape(-1, len(self.names))
+        last = result.interpolated_last_tstep
+        if last is not None:
+            values = values[:int(last.reshape(-1)[0].item())]
+        values = ordered_points(values, list(self.motion.joint_names), list(self.names))
+        dt = float(trajectory.dt.reshape(-1)[0].item())
+        keys = knot_sample_indices(result.js_solution, dt, len(values))
+        report = self.fov_validator.validate(values, keys, phase=phase)
+        self.fov_log.append(report)
+        write_json(self.path/'head_fov_validation.json', self.fov_log)
+        return report
 
     def close(self):
         self.on_query = None
@@ -228,7 +293,11 @@ class V2Planner:
                                                getattr(result, field+'_interpolated_last_tstep'))
             index = int(result.goalset_index.reshape(-1)[0].item()) if result.goalset_index is not None else None
             diagnostic = {'status': result.status, 'queries': list(self.query_log), 'grasp_index': index,
-                          'native_plan_grasp': True, 'native_full_plan_grasp': bool(lift), 'solver_trace': list(self.solver_log), 'joint_names': list(self.names)}
+                          'native_plan_grasp': True, 'native_full_plan_grasp': bool(lift), 'solver_trace': list(self.solver_log), 'joint_names': list(self.names),
+                          'head_fov': list(self.fov_log), 'finite_budget_not_impossibility': True,
+                          'constrained_planning': self.config.head_fov_enabled,
+                          'failure_reason': ('fov_constraint_failed' if any(not r['valid'] for r in self.fov_log)
+                                             else 'constrained_planning_failure' if not success and self.config.head_fov_enabled else None)}
             write_json(self.path/'grasp_result.json', {**diagnostic, 'success': success, 'stages': stages})
             return success, index, stages, diagnostic
         finally:
@@ -241,6 +310,8 @@ class V2Planner:
         params = self.motion.kinematics.config.kinematics_config
         params.reset_link_spheres('attached_object_'+self.side)
         self.context['attached'] = False
+        self.context['fov_attached_offset'] = None
+        self.fov_validator.attached_offset = None
 
     def attach_target_geometry(self, state=None):
         import torch
@@ -265,6 +336,12 @@ class V2Planner:
         self.attachment.update(spheres, state, link_name='attached_object_'+self.side,
             world_objects_pose_offset=Pose.from_list([0,0,0,1,0,0,0], device_cfg=self.args))
         self.context['attached'] = True
+        if self.config.head_fov_enabled:
+            tcp = self.motion.compute_kinematics(state).tool_poses.get_link_pose(f'ee_{self.side}_tcp', make_contiguous=True).get_matrix()
+            target = self.context['fov_target']
+            offset = (tcp[..., :3, :3].transpose(-1, -2) @ (target-tcp[..., :3, 3])[..., None]).squeeze(-1)
+            self.context['fov_attached_offset'] = offset.detach().reshape(3)
+            self.fov_validator.attached_offset = offset.detach().cpu().numpy().reshape(3)
         info = {'physics_attachment':False, 'sphere_count':fit.num_spheres,
                 'fit_type':'native_voxel_mesh_sdf', 'fit_time_s':fit.fit_time_s,
                 'fit_debug':fit.debug_info, 'metrics':asdict(fit.metrics) if fit.metrics is not None else None}
@@ -299,14 +376,22 @@ class V2Planner:
         self.context['target_checker'].load_collision_model(collision_world(
             self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True))
         self.pad_target_query_range()
+        if self.config.head_fov_enabled:
+            self.context['fov_target'] = self.args.to_device(np.linalg.solve(
+                self.base, np.r_[self.sim.data.xpos[self.sim.target_id], 1.])[:3])
+            self.fov_validator.target_world = self.sim.data.xpos[self.sim.target_id].copy()
 
     def plan(self, goal):
         result = self.motion.plan_pose(self.goals([goal]), self.state())
         success = result is not None and bool(result.success.any().item())
         points = self.points(result.get_interpolated_plan()) if success else ()
-        return PlanResult('success' if points else 'no_solution', self.names, points,
-            {'status': 'success' if points else 'V2_POSE_FAIL', 'queries': list(self.query_log),
-             'finite_budget_not_impossibility': True})
+        fov_failed = result is not None and getattr(result, 'status', None) == 'FOV_CONSTRAINT_FAILED'
+        return PlanResult('success' if points else 'fov_constraint_failed' if fov_failed else 'no_solution', self.names, points,
+            {'status': 'success' if points else 'FOV_CONSTRAINT_FAILED' if fov_failed else 'V2_POSE_FAIL',
+             'failure_reason': ('fov_constraint_failed' if fov_failed else
+                                'constrained_planning_failure' if not points and self.config.head_fov_enabled else None),
+             'head_fov': list(self.fov_log), 'queries': list(self.query_log),
+             'finite_budget_not_impossibility': True, 'constrained_planning': self.config.head_fov_enabled})
 
     def free_ik_diagnostic(self, goal):
         return {'scope': 'V2 full collision solve failed; no global unreachability claim'}

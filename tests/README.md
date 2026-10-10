@@ -78,3 +78,24 @@ MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/case_edit_mod
 `test_agent_retries.py` 离线覆盖临时 HTTP/超时/连接异常、2/4/8/16秒退避、最多5次总尝试、格式与网络共用上限、图片保持、永久错误和余额不足不重试，以及共享调用/时间预算提前终止。
 
 局部候选回归覆盖拥挤台面不能占满所有槽位：先按支撑面分层、再随机选择各支撑目标；固定种子可复现，完整物理图不变。wire Schema 回归确保布尔支撑条件必须提供 value，非法条件不依赖模型自觉补齐。
+
+## Head FOV 回归与真实 CUDA 验收
+
+`test_head_fov.py` 覆盖中央/边缘/出画面/相机后方 cost、整段中间出 FOV、scratch 状态隔离、arm-only 几何复用、自适应 midpoint、knot 时间映射、批次/horizon 梯度，以及不可执行的 FOV rejection。
+
+```bash
+PYTHONPATH=src .venv-curobo-v080/bin/python -m unittest discover -s tests -p test_head_fov.py -v
+# 选择当前低利用率 GPU；输出必须是新的目录，不覆盖已有采集结果。
+CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=0 PYTHONPATH=src \
+  .venv-curobo-v080/bin/python tests/head_fov_v080_gradient_smoke.py \
+  --frozen-run outputs/no_edit/no-edit-v080-val103-cup30-20261010-173735 \
+  --output outputs/diagnostics/<new-gradient-run>
+CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=0 PYTHONPATH=src \
+  .venv-curobo-v080/bin/python tests/curobo_v080_real_smoke.py \
+  --frozen-run outputs/no_edit/no-edit-v080-val103-cup30-20261010-173735 \
+  --output outputs/diagnostics/<new-execute-run> --station S0005 --seed 105880152 --mode execute
+```
+
+真实 gradient smoke 检查光学投影对 MuJoCo 的高度网格误差、静态/随 TCP 搬运 target 的 autograd–有限差分一致性，以及 optimizer soft cost / 原约束隔离。可用 `--head-fov disabled` 做原生 baseline，或 `--head-fov-weight <value>` 显式对照；两者都进入 experiment 元信息。
+
+`scripts/audit_head_fov_replay.py --frozen-run <run> --attempt <attempt> [--attempt <attempt>] --output <new-json>` 对**已有实测 replay**做只读几何审计。逐帧离线审计是评测，不是规划器的 hard validator，也不等同无遮挡可见像素判定。未执行的 constrained planning failure 不应有伪造 replay/video。
