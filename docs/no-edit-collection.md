@@ -8,6 +8,37 @@
 
 ## 运行
 
+### 臂展半径独立配置：val103 / Cup_30
+
+`configs/no_edit/curobo_v080_arm_reach_half_base_radius.json` 使用当前 RBY1M
+肩枢轴→TCP 最大臂展 **0.792805608 m** 为采样半径；间距为底盘半径的一半
+**0.221759208 m**。原 2 m 配置不变。圆心仍为目标锚点，37 个均匀格点先经过
+原地面、初始交叠和可见性过滤；每个有效点 5 次独立操作。
+该半径也沿用现有代码作为规划/执行工作空间边界，不是只裁剪热图显示。
+
+以下命令从本 worktree 根目录执行，GPU 只指定物理卡 **5**：
+
+```bash
+# 只核对模型几何与配置，不做物理 stepping；输出文件必须是新路径
+PYTHONPATH=src .venv-curobo-v080/bin/python scripts/verify_reach_sampling.py \
+  --robot-model /home/wenyifan/wenyifan/MoMaTrajGen/molmospaces_data/assets/robots/rby1m/rby1_v1.2_site_control.xml \
+  --config configs/no_edit/curobo_v080_arm_reach_half_base_radius.json \
+  --output outputs/diagnostics/reach-sampling-geometry-new.json
+
+# 单场景单目标完整测试，不用 --max-trials 截断五次统计
+DATAFLOW_PYTHON=.venv-curobo-v080/bin/python \
+  MUJOCO_GL=egl MPLCONFIGDIR=outputs/dependencies/mpl \
+  WARP_CACHE_PATH=outputs/dependencies/warp-cache \
+  bin/lastmile-dataflow collect-no-edit \
+  --assets-dir /home/wenyifan/wenyifan/MoMaTrajGen/molmospaces_data/assets \
+  --config configs/no_edit/curobo_v080_arm_reach_half_base_radius.json \
+  --run-id no-edit-v080-reach-halfbase-val103-cup30-cuda5-<unique-id> \
+  --houses 103 --targets Cup_30 --workers 1 --gpu-ids 5
+```
+
+此配置为模型数值快照，不动态追随机器人替换。自由空间臂展不保证碰撞约束下可达，
+仍须以本次独立真实试验判断抓取和连续示教；旧 run 不覆盖、不继承成功标签。
+
 在本分支 Worktree 根目录运行。资产路径是外部只读数据，不导入相邻 Python 工程。
 
 ```bash
