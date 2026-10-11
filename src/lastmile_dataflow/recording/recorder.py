@@ -30,12 +30,15 @@ class AttemptRecorder:
             raise ValueError("invalid attempt id")
         if any(not part or Path(part).name != part or part in (".", "..") for part in attempt_group):
             raise ValueError("invalid attempt group")
-        self.path = Path(root) / "attempts"
+        self.output_root = Path(root)
+        self.path = self.output_root / "attempts"
         for part in attempt_group:
             self.path /= part
         self.path /= self.attempt_id
         self.path.mkdir(parents=True, exist_ok=False)   # 已存在就抛错：永不覆盖
         self.collection = config["collection"]
+        self.config = config
+        self.canonical_recorder = None
         # config_sha256 把“这次到底用了什么配置”钉死在记录里，审计时会重新计算比对。
         self.metadata = {"schema_version": "1.0", "attempt_id": self.attempt_id,
                          "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -52,10 +55,23 @@ class AttemptRecorder:
         self.frame_index = []      # observations.json 的内容
         self.finished = False
 
+    def bind_simulation(self, sim, *, width=None, height=None):
+        """Attach live recording before begin(); never infer raw from legacy JSON."""
+        if self.finished or self.canonical_recorder is not None or sim.started:
+            raise RuntimeError('bind a fresh simulation exactly once before execution')
+        if not self.collection.get('raw_first', True):
+            self.event('raw_first_disabled', reason='explicit_collection_config')
+            return
+        from .canonical import CanonicalRecorder
+        self.canonical_recorder = CanonicalRecorder(self, sim, self.config, width=width, height=height)
+        sim.evidence_recorder = self.canonical_recorder
+
     def event(self, code, **fields):
         """追加一条事件（动作拒绝、异常、观察引用、协议违规等）。立即 flush。"""
         self.events.write(canonical({"code": code, **fields}) + b"\n")
         self.events.flush()
+        if self.canonical_recorder is not None and not self.canonical_recorder.closed:
+            self.canonical_recorder.event(code, **fields)
 
     def observation(self, frames, *, step, time_s):
         """把三相机当前帧写成 PNG，并返回相对路径引用。
@@ -134,8 +150,13 @@ class AttemptRecorder:
             "enabled": self.collection["record_video"],
             "cameras": {k: {"path": f"videos/{k}.mp4", "frame_times_s": v,
                              "frame_count": len(v), "fps": self._video_fps(),
+                             "data_layer": "derived", "encoding": "lossy_libx264",
+                             "raw_RGB_reference": "raw/observations.jsonl" if self.canonical_recorder is not None else None,
+                             "producer_metadata": [str(p.name) for p in (self.path/'analysis_video.json', self.path/'delivery_video.json') if p.is_file()],
                              "kind": "real_execution", "timing": "constant_fps_with_actual_frame_timestamps"}
                         for k, v in self.frames.items()}})
+        if self.canonical_recorder is not None:
+            self.canonical_recorder.finish(status, reason, results, extra or {})
         # 最后生成摘要清单：之后任何文件被改动，audit 都能发现。
         files = {str(p.relative_to(self.path)): file_digest(p)
                  for p in sorted(self.path.rglob("*")) if p.is_file() and p.name != "artifacts.json"}

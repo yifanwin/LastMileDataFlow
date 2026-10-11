@@ -53,6 +53,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         'scene_version':read_json(root/'scene/version.json')['version_id']}
     recorder = AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),
                                attempt_id=attempt_id,strategy='molmobot_station')
+    recorder.bind_simulation(sim, width=1024, height=576)
     write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),
         'source':sim.source.provenance(), 'no_scene_edits':True, 'initialization_only':station['base']})
     all_fingers = {sim.model.body(f'robot_0/ee_finger_{s}{i}').id for s in ('l','r') for i in (1,2)}
@@ -68,8 +69,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
     status='infrastructure_error'; reason='unfinished'; verdict=None
     started=time.monotonic(); budget=config.attempt_timeout_s
     def state():
-        measured = sim.observe_state()
-        return {k:measured[k] for k in ('time_s','robot','target','nonfinite_fields') if k in measured}
+        return sim.observe_state()
     def video(frames):
         result=dict(frames)
         if analysis and 'third_person_camera' in frames:
@@ -107,6 +107,9 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
                                task=instruction(task))
             if step==0 and points is not None: observation['object_image_points']=points
             response=policy.action(observation,task=task,attempt=attempt_id,seed=seed,first=step==0,timeout=remaining)
+            if recorder.canonical_recorder is not None:
+                recorder.canonical_recorder.intent(response['raw_action'], producer='molmobot_prediction',
+                    metadata={k: v for k, v in response.items() if k not in ('processed_images', 'conditioning_points', 'raw_action')})
             # Persist predictions BEFORE validation/dispatch: rejected actions still
             # have raw, postprocessed, and input evidence, but no fake executed ctrl.
             requests.write(canonical({'step':step,'time_s':float(sim.data.time),
@@ -117,6 +120,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
                 for i,pixels in enumerate(response.pop('processed_images') or []):
                     imageio.imwrite(recorder.path/f'model_input_{i}.png',pixels)
                 write_json(recorder.path/'policy_instruction.json',{'instruction':instruction(task),
+                    'data_layer':'derived', 'source_frame_id':0, 'kind':'actual_policy_processed_input',
                     'target_conditioning':'one first-frame point' if points else 'language only',
                     'model_prompt':response.get('model_prompt'),
                     'original_conditioning_points':response.get('conditioning_points')})
@@ -151,7 +155,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
                 physics.write(canonical(row)+b'\n')
                 return {'valid':not failures,'issues':sorted(set(failures))}
             if not sim.started: sim.begin()
-            command,stop=sim.step_policy(action,substep_check=check)
+            command,stop=sim.step_policy(action,substep_check=check,command_raw=response['raw_action'])
             after=state(); replay.append((float(sim.data.time),sim.data.qpos.copy()))
             actions.write(canonical({'step':step,'time_s':before['time_s'],
                 **{k:v for k,v in response.items() if k not in ('processed_images','conditioning_points')},

@@ -96,6 +96,8 @@ class CollectionConfig:
     width: int = 320
     height: int = 240
     record_video: bool = True
+    raw_first: bool = True
+    record_depth: bool = True
     protocol_version: str = "lightweight-v1"
     penetration_ratio: float = 0.10
     penetration_floor_m: float = 0.010
@@ -103,8 +105,9 @@ class CollectionConfig:
     feedback_warning_rad: float = 0.05
 
     def __post_init__(self):
-        if not isinstance(self.record_video, bool):
-            raise ValueError("record_video must be boolean")
+        for key in ('record_video', 'raw_first', 'record_depth'):
+            if not isinstance(getattr(self, key), bool):
+                raise ValueError(key + " must be boolean")
         for key in ("max_steps", "max_initialization_trials", "width", "height"):
             v = getattr(self, key)
             if not isinstance(v, int) or isinstance(v, bool) or v <= 0:

@@ -265,6 +265,8 @@ def _scene_worker(record,robot,config,collection,assets_dir,run_path,gpu,options
 
 
 def rebuild_dataset_index(run_path):
+    from ..exporting.canonical_index import rebuild_canonical_index
+    rebuild_canonical_index(run_path)
     (run_path/'datasets').mkdir(exist_ok=True)
     entries=[]
     for result_path in sorted((run_path/'scenes').glob('*/tasks/*/result.json')):

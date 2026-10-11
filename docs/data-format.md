@@ -1,5 +1,13 @@
 # 数据格式 v1
 
+## Raw-first 统一采集协议（新增实时记录，旧格式保留）
+
+[cuRobo 数据采集统一协议](canonical-data-protocol.md) 定义 `raw / canonical / derived` 三层、
+时序与标定、完整机器人状态、原始/实际下发指令及结构化 `executed_action`。
+cuRobo 只作为 expert；MolmoBot/π0 格式由版本化 Adapter 生成，不替代 raw。
+新采集默认开启实时 raw/canonical sidecar，MolmoBot Adapter 单独导出，详见 [使用说明](raw-first-implementation.md)。
+历史 attempt 不自动合规；下面的 v1 动作、attempt 和快照契约保持不变。
+
 ## 可选 MolmoBot 协议（不改变旧 v1）
 
 `robot.control_profile=molmobot-native-v1` 时采用
