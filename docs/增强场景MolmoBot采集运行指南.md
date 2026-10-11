@@ -9,6 +9,12 @@ cd /data0/wenyifan/MoMaTrajGen/LastMileDataFlow/.worktrees/procedural-obstacle-a
 
 本文是在 [`增强场景cuRobo采集运行指南.md`](增强场景cuRobo采集运行指南.md) 基础上并入 MolmoBot 后端的版本。
 
+> 另有与本指南并行的"验证后站位接入"机制：`NoEditConfig.augmented_variant` 直接引用变体目录，
+> 绑定 `stations_final.json` 选出的最终站位集，见 [`no-edit-augmented-stations.md`](no-edit-augmented-stations.md)。
+> 该机制同样要求变体快照的 robot profile 与运行端一致；MolmoBot 下仍需先做本文第 2 步的 native 重建
+> （或让增强流程以 native profile 冻结），否则 `variant_manifest` 会因 robot profile 不符而拒绝。
+> 本指南当前走的是"重建快照 + `--resume` + lattice 采样"的既有 cuRobo 口径。
+
 ## 与 cuRobo 指南的关键差别
 
 cuRobo 指南的一条核心捷径是"**预置变体快照到 run 目录后加 `--resume`**"：`run_scene` 在
