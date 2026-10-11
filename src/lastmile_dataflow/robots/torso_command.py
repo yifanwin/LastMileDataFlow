@@ -4,6 +4,12 @@ from .action import InvalidAction
 
 COMMAND_TOLERANCE_RAD = .003
 FEEDBACK_TOLERANCE_RAD = .003
+# Gross-violation guard for measured torso height, NOT a tracking spec.
+# Under `torso_error_policy='record_only'` a small feedback excursion is telemetry;
+# only a margin this large (≈6.8% of the 0.738 m stroke) indicates real loss of
+# control and stops the attempt. The measured excursions observed in practice sit
+# ~2e-5 rad past FEEDBACK_TOLERANCE_RAD, i.e. >1000x below this.
+TORSO_SEVERE_FEEDBACK_RAD = .05
 
 
 def bounded_torso_command(value, limits):

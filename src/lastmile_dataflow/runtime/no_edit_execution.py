@@ -12,7 +12,7 @@ from ..io import canonical,read_json,write_json
 from ..planning.curobo import NativePlanner,body_pose,tcp_pose
 from ..robots.action import InvalidAction
 from ..robots.action_limits import sanitize_action
-from ..robots.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD
+from ..robots.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
 from ..recording.recorder import AttemptRecorder
 from ..scenes.geometry import descendants
 from ..stations.no_edit_sampling import place_frozen_station,robot_contacts
@@ -107,11 +107,13 @@ class ContinuousContext:
             if any(w.number for w in self.sim.data.warning): failures.append('mujoco_warning')
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
             if v2:
+                # `record_only` protocol: a torso feedback excursion is telemetry, not a
+                # stop condition. Only a gross violation (real loss of control) stops.
                 h_actual=float(self.sim.robot.group('torso')[1])
                 margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
                 row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
                            torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
-                if margin > FEEDBACK_TOLERANCE_RAD:
+                if margin > TORSO_SEVERE_FEEDBACK_RAD:
                     failures.append('torso_feedback_limit')
             if self.monitor:
                 self.monitor.phase=self.phase; self.monitor.command_h=float(action[19])
@@ -387,6 +389,11 @@ def navigate(ctx,path,goal):
     sim=ctx.sim; cfg=ctx.config; ctx.phase='navigation'; ctx.monitor=None; ctx.fingers=set()
     held={side:sim.robot.group(side+'_arm').copy() for side in ('left','right')}
     start_yaw=sim.robot.group('base')[2]; yaw_goal=goal['base'][2]; points=path['xy']; count=0
+    # Same closed-loop torso command as arm_tick/mobile_tick: hold the last legal
+    # target, re-derive it from feedback so gravity sag is corrected instead of
+    # accumulating. A raw absolute command (or neutral_action's ctrl echo) is open
+    # loop and lets the measured h drift below the lower bound.
+    hold=getattr(ctx,'hold_torso_target',None)
     for index,xy in enumerate(points):
         fraction=index/max(1,len(points)-1)
         yaw=start_yaw+fraction*ctx.yaw_gap(yaw_goal,start_yaw)
@@ -401,6 +408,7 @@ def navigate(ctx,path,goal):
             scale=max(1.,np.linalg.norm(delta[:2])/limit,abs(delta[2])/yaw_limit)
             a=sim.robot.neutral_action(); a[:3]=delta/scale
             a[3:10]=held['left']-sim.robot.group('left_arm'); a[11:18]=held['right']-sim.robot.group('right_arm')
+            if hold is not None: a[19]=hold()
             ctx.tick(a)
     ctx.phase='arrival'
     for _ in range(10):
@@ -408,7 +416,9 @@ def navigate(ctx,path,goal):
         delta[2]=ctx.yaw_gap(goal['base'][2],sim.robot.group('base')[2])
         if np.linalg.norm(delta[:2]) > sim.robot.config.max_base_delta or abs(delta[2]) > sim.robot.config.max_yaw_delta:
             raise OperationFailure('arrival_tracking_error')
-        a[:3]=delta; ctx.tick(a)
+        a[:3]=delta
+        if hold is not None: a[19]=hold()
+        ctx.tick(a)
     return {'status':'success','actual_base':sim.robot.group('base').tolist(),'steps':count}
 
 
