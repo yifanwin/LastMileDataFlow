@@ -13,6 +13,7 @@ import time
 import uuid
 
 from ..io import canonical,digest,file_digest,read_json,write_json
+from ..exporting.no_edit_layout import assign_output_names,export_rollout
 
 
 def scene_manifest(dataset_dir, houses=None):
@@ -64,7 +65,8 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     from ..navigation.astar import scene_grid,search,task_support_obstacles
     from ..exporting.no_edit_heatmap import export_heatmap
     from ..exporting.navigation_map import export_navigation_map
-    task_path=scene_path/'tasks'/task['task_id']; task_path.mkdir(parents=True,exist_ok=True)
+    if 'output_name' not in task: assign_output_names([task])
+    task_path=scene_path/'tasks'/task['output_name']; task_path.mkdir(parents=True,exist_ok=True)
     if (task_path/'result.json').exists():
         prior=read_json(task_path/'result.json')
         if prior['status'] not in ('incomplete','infrastructure_error'): return prior
@@ -80,8 +82,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             for station in disk_samples(anchor,config.radius_m,spacing):
                 sim=clone_sim(baseline,target=task['target_body'])
                 try:
-                    row=initialize_station(sim,station,anchor,config,renderer=renderer,
-                                           evidence_path=task_path/'initial_views'/station['station_id'])
+                    row=initialize_station(sim,station,anchor,config,renderer=renderer)
                     stations.append(row)
                 except ValueError as exc:
                     stations.append({**station,'geometry':'geometry_filtered','reason':str(exc)})
@@ -107,7 +108,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                        and r['status'] in ('success','failure','planning_no_solution')]
             if completed: continue
             check_disk(scene_path,config)
-            attempt_id=task['task_id']+'-'+station['station_id']+f'-t{trial}-'+uuid.uuid4().hex[:8]
+            attempt_id=task['operation']+'-'+task['output_name']+'-'+station['station_id']+f'-t{trial}-'+uuid.uuid4().hex[:8]
             seed=task_seed(config.seed,scene_path.name,task['task_id'],station['station_id'],trial)
             print(f'{scene_path.name}/{task["task_id"]}/{station["station_id"]} trial {trial+1}/{config.trials_per_station}',flush=True)
             row=run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collection,scene_path,
@@ -148,7 +149,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                 check_disk(scene_path,config)
                 control=next(r['control'] for r in trials if r['station_id']==goal['station_id'] and r['status']=='success')
                 path=connections[(start['station_id'],goal['station_id'])]
-                attempt_id=task['task_id']+'-rollout-'+start['station_id']+'-'+goal['station_id']+'-'+uuid.uuid4().hex[:8]
+                attempt_id=task['operation']+'-'+task['output_name']+'-rollout-'+start['station_id']+'-'+goal['station_id']+'-'+uuid.uuid4().hex[:8]
                 outcome=run_raw_attempt(baseline,task,start,candidates,assets_dir,config,collection,scene_path,attempt_id,
                         seed=control['seed'],path=path,goal=goal,winning_control=control)
                 packet={**outcome,'start':start,'goal':goal,'path':path,
@@ -190,6 +191,7 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
         write_json(scene_path/'source.json',source.provenance())
         write_json(scene_path/'robot_geometry.json',robot_footprint(sim))
         tasks,skipped=discover_tasks(sim,read_json(record['metadata']),config)
+        assign_output_names(tasks)
         for task in tasks: task['operation_base_mode']=config.operation_base_mode
         if targets: tasks=[t for t in tasks if t['instance_id'] in targets or t['asset_id'] in targets or t['task_id'] in targets]
         if max_tasks: tasks=tasks[:max_tasks]
@@ -228,20 +230,19 @@ def _scene_worker(record,robot,config,collection,assets_dir,run_path,gpu,options
 
 
 def rebuild_dataset_index(run_path):
+    (run_path/'datasets').mkdir(exist_ok=True)
     entries=[]
     for result_path in sorted((run_path/'scenes').glob('*/tasks/*/result.json')):
         result=read_json(result_path)
-        if not result.get('dataset_eligible'): continue
         task=read_json(result_path.parent/'task.json'); selection=read_json(result_path.parent/'selection.json')
         for segment in selection['successful']:
-            entries.append({'schema_version':'no-edit-v1','instruction':task['instruction'],'task':task,
-                'attempt':segment['attempt'],'trajectory':segment['attempt']+'/trajectory.jsonl',
-                'observations':segment['attempt']+'/observations.json','videos':segment['attempt']+'/videos.json',
-                'third_person_video':segment.get('third_person_video'),
-                's0':segment['start'],'s1':segment['goal'],'s0_failure_evidence':segment['s0_failure_evidence'],
-                's0_failure_videos':segment.get('s0_failure_videos',[]),
-                'operation_base_mode':segment.get('operation_base_mode',task.get('operation_base_mode','unknown')),
-                'scene':str(result_path.parents[2]/'scene'),'heatmap':result['heatmap']})
+            if segment['status'] != 'success' or segment['navigation']['status'] != 'success': continue
+            sample=export_rollout(run_path,result_path.parents[2].name,task,segment,
+                                  eligible=result.get('dataset_eligible',False))
+            if result.get('dataset_eligible'):
+                entries.append({'schema_version':'no-edit-index-v2','instruction':task['instruction'],
+                    'task_id':task['task_id'],'operation':task['operation'],'attempt':segment['attempt'],
+                    'sample':str(sample/'sample.json')})
     temporary=run_path/'.dataset_index.tmp'
     with temporary.open('wb') as stream:
         for entry in entries: stream.write(canonical(entry)+b'\n')

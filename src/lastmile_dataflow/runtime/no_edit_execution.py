@@ -431,7 +431,8 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     packet={'schema_version':'no-edit-v1','robot':asdict(sim.robot.config),'collection':asdict(collection),
             'task':task,'station':station,'protocol':asdict(config),'seed':seed,'path':path,'goal':goal,
             'scene_version':read_json(root/'scene/version.json')['version_id']}
-    recorder=AttemptRecorder(root,packet,attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
+    from ..exporting.no_edit_layout import attempt_group,index_attempt
+    recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
     write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),'source':sim.source.provenance(),
                'initialization_only':station['base'],'no_scene_edits':True})
     ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=bool(path))
@@ -506,10 +507,11 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         sim.close()
     finalized=read_json(recorder.path/'result.json')
     if finalized['status']=='infrastructure_error': result['status']='infrastructure_error'
+    status_link=index_attempt(recorder.path,result['status'])
     media=read_json(recorder.path/'videos.json')
     recorded=bool(media['cameras']) and all((recorder.path/v['path']).is_file()
                     and v['frame_count']>=2 for v in media['cameras'].values())
-    return {**result,'station_id':station['station_id'],'attempt':str(recorder.path),
+    return {**result,'station_id':station['station_id'],'attempt':str(recorder.path),'status_directory':status_link,
             'seed':seed,'executed_steps':recorder.steps,'videos':str(recorder.path/'videos.json'),
             'video_status':'not_executed' if not recorder.steps else 'recorded' if recorded else 'disabled' if not collection.record_video else 'recording_error',
             'third_person_video':str(recorder.path/'videos/third_person_camera.mp4') if 'third_person_camera' in media['cameras'] else None,

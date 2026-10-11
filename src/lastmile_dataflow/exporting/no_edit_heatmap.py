@@ -66,7 +66,14 @@ def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='',
     ax.set_aspect('equal'); fig.colorbar(im,ax=ax,label='Success rate (0–1)')
     ax.text(.01,.01,'dots: measured trials; field: Gaussian smoothing\ngray ×: filtered; white: unobserved; dark: obstacle / outside floor',
             transform=ax.transAxes,fontsize=8,bbox={'facecolor':'white','alpha':.85,'edgecolor':'none'})
-    fig.savefig(path/'success_heatmap.png',dpi=150); fig.savefig(path/'success_heatmap.svg'); plt.close(fig)
+    fig.savefig(path/'success_heatmap.png',dpi=150); fig.savefig(path/'success_heatmap.svg')
+    for row in rows:
+        if 'station_id' not in row: continue
+        ax.annotate(row['station_id'], row['xy'], xytext=(3,4), textcoords='offset points',
+                    fontsize=6, zorder=8, bbox={'facecolor':'white','alpha':.7,'edgecolor':'none','pad':.4})
+    fig.savefig(path/'success_heatmap_stations.png',dpi=200)
+    fig.savefig(path/'success_heatmap_stations.svg')
+    plt.close(fig)
     write_json(path/'heatmap.json',{'sigma_m':sigma,'configured_support_distance_m':max_support_distance_m,
                'max_support_distance_m':min(3*sigma,max_support_distance_m),
                'support_obstacles':list(grid.support_obstacles),'kernel':'Gaussian of obstacle-aware grid shortest-path distance',
@@ -74,17 +81,6 @@ def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='',
                'obstacle_mask':'mask blocked cells after interpolation; not navigation reachability',
                'rate':'weighted successes / weighted terminal trials','observation_unit':'station trial',
                'unknown_is_not_zero':True,'physical_navigation_validation':'separate from conservative raster',
-               'map':'success_heatmap.npz','png':'success_heatmap.png','svg':'success_heatmap.svg'})
-    # Self-contained reading surface verifies the intended map embedding offline.
-    import base64,html
-    encoded = base64.b64encode((path/'success_heatmap.png').read_bytes()).decode()
-    nav_image = path/'navigation_grid.png'
-    nav_html = ''
-    if nav_image.is_file():
-        nav_encoded = base64.b64encode(nav_image.read_bytes()).decode()
-        nav_html = '<h2>A* obstacles before execution</h2><img style="max-width:100%" alt="A star navigation obstacles" src="data:image/png;base64,'+nav_encoded+'">'
-    (path/'index.html').write_text('<!doctype html><meta charset="utf-8"><title>Success map</title>'
-        + '<h1>'+html.escape(title)+'</h1><img style="max-width:100%" alt="measured station success heatmap" '
-        + 'src="data:image/png;base64,'+encoded+'"><p>Ground-plane map. Colors are Gaussian-smoothed observed trials, '
-        + 'not additional measurements. Filtered and untested points are not counted as failures.</p>'+nav_html,encoding='utf-8')
+               'map':'success_heatmap.npz','png':'success_heatmap.png','svg':'success_heatmap.svg',
+               'station_labels_png':'success_heatmap_stations.png','station_labels_svg':'success_heatmap_stations.svg'})
     return path/'success_heatmap.png'

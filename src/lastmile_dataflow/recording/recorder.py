@@ -22,13 +22,18 @@ from ..io import canonical, digest, file_digest, write_json
 
 
 class AttemptRecorder:
-    def __init__(self, root, config, *, attempt_id=None, strategy="short_action", parent=None):
+    def __init__(self, root, config, *, attempt_id=None, strategy="short_action", parent=None, attempt_group=()):
         # 未指定 ID 时用“UTC 时间戳 + 随机后缀”，保证全局唯一且可排序。
         self.attempt_id = attempt_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10]
         # 防御路径穿越：ID 里不能出现 / 或 ..，否则会写到目录外面。
         if not self.attempt_id or Path(self.attempt_id).name != self.attempt_id or self.attempt_id in (".", ".."):
             raise ValueError("invalid attempt id")
-        self.path = Path(root) / "attempts" / self.attempt_id
+        if any(not part or Path(part).name != part or part in (".", "..") for part in attempt_group):
+            raise ValueError("invalid attempt group")
+        self.path = Path(root) / "attempts"
+        for part in attempt_group:
+            self.path /= part
+        self.path /= self.attempt_id
         self.path.mkdir(parents=True, exist_ok=False)   # 已存在就抛错：永不覆盖
         self.collection = config["collection"]
         # config_sha256 把“这次到底用了什么配置”钉死在记录里，审计时会重新计算比对。

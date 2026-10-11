@@ -37,7 +37,7 @@ class SupportMapTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 NoEditConfig(smoothing_support_distance_m=invalid)
         grid=Grid(np.zeros(2),.05,np.ones((41,41),bool))
-        row={'geometry':'valid','terminal_trials':1,'successes':1,'xy':[1,1]}
+        row={'station_id':'S0016','geometry':'valid','terminal_trials':1,'successes':1,'xy':[1,1]}
         narrow,_=gaussian_map(grid,[row],.1,max_support_distance_m=.1)
         wide,_=gaussian_map(grid,[row],.1,max_support_distance_m=.3)
         self.assertTrue(np.isnan(narrow[20,24]))
@@ -78,7 +78,7 @@ class SupportMapTests(unittest.TestCase):
         self.assertFalse(nav.free[nav.cell([.6,0])])
         path=search(nav,[-1,0],[1,0]);self.assertIsNotNone(path)
         self.assertTrue(all(abs(p[0])>.5 or abs(p[1])>.4 for p in path['xy']))
-        row={'geometry':'valid','terminal_trials':1,'successes':1,'success_rate':1,'xy':[-.6,0]}
+        row={'station_id':'S0016','geometry':'valid','terminal_trials':1,'successes':1,'success_rate':1,'xy':[-.6,0]}
         values,_=gaussian_map(heat,[row],.5)
         self.assertTrue(np.isnan(values[heat.cell([-.5,0])]))
         with tempfile.TemporaryDirectory() as d:
@@ -93,7 +93,10 @@ class SupportMapTests(unittest.TestCase):
             self.assertNotIn('support / obstacle',Path(d,'navigation_grid.svg').read_text())
             self.assertIn('physical_footprints',Path(d,'navigation_display.json').read_text())
             self.assertIn('support / obstacle',Path(d,'success_heatmap.svg').read_text())
-            self.assertIn('data:image/png;base64',Path(d,'index.html').read_text())
+            self.assertFalse(Path(d,'index.html').exists())
+            self.assertTrue(Path(d,'success_heatmap_stations.png').is_file())
+            self.assertTrue(Path(d,'success_heatmap_stations.svg').is_file())
+            self.assertIn('S0016',Path(d,'success_heatmap_stations.svg').read_text())
 
     def test_navigation_video_has_support_before_path(self):
         obstacle={'min':[-.5,-.4,.75],'max':[.5,.4,.85]}

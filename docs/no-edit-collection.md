@@ -177,7 +177,7 @@ bin/lastmile-dataflow collect-no-edit \
   --run-id maps-radius035-val-full --workers 4 --gpu-ids 0 1 2 3 4 5 6 7
 ```
 
-检查重绘目录中的 `index.html`（嵌入热图与 A* 障碍图）、`success_heatmap.png`、`navigation_grid.png`；
+检查重绘目录中的 `success_heatmap.png`、`success_heatmap_stations.png`（每个点标注站位 ID）、`navigation_grid.png`；不再生成 HTML。
 `heatmap.json` 记录配置半径、实际截断距离和支撑物，`success_heatmap.npz` 保留数据。
 全量采集的同一配置自动应用于每个场景、每个任务和每次中间/最终热图导出，并冻结到 run 配置中。
 改变配置或代码后不要对旧 run 使用 `--resume`。重新绘图不会更新旧视频，也不等于新的物理避障验收；新视频标注及新 A* 路径需要新采集。
@@ -195,3 +195,50 @@ bin/lastmile-dataflow collect-no-edit \
 ### 导航视频站位圈
 
 S0/S1 圆心为记录的底盘站位；圆圈半径由实际模型底盘及车轮几何的外接圆 `robot_footprint(sim)['radius_m']` 给出，按地图尺度绘制，不叠加避障安全余量。与高斯扩散半径是不同参数。生产视频记录 `analysis_video.json` 中的 `station_footprint`，已有实测轨迹可用诊断回放脚本重绘到新的输出目录。
+
+
+## 输出布局 v2（新 run）
+
+内部 `task_id` 保留原身份用于追溯，目录改用目标物体与实例编号，例如 `Cup_30 → cup30`。
+同一物体存在多个任务/关节时追加操作及序号，例如 `fridge2-open2`；完整身份仍在 `task.json`。
+
+```text
+outputs/no_edit/<run>/
+├── summary.json                    # 整体进度、场景结果、保留段数
+├── dataset_index.jsonl             # v2 简短索引：指令、task ID、sample 路径
+├── scenes/val_103/
+│   ├── tasks/cup30/
+│   │   ├── task.json / trials.json / station_statistics.json / selection.json / result.json
+│   │   └── maps/
+│   │       ├── navigation_grid.png / .svg
+│   │       ├── success_heatmap.png / .svg / .npz
+│   │       └── success_heatmap_stations.png / .svg
+│   └── attempts/pick/S0016/         # open 同级；按初始站位分层
+│       ├── pick-cup30-S0016-t0-<uuid>/
+│       ├── success/<attempt> -> ../<attempt>
+│       ├── fail/<attempt> -> ../<attempt>
+│       └── planning_no_solution|infrastructure_error|incomplete/<attempt> -> ../<attempt>
+└── datasets/val_103/pick/cup30/<rollout-attempt>/
+    ├── sample.json                 # 指令、相对动作/视频路径、S0/S1、失败原因
+    ├── rollout/                    # 成功 rollout 的原始证据副本（轨迹、四路视频等）
+    └── s0_failures/<attempt>/       # 对应 S0 的未成功试验证据副本
+```
+
+`tasks/` 不再保存 `initial_views/`，但保留真实可见性检查和数值结果，不改变过滤规则。
+普通热图保留不变；另增加站位标注版，使用实际 `S0000` 等 ID（包括过滤/未测试点），不是选中 S0 的排序号。
+`maps/` 不再生成 HTML；热图 NPZ 和统计 JSON 仍可用于分析。
+
+attempt 原目录不会在结论产生后移动，以免破坏规划器路径和已封存摘要。
+`success/`、`fail/` 为浏览快捷链接，不复制视频；`fail` 仅对应真实 `failure`。
+无解、异常和未完成各自分类；运行中/突发中断尚未完成收尾的 attempt 保留在站位目录，可能尚无分类链接。
+UUID 保留以保证独立试验不重名，trial 编号仍从 0 开始。
+
+`datasets/` 使用副本而非快捷链接，动作和四路视频在每个 sample 内可以用相对路径读取。
+复制完整 rollout 证据，也包含已记录的逐帧 PNG；`s0_failures` 保留原因、归因、轨迹和已实际生成的视频。
+没有执行或关闭视频时不补造视频；`sample.json` 的视频清单以实际 `videos.json` 为准。
+只打包操作与导航都成功的 rollout；未达到任务保留阈值的成功段也保留，但不进入 eligible 索引。sample 中 `task_eligible_at_export` 仅记录首次导出时的任务资格快照，当前资格以任务 `result.json` 与重建后的索引为准。
+导出临时目录完成后原子发布；再次重建索引不会改写已发布 sample。复制占用额外磁盘，仍受批次磁盘预留检查约束。
+
+这是输出布局/索引契约变更，不改动作、物理阈值或成功判据。已有 run 不自动搬迁、不重写；
+代码变更后必须用新 run ID，旧 run 的配置/代码摘要仍禁止跨版本续跑。
+旧 `no-edit-v1` 内部任务与 attempt 记录格式保持不变；新索引为 `no-edit-index-v2`，sample 为 `no-edit-dataset-v2`。

@@ -109,12 +109,14 @@ class MapNavigationTests(unittest.TestCase):
         rows=[rate_row('a',[1,1],1,1),rate_row('b',[1,1],0,5)]
         values,_=gaussian_map(grid,rows,1.)
         self.assertAlmostEqual(values[1,1],1/6)
-    def test_heatmap_generates_embedded_png_svg_and_raw_values(self):
+    def test_heatmap_generates_labeled_png_svg_without_html(self):
         with tempfile.TemporaryDirectory() as d:
             grid=Grid(np.zeros(2),.5,np.ones((7,7),bool))
             path=export_heatmap(d,grid,[rate_row('a',[1,1],3)],[1,1,1],.5,title='synthetic fixture only')
             self.assertGreater(path.stat().st_size,1000)
-            self.assertIn('data:image/png;base64',Path(d,'index.html').read_text())
+            self.assertFalse(Path(d,'index.html').exists())
+            self.assertTrue(Path(d,'success_heatmap_stations.png').is_file())
+            self.assertTrue(Path(d,'success_heatmap_stations.svg').is_file())
             self.assertTrue(Path(d,'success_heatmap.svg').is_file())
 
 
@@ -318,6 +320,9 @@ class MobileManipulationTests(unittest.TestCase):
                  patch('lastmile_dataflow.runtime.simulation.Simulation.render',return_value=frames):
                 row=run_raw_attempt(sim,task,s,[],d,NoEditConfig(),CollectionConfig(output_dir=d),root,'fixture-video',seed=1)
             self.assertEqual(row['status'],'failure');self.assertEqual(row['video_status'],'recorded')
+            self.assertEqual(Path(row['attempt']).parent,root/'attempts/pick/s')
+            self.assertEqual(Path(row['status_directory']).resolve(),Path(row['attempt']).resolve())
+            self.assertEqual(Path(row['status_directory']).parent.name,'fail')
             video=json.loads(Path(row['videos']).read_text())
             self.assertEqual(len(video['cameras']),4)
             self.assertTrue(Path(row['third_person_video']).is_file())

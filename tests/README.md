@@ -99,3 +99,5 @@ CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=0 PYTHONPATH=src \
 真实 gradient smoke 检查光学投影对 MuJoCo 的高度网格误差、静态/随 TCP 搬运 target 的 autograd–有限差分一致性，以及 optimizer soft cost / 原约束隔离。可用 `--head-fov disabled` 做原生 baseline，或 `--head-fov-weight <value>` 显式对照；两者都进入 experiment 元信息。
 
 `scripts/audit_head_fov_replay.py --frozen-run <run> --attempt <attempt> [--attempt <attempt>] --output <new-json>` 对**已有实测 replay**做只读几何审计。逐帧离线审计是评测，不是规划器的 hard validator，也不等同无遮挡可见像素判定。未执行的 constrained planning failure 不应有伪造 replay/video。
+
+`test_no_edit_layout.py` 覆盖语义目录名、attempt 分类链接、安全/独占路径、成功 rollout 独立打包和索引幂等性。使用合成文件，不代表真实视频解码或机器人成功验收。
