@@ -30,6 +30,10 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    obstacles = sub.add_parser('augment-obstacles', help='pure procedural obstacle construction and paired real RGB; no Agent calls')
+    obstacles.add_argument('--config', required=True, type=Path)
+    obstacles.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    obstacles.add_argument('--run-id', required=True)
     raw = sub.add_parser('collect-no-edit', help='raw val scenes: station trials, Gaussian maps and continuous 1–3 successful rollouts')
     raw.add_argument('--assets-dir', required=True, type=Path)
     raw.add_argument('--dataset-dir', type=Path)
@@ -150,6 +154,12 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'augment-obstacles':
+        from .construction.obstacle_config import load_obstacle_config
+        from .workflows.obstacle_augmentation import augment_obstacles
+        path = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)
+        print(path)
+        return 0 if read_json(path/'summary.json')['status'] == 'completed' else 1
     if args.command == 'no-edit-status':
         import json
         print(json.dumps(read_json(args.run/'summary.json'),ensure_ascii=False,indent=2))

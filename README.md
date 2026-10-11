@@ -1,5 +1,9 @@
 # LastMileDataFlow
 
+纯程序化障碍物增强使用独立 `augment-obstacles` 入口，不调用 Agent；配置位于 `configs/case_edits/procedural_obstacles_*.json`。
+方法、运行和证据边界见 [docs/procedural-obstacles.md](docs/procedural-obstacles.md)。
+最新 [稠密站位 Case1 / Case2 验收报告](reports/obstacle_augmentation/2026-10-11-dense-cases/REPORT.md)：各 5 份、60 张真实 RGB；全 161 点独立初始化与覆盖压缩已验证，导航／抓取未验证。
+
 新增可选 [MolmoBot VLA 站位操作评测](docs/molmobot-station-evaluation.md)：
 `configs/no_edit/molmobot.json`，2 m / 每点5次、原生 motor 夹爪、1024×576 + upstream
 头部鱼眼、独立物理验收及热图。仅站位评测，不调用 cuRobo 或 A*；真实状态以 run 为准。

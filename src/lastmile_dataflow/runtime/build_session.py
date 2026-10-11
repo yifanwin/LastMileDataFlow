@@ -53,7 +53,7 @@ def checkpoint_identity(sim, model_id):
                    'fixed_head':sim.robot.fixed_head.tolist(),'clock_remainder':sim._clock_remainder})
 
 
-def migrate_state(old, new):
+def migrate_state(old, new, *, forward=True):
     """把旧模型的状态迁到编辑后的新模型上（编辑固定家具会触发重新编译）。
 
     【为什么不能直接拷贝 qpos 数组】编辑可能增删几何/物体，导致 qpos 布局完全变化，
@@ -101,7 +101,8 @@ def migrate_state(old, new):
     if d1.userdata.shape != d0.userdata.shape: raise ValueError('userdata migration unsupported')
     d1.userdata[:]=d0.userdata; d1.time=d0.time
     new.robot.fixed_head=old.robot.fixed_head.copy(); new._clock_remainder=old._clock_remainder
-    mujoco.mj_forward(m1,d1)
+    if forward:
+        mujoco.mj_forward(m1,d1)
 
 
 class BuildSession:

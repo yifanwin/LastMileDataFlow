@@ -21,13 +21,13 @@ class ReachSamplingPresetTests(unittest.TestCase):
         self.assertEqual(preset['planner_backend'], 'curobo_v2_v080')
         self.assertEqual(preset['trials_per_station'], 5)
         self.assertAlmostEqual(preset['radius_m'], 0.7928056080178096, places=12)
-        self.assertEqual(preset['spacing_m'], 0.4435184160005256 / 2)
+        self.assertEqual(preset['spacing_m'], 0.4435184160005256 / 4)
 
-    def test_preset_disk_extent_and_half_radius_lattice(self):
+    def test_preset_disk_extent_and_quarter_radius_lattice(self):
         c = load_no_edit_config(ROOT / 'configs/no_edit/curobo_v080_arm_reach_half_base_radius.json')
         anchor = np.array([7.3134564528010175, 2.098837342592207])
         rows = disk_samples(anchor, c.radius_m, c.spacing_m)
-        self.assertEqual(len(rows), 37)
+        self.assertEqual(len(rows), 161)
         for row in rows:
             offset = np.asarray(row['xy']) - anchor
             self.assertLessEqual(np.linalg.norm(offset), c.radius_m + 1e-12)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the frozen RBY1M reach/half-chassis sampling preset; no physics stepping."""
+"""Verify the frozen RBY1M reach/quarter-chassis sampling preset; no physics stepping."""
 import argparse
 from pathlib import Path
 
@@ -68,7 +68,7 @@ def measure(model_path):
         return {'robot_model': robot.model_path, 'robot_model_sha256': file_digest(robot.model_path),
                 'mujoco_version': mujoco.__version__, 'arms': arms, 'chassis': footprint,
                 'radius_m': max(a['maximum_reach_m'] for a in arms.values()),
-                'spacing_m': footprint['radius_m'] / 2,
+                'spacing_m': footprint['radius_m'] / 4,
                 'reach_definition': 'maximum shoulder pivot to TCP distance within arm joint limits',
                 'scope': 'free-space FK geometry only; no collision-free grasp or task-success claim',
                 'physics_steps': 0}

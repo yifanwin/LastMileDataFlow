@@ -142,7 +142,8 @@ def in_frame(points, camera, width, height):
 
 
 def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected, path, *, sample_id,
-                     config=None, context_nodes=(), expansion=1., view_rotation_rad=0.):
+                     config=None, context_nodes=(), expansion=1., view_rotation_rad=0.,
+                     oblique_azimuths_rad=None, visibility_instances=()):
     preparation_guard(before_sim)
     preparation_guard(after_sim)
     config = config or ViewConfig()
@@ -171,10 +172,17 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
             rig = CameraRig.fit(union, config, expansion=expansion*1.4**attempt)
             local_rig = CameraRig.fit(local_union, config, expansion=expansion*1.4**attempt)
             def rotated(r):
+                angles = r.angles
+                if oblique_azimuths_rad is not None:
+                    if len(oblique_azimuths_rad) != 2 or not np.isfinite(oblique_azimuths_rad).all():
+                        raise ValueError('two finite oblique camera azimuths required')
+                    angles = (angles[0], (oblique_azimuths_rad[0], angles[1][1]),
+                              (oblique_azimuths_rad[1], angles[2][1]))
                 return CameraRig(r.lookat, r.distance_m, r.fovy_rad, r.width, r.height,
-                                 tuple((az+view_rotation_rad, el) for az, el in r.angles))
+                                 tuple((az+view_rotation_rad, el) for az, el in angles))
             rigs = [rotated(rig), rotated(local_rig), rotated(local_rig)]
             frames, covered = [], True
+            visibility = {}
             light_snapshots = []
             for stage, sim, points, renderer in zip(('before', 'after'), (before_sim, after_sim),
                                                    (before_points, after_points), renderers):
@@ -209,6 +217,22 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
                     if rgb.shape != (config.height, config.width, 3):
                         raise RenderError('invalid_render_shape')
                     frames.append((stage + '/' + view, rgb))
+                    if visibility_instances:
+                        renderer.enable_segmentation_rendering()
+                        try:
+                            segmentation = renderer.render().copy()
+                        finally:
+                            renderer.disable_segmentation_rendering()
+                        counts = {}
+                        for name in visibility_instances:
+                            try:
+                                bodies = descendants(sim.model, sim.model.body(name).id)
+                            except KeyError:
+                                bodies = set()
+                            geoms = [g for g in range(sim.model.ngeom) if int(sim.model.geom_bodyid[g]) in bodies]
+                            mask = (segmentation[:, :, 1] == mujoco.mjtObj.mjOBJ_GEOM) & np.isin(segmentation[:, :, 0], geoms)
+                            counts[name] = int(mask.sum())
+                        visibility[stage + '/' + view] = counts
             if covered:
                 break
         if not covered:
@@ -219,6 +243,14 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
                   'framing': 'top_with_context_oblique_affected_union_all_paired',
                   'lighting': 'same_source_model_lighting_no_asset_lights', 'expansions': attempt,
                   'not_robot_input': True, 'images': []}
+        if visibility_instances:
+            packet['visible_pixels_by_instance'] = visibility
+        try:
+            from OpenGL.GL import glGetString, GL_RENDERER, GL_VENDOR
+            packet['renderer_info'] = {key: (value.decode() if value else None) for key, value in
+                (('renderer', glGetString(GL_RENDERER)), ('vendor', glGetString(GL_VENDOR)))}
+        except Exception:
+            packet['renderer_info'] = {'renderer': None, 'vendor': None}
         packet['pair_id'] = digest(packet)
         for view, rgb in frames:
             file = path / (view.replace('/', '_') + '.png')
