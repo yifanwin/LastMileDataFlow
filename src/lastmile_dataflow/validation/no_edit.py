@@ -2,6 +2,7 @@
 import numpy as np
 
 from .pick import PROTOCOL,rotation_error,constraint_failure,evaluate_pick
+from .contacts import SIMULATION_FAILURES
 
 
 def torso_tracking_error(row):
@@ -28,7 +29,9 @@ def evaluate_mobile_pick(samples,initial):
 
 def attribute(reason, *, samples=(), collisions=(), diagnostic=None):
     result = {'category':'Unknown','reason':reason,'collisions':list(collisions)}
-    if collisions or 'collision' in reason or 'nonfinger' in reason or 'penetration' in reason:
+    if reason in SIMULATION_FAILURES:
+        result['category']='SimulationFailure'
+    elif 'collision' in reason or 'nonfinger' in reason or 'penetration' in reason:
         result['category']='Collision'
     elif reason == 'outside_conservative_reach_bound':
         result['category']='Reachability'; result['scope']='conservative shoulder-distance bound'
@@ -65,6 +68,9 @@ def open_progress(task, joint_value):
 
 
 def evaluate_open(task, samples, hold_s):
+    for row in samples:
+        health=next((issue for issue in row.get('illegal',[]) if issue in SIMULATION_FAILURES),None)
+        if health: return {'status':'simulation_failure','reason':health}
     if len(samples) < 2:
         return {'status':'failure','reason':'open_missing_hold'}
     required=abs(task['joint_goal']-task['joint_initial'])

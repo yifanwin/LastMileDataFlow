@@ -166,6 +166,10 @@ def main(argv=None):
         assets=args.assets_dir.resolve()
         robot=load_config(RobotConfig,args.robot_config) if args.robot_config else RobotConfig(
             str(assets/'robots/rby1m/rby1_v1.2_site_control.xml'))
+        if config.operation_backend=='molmobot':
+            if (config.width,config.height)!=(1024,576):
+                raise ValueError('MolmoBot requires actual 1024x576 rendering')
+            robot=replace(robot,control_profile='molmobot-native-v1',control_hz=10.,physics_dt=.004)
         collection=CollectionConfig(output_dir=str(args.output_dir.resolve()),seed=config.seed,
             width=config.width,height=config.height,record_video=not args.no_video)
         path=collect_batch(args.dataset_dir or assets/'scenes/procthor-10k-val',assets,robot,config,collection,

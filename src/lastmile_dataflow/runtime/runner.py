@@ -21,6 +21,7 @@ from ..robots.action import InvalidAction
 from ..scenes.initialization import initialize_robot
 from ..validation.lightweight import independent_results, inspect_state
 from .simulation import InitializationError, Simulation
+from ..validation.contacts import ContactStatistics, CONTACT_POLICY
 
 
 def run_attempt(source, robot_config, task, collection, *, actions=None, base=None,
@@ -44,6 +45,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
     status, reason = "infrastructure_error", "unexpected_error"
     extra = {}
     warning_count = 0
+    contact_stats=ContactStatistics()
     try:
         recorder.metadata["task_id"] = task.task_id
         from dataclasses import asdict
@@ -61,7 +63,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
         # 第 3 步：初始化底盘。仅此处允许写 qpos；快照/导入来源则复检其状态是否合规。
         stage = "initialize"
         if frozen_dir or restoration:
-            check = inspect_state(sim, collection)
+            check = inspect_state(sim, collection, initialization=True)
             initialization = {"status": "valid" if check["valid"] else "invalid", "check": check,
                               "method": "snapshot" if frozen_dir else "legacy_restoration"}
         else:
@@ -114,6 +116,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
                 def substep_check():
                     """每个物理子步都检查；记录所有出现问题的时刻，返回是否继续。"""
                     value = inspect_state(sim, collection)
+                    contact_stats.update(value["contacts"])
                     if value["issues"]:
                         checks.append({"time_s": float(sim.data.time), **value})
                     return value
@@ -145,7 +148,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
                 if not check["valid"]:
                     # 严重物理异常：这是真实的物理问题，标 execution_failed（不是设施错误）。
                     results["scene_validity"] = {"status": "invalid", "reason": "severe_execution_anomaly"}
-                    status, reason = "execution_failed", "severe_physics_anomaly"
+                    status, reason = "simulation_failure", "severe_physics_anomaly"
                     break
                 if task.fixed_base:
                     # 固定底盘试验：实测底盘若真有明显移动，数据仍保留，但标 protocol_invalid。
@@ -177,6 +180,8 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
         if sim is not None:
             sim.close()
     # 收尾：写 result.json + 全文件摘要清单。此后该 attempt 目录即为不可变证据。
+    extra.update(contact_policy=CONTACT_POLICY, trajectory_metrics=contact_stats.metrics(
+        simulation_valid=False if status=='simulation_failure' else True if recorder.steps else None))
     recorder.finish(status, reason, results, extra=extra)
     return recorder.path
 

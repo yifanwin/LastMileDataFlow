@@ -26,29 +26,18 @@ def disk_samples(anchor, radius, spacing):
     return result
 
 
-def robot_contacts(sim, *, target_bodies=(), fingers=()):
-    """Named collision evidence, including where and which robot link collided."""
-    m,d = sim.model,sim.data; result = []
-    for ci,c in enumerate(d.contact):
-        ga,gb = int(c.geom1),int(c.geom2)
-        a,b = int(m.geom_bodyid[ga]),int(m.geom_bodyid[gb])
-        names = [m.body(a).name,m.body(b).name]
-        robot = [n.startswith(sim.robot.config.namespace) for n in names]
-        if a == b or not any(robot):
-            continue
-        geometry = [m.geom(ga).name,m.geom(gb).name]
-        floor = any('floor' in g.lower() for g in geometry)
-        floor_base = floor and any(r and ('base' in n or 'wheel' in n)
-                                  for r,n in zip(robot,names)) and c.dist >= -.005
-        intended = (a in fingers and b in target_bodies or b in fingers and a in target_bodies)
-        penetration = -.002 if all(robot) else -.001
-        if c.dist < penetration and not floor_base and not intended:
-            force = np.zeros(6); mujoco.mj_contactForce(m,d,ci,force)
-            result.append({'body_names': names, 'geom_names': geometry,
-                           'distance_m': float(c.dist), 'position_world': c.pos.tolist(),
-                           'normal_force_n': float(force[0]), 'time_s': float(d.time),
-                           'kind': 'self_collision' if all(robot) else 'environment_collision'})
-    return result
+def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
+    """Initialization overlap filter OR runtime record-only robot contacts.
+
+    Never use the initialization filter to stop an already-running simulation.
+    """
+    from ..validation.contacts import contact_observations
+    contacts = [c for c in contact_observations(sim, target_bodies=target_bodies, fingers=fingers)
+                if c['robot_contact']]
+    if not initialization:
+        return contacts
+    return [c for c in contacts if not (c['allowed_floor_base'] and c['distance_m'] >= -.005) and not c['intended_target_contact']
+            and c['distance_m'] < (-.002 if c['kind']=='self_collision' else -.001)]
 
 
 def initialize_station(sim, station, anchor, config, *, renderer=None, check_visibility=True, evidence_path=None):

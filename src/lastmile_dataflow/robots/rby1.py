@@ -4,7 +4,7 @@
 把 20 维动作翻译成 MuJoCo 的 ctrl 数组。任何 case 脚本都不应该自己写这些名字。
 
 【本工程最重要的纪律之一】`apply()` 会先完成**全部**校验，再一次性写入 `data.ctrl`。
-绝不出现“改了一半发现非法”的状态，也绝不静默裁剪越界值。见文件末尾 apply()。
+绝不出现“改了一半发现非法”的状态；native profile 的上游限位投影显式记录。
 """
 import mujoco
 import numpy as np
@@ -13,16 +13,23 @@ from .action import InvalidAction, torso_joints, validate_action, vector
 
 
 def prepare_robot_spec(spec, config):
-    """只修改内存中的机器人模型，不改源 MJCF 文件；恢复 motor 夹爪为位置伺服。
+    """只修改内存中的机器人模型，不改源 MJCF 文件。
 
     背景：RBY1 原始模型的夹爪是“力控 motor”，本工程需要它表现为“位置伺服”
     （给它一个目标位置，它会自己伺服过去），所以在内存 spec 里重写增益参数。
+    native MolmoBot profile 保留原生 motor，不做位置伺服转换。
     这里做的改动只存在于编译后的模型，磁盘上的资产文件保持只读。
     """
+    native = config.control_profile == 'molmobot-native-v1'
     for side in ("left", "right"):
         act = spec.actuator(config.namespace + side + "_finger_act")
         if act is None:
             raise ValueError("robot gripper actuator missing")
+        if native:
+            if (act.biastype != mujoco.mjtBias.mjBIAS_NONE or
+                    not np.allclose(act.ctrlrange, [-100., 100.])):
+                raise ValueError('MolmoBot requires original motor grippers [-100,100]')
+            continue
         act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
         act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
         act.gainprm[:] = 0
@@ -34,6 +41,10 @@ def prepare_robot_spec(spec, config):
     for body in spec.bodies:
         if body.name.startswith(config.namespace):
             body.gravcomp = float(config.gravity_compensation)
+    if native:
+        # Nominal RBY1GoProD455CameraSystem; source XML is never changed.
+        for alias, fovy in [('head_camera', 139.), ('wrist_camera_l', 58.), ('wrist_camera_r', 58.)]:
+            spec.camera(config.namespace + alias).fovy = fovy
 
 
 class RBY1Adapter:
@@ -164,6 +175,9 @@ class RBY1Adapter:
           4. 通过 _controls 生成新 ctrl，全部成功后才一次性写入 data.ctrl。
         返回值是“这次到底下发了什么”的完整记录，会被 recoder 原样存进 trajectory。
         """
+        if self.config.control_profile == 'molmobot-native-v1':
+            from .molmobot import apply_native
+            return apply_native(self, value, fixed_base=fixed_base)
         a = validate_action(value, self.config, fixed_base=fixed_base)
         if fixed_base:
             if not hasattr(self, "_fixed_base_target"):

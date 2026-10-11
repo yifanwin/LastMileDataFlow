@@ -86,6 +86,9 @@ class Simulation:
         prepare_robot_spec(robot_spec, robot_config)
         spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
         spec.option.timestep = robot_config.physics_dt
+        if robot_config.control_profile == 'molmobot-native-v1':
+            spec.visual.global_.offwidth = max(spec.visual.global_.offwidth, 1280)
+            spec.visual.global_.offheight = max(spec.visual.global_.offheight, 720)
         return spec
 
     def freeze(self, path):
@@ -184,7 +187,11 @@ class Simulation:
         model_hash = file_digest(frozen_dir / "model.mjb")
         if model_hash != version["compiled_model_sha256"]:
             raise ValueError("frozen model modified")
-        if version["robot"] != read_json_value(asdict(robot_config)):
+        saved_robot = dict(version["robot"])
+        # Old snapshots predate control_profile; absence means the old position
+        # protocol, never native motors. Validate original hashes BEFORE defaulting.
+        saved_robot.setdefault("control_profile", "position-v1")
+        if saved_robot != read_json_value(asdict(robot_config)):
             raise ValueError("robot configuration mismatch")
         model = mujoco.MjModel.from_binary_path(str(frozen_dir / "model.mjb"))
         sim = cls(model, robot_config, read_json(frozen_dir / "instances.json"), target)
@@ -193,7 +200,10 @@ class Simulation:
         if version.get("schema_version") == "2.0":
             # v2 额外绑定“编译模型身份 + 检查点身份 + 实例映射身份”
             from .build_session import model_identity, checkpoint_identity
-            if model_identity(sim) != version["model_id"] or checkpoint_identity(sim, version["model_id"]) != version["checkpoint_id"]:
+            # Use the authenticated historical config payload in the identity,
+            # rather than changing a pre-profile scene's model/checkpoint hashes.
+            if (model_identity(sim, robot_config_payload=version["robot"]) != version["model_id"] or
+                    checkpoint_identity(sim, version["model_id"]) != version["checkpoint_id"]):
                 sim.close()
                 raise ValueError("frozen model/checkpoint identity mismatch")
             if digest(sim.catalog) != version["mapping_id"]:
@@ -245,6 +255,36 @@ class Simulation:
         # mj_step 的 xpos 可能是最后一步积分前状态；先 forward 再记录现场。
         mujoco.mj_forward(self.model, self.data)
         command.update(time_before_s=before, time_after_s=float(self.data.time))
+        return command, stop
+
+    def step_policy(self, action, *, substep_check=None):
+        """MolmoBot: set relative targets once, 5 control ticks × 5 physics ticks.
+
+        No repeated relative accumulation, teleport, or simulation reset.
+        """
+        if not self.started or self.closed:
+            raise RuntimeError('step requires active continuous attempt')
+        if self.robot.config.control_profile != 'molmobot-native-v1':
+            raise ValueError('step_policy requires native MolmoBot profile')
+        if not np.isclose(self.model.opt.timestep, .004) or self.robot.config.control_hz != 10:
+            raise ValueError('MolmoBot timing requires 100/20/4 ms')
+        command = self.robot.apply(action)
+        before = float(self.data.time)
+        stop = None
+        for _ in range(5):
+            self.data.ctrl[:] = command['ctrl']
+            for _ in range(5):
+                mujoco.mj_step(self.model, self.data)
+                if substep_check:
+                    check = substep_check()
+                    if not check['valid']:
+                        stop = check
+                        break
+            if stop:
+                break
+        mujoco.mj_forward(self.model, self.data)
+        command.update(time_before_s=before, time_after_s=float(self.data.time),
+                       timing_ms={'policy':100, 'control':20, 'physics':4})
         return command, stop
 
     def observe_state(self):

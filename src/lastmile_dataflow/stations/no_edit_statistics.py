@@ -13,6 +13,7 @@ def aggregate(stations, trials, expected):
                           for r in terminal if r['status'] != 'success')
         result.append({**station, 'attempts': [r['attempt'] for r in rows],
                        'terminal_trials': len(terminal), 'successes': successes,
+                       'simulation_failures':sum(r['status']=='simulation_failure' for r in rows),
                        'success_rate': successes/len(terminal) if terminal else None,
                        'complete': station['geometry'] == 'valid' and len(terminal) == expected,
                        'failure_reasons': dict(reasons)})

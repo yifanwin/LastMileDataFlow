@@ -272,11 +272,11 @@ class MobileManipulationTests(unittest.TestCase):
         self.assertEqual((mobile['status'],mobile['protocol']),('success','mobile-pick-v2'))
         samples[-1]['base']=[2.1,0.,0.]
         self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'base_outside_workspace')
-    def test_mobile_validator_keeps_collision_and_idle_arm_checks(self):
+    def test_mobile_validator_records_collision_and_keeps_idle_arm_check(self):
         from test_stations import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)
         samples[-1]['illegal']=['robot_environment_collision']
-        self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'robot_environment_collision')
+        self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'success')
         samples[-1]['illegal']=[];samples[-1]['idle_arm'][0]=.02
         self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'idle_arm_drift')
     def test_mobile_torso_error_is_telemetry_but_strict_protocol_unchanged(self):
@@ -287,7 +287,7 @@ class MobileManipulationTests(unittest.TestCase):
         self.assertEqual(evaluate_pick(samples,initial)['reason'],'torso_protocol')
         self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'success')
         samples[-1]['illegal']=['robot_environment_collision']
-        self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'robot_environment_collision')
+        self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'success')
     def test_mobile_torso_nonfinite_is_still_invalid_evidence(self):
         from test_stations import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)

@@ -11,6 +11,7 @@ from ..recording.recorder import AttemptRecorder
 from ..planning.curobo import NativePlanner,load_grasps,body_pose,tcp_pose
 from ..validation.pick import PickMonitor,PROTOCOL,constraint_failure,evaluate_pick,rotation_error
 from .sampling import place_base,filter_station
+from ..validation.contacts import ContactStatistics, contact_observations, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY
 
 
 class ExecutionStop(RuntimeError): pass
@@ -45,7 +46,7 @@ def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root
     sim=None; monitor=None; phase='initialize'; samples=[]; replay=[]; plans=[]
     status='infrastructure_error'; reason='not_completed'; planning='not_tested'; execution='not_executed'; geometry='not_tested'
     results={'scene_validity':{'status':'unknown'},'case_condition':{'status':'unknown','reason':'requires_station_comparison'},'task_completion':{'status':'unknown'}}
-    initial=None; attempt_start=time.monotonic()
+    initial=None; attempt_start=time.monotonic(); contact_stats=ContactStatistics()
     physics=(recorder.path/'physics.jsonl').open('xb')
     def deadline():
         budget.check()
@@ -67,8 +68,16 @@ def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root
         monitor.phase=phase; monitor.command_h=torso
         before=sim.observe_state(); subfailure=[]
         def check():
+            health=simulation_failure(sim)
+            if health:
+                subfailure.append(health)
+                physics.write(canonical({'time_s':float(sim.data.time),'issue':health})+b'\n')
+                return {'valid':False,'issues':[{'severity':'error','code':health}]}
             mujoco.mj_forward(sim.model,sim.data)
-            row=monitor.sample(); samples.append(row); physics.write(canonical(row)+b'\n')
+            contacts=contact_observations(sim,target_bodies=getattr(monitor,'target_bodies',()),
+                                          fingers=getattr(monitor,'fingers',()))
+            contact_stats.update(contacts)
+            row=monitor.sample(); row['contacts']=contacts; samples.append(row); physics.write(canonical(row)+b'\n')
             fail=constraint_failure(row,initial)
             if fail: subfailure.append(fail)
             return {'valid':not fail,'issues':[] if not fail else [{'severity':'error','code':fail}]}
@@ -156,8 +165,10 @@ def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root
     except BudgetStop as exc:
         status='budget_exhausted'; reason=str(exc); execution='incomplete' if recorder.steps else 'not_executed'
     except ExecutionStop as exc:
-        status='executed_failure'; reason=str(exc); execution='failure'
-        results['task_completion']={'status':'failure','reason':reason}
+        reason=str(exc)
+        execution='simulation_failure' if reason in SIMULATION_FAILURES else 'failure'
+        status='simulation_failure' if execution=='simulation_failure' else 'executed_failure'
+        results['task_completion']={'status':'unknown' if execution=='simulation_failure' else 'failure','reason':reason}
         if monitor: write_json(recorder.path/'pick_verdict.json',evaluate_pick(samples,initial))
     except Exception as exc:
         status='infrastructure_error'; reason=f'{phase}:{type(exc).__name__}'
@@ -194,5 +205,7 @@ def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root
                        'physical_outcome_before_recording':execution,'first_failure_phase':phase,
                        'grasp_row':gid,'arm':side,'torso_h':h,'station_id':station['station_id'],
                        'finite_budget_not_impossibility':True})
-        recorder.finish(status,reason,results,extra={'phase':phase,'wall_time_s':time.monotonic()-attempt_start,'schema':'3.0'})
+        recorder.finish(status,reason,results,extra={'phase':phase,'wall_time_s':time.monotonic()-attempt_start,'schema':'3.0', 'contact_policy':CONTACT_POLICY,
+            'trajectory_metrics':contact_stats.metrics(task_success=execution=='success' if execution in ('success','failure') else None,
+                simulation_valid=False if execution=='simulation_failure' else True if recorder.steps else None)})
     return recorder.path

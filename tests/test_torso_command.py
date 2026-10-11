@@ -45,11 +45,13 @@ class TorsoCommandTests(unittest.TestCase):
                 ctx=ContinuousContext.__new__(ContinuousContext)
                 ctx.config=NoEditConfig(planner_backend='curobo_v2_v080',max_attempts=5)
                 ctx.phase='close';ctx.deadline=lambda:None;ctx.begin=lambda:None
+                from lastmile_dataflow.validation.contacts import ContactStatistics
+                ctx.contact_stats=ContactStatistics()
                 ctx.state=lambda:{'time_s':0.};ctx.monitor=None;ctx.collisions=[];ctx.fingers=set();ctx.target_bodies=set()
                 ctx.physics=io.BytesIO();ctx.replay=[];ctx.record_rgb=False;ctx.record_png=False
                 saved=[]
                 ctx.recorder=SimpleNamespace(path=Path(directory),steps=0,record_step=lambda **kw:saved.append(kw))
-                data=SimpleNamespace(time=0.,qpos=np.array([feedback]),qvel=np.zeros(1),qacc=np.zeros(1),warning=[])
+                data=SimpleNamespace(time=0.,qpos=np.array([feedback]),qvel=np.zeros(1),qacc=np.zeros(1),ctrl=np.zeros(1),warning=[])
                 robot=SimpleNamespace(config=SimpleNamespace(torso_limits=(0,.738)),group=lambda _:np.array([0,feedback]))
                 submitted=[]
                 def step(action,**kw):
@@ -57,7 +59,7 @@ class TorsoCommandTests(unittest.TestCase):
                     return {'submitted_action':action.tolist()},None if check['valid'] else check
                 ctx.sim=SimpleNamespace(data=data,robot=robot,model=None,step=step)
                 action=np.zeros(20);action[19]=.739327605117437
-                with patch('lastmile_dataflow.runtime.no_edit_execution.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.no_edit_execution.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.no_edit_execution.robot_contacts',return_value=[]):
+                with patch('lastmile_dataflow.runtime.no_edit_execution.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.no_edit_execution.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.no_edit_execution.contact_observations',return_value=[]):
                     if fails:
                         with self.assertRaisesRegex(OperationFailure,'torso_feedback_limit'):ctx.tick(action)
                     else:ctx.tick(action)

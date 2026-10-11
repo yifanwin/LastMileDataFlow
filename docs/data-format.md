@@ -1,5 +1,14 @@
 # 数据格式 v1
 
+## 可选 MolmoBot 协议（不改变旧 v1）
+
+`robot.control_profile=molmobot-native-v1` 时采用
+`rby1-multitask-molmobot-native-v1`：索引布局仍为20D，夹爪为原生motor命令
+（范围[-100,100]），**不是米值**。状态输入的夹爪仍为实测位置。
+不得按旧位置协议重放native动作；重放须使用冻结的控制profile/model。
+原始预测、策略后处理动作、执行器限位后的命令和ctrl分别保留。
+三层时序100/20/4ms，详见 [VLA评测说明](molmobot-station-evaluation.md)。
+
 ## 配置与坐标
 
 配置使用 UTF-8 JSON。三类配置分别在 `configs/robots`、`configs/tasks`、`configs/collection`。
@@ -95,10 +104,12 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 
 ## 轻量协议
 
-严重穿透阈值：碰撞几何较小包围球半径 × 0.10，限制在 [0.010, 0.030] m；参数在冻结采集配置中声明。
+**仅初始化**的严重重叠阈值：碰撞几何较小包围球半径 × 0.10，限制在 [0.010, 0.030] m；参数在冻结采集配置中声明。
 这是一版显式的尺度相关启发式，**尚未逐类别校准**，不是所有物体共享一个绝对阈值。
-正常底盘/轮与地板接触允许且保留接触；严重非允许穿透、非有限物理状态、MuJoCo 警告停止。
-轻微接触、头/躯干反馈偏差告警。每个物理 substep 检查，记录首个严重异常而非只检查控制周期末尾。
+`inspect_state(..., initialization=True)` 才执行重叠过滤。运行时不按穿透毫米数终止，
+所有接触保留为日志；非有限物理状态、MuJoCo 仿真警告停止并单列 `simulation_failure`。
+头/躯干反馈偏差记录告警；已有固定底盘/工作空间等显式动作协议检查独立保留。
+每个物理 substep 采样，而非只检查控制周期末尾。
 支持接触豁免不会关闭碰撞，不修改物体摩擦，不固定可动物体。
 
 落位、抓持、把手专用验收和成功条件在第二/三阶段实现；阶段一不提供这些检查的假实现。
@@ -116,3 +127,19 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 ### V2 FOV 规划拒绝
 
 `PlanResult.status` 增加 `fov_constraint_failed`；与其他非成功状态一样，`positions` 必须为空。`diagnostics` 保留 `head_fov` 稀疏验证证据、`constrained_planning` 与 `finite_budget_not_impossibility`。原生有限预算未找到合约束解时仍用 `no_solution`，诊断 `failure_reason=constrained_planning_failure`；硬 FOV 检查拒绝用 `failure_reason=fov_constraint_failed`。attempt 顶层状态继续沿用未执行的 `planning_no_solution` / 已执行的 `failure`，原因单独记录，不混作基础设施异常或全局不可达证明。此扩展只用于新版 V2 操作规划，不改变已有 20D 控制协议。
+
+## 接触指标与仿真失败
+
+新 attempt 冻结 `contact_policy="runtime-record-only-v1"`；旧证据及结果不重写，不混合成功率。
+`result.json.extra.trajectory_metrics`（操作后端的 `outcome.json` 同样提供）包含：
+
+- `task_success`: `true/false`，未验收或仿真/基础设施异常为 `null`。
+- `simulation_valid`: 已执行且未触发仿真异常为 `true`；`simulation_failure` 为 `false`；未执行为 `null`。
+- `forbidden_contact_count`: 每个物理 tick 的非期望接触 **body 对数**之和；同 tick 多个 mesh 接触点不重复计数。
+- `contact_count`: 原始接触点观测数；不是碰撞事件次数。
+
+质量标记仅排除正常底盘/地面、指定手指/目标及同手双指接触；其余机器人接触仅记录。
+这个计数不表示物理非法，不自动触发停止、重试停止、失败归因或删除。
+逐 tick 完整接触包含 body/geom、距离、接触力、时间；最终摘要最多保存32条示例。
+成功且有质量标记的轨迹不自动降为失败，由后处理决定分级。
+`simulation_failure` 保留诊断，但排除任务成功率分母；五次尝试中若有此类结果，覆盖保持 incomplete，而不是补成零。

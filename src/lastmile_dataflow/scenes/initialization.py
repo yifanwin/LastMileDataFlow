@@ -97,7 +97,7 @@ def initialize_robot(sim, collection, *, base=None):
             continue
         # 基座必须位于实际地面上方；向下 ray 排除房外/空洞。
         ground = floor_support(sim, candidate[:2])
-        check = inspect_state(sim, collection)
+        check = inspect_state(sim, collection, initialization=True)
         valid = bool(ground and inside_triangles(candidate[:2], triangles) and check["valid"])
         trials.append({"base": candidate.tolist(), "valid": valid, "ground": bool(ground),
                        "errors": [i for i in check["issues"] if i["severity"] == "error"]})

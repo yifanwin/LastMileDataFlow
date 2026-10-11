@@ -5,7 +5,7 @@
 躯干联动误差、采样间隔上限、接触力下限。
 
 【两种层次，别混淆】
-  PickMonitor.sample()      每个物理 tick 采一行“事实”（力、位姿、是否非法接触）。
+  PickMonitor.sample()      每个物理 tick 采一行“事实”（力、位姿、接触日志）。
   constraint_failure()      逐行判违约——任何一项违规立刻给 failure 并记录首个失败阶段。
   evaluate_pick()           汇总全部样本，给出 success/failure/infrastructure_error。
 
@@ -18,31 +18,33 @@ import mujoco
 import numpy as np
 from ..planning.curobo import body_pose,tcp_pose
 from ..scenes.geometry import descendants
+from .contacts import CONTACT_POLICY, SIMULATION_FAILURES
 
 # 冻结协议：这些阈值不可由配置覆盖（对应 phase3.md 的“不可通过配置放宽”）。
 PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_m':.002,
           'base_yaw_rad':np.deg2rad(.2),'torso_error_rad':.002,'head_error_rad':.002,
           'idle_arm_error_rad':.002,'relative_translation_m':.01,
           'relative_rotation_rad':np.deg2rad(5),'max_sample_gap_s':.0041,
-          'finger_force_min_n':1e-6}
+          'finger_force_min_n':1e-6, 'contact_policy':CONTACT_POLICY}
 
 
 def rotation_error(a,b): return float(np.arccos(np.clip((np.trace(a.T@b)-1)/2,-1,1)))
 
 
 class PickMonitor:
-    """逐物理 tick 的事实采样器 + 非法接触检测器。
+    """逐物理 tick 的事实采样器 + 接触记录器。
 
     初始化时锁定“基线”：底盘/头/闲置臂的初值、目标高度、两个指尖 body 的 id。
     之后每次 sample() 都相对基线判断，所以任何漂移都会被记录。
     """
 
-    def __init__(self,sim,side):
+    def __init__(self,sim,side, *, allowed_target_fingers=()):
         self.sim,self.side=sim,side
-        # 机器人自身 body 集合 vs 目标（含其子部件）集合，用来区分“指-目标接触”和“非法环境接触”。
+        # 机器人自身 body 集合 vs 目标（含其子部件）集合，用来区分“指-目标接触”和“环境接触”。
         self.robot_bodies={b for b in range(sim.model.nbody) if sim.model.body(b).name.startswith('robot_0/')}
         self.target_bodies=descendants(sim.model,sim.target_id)
         self.fingers={sim.model.body(f'robot_0/ee_finger_{side[0]}{i}').id for i in (1,2)}
+        self.allowed_target_fingers = self.fingers | set(allowed_target_fingers)
         idle='right' if side=='left' else 'left'
         self.initial={'base':sim.robot.group('base').tolist(),'head':sim.robot.group('head').tolist(),
                       'idle_arm':sim.robot.group(idle+'_arm').tolist(),'target':sim.model.body(sim.target_id).name,
@@ -50,8 +52,8 @@ class PickMonitor:
         self.phase='torso_adjust'; self.command_h=0.
 
     def sample(self):
-        """采集一行物理事实。包含：力、支撑、非法接触列表、相对位姿（TCP←目标）。"""
-        sim=self.sim; m,d=sim.model,sim.data; forces={}; support=False; illegal=[]
+        """采集一行物理事实。包含：力、支撑、接触标记列表、相对位姿（TCP←目标）。"""
+        sim=self.sim; m,d=sim.model,sim.data; forces={}; support=False; illegal=[]; contact_flags=[]
         if not all(np.isfinite(x).all() for x in (d.qpos,d.qvel,d.ctrl,d.qacc)): illegal.append('nonfinite_state')
         if any(w.number for w in d.warning): illegal.append('mujoco_warning')
         for i,c in enumerate(d.contact):
@@ -66,14 +68,14 @@ class PickMonitor:
                 other=b if ta else a
                 if other in self.fingers and bearing: forces[other]=forces.get(other,0.)+float(f[0])
                 elif other not in self.robot_bodies and bearing: support=True      # 目标仍被桌面支撑
-                elif other in self.robot_bodies and c.dist<-.001: illegal.append('nonfinger_target')
-            elif ra and rb and c.dist<-.002: illegal.append('self_collision')
-            elif ra!=rb and c.dist<-.001:
+                elif other in self.robot_bodies and other not in self.allowed_target_fingers: contact_flags.append('nonfinger_target')
+            elif ra and rb: contact_flags.append('self_collision')
+            elif ra!=rb:
                 # 机器人 vs 环境：豁免“底盘/轮 vs 地板”的正常支撑接触
                 other_g=int(c.geom2 if ra else c.geom1); rbod=a if ra else b
                 floor='floor' in m.geom(other_g).name.lower()
                 base='base' in m.body(rbod).name or 'wheel' in m.body(rbod).name
-                if not (floor and base): illegal.append('robot_environment_collision')
+                if not (floor and base): contact_flags.append('robot_environment_collision')
         idle='right' if self.side=='left' else 'left'
         target=body_pose(sim,sim.target_id); tcp=tcp_pose(sim,self.side)
         # relative_pose = TCP^-1 · 目标，即“目标相对手爪”的位姿；滑移检测就看它是否稳定。
@@ -83,22 +85,30 @@ class PickMonitor:
                 'target':m.body(sim.target_id).name,'height_m':float(d.xpos[sim.target_id,2]),
                 'support_contact':support,'finger_forces_n':{str(k):v for k,v in forces.items()},
                 'relative_pose':np.linalg.solve(tcp,target).tolist(),'illegal':sorted(set(illegal)),
+                'contact_flags':sorted(set(contact_flags)), 'contact_policy':CONTACT_POLICY,
                 'sampler':'force-aware-v3'}
 
 
-def constraint_failure(row,initial, *, check_base=True,check_torso=True):
+def constraint_failure(row,initial, *, check_base=True,check_torso=True,check_idle=True):
     """逐行判违约，返回首个违约原因字符串，全部合规返回 None。
 
-    检查顺序：目标没换 → 底盘漂移 → 头/闲置臂漂移 → 躯干联动 → 非法接触。
+    检查顺序：目标没换 → 底盘漂移 → 头/闲置臂漂移 → 躯干联动 → 仿真健康。
     """
+    health=next((issue for issue in row['illegal'] if issue in SIMULATION_FAILURES),None)
+    if health: return health
     if row['target']!=initial['target']: return 'wrong_target'
     base=np.array(row['base']); delta=base-np.array(initial['base'])
     if check_base and (np.linalg.norm(delta[:2])>PROTOCOL['base_translation_m'] or abs(np.arctan2(np.sin(delta[2]),np.cos(delta[2])))>PROTOCOL['base_yaw_rad']): return 'base_drift'
     for key,tol in (('head','head_error_rad'),('idle_arm','idle_arm_error_rad')):
+        if key == 'idle_arm' and not check_idle: continue
         if np.max(np.abs(np.array(row[key])-initial[key]))>PROTOCOL[tol]: return key+'_drift'
     torso=np.array(row['torso']); h=torso[1] if row['phase']=='torso_adjust' else row['command_h']
     if check_torso and np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
-    if row['illegal']: return row['illegal'][0]
+    # Legacy contact labels remain readable, but no longer determine task failure.
+    for issue in row['illegal']:
+        if issue not in ('nonfinger_target','self_collision','robot_environment_collision',
+                         'robot_collision','severe_penetration','minor_contact'):
+            return issue
     return None
 
 
@@ -129,7 +139,7 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
                 return {'status':'infrastructure_error','reason':'invalid_physics_evidence'}
             fail=constraint_checker(r,initial)
             # 任何一行违约 → 直接 failure，并记录首个违约来自哪个阶段/时刻（便于归因）。
-            if fail: return {'status':'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
+            if fail: return {'status':'simulation_failure' if fail in ('nonfinite_state','mujoco_warning') else 'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
             lift=r['height_m']-initial['height_m']; max_lift=max(max_lift,lift)
             held=(set(forces)==set(initial['fingers']) and len(forces)==2 and lift>=PROTOCOL['lift_m'] and r['support_contact'] is False)
             if not held: start=None; reference=None; continue   # 没抓住的瞬间：清零保持计时

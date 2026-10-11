@@ -111,7 +111,8 @@ class SimulationTests(unittest.TestCase):
         # target 初始中心0.15、半径0.1，无穿透；降入地板0.08m必须阻断。
         adr=int(s.model.jnt_qposadr[s.model.joint('target_free').id]);s.data.qpos[adr+2]=.02
         mujoco.mj_forward(s.model,s.data)
-        self.assertFalse(inspect_state(s,c)['valid'])
+        self.assertTrue(inspect_state(s,c)['valid'])
+        self.assertFalse(inspect_state(s,c,initialization=True)['valid'])
         s.data.qvel[0]=np.nan
         self.assertIn('nonfinite_physics_state',[i['code'] for i in inspect_state(s,c)['issues']])
 

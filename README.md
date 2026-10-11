@@ -1,5 +1,9 @@
 # LastMileDataFlow
 
+新增可选 [MolmoBot VLA 站位操作评测](docs/molmobot-station-evaluation.md)：
+`configs/no_edit/molmobot.json`，2 m / 每点5次、原生 motor 夹爪、1024×576 + upstream
+头部鱼眼、独立物理验收及热图。仅站位评测，不调用 cuRobo 或 A*；真实状态以 run 为准。
+
 新增独立的[原始 val 场景无编辑采集](docs/no-edit-collection.md)：`collect-no-edit` 枚举 pick/open，
 执行 2 m 均匀站位评测、Gaussian 成功率热图与 A* 连续移动操作。
 操作由 cuRobo 联合规划底盘 x/y/yaw 与单臂；连续移动+操作及 S0 真实失败操作保存 head、双夹爪、第三人称分析四路视频，并记录整体生成时间。新 run 使用物体语义目录名、pick/open 站位分层、成功/失败快捷入口和独立 `datasets/` rollout 包；地图提供普通版及逐点站位标注版，不生成 HTML。
@@ -113,3 +117,9 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=1 PYTHONPATH=src \
 第二阶段规则式编辑与严格 Agent 协议已实现；本次 Cup 静置图已完成外部视觉模型语义复查。
 第三阶段 case1 原生 cuRobo、站位图、真实成败采集和浏览导出已实现；case2/3/1.5 的真实任务覆盖仍未知。
 第四、五阶段的 VLA、连续导航示教和批量发布仍未实现。
+
+### 运行时接触策略（2026-10-11）
+
+所有执行后端使用 `runtime-record-only-v1`：MuJoCo 求解真实接触，接触/穿透本身不在线终止或判任务失败。
+初始化仍过滤非法重叠；仿真数值异常单列 `simulation_failure`，不计入任务成功率。
+详见[接触策略及证据](reports/no_edit/contact-record-only-20261011.md)。

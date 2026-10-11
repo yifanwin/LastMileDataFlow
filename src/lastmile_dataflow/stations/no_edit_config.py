@@ -10,6 +10,8 @@ from ..io import read_json
 @dataclass(frozen=True)
 class NoEditConfig:
     schema_version: str = 'no-edit-v1'
+    operation_backend: str = 'curobo'
+    policy_config: str | None = None
     planner_backend: str = 'legacy'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
@@ -61,6 +63,10 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if self.operation_backend not in ('curobo', 'molmobot'):
+            raise ValueError('unknown operation backend')
+        if self.operation_backend == 'molmobot' and not self.policy_config:
+            raise ValueError('MolmoBot requires a policy config')
         if type(self.head_fov_enabled) is not bool:
             raise ValueError('invalid head FOV flag')
         if type(self.head_fov_margin) not in (int, float) or not 0 < self.head_fov_margin < 1 or not math.isfinite(self.head_fov_margin):
@@ -75,8 +81,11 @@ class NoEditConfig:
             raise ValueError('V2 uses native plan_pose default max_attempts=5')
         if self.schema_version != 'no-edit-v1':
             raise ValueError('unknown no-edit schema')
-        if self.operation_base_mode != 'holonomic_joint_planning':
-            raise ValueError('no-edit manipulation requires free holonomic base planning')
+        base_mode = 'policy_relative' if self.operation_backend == 'molmobot' else 'holonomic_joint_planning'
+        if self.operation_base_mode != base_mode:
+            raise ValueError('operation base mode does not match backend')
+        if self.operation_backend == 'molmobot' and (self.width, self.height) != (1024, 576):
+            raise ValueError('MolmoBot evaluation requires 1024x576')
         if self.torso_error_policy != 'record_only':
             raise ValueError('no-edit v2 torso error policy must be record_only')
         if type(self.third_person_enabled) is not bool:
@@ -114,4 +123,8 @@ class NoEditConfig:
 
 
 def load_no_edit_config(path):
-    return construct(NoEditConfig, read_json(Path(path)))
+    path = Path(path).resolve()
+    value = read_json(path)
+    if value.get('policy_config'):
+        value['policy_config'] = str((path.parent / value['policy_config']).resolve())
+    return construct(NoEditConfig, value)

@@ -18,6 +18,7 @@ from ..scenes.geometry import descendants
 from ..stations.no_edit_sampling import place_frozen_station,robot_contacts
 from ..validation.no_edit import attribute,evaluate_open,mobile_constraint_failure,evaluate_mobile_pick,torso_tracking_error
 from ..validation.pick import PickMonitor,rotation_error
+from ..validation.contacts import ContactStatistics, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
 from .simulation import Simulation
 
 
@@ -45,7 +46,8 @@ class ContinuousContext:
         self.record_rgb=record_rgb
         self.record_png=record_png
         self.physics=gzip.open(recorder.path/'physics.jsonl.gz','wb')
-        self.samples=[]; self.collisions=[]; self.plans=[]; self.replay=[]; self.monitor=None
+        self.contact_stats=ContactStatistics()
+        self.samples=[]; self.collisions=self.contact_stats.examples; self.plans=[]; self.replay=[]; self.monitor=None
         self.fingers=set(); self.target_bodies=descendants(sim.model,sim.target_id)
         self.last_frames=None; self.plan_count=0
         # Monotonic across retries: plan_count is intentionally reset per attempt so
@@ -99,12 +101,14 @@ class ContinuousContext:
                     stream.write(canonical(adjustment)+b'\n')
         self.deadline(); self.begin(); before=self.state(); failures=[]
         def check():
+            health=simulation_failure(self.sim)
+            if health:
+                failures.append(health)
+                self.physics.write(canonical({'time_s':float(self.sim.data.time),'issue':health})+b'\n')
+                return {'valid':False,'issues':[{'severity':'error','code':health}]}
             mujoco.mj_forward(self.sim.model,self.sim.data)
-            contacts=robot_contacts(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
-            if contacts: self.collisions.extend(contacts); failures.append('robot_collision')
-            if not all(np.isfinite(a).all() for a in (self.sim.data.qpos,self.sim.data.qvel,self.sim.data.qacc)):
-                failures.append('nonfinite_physics')
-            if any(w.number for w in self.sim.data.warning): failures.append('mujoco_warning')
+            contacts=contact_observations(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
+            self.contact_stats.update(contacts)
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
             if v2:
                 # `record_only` protocol: a torso feedback excursion is telemetry, not a
@@ -151,7 +155,7 @@ class ContinuousContext:
         result['third_person_camera']=self.analysis.frame(frames,phase=self.phase,time_s=time_s,
             base_xy=self.sim.robot.group('base')[:2],target_height=float(self.sim.data.xpos[self.sim.target_id,2]),
             initial_height=self.initial_target_height,facts=facts,
-            side=self.monitor.side if self.monitor is not None else None,collisions=len(self.collisions))
+            side=self.monitor.side if self.monitor is not None else None,collisions=self.contact_stats.forbidden_contact_count)
         return result
 
     def yaw_gap(self, target, current):
@@ -429,7 +433,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     # Keep actual three-camera video for ALL executed trials: S0 is selected only
     # afterwards. Avoid duplicate PNG streams except on continuous demonstrations.
     packet={'schema_version':'no-edit-v1','robot':asdict(sim.robot.config),'collection':asdict(collection),
-            'task':task,'station':station,'protocol':asdict(config),'seed':seed,'path':path,'goal':goal,
+            'task':task,'station':station,'protocol':asdict(config),'contact_policy':CONTACT_POLICY,'seed':seed,'path':path,'goal':goal,
             'scene_version':read_json(root/'scene/version.json')['version_id']}
     from ..exporting.no_edit_layout import attempt_group,index_attempt
     recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
@@ -462,9 +466,10 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                 raise OperationFailure(reason)
             except OperationFailure as exc:
                 attribution=attribute(exc.reason,samples=ctx.samples,collisions=ctx.collisions,diagnostic=exc.diagnostic)
-                status='planning_no_solution' if not recorder.steps else 'failure'; reason=exc.reason
+                reason=exc.reason
+                status='simulation_failure' if reason in SIMULATION_FAILURES else 'planning_no_solution' if not recorder.steps else 'failure'
                 retries.append({'retry':retry,'reason':reason,'attribution':attribution})
-                if retry >= (config.operation_retries if path else 0) or ctx.collisions: break
+                if retry >= (config.operation_retries if path else 0) or status=='simulation_failure': break
                 initial=read_json(recorder.path/'initial_state.json')['target']['pose_world_xyz_wxyz']
                 if np.linalg.norm(sim.data.xpos[sim.target_id]-np.asarray(initial[:3])) > .01: break
                 ctx.monitor=None; ctx.phase='retry_release'
@@ -474,7 +479,8 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         if status != 'success' and attribution is None:
             attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions)
     except OperationFailure as exc:
-        status='failure' if recorder.steps else 'planning_no_solution'; reason=exc.reason
+        reason=exc.reason
+        status='simulation_failure' if reason in SIMULATION_FAILURES else 'failure' if recorder.steps else 'planning_no_solution'
         if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
         attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions,diagnostic=exc.diagnostic)
     except InvalidAction as exc:
@@ -497,13 +503,17 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                 'operation_base_mode':config.operation_base_mode,
                 'planner_backend':config.planner_backend,
                 'manipulation_protocol':'mobile-pick-v2' if task['operation']=='pick' else 'mobile-open-v2',
-                'torso_error_policy':config.torso_error_policy}
+                'torso_error_policy':config.torso_error_policy, 'contact_policy':CONTACT_POLICY,
+                'trajectory_metrics':ctx.contact_stats.metrics(
+                    task_success=status=='success' if status in ('success','failure') else None,
+                    simulation_valid=False if status=='simulation_failure' else True if sim.started else None)}
         write_json(recorder.path/'outcome.json',result)
         recorder.finish(status,reason,{'scene_validity':{'status':'valid','scope':'robot initialization'},
                         'case_condition':{'status':'not_applicable','reason':'no_scene_edit'},
                         'task_completion':{'status':status if status in ('success','failure') else 'unknown','reason':reason}},
                         extra={'navigation':navigation,'phase':ctx.phase,'no_edit':True,
-                               'operation_base_mode':config.operation_base_mode})
+                               'operation_base_mode':config.operation_base_mode,
+                               'contact_policy':CONTACT_POLICY, 'trajectory_metrics':result['trajectory_metrics']})
         sim.close()
     finalized=read_json(recorder.path/'result.json')
     if finalized['status']=='infrastructure_error': result['status']='infrastructure_error'

@@ -46,6 +46,22 @@ def available_gpus(ids, max_utilization=50, min_free_mb=10000):
     return sorted(result,key=lambda r:(r['utilization'],-r['free_mb']))
 
 
+def sustained_policy_gpus(ids, policy):
+    """All samples must pass; sort by worst utilization then minimum free memory."""
+    samples=[]
+    for i in range(policy.gpu_sample_count):
+        samples.append({r['index']:r for r in available_gpus(ids,policy.max_gpu_utilization,policy.min_free_gpu_mb)})
+        if i+1<policy.gpu_sample_count: time.sleep(policy.gpu_sample_interval_s)
+    common=set(samples[0]).intersection(*(set(s) for s in samples[1:]))
+    result=[]
+    for index in common:
+        rows=[s[index] for s in samples]
+        result.append({'index':index,'utilization':max(r['utilization'] for r in rows),
+            'free_mb':min(r['free_mb'] for r in rows),'samples':rows,
+            'sample_window_s':(policy.gpu_sample_count-1)*policy.gpu_sample_interval_s})
+    return sorted(result,key=lambda r:(r['utilization'],-r['free_mb']))
+
+
 def check_disk(path, config):
     if shutil.disk_usage(path).free < config.min_free_disk_gb*1024**3:
         raise RuntimeError('disk_space_below_configured_reserve')
@@ -55,7 +71,7 @@ def task_seed(seed,house,task_id,station_id,trial):
     return int(digest([seed,house,task_id,station_id,trial])[:8],16) % (2**31-1)
 
 
-def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_trials=None):
+def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_trials=None,policy=None):
     import mujoco
     import numpy as np
     from ..runtime.no_edit_execution import clone_sim,run_raw_attempt
@@ -89,8 +105,8 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                 finally: sim.close()
         finally: renderer.close()
         write_json(task_path/'stations.json',stations)
-    candidates=grasp_candidates(task,assets_dir)
-    write_json(task_path/'grasp_candidates.json',candidates)
+    candidates=[] if config.operation_backend=='molmobot' else grasp_candidates(task,assets_dir)
+    if config.operation_backend!='molmobot': write_json(task_path/'grasp_candidates.json',candidates)
     grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,footprint['radius_m'],config.navigation_margin_m,
                     support_obstacles=task['support_obstacles'])
     # Heatmap uses ground obstacle geometry; navigation additionally inflates by the chassis radius.
@@ -111,8 +127,12 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             attempt_id=task['operation']+'-'+task['output_name']+'-'+station['station_id']+f'-t{trial}-'+uuid.uuid4().hex[:8]
             seed=task_seed(config.seed,scene_path.name,task['task_id'],station['station_id'],trial)
             print(f'{scene_path.name}/{task["task_id"]}/{station["station_id"]} trial {trial+1}/{config.trials_per_station}',flush=True)
-            row=run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collection,scene_path,
-                                attempt_id,seed=seed)
+            if config.operation_backend=='molmobot':
+                from ..runtime.molmobot_execution import run_vla_attempt
+                row=run_vla_attempt(baseline,task,station,config,collection,scene_path,attempt_id,seed=seed,policy=policy)
+            else:
+                row=run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collection,scene_path,
+                                    attempt_id,seed=seed)
             row['trial']=trial; trials.append(row); count+=1
             write_json(task_path/'trials.json',trials)
             rows=aggregate(stations,trials,config.trials_per_station)
@@ -131,7 +151,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     rate=construction_rate(rows,config.trials_per_station,config.discard_below)
     selection={'starts':[],'successful':[],'failed_rollouts':[]}
     successful=[]; status=error or rate['status']
-    if status=='eligible':
+    if status=='eligible' and config.operation_backend!='molmobot':
         goals=success_goals(rows)
         connections={}
         def reachable(start):
@@ -165,18 +185,24 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                 if outcome['status']=='infrastructure_error': error='infrastructure_error'; break
             if error: break
         status='retained' if len(successful) >= config.min_successful_rollouts else (error or 'no_successful_rollout')
+    if config.operation_backend=='molmobot' and not error and rate['status']!='incomplete':
+        status='station_evaluation_complete' if rate['status']!='no_valid_stations' else 'no_valid_stations'
     write_json(task_path/'selection.json',selection)
     export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'])
     result={'schema_version':'no-edit-v1','task_id':task['task_id'],'instruction':task['instruction'],
             'operation':task['operation'],'status':status,'rate':rate,'successful_rollouts':len(successful),
             'minimum_rollouts':config.min_successful_rollouts,'preferred_rollouts':config.start_count,
             'dataset_eligible':status=='retained','collection_error':error,
+            'operation_backend':config.operation_backend,'station_only':config.operation_backend=='molmobot',
             'heatmap':str(task_path/'maps/success_heatmap.png')}
     write_json(task_path/'result.json',result)
     return result
 
 
 def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=None,max_tasks=None,max_trials=None):
+    if config.operation_backend == 'molmobot' and (
+            robot.control_profile != 'molmobot-native-v1' or robot.control_hz != 10. or robot.physics_dt != .004):
+        raise ValueError('MolmoBot requires explicit native motors and 100/20/4ms stepping')
     from ..scenes.source import SceneSource
     from ..runtime.simulation import Simulation
     from ..tasks.raw_scene import discover_tasks,robot_footprint
@@ -187,6 +213,12 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
     else:
         sim=Simulation.from_source(source,robot); sim.freeze(scene_path/'scene')
     try:
+        policy=None
+        if config.operation_backend=='molmobot':
+            from ..policies.molmobot import MolmoBotClient
+            log_dir=Path(collection.output_dir)/'logs'; log_dir.mkdir(parents=True,exist_ok=True)
+            policy=MolmoBotClient(config.policy_config,log_dir/f'{run_path.name}-val-{record["house"]}-model.log')
+            write_json(scene_path/'model_service.json',policy.metadata)
         check_disk(scene_path,config)
         write_json(scene_path/'source.json',source.provenance())
         write_json(scene_path/'robot_geometry.json',robot_footprint(sim))
@@ -199,7 +231,7 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
         results=[]
         for task in tasks:
             print(f'Begin {scene_path.name}/{task["task_id"]} {task["operation"]}',flush=True)
-            result=collect_task(sim,task,assets_dir,config,collection,scene_path,max_trials=max_trials)
+            result=collect_task(sim,task,assets_dir,config,collection,scene_path,max_trials=max_trials,policy=policy)
             results.append(result); write_json(scene_path/'task_results.json',results)
             if result['status']=='infrastructure_error' or result.get('collection_error')=='infrastructure_error': break
         status='infrastructure_error' if any(r['status']=='infrastructure_error' or r.get('collection_error')=='infrastructure_error' for r in results) else (
@@ -208,7 +240,9 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
                  'retained_tasks':sum(r['dataset_eligible'] for r in results),
                  'successful_rollouts':sum(r['successful_rollouts'] for r in results)}
         write_json(scene_path/'summary.json',summary); return summary
-    finally: sim.close()
+    finally:
+        if 'policy' in locals() and policy is not None: policy.close()
+        sim.close()
 
 
 def _scene_worker(record,robot,config,collection,assets_dir,run_path,gpu,options):
@@ -217,7 +251,8 @@ def _scene_worker(record,robot,config,collection,assets_dir,run_path,gpu,options
     # EGL enumerates physical devices, independently of CUDA_VISIBLE_DEVICES.
     os.environ['MUJOCO_EGL_DEVICE_ID']=str(gpu); os.environ.setdefault('OMP_NUM_THREADS','2')
     scene_path=run_path/'scenes'/f'val_{record["house"]}'; scene_path.mkdir(parents=True,exist_ok=True)
-    log=scene_path/'worker.log'
+    log_dir=Path(collection.output_dir)/'logs'; log_dir.mkdir(parents=True,exist_ok=True)
+    log=log_dir/f'{run_path.name}-val-{record["house"]}-worker.log'
     with log.open('a',buffering=1) as stream:
         os.dup2(stream.fileno(),1); os.dup2(stream.fileno(),2)
         try:
@@ -264,10 +299,17 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
     records=scene_manifest(dataset_dir,houses)
     source_hash=digest({str(p.relative_to(Path(__file__).parents[1])):file_digest(p)
                        for p in sorted(Path(__file__).parents[1].rglob('*.py'))})
-    frozen={'schema_version':'no-edit-v1','dataset_dir':str(Path(dataset_dir).resolve()),
+    from ..validation.contacts import CONTACT_POLICY
+    frozen={'contact_policy':CONTACT_POLICY,'schema_version':'no-edit-v1','dataset_dir':str(Path(dataset_dir).resolve()),
             'assets_dir':str(Path(assets_dir).resolve()),'robot':asdict(robot),'config':asdict(config),
             'collection':asdict(collection),'code_sha256':source_hash,'scene_manifest':records,
             'subset':{'targets':targets,'max_tasks':max_tasks,'max_trials':max_trials}}
+    policy_config=None
+    if config.operation_backend=='molmobot':
+        from ..policies.molmobot_config import load_policy_config,policy_manifest
+        policy_config=load_policy_config(config.policy_config)
+        frozen['model_manifest']=policy_manifest(policy_config)
+        write_json(root/'model_manifest.json',frozen['model_manifest'])
     frozen['input_digest']=digest(frozen)
     if resume and (root/'frozen_config.json').exists():
         if read_json(root/'frozen_config.json')['input_digest'] != frozen['input_digest']:
@@ -310,9 +352,13 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
                     # Worker infrastructure errors are isolated to this scene.
                     # Keep the evidence and continue dispatching the remaining scenes.
             if pending and len(active)<max_workers:
-                devices=available_gpus(gpu_ids)
+                devices=sustained_policy_gpus(gpu_ids,policy_config) if policy_config else available_gpus(gpu_ids)
                 write_json(root/'gpu_selection.json',{'available':devices,'active':list(active),
-                           'policy':'lowest current utilization, then most free memory; <=50%, >=10000 MB free'})
+                    'policy':({'mode':'sustained low utilization, then free memory',
+                        'samples':policy_config.gpu_sample_count,'interval_s':policy_config.gpu_sample_interval_s,
+                        'max_utilization':policy_config.max_gpu_utilization,
+                        'min_free_mb':policy_config.min_free_gpu_mb} if policy_config else
+                        'lowest current utilization, then most free memory; <=50%, >=10000 MB free')})
                 for device in devices:
                     gpu=device['index']
                     if gpu in active or len(active)>=max_workers or not pending: continue

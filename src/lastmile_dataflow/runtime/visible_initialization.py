@@ -87,7 +87,7 @@ def prepare_visible(prepared, context, config, collection, path, *, seed, deadli
                 row['reason'] = 'joint_limits:' + str(exc)
                 continue
             row['floor_support'] = floor_support(sim, xy)
-            check = inspect_state(sim, collection)
+            check = inspect_state(sim, collection, initialization=True)
             row['physical_errors'] = [i for i in check['issues'] if i['severity'] == 'error']
             if not row['floor_support'] or not check['valid']:
                 row['reason'] = 'floor_or_collision'

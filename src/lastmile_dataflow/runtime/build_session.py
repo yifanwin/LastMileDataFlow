@@ -31,7 +31,7 @@ from ..validation.placement import inspect_build, poses
 from .simulation import Simulation
 
 
-def model_identity(sim):
+def model_identity(sim, *, robot_config_payload=None):
     """编译模型的稳定身份：模型字节 + 实例映射 + 机器人配置 + MuJoCo 版本。
 
     注意用 mj_saveModel 到内存 buffer 再哈希，而不是哈希磁盘文件——
@@ -40,7 +40,8 @@ def model_identity(sim):
     buffer = np.empty(mujoco.mj_sizeModel(sim.model),dtype=np.uint8)
     mujoco.mj_saveModel(sim.model,None,buffer)
     return digest({'compiled_model':hashlib.sha256(buffer.tobytes()).hexdigest(), 'instances':sim.catalog,
-                   'robot':asdict(sim.robot.config),'mujoco':mujoco.__version__})
+                   'robot':asdict(sim.robot.config) if robot_config_payload is None else robot_config_payload,
+                   'mujoco':mujoco.__version__})
 
 
 def checkpoint_identity(sim, model_id):
@@ -214,9 +215,6 @@ class BuildSession:
                 mujoco.mj_objectVelocity(self.sim.model,self.sim.data,mujoco.mjtObj.mjOBJ_BODY,b,v,0)
                 objects[name]={'pose':np.r_[self.sim.data.xpos[b],self.sim.data.xquat[b]].copy(),'velocity':v.copy()}
             anomalies=[]
-            for contact in self.sim.data.contact:
-                if contact.dist < -self.config.protocol.penetration_m and self.sim.model.geom_bodyid[contact.geom1] != self.sim.model.geom_bodyid[contact.geom2]:
-                    anomalies.append({'code':'severe_penetration_during_settle','distance_m':float(contact.dist),'geoms':[self.sim.model.geom(int(contact.geom1)).name,self.sim.model.geom(int(contact.geom2)).name]})
             self.history.append({'time':float(self.sim.data.time),'objects':objects,'anomalies':anomalies})
         mujoco.mj_forward(self.sim.model,self.sim.data); sample()
         p=self.config.protocol

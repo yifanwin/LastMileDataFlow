@@ -38,7 +38,7 @@ def index_attempt(path, status):
     """Status links avoid relocating planner paths or changing sealed evidence."""
     path = Path(path)
     bucket = {'success': 'success', 'failure': 'fail'}.get(status, status)
-    if bucket not in ('success', 'fail', 'planning_no_solution', 'infrastructure_error', 'incomplete'):
+    if bucket not in ('success', 'fail', 'planning_no_solution', 'infrastructure_error', 'incomplete', 'simulation_failure'):
         bucket = 'unknown'
     link = path.parent / bucket / path.name
     link.parent.mkdir(exist_ok=True)

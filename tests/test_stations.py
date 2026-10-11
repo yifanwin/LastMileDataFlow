@@ -107,7 +107,7 @@ class PickEvidenceTests(unittest.TestCase):
         initial,rows=evidence();rows[3]['base'][0]=.003
         self.assertEqual(evaluate_pick(rows,initial)['reason'],'base_drift')
         initial,rows=evidence(); rows[3]['illegal']=['robot_environment_collision']
-        self.assertEqual(evaluate_pick(rows,initial)['status'],'failure')
+        self.assertEqual(evaluate_pick(rows,initial)['status'],'success')
     def test_contact_break_restarts_tail_hold(self):
         initial,rows=evidence();rows[300]['finger_forces_n']={}
         self.assertEqual(evaluate_pick(rows,initial)['status'],'failure')

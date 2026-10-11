@@ -1,0 +1,324 @@
+================================================================================================
+  no-edit-lastmile-val  ·  cuRobo 原始 val 场景数据采集管线                                     
+================================================================================================
+
+  分支 HEAD / worktree: .worktrees/no-edit-lastmile-val
+  CLI 入口: bin/lastmile-dataflow collect-no-edit
+  planner : curobo_v2_v080 (nvidia-curobo==0.8.0, sha256 钉死)
+  动作协议: RBY-1 20D  —— 底盘增量 / 双臂增量 / 夹爪+躯干绝对
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 总览：从原始场景到数据集 rollout 的六个阶段                                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│ [0] 入口            cli.py collect-no-edit                                                   │
+│                       │                                                                      │
+│                       ▼                                                                      │
+│ [1] 校验+冻结        verify_version() 钉 cuRobo 版本与文件 sha256                            │
+│                       frozen_config.json 记 源码/robot/config/清单 摘要                      │
+│                       input_digest 不符 → --resume 直接拒绝                                  │
+│                       │                                                                      │
+│                       ▼                                                                      │
+│ [2] 清单+派发        scene_manifest() 只收 procthor-10k-val/val_*.xml                        │
+│                       available_gpus() util<=50% 且 free>=10GB                               │
+│                       每卡 1 场景 spawn 子进程，10s 轮询                                     │
+│                       │                                                                      │
+│                       ▼                                                                      │
+│ [3] 场景加载        冻结原场景一次 → 底盘足迹 → 发现 pick/open 任务                          │
+│          (子进程)    assign_output_names() 语义目录名 cup30 / fridge2-open2                  │
+│                       │                                                                      │
+│                       ▼                                                                      │
+│ [4] 站位 x5 次      2m 圆盘均匀点阵 → 逐点初态+可见性过滤                                    │
+│                      每次均为独立 clone 的 Simulation，真实物理执行                          │
+│                      │                                                                       │
+│                      ▼                                                                       │
+│ [5] 统计+选点        Gaussian 热图 → 5% 阈值 → 选 S0/S1 → A* 连通                            │
+│                      S0 --A*导航--> S1 --cuRobo 操作--> 结果                                 │
+│                      │                                                                       │
+│                      ▼                                                                       │
+│ [6] 索引+导出        datasets/<val>/<op>/<task>/<rollout>/ 原子发布                          │
+│                      dataset_index.jsonl 只引用成功连续 rollout                              │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 详细流程                                                                                     │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   bin/lastmile-dataflow collect-no-edit                                                      │
+│         │                                                                                    │
+│         ▼                                                                                    │
+│   ┌ workflows/no_edit.py : collect_batch()                                                   │
+│   │    verify_version()       cuRobo 0.8.0 + 逐文件 sha256                                   │
+│   │    scene_manifest()       排除 *_ceiling.xml                                             │
+│   │    run.lock (flock)       同一 run 独占                                                  │
+│   │    frozen_config.json     input_digest 冻结                                              │
+│   │                                                                                          │
+│   └─► GPU 派发循环                                                                           │
+│         │   available_gpus() / sustained_policy_gpus()                                       │
+│         │   每卡 1 个 _scene_worker 子进程                                                   │
+│         │   子进程先设 CUDA_VISIBLE_DEVICES + MUJOCO_EGL_DEVICE_ID                           │
+│         ▼                                                                                    │
+│   ┌ run_scene()                        [每个场景一个子进程]                                  │
+│   │  1. SceneSource.procthor(val_<id>.xml)                                                   │
+│   │     → Simulation.from_source → sim.freeze(scene/)                                        │
+│   │  2. robot_footprint()  底盘+轮子外接圆半径 → 决定站位间距                                │
+│   │  3. discover_tasks()                                                                     │
+│   │       pick: min(尺寸) <= 0.10 m 且根物体为 free joint                                    │
+│   │       open: metadata 有 hinge/slide 关节、未全开、非 handle                              │
+│   │  4. assign_output_names()  cup30 / fridge2-open2                                         │
+│   │                                                                                          │
+│   └─► 逐 task: collect_task()                                                                │
+│         │                                                                                    │
+│         ├─(a) task_support_obstacles()  目标下方承托物 AABB 包络                             │
+│         ├─(b) disk_samples(anchor, R=2m, spacing)  均匀圆盘点阵                              │
+│         ├─(c) initialize_station()  逐点初态 + head 对准 + 过滤                              │
+│         │        · 底盘到 xy，yaw 朝向 anchor                                                │
+│         │        · 迭代 3 次用相机 -Z 光轴校正 base yaw                                      │
+│         │        · 迭代 2 次数值导数解 head_1 pitch                                          │
+│         │        · floor_support / 机器人碰撞 / 非机器人 qpos 不变                           │
+│         │        · head_frame() 真实渲染 → visible_pixels >= 24                              │
+│         │        → geometry: valid | geometry_filtered                                       │
+│         │                              | visibility_filtered                                 │
+│         ├─(d) grasp_candidates()  droid npz 否则 bbox pinch 兜底                             │
+│         ├─(e) scene_grid()      导航栅格（按底盘半径膨胀）                                   │
+│         │     heat_grid()       热图栅格（不膨胀，仅障碍+地面）                              │
+│         │                                                                                    │
+│         └─► 站位 x trials_per_station(=5)  run_raw_attempt()                                 │
+│               clone_sim → place_frozen_station → begin()                                     │
+│               ContinuousContext.tick(20D action)                                             │
+│               → success | failure | planning_no_solution                                     │
+│                  | simulation_failure | incomplete                                           │
+│               aggregate() 更新热图（每点 + 每末次 trial）                                    │
+│                                                                                              │
+│   ┌ 任务级判定                                                                               │
+│   │  construction_rate(): 全体 valid 站位成功率                                              │
+│   │      < 5%  → discarded_low_success（不发布，保留热图）                                   │
+│   │      >= 5% → eligible                                                                    │
+│   │  success_goals()   有成功见证的站位（按成功率降序）                                      │
+│   │  select_starts()   成功率最低档 + 同档最远分散 = S0                                      │
+│   │  A* search(S0→S1)  连通性过滤                                                            │
+│   │                                                                                          │
+│   └─► 连续 rollout：同一 Simulation                                                          │
+│         S0 ──navigate(A*)──► S1 ──manipulate(cuRobo)──► ?                                    │
+│         失败 → 重选次高 S1，新建独立 rollout（从 S0 重来）                                   │
+│         成功 → successful[]，break                                                           │
+│         段数 >= 1 → retained（preferred = start_count = 3）                                  │
+│                                                                                              │
+│   ┌ rebuild_dataset_index()                                                                  │
+│   │  export_rollout() 复制证据 → datasets/...  原子发布                                      │
+│   └─ dataset_index.jsonl                                                                     │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 站位采样与过滤  stations/no_edit_sampling.py                                                 │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   disk_samples(anchor, radius=2.0, spacing)                                                  │
+│        │  spacing 缺省 = robot_footprint()[radius_m]                                         │
+│        │               (底盘+轮子外接圆)                                                     │
+│        ▼                                                                                     │
+│   S0000 S0001 S0002 ...   圆盘内均匀方格                                                     │
+│        │                                                                                     │
+│        │  逐点 initialize_station()                                                          │
+│        ▼                                                                                     │
+│   (1) 底盘 = [x, y, yaw]，yaw = atan2(anchor - xy)                                           │
+│   (2) 迭代 3 次：真实相机 -Z 光轴校正 base yaw                                               │
+│   (3) 迭代 2 次：光轴数值导数解 head_1 pitch                                                 │
+│   (4) 硬检查：                                                                               │
+│         · floor_support()    下方有地面支撑                                                  │
+│         · robot_contacts()   初始化阶段不得穿模/自碰                                         │
+│         · 全 qpos/qvel 有限                                                                  │
+│         · 非机器人 qpos 逐位不变（否则 RuntimeError）                                        │
+│   (5) head_frame() 渲染 → visible_pixels >= min_target_pixels                                │
+│        │                                                                                     │
+│        ▼                                                                                     │
+│   geometry:  valid | geometry_filtered | visibility_filtered                                 │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 一次 attempt 的内部  runtime/no_edit_execution.py                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   run_raw_attempt(baseline, task, station, ...)                                              │
+│     ├─ clone_sim()              新 MjData，共享只读 model                                    │
+│     ├─ place_frozen_station()   begin 之前唯一位姿设置点                                     │
+│     ├─ enable_third_person()    1280x720 分析视角                                            │
+│     ├─ AttemptRecorder()        exist_ok=False，永不覆盖                                     │
+│     ├─ ContinuousContext()                                                                   │
+│     │     physics.jsonl.gz      逐物理步 接触/torso 遥测                                     │
+│     │     observations/         逐帧 PNG（仅连续 rollout）                                   │
+│     │     videos/               4 路 MP4                                                     │
+│     ├─ [path 非空] navigate()   A* 折线 → 限速插值 → 到达容差                                │
+│     ├─ manipulate() → curobo_v2_v080 时转 manipulate_v2()                                    │
+│     └─ 结果分类                                                                              │
+│          success | failure | simulation_failure                                              │
+│          planning_no_solution | incomplete | infrastructure_error                            │
+│                                                                                              │
+│   ContinuousContext.tick()  —— 20D action 的唯一落地通道                                     │
+│     (1) action[19] 按 torso_limits 裁剪 → torso_command_adjustments                          │
+│     (2) sanitize_action() 夹紧 → command_limit_adjustments                                   │
+│     (3) deadline() 检查 300s 墙钟预算；begin() 幂等                                          │
+│     (4) 每个物理子步 check()：                                                               │
+│           simulation_failure → mj_forward → 接触观测                                         │
+│           → torso 反馈遥测 → monitor.sample()                                                │
+│           → mobile_constraint_failure()                                                      │
+│             * v2：torso 偏差只记录，只有严重失控才停                                         │
+│             * 底盘移出 2m workspace → base_outside_workspace                                 │
+│     (5) sim.step(action, substep_check=check)                                                │
+│     (6) 写 trajectory + 渲染 + 追加 replay.npz                                               │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ cuRoboV2 规划子系统（11D 联合底盘+躯干）                                                     │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   规划自由度 (joint_names(side)):                                                            │
+│     base_x, base_y, base_theta, <side>_arm_0..6, torso_1                                     │
+│     torso_2 = -2*h, torso_3 = +h   (mimic 耦合)                                              │
+│                                                                                              │
+│   派生 URDF（不改资产）:                                                                     │
+│     model_holobase.urdf → 解 torso 耦合限位/速度上限                                         │
+│     底盘虚拟关节限位 = 目标圆盘所在局部系                                                    │
+│     → <attempt>/v080-*/mobile_torso_mimic.urdf                                               │
+│                                                                                              │
+│   目标抓取 plan_grasp():                                                                     │
+│     phases: goalset → pregrasp → grasp → lift                                                │
+│     approach_offset = -0.08 m, lift_offset = +0.10 m                                         │
+│     open 任务走同管线但 lift=False                                                           │
+│     stage 轨迹 retime_points() → 真实控制频率                                                │
+│                                                                                              │
+│   碰撞世界 collision_world():                                                                │
+│     · 逐 geom 导出，不用整家具 AABB                                                          │
+│     · 坐标系 = 构建时实测底盘系（移动后仍一致）                                              │
+│     · 被携带物体 mesh/SDF 球拟合（不焊接）                                                   │
+│     · Warp 网格按几何摘要命名，避免复用陈旧 BVH                                              │
+│                                                                                              │
+│   Head FOV 硬约束 head_fov.py:                                                               │
+│     HeadFOVCost        目标原点须落在几何视锥内                                              │
+│     SparseFOVValidator B样条控制点按时间边界取关键帧                                         │
+│                       自适应细化，只在 scratch MjData 校验                                   │
+│     失败 → FOV_CONSTRAINT_FAILED                                                             │
+│                                                                                              │
+│   校准自检:                                                                                  │
+│     FK 位姿误差 > 1mm / 1mrad → 直接抛错（仅未启动时）                                       │
+│     head 光学相机 FK 同样校验                                                                │
+│     真实 solve trace → solver_trace.json                                                     │
+│                                                                                              │
+│   !! head_fov_enabled 默认 true 且 CLI 无开关                                                │
+│      目标不在头部视锥内 → 判为规划无解，压制 pick 成功率                                     │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 验收判据与失败归因  validation/no_edit.py                                                    │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   pick : mobile-pick-v2                                                                      │
+│          双指真实受力 + 抬升 >=5cm + 无支撑稳定 >=2s                                         │
+│          + 滑移/碰撞检查；底盘移动被允许                                                     │
+│          torso 误差只记录 (record_only)                                                      │
+│                                                                                              │
+│   open : mobile-open-v2                                                                      │
+│          关节行程达阈值 且 接触保持 >= open_hold_s                                           │
+│          不以 TCP 到位或规划成功代替门真实运动                                               │
+│                                                                                              │
+│   归因 attribute():                                                                          │
+│     PlanningFailure      规划无解/FOV 失败 → 物理仍 unknown                                  │
+│     Collision            双方 geom/body、位置、深度、时刻                                    │
+│     Reachability         仅限有限候选/种子范围，不宣称全局                                   │
+│     MissedGrasp / GraspSlip / DroppedObject                                                  │
+│     LostHandleContact / ArticulationFailure   (open)                                         │
+│     TrackingFailure / SimulationFailure / Unknown                                            │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 输出布局  outputs/no_edit/<run>/                                                             │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   summary.json            整体进度 / 场景结果 / retained_segments                            │
+│   dataset_index.jsonl     v2 索引，只引用成功连续 rollout                                    │
+│   frozen_config.json      input_digest 冻结                                                  │
+│   timing.json             墙钟/活动耗时                                                      │
+│   gpu_selection.json      每轮可用卡与派发档案                                               │
+│   run.lock                flock 独占                                                         │
+│   scenes/val_103/                                                                            │
+│     scene/                冻结的原始场景快照                                                 │
+│     robot_geometry.json   底盘外接圆半径                                                     │
+│     task_index.json skipped_targets.json                                                     │
+│     tasks/<语义名>/        例 cup30 / fridge2-open2                                          │
+│         task.json trials.json station_statistics.json                                        │
+│         selection.json     S0/S1 选点与 rollout 结果                                         │
+│         result.json        任务级判定                                                        │
+│         maps/                                                                                │
+│             navigation_grid.png/.svg/.npz                                                    │
+│             success_heatmap.png/.svg/.npz                                                    │
+│             success_heatmap_stations.png/.svg                                                │
+│     attempts/<op>/<Sxxxx>/    按初始站位分层                                                 │
+│         <attempt-id>/         每次试验完整证据                                               │
+│         success/ fail/ planning_no_solution/ ...  (symlink)                                  │
+│                                                                                              │
+│   datasets/val_103/pick/cup30/<rollout>/                                                     │
+│     sample.json           指令/相对路径/S0/S1/失败原因                                       │
+│     rollout/              成功 rollout 的原始证据副本                                        │
+│     s0_failures/<attempt>/  对应 S0 的未成功试验证据                                         │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ RBY-1 20D 动作协议  robots/action.py                                                         │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   [0:3]    底盘 x/y/yaw        增量                                                          │
+│   [3:10]   左臂 7 关节          增量                                                         │
+│   [10]     左夹爪              绝对                                                          │
+│   [11:18]  右臂 7 关节          增量                                                         │
+│   [18]     右夹爪              绝对                                                          │
+│   [19]     躯干                绝对                                                          │
+│                                                                                              │
+│   默认配置 configs/no_edit/curobo_v080.json                                                  │
+│     radius_m 2.0                trials_per_station 5                                         │
+│     discard_below 0.05          start_count 3                                                │
+│     operations [pick, open]     map_resolution_m 0.05                                        │
+│     smoothing_support_distance_m 0.35                                                        │
+│     attempt_timeout_s 300       scene_timeout_s 86400                                        │
+│     planner_backend curobo_v2_v080   max_attempts 5                                          │
+│     head_fov_enabled true       (无 CLI 开关)                                                │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 关键约束与陷阱                                                                               │
+├──────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                              │
+│   * begin() 之后禁止任何位姿设置：不能恢复快照/重启/传送。                                   │
+│     独立试验必须新建 Simulation。                                                            │
+│   * 规划无解 != 物理不可能：planning_no_solution 的物理结果                                  │
+│     保持 unknown，动作流为空，不生成执行视频。                                               │
+│   * 热图不是导航可达性证明：避障栅格保守膨胀，可能漏掉                                       │
+│     狭窄可行路径；显示图与避障膨胀网格是两套。                                               │
+│   * cuRobo 版本钉死：nvidia-curobo==0.8.0 且逐文件 sha256，                                  │
+│     无 legacy 回退。                                                                         │
+│   * 坐标系一致性：cuRobo 用构建时实测底盘系；移动底盘后                                      │
+│     目标/碰撞世界须一起更新，不能在更新世界时换坐标系。                                      │
+│   * 视频始终保存：成功失败都存 4 路 MP4，CLI 无开关。                                        │
+│   * 5% 丢弃规则只在站位评测完整时才生效。                                                    │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================================
+  图例：──► 数据/控制流    (a)(b)(c) 执行顺序    [!] 已知风险点
+================================================================================================

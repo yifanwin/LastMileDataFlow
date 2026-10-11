@@ -37,7 +37,7 @@ def place_base(sim, base):
 
 def filter_station(sim,collection):
     base=sim.robot.group('base'); ground=floor_support(sim,base[:2])
-    check=inspect_state(sim,collection)
+    check=inspect_state(sim,collection,initialization=True)
     collisions=[]
     for c in sim.data.contact:
         a,b=[sim.model.body(int(sim.model.geom_bodyid[g])).name for g in (c.geom1,c.geom2)]

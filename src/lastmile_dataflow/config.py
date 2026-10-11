@@ -31,6 +31,7 @@ class RobotConfig:
     gripper_kv: float = 400.0
     gravity_compensation: bool = True
     planning_adapter: str = "joint_waypoints_v1"
+    control_profile: str = "position-v1"
     initial: dict = field(default_factory=lambda: {
         "base": [0.0, 0.0, 0.0], "torso": [0.0], "head": [0.0, 0.6],
         "left_arm": [0.5, 0.0, 0.0, -2.3, 0.0, -0.5, 0.0],
@@ -38,6 +39,8 @@ class RobotConfig:
         "left_gripper": [-0.05], "right_gripper": [-0.05]})
 
     def __post_init__(self):
+        if self.control_profile not in ('position-v1', 'molmobot-native-v1'):
+            raise ValueError('unknown robot control profile')
         if self.name != "rby1m" or self.namespace != "robot_0/":
             raise ValueError("v1 only supports rby1m / robot_0/")
         if not isinstance(self.gravity_compensation, bool) or not isinstance(self.initial, dict):
@@ -132,5 +135,6 @@ def load_config(cls, path):
 
 
 def freeze_config(robot, task, collection):
+    from .validation.contacts import CONTACT_POLICY
     return {"schema_version": "1.0", "robot": asdict(robot), "task": asdict(task),
-            "collection": asdict(collection)}
+            "collection": asdict(collection), "contact_policy": CONTACT_POLICY}
