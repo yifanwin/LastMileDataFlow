@@ -1,5 +1,8 @@
 # 增强场景 MolmoBot 采集运行指南
 
+> **正式最终点集入口已实现**：请优先使用 [MolmoBot最终站位接入指南](molmobot-final-stations.md)。
+> 下文的旧流程只移植场景，随后重新采样，不能保证最多20点；新流程增加native全量重验与覆盖压缩，并直接绑定点集。
+
 在程序化增强后的 frozen 变体上运行 `collect-no-edit`（MolmoBot VLA 后端）。
 只做运行步骤，不含分析。工作目录固定为本 worktree 根：
 

@@ -1,5 +1,9 @@
 # 增强场景 cuRobo 采集运行指南
 
+> **最终站位接入更新**：下文手工预置快照的方法只接入场景，不限制采样点。
+> 要执行经过覆盖压缩的最多20点，请使用 [正式接入指南](no-edit-augmented-stations.md)
+> 和 `configs/case_edits/no_edit_curobo_case*_v*_final_stations.json`，不要复用旧 run。
+
 在程序化增强后的 frozen 变体上运行 `collect-no-edit`（cuRobo v0.8.0 后端）。
 只做运行步骤，不含分析。工作目录固定为本 worktree 根：
 

@@ -12,6 +12,11 @@ from .molmobot_config import load_policy_config
 
 
 class PolicyInfrastructureError(RuntimeError):
+    shared_resource = True
+
+
+class PolicyEpisodeError(RuntimeError):
+    """Consumed response to one bad request; RPC stream remains synchronized."""
     pass
 
 
@@ -48,13 +53,21 @@ class MolmoBotClient:
             self.close(); raise
 
     def receive(self, timeout):
-        if not self.connection.poll(timeout):
-            raise PolicyInfrastructureError('model response timeout')
-        try: response = self.connection.recv()
-        except (EOFError, OSError) as exc: raise PolicyInfrastructureError('model connection lost') from exc
+        try:
+            if not self.connection.poll(timeout):
+                raise PolicyInfrastructureError('model response timeout')
+            response = self.connection.recv()
+        except (EOFError, OSError) as exc:
+            raise PolicyInfrastructureError('model connection lost') from exc
+        if not isinstance(response,dict):
+            raise PolicyInfrastructureError('malformed model response')
         if 'error' in response:
             if response.get('invalid_action'): raise InvalidAction(response['error'])
-            raise PolicyInfrastructureError(response['type']+':'+response['error'])
+            message=response['type']+':'+response['error']
+            from ..runtime.episode_guard import classify_episode_exception
+            if response['type'] not in ('MemoryError','OutOfMemoryError') and classify_episode_exception(RuntimeError(message))['failure_scope']=='episode':
+                raise PolicyEpisodeError(message)
+            raise PolicyInfrastructureError(message)
         return response
 
     def action(self, observation, *, task, attempt, seed, first=False, timeout=None):

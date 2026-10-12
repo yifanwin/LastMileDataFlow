@@ -1,0 +1,56 @@
+[
+  {
+    "case": "Case1",
+    "variant": "v000",
+    "gpu": 1,
+    "run_id": "no-edit-molmobot-final20-case1-v000-20261011-232238",
+    "pid": 3203274,
+    "command": [
+      "bin/lastmile-dataflow",
+      "collect-no-edit",
+      "--assets-dir",
+      "/data0/wenyifan/MoMaTrajGen/molmospaces_data/assets",
+      "--config",
+      "configs/case_edits/no_edit_molmobot_case1_v000_final_stations.json",
+      "--run-id",
+      "no-edit-molmobot-final20-case1-v000-20261011-232238",
+      "--houses",
+      "103",
+      "--targets",
+      "Cup_30",
+      "--gpu-ids",
+      "1",
+      "--workers",
+      "1"
+    ],
+    "expected_station_count": 20,
+    "expected_station_trials": 100
+  },
+  {
+    "case": "Case2",
+    "variant": "v001",
+    "gpu": 4,
+    "run_id": "no-edit-molmobot-final20-case2-v001-20261011-232238",
+    "pid": 3203275,
+    "command": [
+      "bin/lastmile-dataflow",
+      "collect-no-edit",
+      "--assets-dir",
+      "/data0/wenyifan/MoMaTrajGen/molmospaces_data/assets",
+      "--config",
+      "configs/case_edits/no_edit_molmobot_case2_v001_final_stations.json",
+      "--run-id",
+      "no-edit-molmobot-final20-case2-v001-20261011-232238",
+      "--houses",
+      "103",
+      "--targets",
+      "Cup_30",
+      "--gpu-ids",
+      "4",
+      "--workers",
+      "1"
+    ],
+    "expected_station_count": 20,
+    "expected_station_trials": 100
+  }
+]

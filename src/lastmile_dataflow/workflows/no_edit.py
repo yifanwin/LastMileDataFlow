@@ -13,6 +13,7 @@ import time
 import uuid
 
 from ..io import canonical,digest,file_digest,read_json,write_json
+from ..runtime.episode_guard import execute_isolated_episode, isolated_recording
 from ..exporting.no_edit_layout import assign_output_names,export_rollout
 
 
@@ -71,18 +72,40 @@ def task_seed(seed,house,task_id,station_id,trial):
     return int(digest([seed,house,task_id,station_id,trial])[:8],16) % (2**31-1)
 
 
+def prepare_execution_stations(scene_path, task, config):
+    """Bind immutable final points before loading an expensive VLA model."""
+    task_path=scene_path/'tasks'/task['output_name']; task_path.mkdir(parents=True,exist_ok=True)
+    station_input = None
+    if config.augmented_variant:
+        from ..stations.augmented_input import execution_stations
+        selected, station_input = execution_stations(scene_path, task)
+        if (task_path/'stations.json').exists() and read_json(task_path/'stations.json') != selected:
+            raise ValueError('cached stations differ from augmented final set; use new run-id')
+        if (task_path/'trials.json').exists() and any(r['station_id'] not in station_input['station_ids']
+                                                    for r in read_json(task_path/'trials.json')):
+            raise ValueError('cached trials contain unselected augmented station')
+        write_json(task_path/'stations.json', selected)
+        write_json(task_path/'station_input.json', station_input)
+        if not (task_path/'progress.json').exists():
+            isolated_recording(scene_path,task['task_id'],'initial_progress',write_json,task_path/'progress.json', {'terminal_trials': 0,
+                       'expected_trials': len(selected)*config.trials_per_station,
+                       'execution_point_count': len(selected), 'station_input': 'verified_augmented_final_set',
+                       'updated_at_utc': datetime.now(timezone.utc).isoformat()})
+
+
 def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_trials=None,policy=None):
     import mujoco
     import numpy as np
     from ..runtime.no_edit_execution import clone_sim,run_raw_attempt
     from ..stations.no_edit_sampling import disk_samples,initialize_station
-    from ..stations.no_edit_statistics import aggregate,construction_rate,select_starts,success_goals
+    from ..stations.no_edit_statistics import aggregate,construction_rate,select_starts,success_goals,is_episode_terminal,is_episode_timeout
     from ..tasks.raw_scene import grasp_candidates
     from ..navigation.astar import scene_grid,search,task_support_obstacles
     from ..exporting.no_edit_heatmap import export_heatmap
     from ..exporting.navigation_map import export_navigation_map
     if 'output_name' not in task: assign_output_names([task])
     task_path=scene_path/'tasks'/task['output_name']; task_path.mkdir(parents=True,exist_ok=True)
+    prepare_execution_stations(scene_path, task, config)
     if (task_path/'result.json').exists():
         prior=read_json(task_path/'result.json')
         if prior['status'] not in ('incomplete','infrastructure_error'): return prior
@@ -107,21 +130,22 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
         write_json(task_path/'stations.json',stations)
     candidates=[] if config.operation_backend=='molmobot' else grasp_candidates(task,assets_dir)
     if config.operation_backend!='molmobot': write_json(task_path/'grasp_candidates.json',candidates)
+    recording_errors=[]
     grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,footprint['radius_m'],config.navigation_margin_m,
                     support_obstacles=task['support_obstacles'])
     # Heatmap uses ground obstacle geometry; navigation additionally inflates by the chassis radius.
     heat_grid=scene_grid(baseline,anchor,config.radius_m,config.map_resolution_m,0.,0.,support_obstacles=task['support_obstacles'])
-    np.savez_compressed(task_path/'navigation_grid.npz',origin=grid.origin,resolution_m=grid.resolution,free=grid.free)
-    export_navigation_map(task_path/'maps',grid,anchor,display_grid=heat_grid)
+    isolated_recording(scene_path,task['task_id'],'navigation_grid',np.savez_compressed,task_path/'navigation_grid.npz',origin=grid.origin,resolution_m=grid.resolution,free=grid.free,_diagnostics=recording_errors)
+    isolated_recording(scene_path,task['task_id'],'navigation_map',export_navigation_map,task_path/'maps',grid,anchor,display_grid=heat_grid,_diagnostics=recording_errors)
     trials=read_json(task_path/'trials.json') if (task_path/'trials.json').exists() else []
     rows=aggregate(stations,trials,config.trials_per_station)
-    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id']+' (initial coverage)')
+    isolated_recording(scene_path,task['task_id'],'initial_heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id']+' (initial coverage)',_diagnostics=recording_errors)
     error=None; count=0
     for station in sorted(stations,key=lambda s:sum((s['xy'][i]-anchor[i])**2 for i in (0,1))):
         if station['geometry'] != 'valid': continue
         for trial in range(config.trials_per_station):
             completed=[r for r in trials if r['station_id']==station['station_id'] and r['trial']==trial
-                       and r['status'] in ('success','failure','planning_no_solution')]
+                       and is_episode_terminal(r)]
             if completed: continue
             check_disk(scene_path,config)
             attempt_id=task['operation']+'-'+task['output_name']+'-'+station['station_id']+f'-t{trial}-'+uuid.uuid4().hex[:8]
@@ -129,25 +153,31 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             print(f'{scene_path.name}/{task["task_id"]}/{station["station_id"]} trial {trial+1}/{config.trials_per_station}',flush=True)
             if config.operation_backend=='molmobot':
                 from ..runtime.molmobot_execution import run_vla_attempt
-                row=run_vla_attempt(baseline,task,station,config,collection,scene_path,attempt_id,seed=seed,policy=policy)
+                row=execute_isolated_episode(run_vla_attempt,baseline,task,station,config,collection,scene_path,attempt_id,seed=seed,policy=policy,
+                     _episode_context={'root':scene_path,'task':task,'station':station,'attempt_id':attempt_id})
             else:
-                row=run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collection,scene_path,
-                                    attempt_id,seed=seed)
-            row['trial']=trial; trials.append(row); count+=1
-            write_json(task_path/'trials.json',trials)
+                row=execute_isolated_episode(run_raw_attempt,baseline,task,station,candidates,assets_dir,config,collection,scene_path,
+                                    attempt_id,seed=seed,_episode_context={'root':scene_path,'task':task,'station':station,'attempt_id':attempt_id})
+            row={**row,'trial':trial}; trials.append(row); count+=1
+            isolated_recording(scene_path,attempt_id,'trials',write_json,task_path/'trials.json',trials,_diagnostics=recording_errors)
             rows=aggregate(stations,trials,config.trials_per_station)
-            write_json(task_path/'station_statistics.json',rows)
-            write_json(task_path/'progress.json',{'terminal_trials':sum(r['terminal_trials'] for r in rows),
+            isolated_recording(scene_path,attempt_id,'statistics',write_json,task_path/'station_statistics.json',rows,_diagnostics=recording_errors)
+            isolated_recording(scene_path,attempt_id,'progress',write_json,task_path/'progress.json',{'terminal_trials':sum(r['terminal_trials'] for r in rows),
+                       'completed_episodes':sum(r.get('completed_episodes',r['terminal_trials']) for r in rows),
+                       'episode_errors':sum(r.get('episode_errors',0) for r in rows),
+                       'timeout_trials':sum(r.get('timeout_trials',0) for r in rows),
                        'expected_trials':sum(s['geometry']=='valid' for s in stations)*config.trials_per_station,
-                       'last_attempt':row,'updated_at_utc':datetime.now(timezone.utc).isoformat()})
+                       'execution_point_count':sum(s['geometry']=='valid' for s in stations),
+                       'last_attempt':row,'updated_at_utc':datetime.now(timezone.utc).isoformat()},_diagnostics=recording_errors)
             if trial == config.trials_per_station-1 or row['status'] not in ('success','failure','planning_no_solution'):
-                export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id'])
+                isolated_recording(scene_path,attempt_id,'heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id'],_diagnostics=recording_errors)
             if row['status']=='infrastructure_error': error='infrastructure_error'; break
-            if row['status']=='incomplete': error='incomplete'; break
+            if row['status']=='incomplete' and not is_episode_timeout(row): error='incomplete'; break
             if max_trials is not None and count >= max_trials: error='incomplete'; break
         if error: break
+    isolated_recording(scene_path,task['task_id'],'final_trials',write_json,task_path/'trials.json',trials,_diagnostics=recording_errors)
     rows=aggregate(stations,trials,config.trials_per_station)
-    write_json(task_path/'station_statistics.json',rows)
+    isolated_recording(scene_path,task['task_id'],'final_statistics',write_json,task_path/'station_statistics.json',rows,_diagnostics=recording_errors)
     rate=construction_rate(rows,config.trials_per_station,config.discard_below)
     selection={'starts':[],'successful':[],'failed_rollouts':[]}
     successful=[]; status=error or rate['status']
@@ -170,8 +200,9 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                 control=next(r['control'] for r in trials if r['station_id']==goal['station_id'] and r['status']=='success')
                 path=connections[(start['station_id'],goal['station_id'])]
                 attempt_id=task['operation']+'-'+task['output_name']+'-rollout-'+start['station_id']+'-'+goal['station_id']+'-'+uuid.uuid4().hex[:8]
-                outcome=run_raw_attempt(baseline,task,start,candidates,assets_dir,config,collection,scene_path,attempt_id,
-                        seed=control['seed'],path=path,goal=goal,winning_control=control)
+                outcome=execute_isolated_episode(run_raw_attempt,baseline,task,start,candidates,assets_dir,config,collection,scene_path,attempt_id,
+                        seed=control['seed'],path=path,goal=goal,winning_control=control,
+                        _episode_context={'root':scene_path,'task':task,'station':start,'attempt_id':attempt_id})
                 packet={**outcome,'start':start,'goal':goal,'path':path,
                         's0_failure_evidence':[r for r in trials if r['station_id']==start['station_id'] and r['status']!='success']}
                 packet['s0_failure_videos']=[{'attempt':r['attempt'],'videos':r.get('videos'),
@@ -180,22 +211,31 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                     'attribution':r.get('attribution')} for r in packet['s0_failure_evidence']]
                 if outcome['status']=='success' and outcome['navigation']['status']=='success':
                     successful.append(packet); selection['successful'].append(packet)
-                    write_json(task_path/'selection.json',selection); break
-                selection['failed_rollouts'].append(packet); write_json(task_path/'selection.json',selection)
+                    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors); break
+                selection['failed_rollouts'].append(packet); isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
                 if outcome['status']=='infrastructure_error': error='infrastructure_error'; break
             if error: break
         status='retained' if len(successful) >= config.min_successful_rollouts else (error or 'no_successful_rollout')
     if config.operation_backend=='molmobot' and not error and rate['status']!='incomplete':
         status='station_evaluation_complete' if rate['status']!='no_valid_stations' else 'no_valid_stations'
-    write_json(task_path/'selection.json',selection)
-    export_heatmap(task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'])
+    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
+    isolated_recording(scene_path,task['task_id'],'final_heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'],_diagnostics=recording_errors)
     result={'schema_version':'no-edit-v1','task_id':task['task_id'],'instruction':task['instruction'],
             'operation':task['operation'],'status':status,'rate':rate,'successful_rollouts':len(successful),
             'minimum_rollouts':config.min_successful_rollouts,'preferred_rollouts':config.start_count,
             'dataset_eligible':status=='retained','collection_error':error,
+            'timeout_trials':sum(r.get('timeout_trials',0) for r in rows),
+            'completed_episodes':sum(r.get('completed_episodes',r['terminal_trials']) for r in rows),
+            'episode_errors':sum(r.get('episode_errors',0) for r in rows),
             'operation_backend':config.operation_backend,'station_only':config.operation_backend=='molmobot',
             'heatmap':str(task_path/'maps/success_heatmap.png')}
-    write_json(task_path/'result.json',result)
+    result['recording_errors']=list(recording_errors)
+    result['recording_complete']=not recording_errors
+    if recording_errors: result['dataset_eligible']=False
+    isolated_recording(scene_path,task['task_id'],'task_result',write_json,task_path/'result.json',result,_diagnostics=recording_errors)
+    result['recording_errors']=list(recording_errors)
+    result['recording_complete']=not recording_errors
+    if recording_errors: result['dataset_eligible']=False
     return result
 
 
@@ -208,17 +248,23 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
     from ..tasks.raw_scene import discover_tasks,robot_footprint
     scene_path=run_path/'scenes'/f'val_{record["house"]}'; scene_path.mkdir(parents=True,exist_ok=True)
     source=SceneSource.procthor(Path(record['xml']).parent,record['house'])
+    if config.augmented_variant:
+        from ..stations.augmented_input import variant_manifest, bind_scene_inputs
+        manifest = variant_manifest(config.augmented_variant, robot, config)
+        if manifest['scene_id'] != f'procthor-10k-val/val_{record["house"]}':
+            raise ValueError('augmented input scene identity mismatch')
+        if read_json(run_path/'frozen_config.json')['augmented_input'] != manifest:
+            raise ValueError('augmented input changed after run configuration freeze')
+        version = read_json(Path(config.augmented_variant)/'scene/version.json')
+        if file_digest(record['metadata']) != version['source']['metadata_sha256']:
+            raise ValueError('augmented source metadata mismatch')
+        bind_scene_inputs(scene_path, manifest)
     if (scene_path/'scene/version.json').exists():
         sim=Simulation.from_snapshot(scene_path/'scene',robot)
     else:
         sim=Simulation.from_source(source,robot); sim.freeze(scene_path/'scene')
     try:
         policy=None
-        if config.operation_backend=='molmobot':
-            from ..policies.molmobot import MolmoBotClient
-            log_dir=Path(collection.output_dir)/'logs'; log_dir.mkdir(parents=True,exist_ok=True)
-            policy=MolmoBotClient(config.policy_config,log_dir/f'{run_path.name}-val-{record["house"]}-model.log')
-            write_json(scene_path/'model_service.json',policy.metadata)
         check_disk(scene_path,config)
         write_json(scene_path/'source.json',source.provenance())
         write_json(scene_path/'robot_geometry.json',robot_footprint(sim))
@@ -226,8 +272,30 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
         assign_output_names(tasks)
         for task in tasks: task['operation_base_mode']=config.operation_base_mode
         if targets: tasks=[t for t in tasks if t['instance_id'] in targets or t['asset_id'] in targets or t['task_id'] in targets]
+        if config.augmented_variant:
+            source_task = read_json(scene_path/'augmented_input/baseline/task.json')
+            matches = [t for t in tasks if t['task_id'] == source_task['task_id']
+                       and t['target_body'] == source_task['target_body']]
+            if len(matches) != 1:
+                raise ValueError('augmented target missing or excluded from discovered tasks')
+            # Freeze the construction anchor/identity; keep discovered stable output name.
+            tasks = [{**source_task, 'output_name': matches[0]['output_name'],
+                      'operation_base_mode': config.operation_base_mode}]
         if max_tasks: tasks=tasks[:max_tasks]
         write_json(scene_path/'task_index.json',tasks); write_json(scene_path/'skipped_targets.json',skipped)
+        for task in tasks:
+            prepare_execution_stations(scene_path, task, config)
+        if config.operation_backend=='molmobot' and tasks:
+            from ..policies.molmobot import MolmoBotClient
+            log_dir=Path(collection.output_dir)/'logs'; log_dir.mkdir(parents=True,exist_ok=True)
+            write_json(scene_path/'model_service_status.json', {'status':'loading'})
+            try:
+                policy=MolmoBotClient(config.policy_config,log_dir/f'{run_path.name}-val-{record["house"]}-model.log')
+            except BaseException as exc:
+                write_json(scene_path/'model_service_status.json', {'status':'failed','reason':str(exc)})
+                raise
+            write_json(scene_path/'model_service.json',policy.metadata)
+            write_json(scene_path/'model_service_status.json', {'status':'ready'})
         results=[]
         for task in tasks:
             print(f'Begin {scene_path.name}/{task["task_id"]} {task["operation"]}',flush=True)
@@ -268,12 +336,20 @@ def rebuild_dataset_index(run_path):
     (run_path/'datasets').mkdir(exist_ok=True)
     entries=[]
     for result_path in sorted((run_path/'scenes').glob('*/tasks/*/result.json')):
-        result=read_json(result_path)
-        task=read_json(result_path.parent/'task.json'); selection=read_json(result_path.parent/'selection.json')
+        def index_inputs():
+            result=read_json(result_path)
+            if result.get('recording_complete') is False:
+                return None
+            return result,read_json(result_path.parent/'task.json'),read_json(result_path.parent/'selection.json')
+        inputs=isolated_recording(result_path.parents[2],result_path.parent.name,'index_inputs',index_inputs)
+        if inputs is None: continue
+        result,task,selection=inputs
         for segment in selection['successful']:
             if segment['status'] != 'success' or segment['navigation']['status'] != 'success': continue
-            sample=export_rollout(run_path,result_path.parents[2].name,task,segment,
+            sample=isolated_recording(result_path.parents[2],Path(segment['attempt']).name,'dataset_export',
+                                  export_rollout,run_path,result_path.parents[2].name,task,segment,
                                   eligible=result.get('dataset_eligible',False))
+            if sample is None: continue
             if result.get('dataset_eligible'):
                 entries.append({'schema_version':'no-edit-index-v2','instruction':task['instruction'],
                     'task_id':task['task_id'],'operation':task['operation'],'attempt':segment['attempt'],
@@ -304,6 +380,12 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
             'assets_dir':str(Path(assets_dir).resolve()),'robot':asdict(robot),'config':asdict(config),
             'collection':asdict(collection),'code_sha256':source_hash,'scene_manifest':records,
             'subset':{'targets':targets,'max_tasks':max_tasks,'max_trials':max_trials}}
+    if config.augmented_variant:
+        from ..stations.augmented_input import variant_manifest
+        manifest = variant_manifest(config.augmented_variant, robot, config)
+        if len(records) != 1 or manifest['scene_id'] != f'procthor-10k-val/val_{records[0]["house"]}':
+            raise ValueError('augmented input requires exactly its source house')
+        frozen['augmented_input'] = manifest
     policy_config=None
     if config.operation_backend=='molmobot':
         from ..policies.molmobot_config import load_policy_config,policy_manifest

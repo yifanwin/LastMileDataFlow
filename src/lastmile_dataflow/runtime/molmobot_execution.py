@@ -4,11 +4,13 @@ import gzip
 from pathlib import Path
 import re
 import time
+import traceback
 
 import imageio.v2 as imageio
 import mujoco
 import numpy as np
 
+from .episode_guard import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
 from ..io import canonical, read_json, write_json
 from ..recording.recorder import AttemptRecorder
 from ..recording.head_views import head_frame
@@ -43,6 +45,7 @@ def first_point(sim, task):
     return {task['instance_id']:{'head_camera':{'points':point,'num_points':np.array([1])}}}, mask
 
 
+@isolated_episode
 def run_vla_attempt(baseline, task, station, config, collection, root, attempt_id, *, seed, policy):
     sim = clone_sim(baseline, target=task['target_body']); place_frozen_station(sim,station)
     if config.third_person_enabled: sim.enable_third_person()
@@ -62,9 +65,9 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
     samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples; replay=[]
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
     analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled else None
-    physics = gzip.open(recorder.path/'physics.jsonl.gz','wb')
-    actions = (recorder.path/'policy_actions.jsonl').open('xb')
-    requests = (recorder.path/'policy_requests.jsonl').open('xb')
+    physics = track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
+    actions = track_resource((recorder.path/'policy_actions.jsonl').open('xb'))
+    requests = track_resource((recorder.path/'policy_requests.jsonl').open('xb'))
     status='infrastructure_error'; reason='unfinished'; verdict=None
     started=time.monotonic(); budget=config.attempt_timeout_s
     def state():
@@ -99,6 +102,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             'camera':'third_person_camera','dimensions':[1280,720],'planned_path':None,
             'policy_input':False,'robot_videos':'raw 1024x576 RGB, pre-fisheye'})
         replay.append((float(sim.data.time),sim.data.qpos.copy()))
+        mark_episode_phase('execution')
         for step in range(policy.config.task_horizon):
             remaining=budget-(time.monotonic()-started)
             if remaining<=0: raise TimeoutError('attempt_wall_clock_budget')
@@ -177,26 +181,31 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         status='failure'; reason='invalid_policy_action:'+str(exc)
         recorder.event('invalid_policy_action',message=str(exc))
     except TimeoutError as exc:
-        status='incomplete'; reason=str(exc)
+        status='timeout'; reason=str(exc)
+        recorder.event('episode_timeout',message=reason)
     except KeyboardInterrupt:
         status='incomplete'; reason='interrupted'
         raise
     except Exception as exc:
-        status='infrastructure_error'; reason=type(exc).__name__+':'+str(exc)
+        classified=classify_episode_exception(exc,episode_phase())
+        exception_detail={**classified,'traceback':traceback.format_exc()}
+        status=classified['status']; reason=classified['reason']
         recorder.event('exception',message=str(exc),error_type=type(exc).__name__)
     finally:
+        mark_episode_phase('finalize')
         physics.close(); actions.close(); requests.close()
         np.savez_compressed(recorder.path/'replay.npz',time_s=np.array([r[0] for r in replay]),
                             qpos=np.array([r[1] for r in replay]))
         write_json(recorder.path/'final_state.json',state())
         if sim.model_hash: sim.save_snapshot(recorder.path/'final.npz')
         outcome={'status':status,'reason':reason,'verdict':verdict,'protocol':PROTOCOL,
+            'exception_detail':locals().get('exception_detail'),
             'operation_backend':'molmobot','continuous_simulation':True,'navigation':{'status':'not_requested'},
             'gripper_mode':policy.config.gripper_mode,'seed':seed,'elapsed_wall_s':time.monotonic()-started,
             'trajectory_metrics':contact_stats.metrics(task_success=status=='success' if status in ('success','failure') else None,
                 simulation_valid=False if status=='simulation_failure' else True if sim.started else None),
             'contact_policy':CONTACT_POLICY,
-            'attribution':{'category':'SimulationFailure' if status=='simulation_failure' else 'PolicyFailure' if status=='failure' else 'Unknown',
+            'attribution':{'category':'SimulationFailure' if status=='simulation_failure' else 'EpisodeTimeout' if status=='timeout' else 'PolicyFailure' if status=='failure' else 'Unknown',
                            'reason':reason,'collisions':collisions},
             'control':{'seed':seed,'policy':'MolmoBot-RBY1Multitask'}}
         write_json(recorder.path/'outcome.json',outcome)

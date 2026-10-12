@@ -143,3 +143,17 @@ case 与 task 永远不因短动作执行通过而自动判为成功。后续检
 逐 tick 完整接触包含 body/geom、距离、接触力、时间；最终摘要最多保存32条示例。
 成功且有质量标记的轨迹不自动降为失败，由后处理决定分级。
 `simulation_failure` 保留诊断，但排除任务成功率分母；五次尝试中若有此类结果，覆盖保持 incomplete，而不是补成零。
+
+## no_edit 单episode超时
+
+独立episode的墙钟超时记录为 `timeout`，任务物理结果仍为unknown，保留原原因、步数及轨迹/媒体；
+采集继续下一episode，不将其当成整个任务中断。`timeout_trials` 单列；`terminal_trials`
+及预算内成功率包含已结束的超时episode。旧 `incomplete + attempt_wall_clock_budget`
+只读兼容，真正中断仍保持incomplete。详见 [超时策略](no-edit-episode-timeouts.md)。
+
+## Episode生命周期局部错误
+
+no_edit新增 `initialization_error` / `episode_error` / `recording_error` 及独立错误旁证，
+共享资源故障仍为infrastructure_error。`completed_episodes`与可评价的`terminal_trials`分开，
+不可评价的错误单列episode_errors，不作普通失败；缺失记录声明recording_complete=false。
+详见 [生命周期隔离](no-edit-episode-isolation.md)。
