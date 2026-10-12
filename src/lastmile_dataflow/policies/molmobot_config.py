@@ -16,6 +16,7 @@ class MolmoBotConfig:
     gripper_mode: str = 'model_default'
     task_horizon: int = 400
     service_timeout_s: float = 300.
+    rpc_timeout_s: float = 30.
     load_timeout_s: float = 900.
     min_free_gpu_mb: int = 24576
     max_gpu_utilization: int = 20
@@ -29,7 +30,7 @@ class MolmoBotConfig:
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError('invalid ' + name)
         import math
-        for name in ('service_timeout_s', 'load_timeout_s', 'gpu_sample_interval_s'):
+        for name in ('service_timeout_s', 'rpc_timeout_s', 'load_timeout_s', 'gpu_sample_interval_s'):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError('invalid ' + name)

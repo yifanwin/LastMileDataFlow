@@ -71,12 +71,21 @@ class MolmoBotClient:
         return response
 
     def action(self, observation, *, task, attempt, seed, first=False, timeout=None):
+        """One prediction round-trip.
+
+        `timeout` defaults to the fixed `rpc_timeout_s`, which must stay decoupled
+        from the attempt wall-clock budget: a nearly-exhausted budget used to be
+        passed through here, so the last step of a full-horizon attempt always
+        raced a sub-second RPC deadline and turned into a bogus shared
+        `model response timeout`. The caller owns the attempt budget and re-checks
+        it after this returns.
+        """
         try:
             self.connection.send({'operation':task['operation'], 'attempt':attempt, 'seed':seed,
                                   'observation':observation, 'first':first})
         except (OSError, EOFError) as exc:
             raise PolicyInfrastructureError('model connection lost') from exc
-        return self.receive(min(timeout or self.config.service_timeout_s, self.config.service_timeout_s))
+        return self.receive(timeout or self.config.rpc_timeout_s)
 
     def close(self):
         if self.connection is not None:

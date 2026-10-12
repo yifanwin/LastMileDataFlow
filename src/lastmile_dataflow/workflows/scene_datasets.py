@@ -97,6 +97,11 @@ def spatial_select(rows, count, preferred=(), min_separation_m=0.):
     """Room/support diversity first, max-min world distance second; no prefix."""
     if not rows:
         return []
+    if count == -1:
+        # Unlimited means include every eligible target; diversity orders them,
+        # but a proximity preference must not silently discard valid targets.
+        count = len(rows)
+        min_separation_m = 0.
     chosen = []
     remaining = sorted(rows, key=lambda r: r['task']['task_id'])
     for selector in preferred:
@@ -121,6 +126,28 @@ def spatial_select(rows, count, preferred=(), min_separation_m=0.):
         best = max(remaining, key=score)
         chosen.append(best); remaining.remove(best)
     return chosen
+
+
+def print_scene_counts(recipe, selected, houses, stage):
+    """Console forecast from selected targets, never a successful-build claim."""
+    totals = {'Case1': 0, 'Case2': 0, 'Case3': 0}
+    print(f'\n[{stage}] 数量汇总（预计构造数，不是已验收样本数）', flush=True)
+    for house in houses:
+        identity = house['house']
+        picks = sum(r['house'] == identity and r['task']['operation'] == 'pick' for r in selected)
+        opening = sum(r['house'] == identity and r['task']['operation'] == 'open' for r in selected)
+        counts = {case: (picks * recipe.variants_per_case if case != 'Case3' else opening)
+                  if case in recipe.cases else 0 for case in totals}
+        print(f'val_{identity}: 原始任务={house.get("discovered_task_count", "未记录")}; '
+              f'静态条件通过 pick={house.get("eligible_pick", "未记录")} open={house.get("eligible_open", "未记录")}; '
+              f'本阶段选中 pick={picks} open={opening}; '
+              f'预计 Case1={counts["Case1"]} Case2={counts["Case2"]} Case3={counts["Case3"]}', flush=True)
+        for case in totals:
+            totals[case] += counts[case]
+    print(f'总计: Case1={totals["Case1"]}, Case2={totals["Case2"]}, '
+          f'Case3={totals["Case3"]}, 全部={sum(totals.values())}', flush=True)
+    print('发现阶段仅为静态预估；资格检查后可能减少，最终以构造及物理审计为准。', flush=True)
+    return totals
 
 
 def discover_scene_dataset(recipe, output):
@@ -203,6 +230,7 @@ def discover_scene_dataset(recipe, output):
             print(f'val_{house}: {len(tasks)} tasks; picks {[r["task"]["asset_id"] for r in pick]}; open {[r["task"]["asset_id"] for r in opening]}', flush=True)
         finally:
             sim.close()
+    print_scene_counts(recipe, selected, houses, '发现')
     write_json(output, {'schema_version': 'scene-dataset-discovery-v1', 'recipe': asdict(recipe),
         'recipe_sha256': digest(asdict(recipe)), 'selected': selected, 'houses': houses, 'exclusions': exclusions,
         'started_at': started_at, 'finished_at': now(), 'elapsed_s': time.monotonic() - started})
@@ -231,7 +259,11 @@ def qualify_scene_discovery(discovery, output):
     start = time.monotonic(); selected = []; qualifications = []
     existing = {r['task_id']: r for r in plan.get('qualification', [])}
     for house in recipe.houses:
-        seed = next(r for r in plan['selected'] if r['house'] == house)
+        seed = next((r for r in plan['selected'] if r['house'] == house), None)
+        if seed is None:
+            # Static discovery found no eligible target. Keep its exclusions;
+            # unlimited recipes impose no minimum quota for this house.
+            continue
         source = SceneSource.procthor(recipe.dataset_dir, house)
         sim = Simulation.from_snapshot(seed['input_snapshot'], robot)
         try:
@@ -300,6 +332,7 @@ def qualify_scene_discovery(discovery, output):
             for i,a in enumerate(picks) for b in picks[i+1:]]
     plan.update(static_discovery=str(Path(discovery).resolve()), qualification_wall_s=time.monotonic()-start,
         qualification=qualifications, elapsed_s=plan['elapsed_s']+time.monotonic()-start, finished_at=now())
+    print_scene_counts(recipe, selected, plan['houses'], '资格检查')
     write_json(output, plan)
     return output
 
@@ -602,15 +635,36 @@ def audit_scene_dataset(root, physical=False, audit_inputs=None):
         'errors': errors, 'samples': records, 'sample_count': len(samples), 'task_execution': 'not_performed'}
 
 
+def target_quota_met(recipe, rows, house):
+    for operation, quota, requested in (
+            ('pick', recipe.max_pick_targets_per_house, bool(set(recipe.cases) & {'Case1', 'Case2'})),
+            ('open', recipe.max_open_targets_per_house, 'Case3' in recipe.cases)):
+        count = sum(r['house'] == house and r['task']['operation'] == operation for r in rows)
+        if requested and quota != -1 and count != quota:
+            return False
+    return True
+
+
+def expected_scene_samples(recipe, rows):
+    """Fixed quotas retain missing targets; unlimited quotas use qualified targets."""
+    total = 0
+    for house in recipe.houses:
+        picks = sum(r['house'] == house and r['task']['operation'] == 'pick' for r in rows)
+        opening = sum(r['house'] == house and r['task']['operation'] == 'open' for r in rows)
+        if set(recipe.cases) & {'Case1', 'Case2'}:
+            total += (picks if recipe.max_pick_targets_per_house == -1 else recipe.max_pick_targets_per_house) * recipe.variants_per_case * len(set(recipe.cases) & {'Case1', 'Case2'})
+        if 'Case3' in recipe.cases:
+            total += opening if recipe.max_open_targets_per_house == -1 else recipe.max_open_targets_per_house
+    return total
+
+
 def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=2, resume=False, allow_partial_targets=False):
     recipe_path = Path(recipe_path).resolve(); output_dir = Path(output_dir).resolve()
     recipe = load_scene_recipe(recipe_path); plan = read_json(discovery)
     if plan['recipe_sha256'] != digest(asdict(recipe)):
         raise ValueError('discovery recipe mismatch')
     for house in recipe.houses:
-        picks = sum(r['house'] == house and r['task']['operation'] == 'pick' for r in plan['selected'])
-        opening = sum(r['house'] == house and r['task']['operation'] == 'open' for r in plan['selected'])
-        if (set(recipe.cases) & {'Case1', 'Case2'} and picks != recipe.max_pick_targets_per_house) or ('Case3' in recipe.cases and opening != recipe.max_open_targets_per_house):
+        if not target_quota_met(recipe, plan['selected'], house):
             if not allow_partial_targets:
                 raise ValueError('discovery target quota not met for val_' + str(house))
     if not dataset_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in dataset_id):
@@ -636,8 +690,7 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
     else:
         write_json(root / 'build.json', {**payload, 'input_sha256': digest(payload), 'started_at': now()})
         write_json(root / 'discovery.json', plan)
-    expected = len(recipe.houses) * (recipe.max_pick_targets_per_house * recipe.variants_per_case *
-        len(set(recipe.cases) & {'Case1', 'Case2'}) + (recipe.max_open_targets_per_house if 'Case3' in recipe.cases else 0))
+    expected = expected_scene_samples(recipe, plan['selected'])
     qualified_expected = sum(1 if u['case'] == 'Case3' else recipe.variants_per_case for u in units)
     started = time.monotonic(); completed = {}; active = {}; pending = []
     for index in range(len(units)):
@@ -696,7 +749,8 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
         'source_dataset': Path(recipe.dataset_dir).name, 'houses': recipe.houses, 'rule_version': recipe.rule_version,
         'sample_count': len(samples), 'expected_samples': expected, 'qualified_target_capacity': qualified_expected,
         'missing_samples': expected-len(samples), 'package_count': len(samples), 'created_at': now(),
-        'task_execution': 'not_performed', 'benchmark': 'external_reference_not_embedded', 'recipe_sha256': plan['recipe_sha256']}
+        'task_execution': 'not_performed', 'benchmark': 'external_reference_not_embedded', 'recipe_sha256': plan['recipe_sha256'],
+        'target_selection_scope': plan.get('target_selection_scope', 'recipe_discovery_qualification')}
     write_json(root / 'manifest.json', manifest)
     write_dataset_readme(root)
     write_json(root / 'checksums.json', {str(p.relative_to(root)): file_digest(p) for p in root.rglob('*') if p.is_file() and p != root / 'checksums.json'})
