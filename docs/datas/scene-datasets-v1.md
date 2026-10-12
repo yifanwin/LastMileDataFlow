@@ -136,3 +136,7 @@ qualification 对空间选择的目标执行完整独立站位初始化／可见
 
 `audit-scene-datasets <root> --physical --audit-inputs <companion/audit_inputs> --output <outside-root.json>` 可使用与根 manifest 校验绑定的 `scene-audit-inputs-v1` 冻结增强配置。机器人描述从包内 `scene/version.json` 加载，不依赖原机器人 JSON 路径。模型与状态仍按逐级校验和检查；companion 不属于封存根目录，不修改旧根清单。
 本次 val103-Cup_30 两个普通样本已经迁移目录复查通过。含容量不足证书的未来样本重放仍依赖原构造基线和候选资产，不能声称该 companion 已支持完整容量重放迁移。
+
+### 不限目标数量（-1）
+
+`max_pick_targets_per_house`、`max_open_targets_per_house` 支持 -1：无强制最低目标数且不截断合格目标；空间分散仅排序，不因近距离排除。正整数仍是固定期望配额；0与小于-1非法。不限字段的 expected_samples 按已资格检查目标数计算，空house保留为空；所有语义/物理资格不变。本次42样本复用旧有界筛选的合格子集，显式标记非穷举范围，不声称覆盖不限配额的全部目标。

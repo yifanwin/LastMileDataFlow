@@ -13,8 +13,8 @@
     "104": "../../outputs/diagnostics/scene-discovery-val103-val104-20261012-r3-baselines/val_104/scene"
   },
   "variants_per_case": 5,
-  "max_pick_targets_per_house": 3,
-  "max_open_targets_per_house": 1,
+  "max_pick_targets_per_house": -1,
+  "max_open_targets_per_house": -1,
   "cases": [
     "Case1",
     "Case2",

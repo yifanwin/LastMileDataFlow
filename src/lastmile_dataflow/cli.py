@@ -105,6 +105,8 @@ def parser():
     raw.add_argument('--resume', action='store_true')
     raw.add_argument('--index-only', action='store_true')
     raw.add_argument('--no-video', action='store_true', help='retain RGB but disable MP4')
+    raw.add_argument('--collection-config', type=Path,
+                     help='explicit CollectionConfig JSON; without it the raw-first defaults apply')
     status = sub.add_parser('no-edit-status', help='read no-edit batch progress without starting physics')
     status.add_argument('run', type=Path)
     case_edit = sub.add_parser('case-edit', help='four-agent local single-scene construction; NOT mobile task verification')
@@ -287,7 +289,8 @@ def main(argv=None):
             if (config.width,config.height)!=(1024,576):
                 raise ValueError('MolmoBot requires actual 1024x576 rendering')
             robot=replace(robot,control_profile='molmobot-native-v1',control_hz=10.,physics_dt=.004)
-        collection=CollectionConfig(output_dir=str(args.output_dir.resolve()),seed=config.seed,
+        collection=load_config(CollectionConfig, args.collection_config) if args.collection_config else CollectionConfig(
+            output_dir=str(args.output_dir.resolve()),seed=config.seed,
             width=config.width,height=config.height,record_video=not args.no_video)
         path=collect_batch(args.dataset_dir or assets/'scenes/procthor-10k-val',assets,robot,config,collection,
             run_id=args.run_id,gpu_ids=args.gpu_ids,max_workers=args.workers,houses=args.houses,resume=args.resume,

@@ -28,7 +28,11 @@ VLA 策略（MolmoBot）模型配置。加载入口
 | `gpu_sample_count` | `3` | 连续采样次数，须每次都满足利用率/显存条件。 |
 | `gpu_sample_interval_s` | `5.0` | 采样间隔（s）。采样窗口 = `(count-1) × interval`。 |
 
-未写出、走默认值的字段：`service_timeout_s=300`、`load_timeout_s=900`。
+未写出、走默认值的字段：`service_timeout_s=300`、`rpc_timeout_s=30`、`load_timeout_s=900`。
+
+`rpc_timeout_s` 是**单次模型往返**的固定超时，与 attempt 的 300 s 墙钟预算相互独立：执行循环不再把
+"剩余预算"当作 RPC 超时，否则跑满 task_horizon 的最后一步会拿不到 1 s 的等待时间，被误判成
+`model response timeout`（归为 shared 故障、直接中止整个 scene）。预算由调用方在每次应答返回后复查。
 
 ## 选卡逻辑
 

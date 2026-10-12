@@ -3,6 +3,8 @@ from dataclasses import asdict, replace
 from types import SimpleNamespace
 from pathlib import Path
 import tempfile
+import io
+from contextlib import redirect_stdout
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +14,7 @@ from lastmile_dataflow.construction.obstacle_config import ObstacleConfig
 from lastmile_dataflow.io import digest, file_digest, read_json, write_json
 from lastmile_dataflow.stations.scene_package import package_manifest, robot_descriptor, select_stations, bind_package, package_stations
 from lastmile_dataflow.stations.no_edit_config import NoEditConfig, load_no_edit_config
-from lastmile_dataflow.workflows.scene_datasets import spatial_select, _binding, qualify_scene_discovery, audit_scene_dataset
+from lastmile_dataflow.workflows.scene_datasets import spatial_select, _binding, qualify_scene_discovery, audit_scene_dataset, target_quota_met, expected_scene_samples, print_scene_counts
 
 
 class PortableAuditTests(unittest.TestCase):
@@ -49,6 +51,59 @@ class RecipeTests(unittest.TestCase):
             with self.assertRaises(ValueError): house_number(value)
         with self.assertRaises(ValueError): SceneDatasetRecipe('d', 'l', 'r', [])
 
+    def test_console_counts_are_per_case_forecast_not_quota(self):
+        rows = [{'house': h, 'task': {'operation': 'pick'}} for h in (103,104,104,104)]
+        rows += [{'house': h, 'task': {'operation': 'open'}} for h in (103,104)]
+        houses = [{'house': h, 'discovered_task_count': 20, 'eligible_pick': 3, 'eligible_open': 2} for h in (103,104)]
+        for quota in (3,-1):
+            with redirect_stdout(io.StringIO()) as output:
+                counts = print_scene_counts(self.recipe(max_pick_targets_per_house=quota), rows, houses, '发现')
+            self.assertEqual(counts, {'Case1':20, 'Case2':20, 'Case3':2})
+            self.assertIn('全部=42', output.getvalue())
+            self.assertIn('本阶段选中 pick=1 open=1', output.getvalue())
+            self.assertIn('不是已验收样本数', output.getvalue())
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(print_scene_counts(self.recipe(cases=['Case3']), rows, houses, '资格检查'),
+                             {'Case1':0,'Case2':0,'Case3':2})
+            self.assertEqual(print_scene_counts(self.recipe(), [], houses, '发现'),
+                             {'Case1':0,'Case2':0,'Case3':0})
+
+    def test_unlimited_count_validation(self):
+        for field in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
+            self.assertEqual(getattr(self.recipe(**{field: -1}), field), -1)
+            for invalid in (0, -2, True, 1.5):
+                with self.assertRaises(ValueError): self.recipe(**{field: invalid})
+
+    def test_unlimited_order_keeps_nearby_targets(self):
+        rows = [{'task': {'task_id': str(i), 'instance_id': str(i), 'asset_id': str(i),
+                         'room_id': 0, 'anchor_world': [.01*i,0,1]},
+                 'support_id': 'table', 'support_area_m2': 1, 'prefilter_count': 5} for i in range(7)]
+        self.assertEqual(len(spatial_select(rows, -1, min_separation_m=.75)), 7)
+
+    def test_unlimited_expected_counts_and_mixed_fixed_quotas(self):
+        rows = [{'house': h, 'task': {'operation': 'pick'}} for h in (103,104,104,104)]
+        rows += [{'house': h, 'task': {'operation': 'open'}} for h in (103,104)]
+        unlimited = self.recipe(max_pick_targets_per_house=-1, max_open_targets_per_house=-1)
+        self.assertEqual(expected_scene_samples(unlimited, rows), 42)
+        self.assertEqual(expected_scene_samples(unlimited, []), 0)
+        self.assertTrue(target_quota_met(unlimited, [], 103))
+        fixed = self.recipe()
+        self.assertFalse(target_quota_met(fixed, rows, 103))
+        self.assertEqual(expected_scene_samples(fixed, rows), 62)
+        mixed = self.recipe(max_open_targets_per_house=-1)
+        self.assertFalse(target_quota_met(mixed, rows, 103))
+        self.assertEqual(expected_scene_samples(mixed, rows), 62)
+
+    def test_unlimited_empty_house_qualification_is_not_an_error(self):
+        recipe = self.recipe(max_pick_targets_per_house=-1, max_open_targets_per_house=-1)
+        with tempfile.TemporaryDirectory() as directory:
+            inp, out = Path(directory)/'input.json', Path(directory)/'qualified.json'
+            write_json(inp, {'recipe': asdict(recipe), 'recipe_sha256': digest(asdict(recipe)),
+                'selected': [], 'houses': [{'house': 103}, {'house': 104}], 'exclusions': [], 'elapsed_s': 1})
+            with patch('lastmile_dataflow.workflows.scene_datasets.load_scene_robot'):
+                qualify_scene_discovery(inp, out)
+            self.assertEqual(read_json(out)['selected'], [])
+
     def test_invalid_recipe_and_sensor_settings(self):
         for kwargs in ({'case1_added_surface_count': [4, 8]}, {'case2_added_surface_count': [10, 21]},
                        {'station_selection': 'prefix'}, {'targets': {'val105': ['Cup_30']}}, {'min_final_points': 21}):
@@ -79,17 +134,23 @@ class RecipeTests(unittest.TestCase):
         self.assertNotIn('1', [r['task']['task_id'] for r in selected])
 
     def test_visible_qualification_replaces_failed_spatial_choice(self):
+        self._qualification_replaces_failed_choice(3)
+
+    def test_unlimited_qualification_retains_every_valid_close_target(self):
+        self._qualification_replaces_failed_choice(-1)
+
+    def _qualification_replaces_failed_choice(self, quota):
         # MOCK station verdicts only; no real scene/visibility claim.
-        recipe = SceneDatasetRecipe('d', 'l', 'r', [103], cases=['Case2'], max_pick_targets_per_house=3)
+        recipe = SceneDatasetRecipe('d', 'l', 'r', [103], cases=['Case2'], max_pick_targets_per_house=quota)
         tasks = [{'task_id': str(i), 'instance_id': str(i), 'asset_id': str(i), 'target_body': str(i),
             'operation': 'pick', 'room_id': 2 if i == 2 else 1, 'anchor_world': [x, 0, 1]}
-            for i, x in enumerate([0, 3, 5, 7])]
+            for i, x in enumerate([0, 3, 5, 7, .1])]
         seed = {'house': 103, 'task': tasks[0], 'input_snapshot': 'snapshot', 'source': {},
                 'prefilter_count': 5, 'support_id': '0', 'support_area_m2': 5}
         with tempfile.TemporaryDirectory() as directory:
             inp, out = Path(directory)/'static.json', Path(directory)/'qualified.json'
             write_json(inp, {'recipe': asdict(recipe), 'recipe_sha256': digest(asdict(recipe)), 'selected': [seed],
-                'exclusions': [{'house': 103, 'task_id': str(i), 'reason': 'eligible_not_selected_by_spatial_coverage'} for i in range(1,4)],
+                'exclusions': [{'house': 103, 'task_id': str(i), 'reason': 'eligible_not_selected_by_spatial_coverage'} for i in range(1,5)],
                 'houses': [{'house': 103}], 'elapsed_s': 1})
             sim = MagicMock(); sim.model.body.side_effect = lambda name: SimpleNamespace(id=int(name))
             def stations(*args, **kwargs):
@@ -104,7 +165,7 @@ class RecipeTests(unittest.TestCase):
                 with patch(module+'SceneSource.procthor', return_value=SimpleNamespace(metadata_path=inp)):
                     qualify_scene_discovery(inp,out)
             result=read_json(out)
-            self.assertEqual({r['task']['task_id'] for r in result['selected']}, {'0','1','3'})
+            self.assertEqual({r['task']['task_id'] for r in result['selected']}, {'0','1','3'} if quota == 3 else {'0','1','3','4'})
             self.assertTrue(any(r.get('task_id')=='2' and r['reason']=='fewer_than_minimum_baseline_visible_points' for r in result['exclusions']))
 
 

@@ -109,7 +109,11 @@ class SceneDatasetRecipe:
             raise ValueError('invalid cases')
         if self.station_selection not in ('coverage', 'all_valid'):
             raise ValueError('invalid station selection')
-        for key in ('variants_per_case', 'max_pick_targets_per_house', 'max_open_targets_per_house',
+        for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
+            value = getattr(self, key)
+            if type(value) is not int or (value != -1 and value <= 0):
+                raise ValueError('target count must be -1 (unlimited) or a positive integer: ' + key)
+        for key in ('variants_per_case',
                     'min_prefilter_points', 'min_final_points', 'max_final_stations', 'assets_per_category',
                     'max_candidates', 'max_physical_trials', 'min_substantial', 'capacity_probe_budget'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
