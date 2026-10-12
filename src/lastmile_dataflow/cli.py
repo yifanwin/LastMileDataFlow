@@ -30,6 +30,29 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    discovery = sub.add_parser('discover-scene-datasets', help='bounded task discovery with spatial target coverage; no strategy execution')
+    discovery.add_argument('--config', required=True, type=Path)
+    discovery.add_argument('--output', required=True, type=Path)
+    qualification = sub.add_parser('qualify-scene-datasets', help='refine spatial choices with full visible station initialization')
+    qualification.add_argument('--discovery', required=True, type=Path)
+    qualification.add_argument('--output', required=True, type=Path)
+    scene_build = sub.add_parser('build-scene-datasets', help='construct and seal strategy-independent scene_datasets')
+    scene_build.add_argument('--config', required=True, type=Path)
+    scene_build.add_argument('--discovery', required=True, type=Path)
+    scene_build.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    scene_build.add_argument('--dataset-id', required=True)
+    scene_build.add_argument('--gpu-ids', nargs='+', type=int, required=True)
+    scene_build.add_argument('--workers', type=int, default=2)
+    scene_build.add_argument('--resume', action='store_true')
+    scene_build.add_argument('--allow-partial-targets', action='store_true', help='retain original quota; publish only qualified samples with explicit partial status')
+    scene_unit = sub.add_parser('scene-dataset-unit', help=argparse.SUPPRESS)
+    scene_unit.add_argument('--dataset', required=True, type=Path)
+    scene_unit.add_argument('--unit-index', required=True, type=int)
+    scene_audit = sub.add_parser('audit-scene-datasets', help='read-only sealed scene dataset audit')
+    scene_audit.add_argument('dataset', type=Path)
+    scene_audit.add_argument('--physical', action='store_true')
+    scene_audit.add_argument('--audit-inputs', type=Path, help='dataset-bound frozen config companion for relocated normal samples')
+    scene_audit.add_argument('--output', required=True, type=Path)
     obstacles = sub.add_parser('augment-obstacles', help='pure procedural obstacle construction and paired real RGB; no Agent calls')
     obstacles.add_argument('--config', required=True, type=Path)
     obstacles.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
@@ -166,6 +189,30 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'discover-scene-datasets':
+        from .workflows.scene_datasets import discover_scene_dataset
+        print(discover_scene_dataset(args.config, args.output))
+        return 0
+    if args.command == 'qualify-scene-datasets':
+        from .workflows.scene_datasets import qualify_scene_discovery
+        print(qualify_scene_discovery(args.discovery, args.output))
+        return 0
+    if args.command == 'build-scene-datasets':
+        from .workflows.scene_datasets import build_scene_dataset
+        path = build_scene_dataset(args.config, args.discovery, args.output_dir, args.dataset_id,
+                                   args.gpu_ids, args.workers, args.resume, args.allow_partial_targets)
+        print(path)
+        return 0 if read_json(path/'manifest.json')['status'] == 'sealed' else 1
+    if args.command == 'scene-dataset-unit':
+        from .workflows.scene_datasets import run_scene_dataset_unit
+        return 0 if run_scene_dataset_unit(args.dataset, args.unit_index)['status'] == 'completed' else 1
+    if args.command == 'audit-scene-datasets':
+        from .workflows.scene_datasets import audit_scene_dataset
+        from .io import write_json
+        report = audit_scene_dataset(args.dataset, args.physical, args.audit_inputs)
+        write_json(args.output, report)
+        print(report['valid'])
+        return 0 if report['valid'] else 1
     if args.command == 'augment-obstacles':
         from .construction.obstacle_config import load_obstacle_config
         path = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)

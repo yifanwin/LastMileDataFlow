@@ -1,0 +1,50 @@
+{
+  "schema_version": "scene-dataset-recipe-v1",
+  "rule_version": "scene-cases-v3",
+  "dataset_dir": "../../../../../molmospaces_data/assets/scenes/procthor-10k-val",
+  "asset_library": "../../../../../molmospaces_data/assets/objects/thor",
+  "robot_config": "rby1_position_head320.json",
+  "houses": [
+    "val103",
+    "val104"
+  ],
+  "input_snapshots": {
+    "103": "../../../no-edit-lastmile-val/outputs/no_edit/no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707/scenes/val_103/scene",
+    "104": "../../outputs/diagnostics/scene-discovery-val103-val104-20261012-r3-baselines/val_104/scene"
+  },
+  "variants_per_case": 5,
+  "max_pick_targets_per_house": 3,
+  "max_open_targets_per_house": 1,
+  "cases": [
+    "Case1",
+    "Case2",
+    "Case3"
+  ],
+  "min_prefilter_points": 5,
+  "min_final_points": 5,
+  "station_selection": "coverage",
+  "max_final_stations": 20,
+  "seed": 20261012,
+  "max_candidates": 2400,
+  "max_physical_trials": 12,
+  "variant_timeout_s": 1800.0,
+  "pick_target_types": [
+    "cup",
+    "mug",
+    "wine bottle",
+    "atomizer",
+    "salt shaker",
+    "pepper shaker",
+    "soap dispenser"
+  ],
+  "case1_support_types": [
+    "CounterTop",
+    "Table",
+    "DiningTable",
+    "CoffeeTable",
+    "SideTable",
+    "Desk"
+  ],
+  "allow_surface_capacity_shortfall": true,
+  "capacity_probe_budget": 20000
+}

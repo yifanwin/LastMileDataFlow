@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import time
 from zoneinfo import ZoneInfo
@@ -66,12 +67,14 @@ def park_robot(sim, anchor, config):
     raise ValueError('no_legal_robot_parking_pose')
 
 
-def evaluate_stations(sim, task, config, *, frozen_stations=None, static_only=False):
+def evaluate_stations(sim, task, config, *, frozen_stations=None, static_only=False, stop_after_valid=None):
     stations = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
     if frozen_stations is not None:
         stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     rows = []
+    if stop_after_valid is not None and (not static_only or type(stop_after_valid) is not int or stop_after_valid <= 0):
+        raise ValueError('early-stop is only for positive-budget static discovery')
     try:
         for station in stations:
             probe = clone_preparation(sim)
@@ -95,6 +98,8 @@ def evaluate_stations(sim, task, config, *, frozen_stations=None, static_only=Fa
                              'initialization_attempt_id': station['station_id']})
             finally:
                 probe.close()
+            if stop_after_valid is not None and sum(r['geometry'] == 'valid' for r in rows) >= stop_after_valid:
+                break
     finally:
         if renderer is not None:
             renderer.close()
@@ -112,13 +117,29 @@ def matched_control(baseline, duration_s, settle_config, deadline):
         raise
 
 
+def _capacity_probe(session, current, placements, geometry, surfaces, config, deadline):
+    from ..construction.surface_capacity import probe_capacity
+    from ..runtime.build_session import migrate_state
+    assets = [g for g in geometry.values() if g['category'] in config.surface_categories]
+    def collision_test(proposal):
+        probe = session.candidate(placements + [proposal], deadline=deadline)
+        migrate_state(current, probe)
+        return collision_pairs(probe, placements + [proposal], config)['valid']
+    return probe_capacity(current, placements, assets, surfaces, config, collision_test, deadline=deadline)
+
+
 def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, surfaces,
              baseline_stations, footprint, path, variant_id, seed, prior_layouts):
     rng = np.random.default_rng(seed)
+    variant_started = time.monotonic()
+    timings = {}
     count = int(rng.integers(config.obstacle_count[0], config.obstacle_count[1] + 1))
     deadline = time.monotonic() + config.variant_timeout_s
     policy = config.case_policy
     result = {'variant_id': variant_id, 'seed': seed, 'requested_count': count,
+              'requested_surface_count': count - (1 if policy and policy.case == 'Case1' else 0),
+              'surface_min_count': config.obstacle_count[0] - (1 if policy and policy.case == 'Case1' else 0),
+              'surface_max_count': config.obstacle_count[1] - (1 if policy and policy.case == 'Case1' else 0),
               'case': policy.case if policy else 'legacy',
               'prefilter_count_before': sum(s['geometry'] == 'valid' for s in baseline_stations),
               'dense_candidate_count': len(baseline_stations),
@@ -127,7 +148,11 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
               'valid_stations_after': None, 'final_station_count': 0}
     path.mkdir(parents=True, exist_ok=False)
     try:
-        selected_assets = case_assets(rng, count, pool, geometry, policy, config.mandatory_categories)
+        area = None
+        if policy and policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
+            unique_regions = {p['region'].region_id: p['region'] for p in surfaces}
+            area = sum((r.bounds[1] - r.bounds[0]) * (r.bounds[3] - r.bounds[2]) for r in unique_regions.values())
+        selected_assets = case_assets(rng, count, pool, geometry, policy, config.mandatory_categories, surface_area_m2=area)
     except ValueError as exc:
         result['reason'] = str(exc)
         write_json(path / 'result.json', result)
@@ -149,67 +174,101 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
             if result['physical_trials'] >= config.max_physical_trials:
                 result['reason'] = 'physical_trial_budget_exhausted'
                 break
-            if policy and policy.case == 'Case2' and attempt - last_progress >= 48:
-                index = len(placements)
-                asset = selected_assets[index]
-                require_substantial = substantial_asset(asset, policy)
-                alternatives = [g for g in geometry.values() if g['category'] == asset['category']
-                                and g['asset_id'] != asset['asset_id']
-                                and (not require_substantial or substantial_asset(g, policy))]
-                if alternatives:
-                    selected_assets[index] = alternatives[int(rng.integers(len(alternatives)))]
-                resamples[index] += 1
-                record({'candidate': attempt, 'status': 'asset_resampled', 'reason': 'stalled_pose_sampling',
-                        'category': asset['category'], 'old_asset': asset['asset_id'], 'new_asset': selected_assets[index]['asset_id']})
-                if resamples[index] % 3 == 0 and placements:
-                    placements.pop()
-                    record({'candidate': attempt, 'status': 'packing_backtrack', 'reason': 'stalled_surface_packing',
-                            'remaining_count': len(placements)})
-                last_progress = attempt
-            row = {'candidate': attempt, 'status': 'sampling', 'category': categories[len(placements)]}
-            category = row['category']
-            asset = selected_assets[len(placements)]
-            ground = category in pool['ground']
-            points = regions['points'] if ground else surfaces
-            row.update(asset_id=asset['asset_id'], kind='ground' if ground else 'surface')
-            if not points:
-                row.update(status='geometry_rejected', reason='no_candidate_points')
-                record(row)
-                continue
-            if ground and policy:
-                weights = np.array([5. if any(s['kind'] in ('arithmetic_midpoint', 'station_target_approach') for s in p['sources']) else 1. for p in points])
-                point = points[int(rng.choice(len(points), p=weights / weights.sum()))]
-            else:
-                point = points[int(rng.integers(len(points)))]
-            support_center = np.mean([np.asarray(o['min'])[:2] + np.asarray(o['max'])[:2] for o in task['support_obstacles']], axis=0) / 2
-            facing = np.arctan2(*(support_center - point['xy'])[::-1])
-            yaw = float(facing + rng.uniform(-config.yaw_jitter_rad, config.yaw_jitter_rad))
-            if not ground and policy:
-                point, yaw = sample_surface_point(rng, asset, surfaces, placements, occupied, policy, config.placement_gap_m)
-                if point is None:
-                    row.update(status='geometry_rejected', reason='no_footprint_conditioned_surface_point')
+            early_capacity = False
+            capacity_evidence = None
+            forced_proposal = None
+            # The minimum-object fallback must not replace a required large item.
+            # Case2's substantial-object requirement is separate from min_count.
+            required_large = bool(policy and policy.case == 'Case2' and substantial_asset(selected_assets[len(placements)], policy))
+            if policy and policy.allow_surface_capacity_shortfall and not required_large and selected_assets[len(placements)]['category'] in pool['surface'] and (not surfaces or attempt-last_progress >= 48):
+                current = clone_preparation(session.sim if session.sim is not None else baseline)
+                try:
+                    capacity_evidence, replacement, forced_proposal = _capacity_probe(session, current, placements, geometry, surfaces, config, deadline)
+                finally:
+                    current.close()
+                record({'candidate': attempt, 'status': 'capacity_probe', 'capacity': capacity_evidence})
+                if capacity_evidence['status'] == 'domain_exhausted':
+                    if not placements:
+                        result['reason'] = 'no_legal_surface_obstacle_empty_augmentation_not_published'
+                        break
+                    proposed = placements
+                    early_capacity = True
+                    row = {'candidate': attempt, 'status': 'surface_capacity_stop'}
+                elif capacity_evidence['status'] == 'legal_placement_found':
+                    selected_assets[len(placements)] = replacement
+                else:
+                    result.update(status='incomplete', reason='surface_capacity_inconclusive')
+                    break
+            if not early_capacity:
+                if forced_proposal is None and policy and (policy.case == 'Case2' or policy.rule_version in ('scene-cases-v2', 'scene-cases-v3')) and attempt - last_progress >= 48:
+                    index = len(placements)
+                    asset = selected_assets[index]
+                    require_substantial = substantial_asset(asset, policy)
+                    alternatives = [g for g in geometry.values() if g['category'] == asset['category']
+                                    and g['asset_id'] != asset['asset_id']
+                                    and (not require_substantial or substantial_asset(g, policy))]
+                    if alternatives:
+                        selected_assets[index] = alternatives[int(rng.integers(len(alternatives)))]
+                    resamples[index] += 1
+                    record({'candidate': attempt, 'status': 'asset_resampled', 'reason': 'stalled_pose_sampling',
+                            'category': asset['category'], 'old_asset': asset['asset_id'], 'new_asset': selected_assets[index]['asset_id']})
+                    if resamples[index] % 3 == 0 and placements:
+                        placements.pop()
+                        record({'candidate': attempt, 'status': 'packing_backtrack', 'reason': 'stalled_surface_packing',
+                                'remaining_count': len(placements)})
+                    last_progress = attempt
+                asset = selected_assets[len(placements)]
+                row = {'candidate': attempt, 'status': 'sampling', 'category': asset['category']}
+                category = row['category']
+                ground = category in pool['ground']
+                points = regions['points'] if ground else surfaces
+                row.update(asset_id=asset['asset_id'], kind='ground' if ground else 'surface')
+                if forced_proposal is None:
+                    if not points:
+                        row.update(status='geometry_rejected', reason='no_candidate_points')
+                        record(row)
+                        continue
+                    if ground and policy:
+                        weights = np.array([5. if any(s['kind'] in ('arithmetic_midpoint', 'station_target_approach') for s in p['sources']) else 1. for p in points])
+                        point = points[int(rng.choice(len(points), p=weights / weights.sum()))]
+                    else:
+                        point = points[int(rng.integers(len(points)))]
+                    support_center = np.mean([np.asarray(o['min'])[:2] + np.asarray(o['max'])[:2] for o in task['support_obstacles']], axis=0) / 2
+                    facing = np.arctan2(*(support_center - point['xy'])[::-1])
+                    yaw = float(facing + rng.uniform(-config.yaw_jitter_rad, config.yaw_jitter_rad))
+                    if not ground and policy:
+                        point, yaw = sample_surface_point(rng, asset, surfaces, placements, occupied, policy, config.placement_gap_m)
+                        if point is None:
+                            row.update(status='geometry_rejected', reason='no_footprint_conditioned_surface_point')
+                            record(row)
+                            continue
+                    proposal, reason = sample_placement(baseline, asset, point, yaw, config, region=None if ground else point['region'])
+                    if proposal is None:
+                        row.update(status='geometry_rejected', reason=reason, point_id=point['point_id'])
+                        record(row)
+                        continue
+                else:
+                    proposal = forced_proposal
+                # Conservative footprint packing is only a cheap rejection stage.
+                # Every remaining proposal still receives full MuJoCo narrowphase.
+                if proposal['kind'] == 'surface' and (not policy or policy.rule_version != 'scene-cases-v3') and any(
+                        p['kind'] == 'surface' and np.all(np.asarray(proposal['world_bounds']['min'])[:2] < np.asarray(p['world_bounds']['max'])[:2] + .005)
+                        and np.all(np.asarray(p['world_bounds']['min'])[:2] < np.asarray(proposal['world_bounds']['max'])[:2] + .005)
+                        for p in placements):
+                    row.update(status='geometry_rejected', reason='conservative_surface_footprint_overlap')
                     record(row)
                     continue
-            proposal, reason = sample_placement(baseline, asset, point, yaw, config, region=None if ground else point['region'])
-            if proposal is None:
-                row.update(status='geometry_rejected', reason=reason, point_id=point['point_id'])
-                record(row)
-                continue
-            # Conservative footprint packing is only a cheap rejection stage.
-            # Every remaining proposal still receives full MuJoCo narrowphase.
-            if proposal['kind'] == 'surface' and any(
-                    p['kind'] == 'surface' and np.all(np.asarray(proposal['world_bounds']['min'])[:2] < np.asarray(p['world_bounds']['max'])[:2] + .005)
-                    and np.all(np.asarray(p['world_bounds']['min'])[:2] < np.asarray(proposal['world_bounds']['max'])[:2] + .005)
-                    for p in placements):
-                row.update(status='geometry_rejected', reason='conservative_surface_footprint_overlap')
-                record(row)
-                continue
-            proposed = placements + [proposal]
-            signature = digest([{k: p[k] for k in ('asset_id', 'point_id', 'yaw_rad')} for p in proposed])
-            if signature in prior_layouts:
-                row.update(status='geometry_rejected', reason='duplicate_layout')
-                record(row)
-                continue
+                proposed = placements + [proposal]
+                signature = digest([{k: p[k] for k in ('asset_id', 'point_id', 'yaw_rad')} for p in proposed])
+                if signature in prior_layouts:
+                    row.update(status='geometry_rejected', reason='duplicate_layout')
+                    record(row)
+                    continue
+            if early_capacity:
+                signature = digest([{k: p[k] for k in ('asset_id', 'point_id', 'yaw_rad')} for p in proposed])
+                if signature in prior_layouts:
+                    result['reason'] = 'duplicate_capacity_limited_layout'
+                    break
             sim = session.candidate(proposed, deadline=deadline)
             geometry_check = collision_pairs(sim, proposed, config)
             row.update(placements=proposed, geometry_check=geometry_check)
@@ -218,17 +277,30 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                 record(row)
                 session.reject()
                 continue
-            if len(proposed) < count:
+            if len(proposed) < count and not early_capacity:
                 placements = proposed
                 last_progress = attempt + 1
                 row['status'] = 'partial_geometry_pass'
                 record(row)
                 continue
             result['physical_trials'] += 1
+            stage_started = time.monotonic()
             settling = session.settle(deadline=deadline)
+            timings['settle_wall_s'] = timings.get('settle_wall_s', 0.) + time.monotonic() - stage_started
+            stage_started = time.monotonic()
             control, control_settling = matched_control(baseline, settling['simulated_s'], session.config, deadline)
+            timings['control_settle_wall_s'] = timings.get('control_settle_wall_s', 0.) + time.monotonic() - stage_started
             try:
-                checks = validate_augmented_scene(sim, proposed, settling, control, config)
+                if early_capacity:
+                    with ObstacleEditSession(baseline, session.assets, session.config) as capacity_session:
+                        capacity_evidence, _, _ = _capacity_probe(capacity_session, sim, proposed, geometry, surfaces, config, deadline)
+                    if capacity_evidence['status'] != 'domain_exhausted':
+                        record({'candidate': attempt, 'status': 'capacity_rejected_after_settle', 'capacity': capacity_evidence})
+                        placements = []
+                        last_progress = attempt + 1
+                        session.reject()
+                        continue
+                checks = validate_augmented_scene(sim, proposed, settling, control, config, capacity_evidence=capacity_evidence if early_capacity else None)
                 row.update(status='physical_pass' if checks['valid'] else 'physical_rejected', checks=checks)
                 record(row)
                 if not checks['valid']:
@@ -242,15 +314,42 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                                                'quaternion_wxyz': sim.data.xquat[body].tolist()}
                 before_graph = build_scene_graph(control, stage='observed', config=session.config.graph_config())
                 after_graph = build_scene_graph(sim, stage='settled', revision=1, config=session.config.graph_config())
-                names = {f'procedural_obstacle_{i}' for i in range(count)}
+                names = {f'procedural_obstacle_{i}' for i in range(len(proposed))}
                 context = {task['target_body']} | {o['body'] for o in task['support_obstacles']}
-                packet = render_obstacle_pair(control, sim, before_graph, after_graph, names,
-                                 task['target_body'], context, path / 'rgb', sample_id=variant_id,
-                                 config=ViewConfig(**config.views), min_pixels=no_edit.min_target_pixels,
-                                 coverage_union=bool(policy and policy.case == 'Case2'))
+                stage_started = time.monotonic()
+                media_path = path / 'physical_trials' / f'T{result["physical_trials"]:03d}' / 'rgb'
+                from ..recording.edit_views import RenderError
+                try:
+                    packet = render_obstacle_pair(control, sim, before_graph, after_graph, names,
+                                     task['target_body'], context, media_path, sample_id=variant_id,
+                                     config=ViewConfig(**config.views), min_pixels=no_edit.min_target_pixels,
+                                     coverage_union=bool(policy and (policy.case == 'Case2' or policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'))))
+                except RenderError as exc:
+                    record({'candidate': attempt, 'status': 'render_rejected', 'reason': str(exc)})
+                    placements = []
+                    last_progress = attempt + 1
+                    session.reject()
+                    continue
+                finally:
+                    timings['render_wall_s'] = timings.get('render_wall_s', 0.) + time.monotonic() - stage_started
+                stage_started = time.monotonic()
                 before_stations = evaluate_stations(control, task, no_edit, frozen_stations=baseline_stations)
                 after_stations = evaluate_stations(sim, task, no_edit, frozen_stations=baseline_stations)
-                final_stations, selection = coverage_select(after_stations, task['anchor_world'], policy.max_final_stations if policy else 20)
+                timings['station_validation_wall_s'] = timings.get('station_validation_wall_s', 0.) + time.monotonic() - stage_started
+                from ..stations.scene_package import select_stations
+                final_stations, selection = select_stations(after_stations, task['anchor_world'],
+                    policy.station_selection if policy else 'coverage', policy.max_final_stations if policy else 20)
+                if len(final_stations) < (policy.min_final_points if policy else 1):
+                    record({'candidate': attempt, 'status': 'station_rejected', 'reason': 'fewer_than_minimum_final_points',
+                            'final_station_count': len(final_stations)})
+                    placements = []
+                    last_progress = attempt + 1
+                    session.reject()
+                    continue
+                shutil.copytree(media_path, path / 'rgb')
+                for item in packet['images']:
+                    item['path'] = str((path / 'rgb' / Path(item['path']).name).resolve())
+                write_json(path / 'rgb/pair.json', packet)
                 write_json(path / 'stations_final.json', final_stations)
                 write_json(path / 'station_selection.json', selection)
                 before_grid = augmented_grid(control, task, no_edit, footprint, [])
@@ -267,10 +366,15 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                 sim.freeze(path / 'scene')
                 control.freeze(path / 'before_scene')
                 write_json(path / 'checks.json', checks)
+                if early_capacity:
+                    write_json(path / 'capacity.json', capacity_evidence)
                 write_json(path / 'edits.json', proposed)
                 write_json(path / 'control_settling.json', control_settling)
                 write_json(path / 'renderer.json', packet['renderer_info'])
                 result.update(status='accepted', placements=proposed, candidate_index=attempt,
+                              actual_count=len(proposed), capacity_limited=early_capacity,
+                              actual_surface_count=sum(p['kind'] == 'surface' for p in proposed),
+                              capacity_shortfall=len(proposed) < config.obstacle_count[0],
                               raw_rgb_count=6, physical_checks_passed=True,
                               navigation_free_cells_before=comparison['before']['free_cells'],
                               navigation_free_cells_after=comparison['after']['free_cells'],
@@ -278,7 +382,7 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                               valid_stations_after=sum(s['geometry'] == 'valid' for s in after_stations),
                               final_station_count=len(final_stations),
                               station_failures=[{'station_id': s['station_id'], 'reason': s.get('reason', s['geometry'])} for s in after_stations if s['geometry'] != 'valid'],
-                              substantial_object_count=sum(substantial_asset(a, policy) for a in selected_assets) if policy else None,
+                              substantial_object_count=sum(substantial_asset(a, policy) for a in selected_assets[:len(proposed)]) if policy else None,
                               case_condition='construction_satisfied', task_completion='unknown')
                 prior_layouts.add(signature)
                 break
@@ -292,17 +396,19 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                                            if row['status'] in ('geometry_rejected', 'physical_rejected')))
     result['asset_resamples'] = sum(row['status'] == 'asset_resampled' for row in attempts)
     result['packing_backtracks'] = sum(row['status'] == 'packing_backtrack' for row in attempts)
+    result['elapsed_s'] = time.monotonic() - variant_started
+    result['timings'] = timings
     write_json(path / 'result.json', result)
     return result
 
 
-def augment_obstacles(config, output_dir, *, run_id):
+def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot_config=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]+', run_id):
         raise ValueError('unsafe run ID')
     path = Path(output_dir).resolve() / 'diagnostics' / run_id
     path.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
-    no_edit = load_no_edit_config(config.baseline_config)
+    no_edit = geometry_config or load_no_edit_config(config.baseline_config)
     settle_config = SettleConfig(**config.settle)
     source = SceneSource.procthor(config.dataset_dir, config.house)
     initial_source_provenance = source.provenance()
@@ -317,7 +423,7 @@ def augment_obstacles(config, output_dir, *, run_id):
             baseline.close()
             raise ValueError('cached baseline source mismatch')
     else:
-        robot = RobotConfig(str(Path(config.asset_library).parent.parent / 'robots/rby1m/rby1_v1.2_site_control.xml'))
+        robot = robot_config or RobotConfig(str(Path(config.asset_library).parent.parent / 'robots/rby1m/rby1_v1.2_site_control.xml'))
         baseline = Simulation.from_source(source, robot, target=config.target_instance)
     summary = {'schema_version': config.schema_version, 'run_id': run_id, 'status': 'incomplete',
                'variants': [], 'agent_calls': 0, 'case_condition': 'unknown', 'task_completion': 'unknown',
@@ -370,6 +476,14 @@ def augment_obstacles(config, output_dir, *, run_id):
             return path
         write_json(path / 'baseline/regions.json', {k: v for k, v in regions.items() if k not in ('navigation_grid', 'placement_grid', 'corridor')})
         write_json(path / 'baseline/support_regions.json', [s.to_dict() for s in supports])
+        if policy and policy.rule_version == 'scene-cases-v3':
+            from ..construction.scene_eligibility import pick_type, PICK_TYPES, allowed_case1_support
+            if pick_type(task) not in PICK_TYPES:
+                summary.update(status='skipped', reason='pick_target_not_in_assumed_high_success_whitelist', accepted_count=0)
+                return path
+            if policy.case == 'Case1' and not allowed_case1_support(baseline, supports[0].support, policy.case1_support_types):
+                summary.update(status='skipped', reason='case1_support_not_countertop_or_table', accepted_count=0)
+                return path
         save_grid(path / 'baseline/navigation_grid.npz', regions['navigation_grid'])
         save_grid(path / 'baseline/placement_grid.npz', regions['placement_grid'])
         np.save(path / 'baseline/corridor_mask.npy', regions['corridor'])
@@ -383,6 +497,18 @@ def augment_obstacles(config, output_dir, *, run_id):
         assets = ThorLibrary(config.asset_library).retrieve(requests, path / 'assets', limit=config.assets_per_category, seed=config.seed,
                          registered_only=bool(policy and policy.registered_assets_only))
         geometry = asset_geometry(assets)
+        if policy and policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
+            # Refuse assets that cannot fit any real patch in either orientation.
+            extents = [(r.bounds[1] - r.bounds[0] - .02, r.bounds[3] - r.bounds[2] - .02) for r in supports]
+            def fits(g):
+                w, d = g['size']['width'], g['size']['depth']
+                return g['category'] in pool['ground'] or any((w <= a and d <= b) or (d <= a and w <= b) for a, b in extents)
+            excluded = [g['asset_id'] for g in geometry.values() if not fits(g)]
+            if policy.rule_version != 'scene-cases-v3':
+                geometry = {k: g for k, g in geometry.items() if fits(g)}
+            write_json(path / 'assets/footprint_filter.json', {'excluded': excluded, 'surface_extents_m': extents,
+                'applied': policy.rule_version != 'scene-cases-v3',
+                'scope': 'necessary_fit_only_not_placement_proof'})
         print(f'Baseline: {sum(s["geometry"] == "valid" for s in stations)}/{len(stations)} stations; {len(regions["points"])} points; {len(geometry)} assets', flush=True)
         surfaces = surface_points(supports, policy.surface_spacing_m if policy else no_edit.spacing_m)
         if policy and policy.case == 'Case1':
@@ -394,6 +520,7 @@ def augment_obstacles(config, output_dir, *, run_id):
                 ident = f'v{i:03d}'
                 print(f'{ident}: {summary["case"]}, seed={seed}', flush=True)
                 try:
+                    variant_started = time.monotonic()
                     result = _variant(session, baseline, task, config, no_edit, pool, geometry, regions,
                                       surfaces, stations, footprint, path / 'variants' / ident, ident, seed, prior_layouts)
                 except TimeoutError as exc:
@@ -403,7 +530,9 @@ def augment_obstacles(config, output_dir, *, run_id):
                     session.reject()
                     result = {'variant_id': ident, 'seed': seed, 'status': 'infrastructure_error',
                               'reason': type(exc).__name__ + ':' + str(exc)}
-                result.update(case=summary['case'], prefilter_count_before=prescreen_count, dense_candidate_count=len(stations))
+                result.update(case=summary['case'], prefilter_count_before=prescreen_count, dense_candidate_count=len(stations),
+                              elapsed_s=time.monotonic() - variant_started)
+                write_json(path / 'variants' / ident / 'result.json', result)
                 summary['variants'].append(result)
                 write_json(path / 'summary.json', summary)
                 print(f'{ident}: {result["status"]} {result.get("reason", "")}', flush=True)

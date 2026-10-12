@@ -10,6 +10,7 @@
 | `builds/` | 阶段二 v2 场景构建契约 | `BuildConfig` | [builds/README.md](builds/README.md) |
 | `stations/` | 阶段三 v3 固定底盘站位图 | `StationConfig` | [stations/README.md](stations/README.md) |
 | `no_edit/` | 无编辑原始场景采集（cuRobo/MolmoBot） | `NoEditConfig` | [no_edit/README.md](no_edit/README.md) |
+| `scene_datasets/` | 与策略无关的两场景构造配方、机器人／传感器绑定 | `SceneDatasetRecipe` | [scene-datasets-v1.md](../docs/datas/scene-datasets-v1.md) |
 | `policies/` | VLA 策略（MolmoBot）模型配置 | `MolmoBotConfig` | [policies/README.md](policies/README.md) |
 | `case_edits/` | 自动 case→场景编辑请求与阈值 | `SceneConstructionRequest` / `SettleConfig` / `ViewConfig` | [case_edits/README.md](case_edits/README.md) |
 
