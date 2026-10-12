@@ -112,7 +112,15 @@ def place_frozen_station(sim, station):
     if sim.started or sim.closed:
         raise RuntimeError('post-begin station placement prohibited')
     old = sim.data.qpos.copy()
+    old_velocity = sim.data.qvel.copy()
     sim.robot.initialize(copy.deepcopy(station['initial']))
+    # initialize() resets all qvel. A frozen station may change only the robot:
+    # keep object velocities, including nonzero residual frozen motion.
+    velocity_mask = np.ones(sim.model.nv, bool)
+    robot_dofs = [int(sim.model.jnt_dofadr[j]) for j in sim.robot.joints.values()]
+    velocity_mask[robot_dofs] = False
+    sim.data.qvel[velocity_mask] = old_velocity[velocity_mask]
+    mujoco.mj_forward(sim.model, sim.data)
     mask = np.ones(sim.model.nq,bool)
     mask[list(sim.robot.addresses.values())] = False
     if not np.array_equal(old[mask],sim.data.qpos[mask]):

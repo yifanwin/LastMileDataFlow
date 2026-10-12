@@ -30,6 +30,24 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    bench_build = sub.add_parser('build-lastmilebench', help='freeze a minimal MolmoBot-native benchmark from scene_datasets')
+    bench_build.add_argument('--dataset', required=True, type=Path)
+    bench_build.add_argument('--output', required=True, type=Path)
+    bench_build.add_argument('--policy-config', type=Path, default=ROOT/'configs/policies/molmobot.json')
+    bench_build.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))
+    bench_build.add_argument('--starts-per-sample', type=int, default=1)
+    bench_build.add_argument('--calibration-dir', type=Path)
+    bench_build.add_argument('--allow-uncalibrated-smoke', action='store_true')
+    bench_build.add_argument('--seed', type=int, default=20261012)
+    bench_build.add_argument('--horizon', type=int, default=400)
+    bench_build.add_argument('--wall-timeout-s', type=float, default=600.)
+    bench_build.add_argument('--radius-m', type=float, default=1.5)
+    bench_eval = sub.add_parser('evaluate-lastmilebench', help='real MolmoBot VLA episodes and task success rate')
+    bench_eval.add_argument('--benchmark', required=True, type=Path)
+    bench_eval.add_argument('--output', required=True, type=Path)
+    bench_eval.add_argument('--policy-config', type=Path, default=ROOT/'configs/policies/molmobot.json')
+    bench_eval.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))
+    bench_eval.add_argument('--log-dir', type=Path, default=ROOT/'outputs/logs')
     discovery = sub.add_parser('discover-scene-datasets', help='bounded task discovery with spatial target coverage; no strategy execution')
     discovery.add_argument('--config', required=True, type=Path)
     discovery.add_argument('--output', required=True, type=Path)
@@ -189,6 +207,18 @@ def parser():
 def main(argv=None):
     """按子命令分发。注意每个分支最后都返回退出码，供 CI/脚本判断。"""
     args = parser().parse_args(argv)
+    if args.command == 'build-lastmilebench':
+        from .workflows.lastmilebench import build
+        print(build(args.dataset,args.output,args.policy_config,gpu_ids=args.gpu_ids,
+            starts_per_sample=args.starts_per_sample,calibration_dir=args.calibration_dir,
+            allow_uncalibrated=args.allow_uncalibrated_smoke,seed=args.seed,horizon=args.horizon,
+            wall_timeout_s=args.wall_timeout_s,radius_m=args.radius_m))
+        return 0
+    if args.command == 'evaluate-lastmilebench':
+        from .workflows.lastmilebench import evaluate
+        output = evaluate(args.benchmark,args.output,args.policy_config,gpu_ids=args.gpu_ids,log_dir=args.log_dir)
+        print(read_json(output/'summary.json'))
+        return 0 if read_json(output/'summary.json')['complete'] else 1
     if args.command == 'discover-scene-datasets':
         from .workflows.scene_datasets import discover_scene_dataset
         print(discover_scene_dataset(args.config, args.output))
