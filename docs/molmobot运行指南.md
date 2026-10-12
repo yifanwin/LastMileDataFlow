@@ -45,7 +45,7 @@ bin/lastmile-dataflow no-edit-status "outputs/no_edit/$RUN_ID"
 | 参数 | 当前值 |
 |---|---:|
 | `radius_m`：采样半径 | 约 0.793 m |
-| `spacing_m`：采样间距 | 约 0.222 m |
+| `spacing_m`：采样间距 | 约 0.111 m |
 | `trials_per_station`：每位置次数 | 5 |
 | `attempt_timeout_s`：单次超时 | 300 秒 |
 | `width` / `height`：图像尺寸 | 1024 × 576 |
@@ -58,3 +58,8 @@ bin/lastmile-dataflow no-edit-status "outputs/no_edit/$RUN_ID"
 - 日志：`outputs/logs/$RUN_ID*.log`
 - 续跑：原命令使用同一 `RUN_ID`，追加 `--resume`。
 - 修改配置后使用新的 `RUN_ID`，不要覆盖旧结果。
+### 连续导航 + VLA 试验的错误处理
+
+`scripts/run_molmobot_station_transfer.py` 保留每轮原始结果：局部初始化、执行、录制错误或超时可继续下一轮；
+共享基础设施错误（`infrastructure_error` / `failure_scope=shared`）保存当前结果和摘要后停止，不复用失效模型连接。
+缺失导航证据时，摘要显示 `unknown`，不计为导航成功；提前停止由 `stopped_early` 和 `stop_reason` 标记。

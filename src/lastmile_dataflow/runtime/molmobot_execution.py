@@ -115,6 +115,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             ctx=SimpleNamespace(sim=sim,config=config,tick=nav_tick,
                 yaw_gap=lambda a,b:float((a-b+np.pi)%(2*np.pi)-np.pi),
                 hold_torso_target=lambda:float(station['initial']['torso'][0]))
+            mark_episode_phase('execution')
             navigation=navigate(ctx,path,goal)
             delta=np.asarray(goal['base'])-sim.robot.group('base')
             delta[2]=ctx.yaw_gap(goal['base'][2],sim.robot.group('base')[2])
@@ -244,9 +245,8 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         write_json(recorder.path/'final_state.json',state())
         if sim.model_hash: sim.save_snapshot(recorder.path/'final.npz')
         outcome={'status':status,'reason':reason,'verdict':verdict,'protocol':PROTOCOL,
-            # 'operation_backend':'molmobot','continuous_simulation':True,'navigation':navigation,
             'exception_detail':locals().get('exception_detail'),
-            'operation_backend':'molmobot','continuous_simulation':True,'navigation':{'status':'not_requested'},
+            'operation_backend':'molmobot','continuous_simulation':True,'navigation':navigation,
             'gripper_mode':policy.config.gripper_mode,'seed':seed,'elapsed_wall_s':time.monotonic()-started,
             'trajectory_metrics':contact_stats.metrics(task_success=status=='success' if status in ('success','failure') else None,
                 simulation_valid=False if status=='simulation_failure' else True if sim.started else None),

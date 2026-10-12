@@ -16,6 +16,31 @@ from lastmile_dataflow.policies.molmobot import MolmoBotClient
 from lastmile_dataflow.workflows.no_edit import task_seed
 
 
+def run_trials(baseline, task, start, goal, config, collection, out, policy, path):
+    """Retain local failures, but never reuse a failed shared model service."""
+    results=[]
+    for i in range(5):
+        seed=task_seed(config.seed,'val_103',task['task_id'],start['station_id']+'-'+goal['station_id'],i)
+        attempt=f'transfer-{start["station_id"]}-{goal["station_id"]}-t{i}-{uuid.uuid4().hex[:8]}'
+        print(f'Trial {i+1}/5 seed={seed}',flush=True)
+        row=run_vla_attempt(baseline,task,start,config,collection,out,attempt,seed=seed,policy=policy,path=path,goal=goal)
+        row['trial']=i+1;results.append(row);write_json(out/'trials.json',results)
+        def navigation(result):
+            return result.get('navigation') or {'status':'unknown','reason':result.get('reason','unavailable')}
+        nav=sum(navigation(r)['status']=='success' for r in results)
+        success=sum(r['status']=='success' and navigation(r)['status']=='success' for r in results)
+        shared_failure=row['status']=='infrastructure_error' or row.get('failure_scope')=='shared'
+        summary={'completed_trials':len(results),'requested_trials':5,'navigation_successes':nav,
+            'end_to_end_successes':success,'end_to_end_success_rate':success/len(results),
+            'navigation_success_rate':nav/len(results),'operation_success_rate_given_arrival':success/nav if nav else None,
+            'stopped_early':shared_failure and len(results)<5,
+            'stop_reason':row['reason'] if shared_failure else None,
+            'statuses':[{'trial':r['trial'],'status':r['status'],'reason':r['reason'],'navigation':navigation(r)} for r in results]}
+        write_json(out/'summary.json',summary); print(summary,flush=True)
+        if shared_failure: break
+    return results
+
+
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--source',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True); p.add_argument('--start',default='S0009')
@@ -65,23 +90,11 @@ def main():
         'stop_criteria':'Five trials; infrastructure errors recorded separately; no teleport/reset after begin.',
         'retention':'All outcomes, actions, physics, replay, videos and frozen input retained in this output directory.'})
     logs=out.parents[1]/'logs'; logs.mkdir(exist_ok=True)
-    results=[]; policy=None
+    policy=None
     try:
         policy=MolmoBotClient(config.policy_config,logs/(out.name+'-model.log'))
         write_json(out/'model_service.json',policy.metadata)
-        for i in range(5):
-            seed=task_seed(config.seed,'val_103',task['task_id'],start['station_id']+'-'+goal['station_id'],i)
-            attempt=f'transfer-{start["station_id"]}-{goal["station_id"]}-t{i}-{uuid.uuid4().hex[:8]}'
-            print(f'Trial {i+1}/5 seed={seed}',flush=True)
-            row=run_vla_attempt(baseline,task,start,config,collection,out,attempt,seed=seed,policy=policy,path=path,goal=goal)
-            row['trial']=i+1;results.append(row);write_json(out/'trials.json',results)
-            nav=sum(r['navigation']['status']=='success' for r in results)
-            success=sum(r['status']=='success' and r['navigation']['status']=='success' for r in results)
-            summary={'completed_trials':len(results),'requested_trials':5,'navigation_successes':nav,
-                'end_to_end_successes':success,'end_to_end_success_rate':success/len(results),
-                'navigation_success_rate':nav/len(results),'operation_success_rate_given_arrival':success/nav if nav else None,
-                'statuses':[{'trial':r['trial'],'status':r['status'],'reason':r['reason'],'navigation':r['navigation']} for r in results]}
-            write_json(out/'summary.json',summary); print(summary,flush=True)
+        run_trials(baseline,task,start,goal,config,collection,out,policy,path)
     finally:
         if policy: policy.close()
         baseline.close()

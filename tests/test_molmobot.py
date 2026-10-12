@@ -112,6 +112,8 @@ class NativeTests(unittest.TestCase):
         station={'station_id':'S0000','base':[0,0,0],'xy':[0,0], 'initial':{'torso':[0.]}}
         frames={k:np.zeros((16,16,3),dtype=np.uint8) for k in self.sim.robot.camera_names}
         def navigation(ctx,path,goal):
+            from lastmile_dataflow.runtime.episode_guard import episode_phase
+            self.assertEqual(episode_phase(),'execution')
             ctx.tick(np.zeros(20))
             return {'status':'success','actual_base':self.sim.robot.group('base').tolist()}
         with patch('lastmile_dataflow.runtime.molmobot_execution.clone_sim',return_value=self.sim), \
@@ -122,11 +124,38 @@ class NativeTests(unittest.TestCase):
                 root,'transfer',seed=1,policy=policy,path={'xy':[[0,0],[0,0]]},goal=station)
         place.assert_called_once()
         self.assertEqual(result['navigation']['status'],'success')
+        self.assertEqual(read_json(Path(result['attempt'])/'outcome.json')['navigation'],result['navigation'])
         self.assertEqual(result['executed_steps'],2,result)
         self.assertAlmostEqual(read_json(Path(result['attempt'])/'initial_state.json')['time_s'],0.)
         self.assertAlmostEqual(read_json(Path(result['attempt'])/'operation_initial_state.json')['time_s'],.1)
         times=np.load(Path(result['attempt'])/'replay.npz')['time_s']
         self.assertTrue(np.all(np.diff(times)>=0))
+
+    def test_navigation_execution_error_is_not_initialization_error(self):
+        from types import SimpleNamespace
+        from lastmile_dataflow.config import CollectionConfig
+        from lastmile_dataflow.runtime.molmobot_execution import run_vla_attempt
+        root=Path(self.tmp.name)/'navigation-error'; self.sim.freeze(root/'scene')
+        config=replace(load_no_edit_config(ROOT/'configs/no_edit/molmobot.json'),third_person_enabled=False)
+        pc=replace(load_policy_config(ROOT/'configs/policies/molmobot.json'),task_horizon=1)
+        policy=SimpleNamespace(config=pc,metadata={},action=lambda *a,**kw:self.fail('policy must not run'))
+        task={'operation':'pick','target_body':'target','anchor_world':[2,0,.15],
+              'category':'Cup','instance_id':'target','task_id':'pick-fixture'}
+        station={'station_id':'S0000','base':[0,0,0],'xy':[0,0], 'initial':{'torso':[0.]}}
+        frames={k:np.zeros((16,16,3),dtype=np.uint8) for k in self.sim.robot.camera_names}
+        def navigation(ctx,path,goal):
+            ctx.tick(np.zeros(20))
+            raise RuntimeError('injected navigation execution error')
+        with patch('lastmile_dataflow.runtime.molmobot_execution.clone_sim',return_value=self.sim), \
+             patch('lastmile_dataflow.runtime.molmobot_execution.place_frozen_station'), \
+             patch('lastmile_dataflow.runtime.molmobot_execution.navigate',side_effect=navigation), \
+             patch.object(self.sim,'render',return_value=frames):
+            result=run_vla_attempt(self.sim,task,station,config,CollectionConfig(record_video=False),
+                root,'navigation-error',seed=1,policy=policy,path={'xy':[[0,0],[0,0]]},goal=station)
+        self.assertEqual(result['status'],'episode_error',result)
+        self.assertEqual(result['exception_detail']['attribution']['phase'],'execution')
+        self.assertEqual(result['navigation']['status'],'unknown')
+        self.assertEqual(result['executed_steps'],1)
 
     def test_rejected_prediction_retained_without_fake_execution(self):
         import json
@@ -233,7 +262,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(sum(values['pick']['state_spec'].values()),22)
         self.assertEqual(values['open']['max_conditioning_points'],1)
         sampling=load_no_edit_config(ROOT/'configs/no_edit/molmobot.json')
-        self.assertEqual((sampling.radius_m,sampling.trials_per_station),(2.,5))
+        self.assertAlmostEqual(sampling.radius_m,0.7928056080178096)
+        self.assertAlmostEqual(sampling.spacing_m,0.1108796040001314)
+        self.assertEqual(sampling.trials_per_station,5)
         self.assertEqual(sampling.operation_base_mode,'policy_relative')
 
     def test_native_resolution_and_backend_mode_fail_closed(self):
