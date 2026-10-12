@@ -30,6 +30,12 @@
 | `penetration_floor_m` | `0.010` | 上述阈值的下限（m）。 |
 | `penetration_ceiling_m` | `0.030` | 上述阈值的上限（m）。 |
 | `feedback_warning_rad` | `0.05` | 头/躯干反馈偏差超此值记告警（不终止）。 |
+| `raw_first` | `true` | 实时保留 raw/canonical 证据；关闭仅适用于诊断，产物不能作为完整 canonical 数据。 |
+| `record_depth` | `true` | 保存启用相机的原始 depth 与有效 mask；关闭时明确记录 unavailable，不补造深度。 |
+
+Raw-first 的无损图像、完整状态及逐 tick 接触会增加磁盘和渲染开销；`record_video=false` 不关闭这些证据。
+现有 `protocol_version` 是旧轻量检查版本，新数据 schema 单独记录为 `raw-first-canonical/1.0.0`。
+详见 [采集与 MolmoBot Adapter 使用说明](../../docs/raw-first-implementation.md)。
 
 重叠阈值 `clip(scale × ratio, floor, ceiling)` 是**尺度相关的启发式，尚未逐类别校准**，
 只在初始化过滤（`inspect_state(..., initialization=True)`）时生效；运行期不按穿透毫米数终止。

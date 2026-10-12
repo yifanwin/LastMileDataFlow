@@ -132,6 +132,7 @@ def run_station_attempt(snapshot,robot,config,collection,station,side,h,gid,root
                 write_json(recorder.path/'initial_state.json',sim.observe_state())
                 sim.save_snapshot(recorder.path/'station_initial.npz')
                 replay.append((float(sim.data.time),sim.data.qpos.copy(),'initial'))
+                recorder.bind_simulation(sim)
                 sim.begin(); execution='failure'; phase='torso_adjust'
                 q0=sim.robot.group(side+'_arm').copy(); h0=float(sim.robot.group('torso')[1])
                 for value in np.linspace(h0,h,max(2,int(abs(h-h0)/.00125)+1))[1:]: tick(q0,-.05,float(value))

@@ -25,6 +25,7 @@
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
 - [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
 - [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。
+- [cuRobo Raw-first 统一采集协议](docs/canonical-data-protocol.md) · [使用说明](docs/raw-first-implementation.md)：新采集默认无损 RGB/depth、完整状态与实时标定；仅实现 MolmoBot Adapter，旧 20D 接口保留，CUDA/VLA 端到端待验收。
 - [阶段二运行、v2 构建配置与边界](docs/phase2.md) · [阶段二交付总结](reports/phase2/phase2-delivery.md)。
 - [阶段三站位图、原生 cuRobo 与成败采集](docs/phase3.md) · [阶段三交付报告](reports/phase3/phase3-delivery.md)。
 - [阶段一交付总结](reports/phase1/phase1-delivery.md)。

@@ -34,6 +34,18 @@ def parser():
     obstacles.add_argument('--config', required=True, type=Path)
     obstacles.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
     obstacles.add_argument('--run-id', required=True)
+    canonical_audit = sub.add_parser('audit-canonical', help='read-only raw-first timing, arrays, cameras and integrity audit')
+    canonical_audit.add_argument('attempt', type=Path)
+    canonical_index = sub.add_parser('index-canonical', help='all-outcome index, separate from success-only training index')
+    canonical_index.add_argument('run', type=Path)
+    molmobot_export = sub.add_parser('export-molmobot', help='derive MolmoBot state22/images/native action without changing source')
+    molmobot_export.add_argument('--attempt', required=True, type=Path)
+    molmobot_export.add_argument('--output', required=True, type=Path)
+    molmobot_export.add_argument('--state-images-only', action='store_true', help='no invented motor action for position grippers')
+    molmobot_export.add_argument('--gripper-map', type=Path, help='explicit calibrated position-to-motor JSON mapping')
+    molmobot_export.add_argument('--seed', type=int, default=0)
+    molmobot_export.add_argument('--chunk-length', type=int, default=16)
+    molmobot_export.add_argument('--conditioning-point', nargs=2, type=float, metavar=('X', 'Y'), help='open: normalized first raw head image point')
     raw = sub.add_parser('collect-no-edit', help='raw val scenes: station trials, Gaussian maps and continuous 1–3 successful rollouts')
     raw.add_argument('--assets-dir', required=True, type=Path)
     raw.add_argument('--dataset-dir', type=Path)
@@ -156,13 +168,31 @@ def main(argv=None):
     args = parser().parse_args(argv)
     if args.command == 'augment-obstacles':
         from .construction.obstacle_config import load_obstacle_config
-        from .workflows.obstacle_augmentation import augment_obstacles
         path = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)
         print(path)
         return 0 if read_json(path/'summary.json')['status'] == 'completed' else 1
+    if args.command == 'audit-canonical':
+        import json
+        report = audit_canonical(args.attempt)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report['valid'] else 1
+    if args.command == 'index-canonical':
+        from .exporting.canonical_index import rebuild_canonical_index
+        print(rebuild_canonical_index(args.run))
+        return 0
+    if args.command == 'export-molmobot':
+        from .integrations.molmobot_dataset import export_molmobot
+        try:
+            print(export_molmobot(args.attempt, args.output,
+                state_images_only=args.state_images_only,
+                gripper_map=read_json(args.gripper_map) if args.gripper_map else None,
+                seed=args.seed, chunk_length=args.chunk_length, conditioning_point=args.conditioning_point))
+        except (ValueError, OSError) as exc:
+            print('export-molmobot: ' + str(exc))
+            return 1
+        return 0
     if args.command == 'no-edit-status':
         import json
-        print(json.dumps(read_json(args.run/'summary.json'),ensure_ascii=False,indent=2))
         return 0
     if args.command == 'collect-no-edit':
         from .stations.no_edit_config import load_no_edit_config

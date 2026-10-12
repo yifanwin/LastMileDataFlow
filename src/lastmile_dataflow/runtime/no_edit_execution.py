@@ -85,6 +85,9 @@ class ContinuousContext:
 
     def tick(self,action,*,fixed_base=False):
         raw_action=np.asarray(action, dtype=float).copy()
+        evidence = getattr(self.recorder, 'canonical_recorder', None)
+        if evidence is not None:
+            evidence.intent(raw_action, producer='curobo_execution', metadata={'phase': self.phase, 'stage': 'before_sanitize'})
         v2=self.config.planner_backend == 'curobo_v2_v080'
         if v2:
             action=raw_action.copy()
@@ -134,7 +137,7 @@ class ContinuousContext:
                     facts['joint_value']=float(self.sim.data.qpos[self.open_joint]); row['joint_value']=facts['joint_value']
             self.physics.write(canonical(row)+b'\n')
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
-        command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check)
+        command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
         if v2:
             self.last_legal_torso_target=float(action[19])
         self.physics.flush(); after=self.state()
@@ -210,11 +213,7 @@ class ContinuousContext:
         return scale
 
     def state(self):
-        if self.record_png: return self.sim.observe_state()
-        sim=self.sim; target=sim.target_id
-        return {'time_s':float(sim.data.time),'robot':sim.robot.state(),
-                'target':{'mjcf_body':sim.model.body(target).name,
-                          'pose_world_xyz_wxyz':np.r_[sim.data.xpos[target],sim.data.xquat[target]].tolist()}}
+        return self.sim.observe_state()
 
     def plan(self,planner,goal):
         self.deadline()
@@ -441,6 +440,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
             'scene_version':read_json(root/'scene/version.json')['version_id']}
     from ..exporting.no_edit_layout import attempt_group,index_attempt
     recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
+    recorder.bind_simulation(sim, width=config.width, height=config.height)
     write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),'source':sim.source.provenance(),
                'initialization_only':station['base'],'no_scene_edits':True})
     ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=bool(path))

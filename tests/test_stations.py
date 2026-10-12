@@ -178,7 +178,9 @@ class PlanningGateTests(unittest.TestCase):
             sim,robot=make_sim(d);scene=Path(d)/'scene';sim.freeze(scene);sim.close()
             cfg=config(torso_heights=[0],render_video=False);sample={'station_id':'S000','base':[0,0,0],'level':'probe'}
             with patch('lastmile_dataflow.stations.execution.load_grasps',return_value={794:np.eye(4)}),patch('lastmile_dataflow.stations.execution.filter_station',return_value={'status':'valid'}),patch('lastmile_dataflow.stations.execution.PickMonitor',SyntheticFailureMonitor):
-                path=run_station_attempt(scene,robot,cfg,CollectionConfig(output_dir=d),sample,'left',0,794,d,'failed',Budget(cfg),planner_factory=Planned)
+                # This offline test checks physical failure preservation, not rendering.
+                with patch('lastmile_dataflow.runtime.simulation.Simulation.capture_sensors', side_effect=RuntimeError('offline fixture has no renderer')):
+                    path=run_station_attempt(scene,robot,cfg,CollectionConfig(output_dir=d),sample,'left',0,794,d,'failed',Budget(cfg),planner_factory=Planned)
             result=json.loads((path/'result.json').read_text());self.assertEqual(result['status'],'executed_failure')
             self.assertEqual(result['executed_steps'],1);self.assertTrue((path/'final_snapshot.npz').exists());self.assertTrue((path/'replay.npz').exists())
             self.assertTrue((path/'trajectory.jsonl').read_text())

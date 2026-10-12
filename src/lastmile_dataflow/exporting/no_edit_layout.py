@@ -71,6 +71,8 @@ def export_rollout(run_path, scene_name, task, segment, *, eligible):
             'schema_version':'no-edit-dataset-v2', 'instruction':task['instruction'],
             'task':task, 'source_attempt':str(source), 'task_eligible_at_export':eligible,
             'trajectory':'rollout/trajectory.jsonl', 'observations':'rollout/observations.json',
+            'canonical_manifest':'rollout/canonical/manifest.json' if (temporary / 'rollout/canonical/manifest.json').is_file() else None,
+            'canonical_checksums':'rollout/canonical/checksums.json' if (temporary / 'rollout/canonical/checksums.json').is_file() else None,
             'videos':{camera:str(Path('rollout') / entry['path']) for camera, entry in media['cameras'].items()},
             'video_metadata':'rollout/videos.json', 's0':segment['start'], 's1':segment['goal'],
             'path':segment['path'], 's0_failure_evidence':failures})

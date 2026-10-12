@@ -45,6 +45,10 @@ class Simulation:
         self.state_spec = mujoco.mjtState.mjSTATE_INTEGRATION  # 快照包含的完整积分状态
         self.model_hash = None
         self._clock_remainder = 0.0  # 控制周期与物理步长之间的余数，保证长期平均控制频率
+        self.evidence_recorder = None
+        self._raw_frame_cache = None
+        self._sensor_result = None
+        self._capture_depth_requested = False
 
     @classmethod
     def from_source(cls, source, robot_config, *, target=None, restoration=None):
@@ -221,10 +225,12 @@ class Simulation:
         """进入连续执行阶段。此调用不可逆——之后禁止一切重置操作。"""
         if self.started or self.closed:
             raise RuntimeError("simulation already started or closed")
+        if self.evidence_recorder is not None:
+            self.evidence_recorder.capture()
         self.started = True
         self.robot.execution_started = True
 
-    def step(self, action, *, fixed_base=False, substep_check=None):
+    def step(self, action, *, fixed_base=False, substep_check=None, command_raw=None):
         """推进一个控制周期：下发动作，再按物理步长细分执行。
 
         【为什么不是一步一个物理步】
@@ -239,25 +245,13 @@ class Simulation:
         """
         if not self.started or self.closed:
             raise RuntimeError("step requires active continuous attempt")
-        command = self.robot.apply(action, fixed_base=fixed_base)
-        before = float(self.data.time)
+        command, request_id, submitted_id = self._submit(action, fixed_base=fixed_base, command_raw=command_raw)
         self._clock_remainder += 1 / self.robot.config.control_hz
         n = int((self._clock_remainder + 1e-12) / self.model.opt.timestep)
         self._clock_remainder -= n * self.model.opt.timestep
-        stop = None
-        for _ in range(n):
-            mujoco.mj_step(self.model, self.data)
-            if substep_check:
-                check = substep_check()
-                if not check["valid"]:
-                    stop = check
-                    break
-        # mj_step 的 xpos 可能是最后一步积分前状态；先 forward 再记录现场。
-        mujoco.mj_forward(self.model, self.data)
-        command.update(time_before_s=before, time_after_s=float(self.data.time))
-        return command, stop
+        return self._advance(command, request_id, submitted_id, [n], substep_check)
 
-    def step_policy(self, action, *, substep_check=None):
+    def step_policy(self, action, *, substep_check=None, command_raw=None):
         """MolmoBot: set relative targets once, 5 control ticks × 5 physics ticks.
 
         No repeated relative accumulation, teleport, or simulation reset.
@@ -268,23 +262,67 @@ class Simulation:
             raise ValueError('step_policy requires native MolmoBot profile')
         if not np.isclose(self.model.opt.timestep, .004) or self.robot.config.control_hz != 10:
             raise ValueError('MolmoBot timing requires 100/20/4 ms')
-        command = self.robot.apply(action)
+        command, request_id, submitted_id = self._submit(action, command_raw=command_raw)
+        command['timing_ms'] = {'policy': 100, 'control': 20, 'physics': 4}
+        return self._advance(command, request_id, submitted_id, [5] * 5, substep_check)
+
+    def _submit(self, action, *, fixed_base=False, command_raw=None):
+        recorder = self.evidence_recorder
+        request_id = recorder.requested(action if command_raw is None else command_raw, fixed_base=fixed_base) if recorder else None
+        try:
+            if recorder and (float(self.model.opt.timestep) != recorder.timing['physics_dt'] or
+                             self.robot.config.control_hz != recorder.config['robot']['control_hz'] or
+                             self.robot.config.control_profile != recorder.config['robot']['control_profile']):
+                recorder.errors.append({'kind': 'timing_or_controller_mutation'})
+                raise ValueError('raw-first live-v1 freezes physics_dt, frequency and controller profile')
+            command = self.robot.apply(action, fixed_base=fixed_base)
+        except Exception as exc:
+            if recorder:
+                recorder.event('command_rejected', command_raw_id=request_id, error_type=type(exc).__name__, error=str(exc))
+            raise
+        if command_raw is not None:
+            command['command_preprocessed'] = np.asarray(action).tolist()
+        submitted_id = recorder.submitted(command, request_id) if recorder else None
+        return command, request_id, submitted_id
+
+    def _advance(self, command, request_id, submitted_id, tick_groups, substep_check):
+        """Keep physical semantics, retain completed ticks even if a callback raises."""
+        recorder = self.evidence_recorder
         before = float(self.data.time)
+        start_frame = recorder.frame_id if recorder else None
+        start_groups = recorder.last_groups if recorder else None
+        actual_ticks, controls = 0, []
         stop = None
-        for _ in range(5):
-            self.data.ctrl[:] = command['ctrl']
-            for _ in range(5):
-                mujoco.mj_step(self.model, self.data)
-                if substep_check:
-                    check = substep_check()
-                    if not check['valid']:
-                        stop = check
-                        break
-            if stop:
-                break
-        mujoco.mj_forward(self.model, self.data)
-        command.update(time_before_s=before, time_after_s=float(self.data.time),
-                       timing_ms={'policy':100, 'control':20, 'physics':4})
+        error = None
+        try:
+            for ticks in tick_groups:
+                self.data.ctrl[:] = command['ctrl']
+                if recorder:
+                    controls.append(recorder.control(submitted_id, ticks=ticks))
+                for _ in range(ticks):
+                    mujoco.mj_step(self.model, self.data)
+                    actual_ticks += 1
+                    if recorder:
+                        recorder.physics_tick()
+                    if substep_check:
+                        check = substep_check()
+                        if not check['valid']:
+                            stop = check
+                            break
+                if stop:
+                    break
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            mujoco.mj_forward(self.model, self.data)
+            command.update(time_before_s=before, time_after_s=float(self.data.time),
+                           requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
+                           completion='partial' if stop or error else 'complete')
+            if recorder:
+                recorder.executed(command=command, request_id=request_id, submitted_id=submitted_id,
+                    controls=controls, start_frame=start_frame, start_groups=start_groups, t_start=before,
+                    requested_ticks=sum(tick_groups), actual_ticks=actual_ticks, stopped=stop, exception=error)
         return command, stop
 
     def observe_state(self):
@@ -328,15 +366,24 @@ class Simulation:
 
     def render(self, width, height):
         """用机器人配置里的三台相机各渲染一帧 RGB（头相机 + 左右腕相机）。"""
-        if self.renderer is None:
-            self.renderer = mujoco.Renderer(self.model, height=height, width=width)
-        frames = {}
-        for alias, camera in self.robot.camera_names.items():
-            self.renderer.update_scene(self.data, camera=camera)
-            frames[alias] = self.renderer.render().copy()
-        if self.third_person_camera is not None:
-            frames[self.third_person_camera.name] = self.third_person_camera.render(self,self.renderer,width,height)
-        return frames
+        if self._raw_frame_cache is not None:
+            time_s, w, h, frames = self._raw_frame_cache
+            if time_s == float(self.data.time) and (w, h) == (width, height):
+                return {k: v.copy() for k, v in frames.items()}
+        from ..recording.calibration import capture_sensors
+        samples = capture_sensors(self, width, height, depth=self._capture_depth_requested)
+        self._sensor_result = (float(self.data.time), width, height, samples)
+        return {k: sample['rgb'] for k, sample in samples.items()}
+
+    def capture_sensors(self, width, height, *, depth=True):
+        self._capture_depth_requested = depth
+        try:
+            self.render(width, height)
+        finally:
+            self._capture_depth_requested = False
+        if self._sensor_result is None or self._sensor_result[:3] != (float(self.data.time), width, height):
+            raise RuntimeError('raw calibration unavailable from overridden renderer')
+        return self._sensor_result[3]
 
     def enable_third_person(self,config=None):
         """Reusable optional observer, independent of the robot's fixed MJCF cameras."""

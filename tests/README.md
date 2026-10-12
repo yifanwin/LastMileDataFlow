@@ -9,6 +9,15 @@
 
 单元测试可离线且无需 GPU；真实验收依赖外部资产和 GPU 渲染，结果分开报告。
 
+## Raw-first 统一采集协议
+
+`test_canonical_data.py` 使用简化模型、真实 MuJoCo stepping 与明确的 MOCK RGB/depth，
+覆盖完整 qpos/qvel、12/13 ticks、native 三层时钟、partial/拒绝/异常、缺失传感器、标定、深度 mask、
+原始摘要不变、全 outcome 索引、MolmoBot 22D/20D/chunk、显式夹爪映射、open 点提示与只读 upstream warp 对照。
+它不证明真实机器人、CUDA 规划或 VLA 推理成功。
+`canonical_real_smoke.py` 要求显式冻结 scene 和新输出目录，最多10步，检查真实 stepping、RGB/depth/标定及审计，
+不调用 cuRobo/VLA，不给任务成功标签。运行方式见 [使用说明](../docs/raw-first-implementation.md)。
+
 ## 阶段二
 
 `test_construction.py` 增加四类规则模板、事务/跨模型回滚、落位/稳定性/邻居保护、过期或非法决策、

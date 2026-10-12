@@ -81,6 +81,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
                                  task_id=task.task_id, initial_base=sim.robot.group("base").tolist())
         write_json(recorder.path / "attempt.json", recorder.metadata)
         write_json(recorder.path / "initial_state.json", sim.observe_state())
+        recorder.bind_simulation(sim)
         if initialization["status"] != "valid":
             # 初态不合法：直接归类 invalid_initialization，不进入执行。
             results["scene_validity"] = {"status": "invalid", "reason": "initialization_rejected"}
@@ -134,7 +135,7 @@ def run_attempt(source, robot_config, task, collection, *, actions=None, base=No
                 warning_count += sum(i["severity"] == "warning" for c in checks for i in c["issues"])
                 after = sim.observe_state()
                 # 先落盘动作/状态；渲染或编码出错不会抹去已发生的运动。
-                recorder.record_step(raw_action=command["submitted_action"], command=command,
+                recorder.record_step(raw_action=raw, command=command,
                                      before=before, after=after, check=check,
                                      observations={"index_step": index + 1, "manifest": "observations.json"})
                 stage = "render"
