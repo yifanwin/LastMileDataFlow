@@ -91,6 +91,43 @@ class NativeTests(unittest.TestCase):
         np.testing.assert_array_equal(s.data.ctrl,before)
         for k,v in cache.items():np.testing.assert_array_equal(s.robot._native_stationary_targets[k],v)
 
+    def test_navigation_and_policy_share_continuous_simulation(self):
+        import json
+        from types import SimpleNamespace
+        from lastmile_dataflow.config import CollectionConfig
+        from lastmile_dataflow.io import read_json
+        from lastmile_dataflow.runtime.molmobot_execution import run_vla_attempt
+        root=Path(self.tmp.name)/'transfer'; self.sim.freeze(root/'scene')
+        config=replace(load_no_edit_config(ROOT/'configs/no_edit/molmobot.json'),third_person_enabled=False)
+        pc=replace(load_policy_config(ROOT/'configs/policies/molmobot.json'),task_horizon=1)
+        def policy_action(*args,**kwargs):
+            self.assertTrue(self.sim.started)
+            self.assertAlmostEqual(float(self.sim.data.time),.1)
+            a=np.zeros(20)
+            return {'action':a,'raw_action':a.copy(),'processed_images':[],
+                    'conditioning_points':None,'model_prompt':'Pick up the cup.'}
+        policy=SimpleNamespace(config=pc,metadata={},action=policy_action)
+        task={'operation':'pick','target_body':'target','anchor_world':[2,0,.15],
+              'category':'Cup','instance_id':'target','task_id':'pick-fixture'}
+        station={'station_id':'S0000','base':[0,0,0],'xy':[0,0], 'initial':{'torso':[0.]}}
+        frames={k:np.zeros((16,16,3),dtype=np.uint8) for k in self.sim.robot.camera_names}
+        def navigation(ctx,path,goal):
+            ctx.tick(np.zeros(20))
+            return {'status':'success','actual_base':self.sim.robot.group('base').tolist()}
+        with patch('lastmile_dataflow.runtime.molmobot_execution.clone_sim',return_value=self.sim), \
+             patch('lastmile_dataflow.runtime.molmobot_execution.place_frozen_station') as place, \
+             patch('lastmile_dataflow.runtime.molmobot_execution.navigate',side_effect=navigation), \
+             patch.object(self.sim,'render',return_value=frames):
+            result=run_vla_attempt(self.sim,task,station,config,CollectionConfig(record_video=False),
+                root,'transfer',seed=1,policy=policy,path={'xy':[[0,0],[0,0]]},goal=station)
+        place.assert_called_once()
+        self.assertEqual(result['navigation']['status'],'success')
+        self.assertEqual(result['executed_steps'],2,result)
+        self.assertAlmostEqual(read_json(Path(result['attempt'])/'initial_state.json')['time_s'],0.)
+        self.assertAlmostEqual(read_json(Path(result['attempt'])/'operation_initial_state.json')['time_s'],.1)
+        times=np.load(Path(result['attempt'])/'replay.npz')['time_s']
+        self.assertTrue(np.all(np.diff(times)>=0))
+
     def test_rejected_prediction_retained_without_fake_execution(self):
         import json
         from types import SimpleNamespace
