@@ -1,40 +1,54 @@
 # LastMileDataFlow
 
+## 当前状态（2026-10-12）
+
+**原定五阶段数据采集管线目前属于失败、半废弃状态，不是已交付或持续推进中的完整可用管线。**
+历史阶段代码、测试和报告保留供参考与局部复用；局部实现或单次验收不代表五阶段端到端闭环成立。
+下文的阶段文档与交付报告均应按历史记录阅读，不能据此宣称整条管线成功或默认继续原五阶段路线。
+
+当前独立入口包括无场景编辑采集、程序化障碍物增强和 MolmoBot 站位评测；它们不代表原五阶段管线恢复，
+各自可用范围及真实结果仍以对应文档和 run 证据为准。旧场景编辑与阶段入口保留，不作为推荐的完整采集路线。
+
+## 独立采集与评测入口
+
+当前命令入口见[运行手册（cuRobo + MolmoBot 合并版）](docs/运行手册.md)；其中本机 worktree、环境和 GPU 参数须按实际部署调整。
+数据契约集中于 `docs/datas/`，历史设计与旧运行说明集中于 `docs/archives/`。
+
 纯程序化障碍物增强使用独立 `augment-obstacles` 入口，不调用 Agent；配置位于 `configs/case_edits/procedural_obstacles_*.json`。
-方法、运行和证据边界见 [docs/procedural-obstacles.md](docs/procedural-obstacles.md)。
+构造与审计命令见[增强场景构造运行指南](docs/增强场景构造运行指南.md)。
 最新 [稠密站位 Case1 / Case2 验收报告](reports/obstacle_augmentation/2026-10-11-dense-cases/REPORT.md)：各 5 份、60 张真实 RGB；全 161 点独立初始化与覆盖压缩已验证，导航／抓取未验证。
 
-新增可选 [MolmoBot VLA 站位操作评测](docs/molmobot-station-evaluation.md)：
+可选 [MolmoBot VLA 站位操作评测（归档说明）](docs/archives/molmobot-station-evaluation.md)：
 `configs/no_edit/molmobot.json`，2 m / 每点5次、原生 motor 夹爪、1024×576 + upstream
 头部鱼眼、独立物理验收及热图。仅站位评测，不调用 cuRobo 或 A*；真实状态以 run 为准。
 
-新增独立的[原始 val 场景无编辑采集](docs/no-edit-collection.md)：`collect-no-edit` 枚举 pick/open，
+独立的[原始 val 场景无编辑采集（归档说明）](docs/archives/no-edit-collection.md)：`collect-no-edit` 枚举 pick/open，
 执行 2 m 均匀站位评测、Gaussian 成功率热图与 A* 连续移动操作。
 操作由 cuRobo 联合规划底盘 x/y/yaw 与单臂；连续移动+操作及 S0 真实失败操作保存 head、双夹爪、第三人称分析四路视频，并记录整体生成时间。新 run 使用物体语义目录名、pick/open 站位分层、成功/失败快捷入口和独立 `datasets/` rollout 包；地图提供普通版及逐点站位标注版，不生成 HTML。
 至少 **1 段**真实成功示教即可纳入数据集，优先采 **3 段**。旧场景编辑入口保留不变。
 源码/单元测试通过不表示全量场景或真实 open/导航已验证；实际状态看对应 run 的 `summary.json`。
 
-面向**完整五阶段数据采集管线**的独立工程，当前实现第一阶段底座、第二阶段规则式场景构建与第三阶段 case1 固定底盘成败采集：原始场景加载、RBY-1 20 维动作、
+## 历史五阶段设计与局部实现
+
+本工程原计划构建完整五阶段数据采集管线，但该路线目前已失败、半废弃。历史代码包含第一阶段底座、第二阶段规则式场景构建与第三阶段 case1 固定底盘成败采集的局部实现：原始场景加载、RBY-1 20 维动作、
 可回滚编辑/静置验收、任务候选冻结与独立恢复、轨迹/相机/视频/结果记录。
 
-- [无场景编辑数据构造运行手册](docs/无场景编辑数据构造运行手册.md)：val103/单目标/全量启动、四路视频检查、停止续跑与故障排查。
 - [代码导览（初学者版）](docs/代码导览.md)：代码树、架构图、数据流图、流程图、时序图与推荐阅读顺序。
-- [Case 构造完整设计](docs/case-to-edit-pipeline.md)：四个 Agent、局部上下文、观察基准、资产与独立任务验收。
-- [当前实施计划](docs/case-to-edit-pipeline-plan.md)：目标 case1、case1.5、case3；构造通过不表示真实移动操作验证通过。
-- [Case 编辑运行说明](docs/case-edit-pipeline.md)：唯一 `case-edit` 入口和单场景请求。
+- [Case 构造完整设计](docs/archives/case-to-edit-pipeline.md)：四个 Agent、局部上下文、观察基准、资产与独立任务验收。
+- [Case 编辑运行说明](docs/archives/case-edit-pipeline.md)：唯一 `case-edit` 入口和单场景请求。
 - [完整架构与目录职责](docs/architecture.md)：五阶段数据流、功能边界、依赖方向和后续扩展目录。
-- [第一阶段运行与验收](docs/phase1.md)：实现范围、验证方式和限制。
-- [配置与数据格式 v1](docs/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。
-- [cuRobo Raw-first 统一采集协议](docs/canonical-data-protocol.md) · [使用说明](docs/raw-first-implementation.md)：新采集默认无损 RGB/depth、完整状态与实时标定；仅实现 MolmoBot Adapter，旧 20D 接口保留，CUDA/VLA 端到端待验收。
-- [阶段二运行、v2 构建配置与边界](docs/phase2.md) · [阶段二交付总结](reports/phase2/phase2-delivery.md)。
-- [阶段三站位图、原生 cuRobo 与成败采集](docs/phase3.md) · [阶段三交付报告](reports/phase3/phase3-delivery.md)。
-- [阶段一交付总结](reports/phase1/phase1-delivery.md)。
+- [第一阶段运行与验收](docs/archives/phase1.md)：实现范围、验证方式和限制。
+- [配置与数据格式 v1](docs/datas/data-format.md)：动作语义、attempt 格式、状态分类和快照协议。
+- [cuRobo Raw-first 统一采集协议](docs/datas/canonical-data-protocol.md) · [使用说明](docs/datas/raw-first-implementation.md)：新采集默认无损 RGB/depth、完整状态与实时标定；仅实现 MolmoBot Adapter，旧 20D 接口保留，CUDA/VLA 端到端待验收。
+- [阶段二运行、v2 构建配置与边界](docs/archives/phase2.md) · [阶段二交付总结](reports/archives/phase2/v1.0/phase2-delivery.md)。
+- [阶段三站位图、原生 cuRobo 与成败采集](docs/archives/phase3.md) · [阶段三交付报告](reports/archives/phase3/phase3-delivery.md)。
+- [阶段一交付总结](reports/archives/phase1/phase1-delivery.md)。
 
 **不依赖 `lastmile_pipeline` 的代码、运行入口、配置、人工批准或历史输出。**
 仅借鉴旧工程的控制/快照思路；旧样例以小型输入 fixture 的形式保留一次性转换回归。
 MuJoCo、NumPy、imageio/ffmpeg、jsonschema 是显式第三方依赖；ProcTHOR 与机器人模型是只读外部资产。
 
-## 快速运行
+## 历史底座入口（局部运行，不代表管线可用）
 
 从 `LastMileDataFlow/` 执行：
 
@@ -119,9 +133,10 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=1 PYTHONPATH=src \
 ```
 
 真实验证每个 attempt 最多 6 步，不重跑旧抓取/导航，不继承旧成功标签。
-第二阶段规则式编辑与严格 Agent 协议已实现；本次 Cup 静置图已完成外部视觉模型语义复查。
-第三阶段 case1 原生 cuRobo、站位图、真实成败采集和浏览导出已实现；case2/3/1.5 的真实任务覆盖仍未知。
-第四、五阶段的 VLA、连续导航示教和批量发布仍未实现。
+历史阶段记录包含第二阶段规则式编辑、严格 Agent 协议及 Cup 静置图外部视觉模型语义复查。
+第三阶段记录包含 case1 原生 cuRobo、站位图、真实成败采集和浏览导出；case2/3/1.5 的真实任务覆盖仍未知。
+原五阶段路线未形成完整闭环，第四、五阶段未按原设计交付；独立入口中的 VLA 评测或连续移动操作不等同于这些阶段完成。
+**上述局部记录不改变原五阶段管线失败、半废弃的当前结论。**
 
 ### 运行时接触策略（2026-10-11）
 
