@@ -1,5 +1,19 @@
 # `configs/case_edits/` 配置说明
 
+## 新增：纯程序化障碍物增强（独立入口）
+
+- `procedural_obstacles_val103_cup30_chair_debug.json`：Cup_30，5 份独立随机变体，每份必须尝试新增 1 把 Chair。
+- `procedural_obstacles_val103_cup30_random_1to3.json`：随机 1–3 个，保留必须 Chair，按餐桌环境允许桌面小物体。
+- `procedural_obstacles_val103_cup30_case1.json`：`construction.case=Case1`，1–3 个、恰好一椅，其余目标附近桌面。
+- `procedural_obstacles_val103_cup30_case2.json`：`construction.case=Case2`，6–12 个、全在目标自身支撑面，至少两件实测大／高物体。
+- Case 配置共享全量静态预筛（少于 5 则跳过）、增强后全量独立初始化和距离／方位覆盖式压缩到最多 20 点。
+- 上述配置使用 `procedural-obstacles-v1`，入口 `augment-obstacles --config ... --run-id ...`。
+  **不传给下述四 Agent `case-edit` 入口，不需要 API/provider 配置。**
+- 路径按文件所在目录解析；当前相对路径对应新 worktree，迁移位置需显式调整。
+- 完整方法、阈值、真实验收范围和审计命令见 [程序化障碍物增强](../../docs/procedural-obstacles.md)。
+
+## 既有四 Agent case-edit 配置
+
 自动 **case → 场景编辑**流水线（四 Agent 本地单场景构造）的配置。用 CLI：
 `case-edit --request <本目录某 json> --api-settings configs/agent_api.json [--provider xera]`。
 请求契约见 `construction/scene_request.py` 的 `SceneConstructionRequest` 等。

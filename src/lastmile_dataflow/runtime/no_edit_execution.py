@@ -5,9 +5,11 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 import time
+import traceback
 import mujoco
 import numpy as np
 
+from .episode_guard import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
 from ..io import canonical,read_json,write_json
 from ..planning.curobo import NativePlanner,body_pose,tcp_pose
 from ..robots.action import InvalidAction
@@ -30,6 +32,7 @@ class OperationFailure(RuntimeError):
 def clone_sim(sim, *, target=None):
     """New MjData, shared read-only model; never restore the running instance."""
     result=Simulation(sim.model,sim.robot.config,copy.deepcopy(sim.catalog),target=target)
+    track_resource(result)
     mujoco.mj_setState(result.model,result.data,sim.state_vector(),sim.state_spec)
     result.robot.fixed_head=sim.robot.fixed_head.copy(); result._clock_remainder=sim._clock_remainder
     result.source=sim.source; result.restoration=None; result.model_hash=sim.model_hash
@@ -45,7 +48,7 @@ class ContinuousContext:
         self.phase='initialize'; self.started_at=time.monotonic()
         self.record_rgb=record_rgb
         self.record_png=record_png
-        self.physics=gzip.open(recorder.path/'physics.jsonl.gz','wb')
+        self.physics=track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
         self.contact_stats=ContactStatistics()
         self.samples=[]; self.collisions=self.contact_stats.examples; self.plans=[]; self.replay=[]; self.monitor=None
         self.fingers=set(); self.target_bodies=descendants(sim.model,sim.target_id)
@@ -426,6 +429,7 @@ def navigate(ctx,path,goal):
     return {'status':'success','actual_base':sim.robot.group('base').tolist(),'steps':count}
 
 
+@isolated_episode
 def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collection,root,attempt_id,
                     *,seed,path=None,goal=None,winning_control=None):
     sim=clone_sim(baseline,target=task['target_body']); place_frozen_station(sim,station)
@@ -452,6 +456,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
             'dimensions':[1280,720],'playback_speed':1.,'raw_robot_cameras_unchanged':True,
             'third_person_png':'raw observer RGB','overlays':'actual simulation state; unmeasured contact shown as --'})
     write_json(recorder.path/'initial_state.json',ctx.state())
+    mark_episode_phase('execution')
     status='infrastructure_error'; reason='unfinished'; control=None
     if task['operation']=='open': ctx.max_plans=config.max_open_plans
     navigation={'status':'not_requested'}; attribution=None; retries=[]
@@ -492,13 +497,18 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         print(f'WARNING {attempt_id}: {reason}; skipping this attempt, continuing sampling',flush=True)
         if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
     except TimeoutError as exc:
-        status='incomplete'; reason=str(exc)
+        status='timeout'; reason=str(exc)
+        recorder.event('episode_timeout',message=reason)
     except Exception as exc:
-        status='infrastructure_error'; reason=type(exc).__name__+':'+str(exc)
+        classified=classify_episode_exception(exc,episode_phase())
+        exception_detail={**classified,'traceback':traceback.format_exc()}
+        status=classified['status']; reason=classified['reason']
         recorder.event('exception',phase=ctx.phase,error_type=type(exc).__name__,message=str(exc))
     finally:
+        mark_episode_phase('finalize')
         ctx.finish()
         result={'status':status,'reason':reason,'attribution':attribution,'control':control,
+                'exception_detail':locals().get('exception_detail'),
                 'navigation':navigation,'retry_history':retries,'continuous_simulation':True,
                 'operation_base_mode':config.operation_base_mode,
                 'planner_backend':config.planner_backend,

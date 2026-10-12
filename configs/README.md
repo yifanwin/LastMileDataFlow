@@ -72,3 +72,12 @@
 CLI `--provider`/`--model` 仅覆盖本次选择，所有实际 HTTP 请求均计入预算。
 
 详见 [运行说明](../docs/case-edit-pipeline.md) 和 [当前实施计划](../docs/case-to-edit-pipeline-plan.md)。
+
+## 增强后的最终点集采集
+
+`case_edits/no_edit_curobo_case*_v*_final_stations.json` 通过 `augmented_variant`
+绑定对应快照及 `stations_final.json`，执行端不重采样，最多20点。
+详见 [正式接入说明](../docs/no-edit-augmented-stations.md)。
+
+`case_edits/no_edit_molmobot_case1_v000_final_stations.json` 与Case2 v001配置绑定
+MolmoBot native全量重验后点集；见 [MolmoBot最终站位](../docs/molmobot-final-stations.md)。

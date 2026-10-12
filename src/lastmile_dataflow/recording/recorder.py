@@ -19,6 +19,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 from ..io import canonical, digest, file_digest, write_json
+from ..runtime.episode_guard import recording_operation
 
 
 class AttemptRecorder:
@@ -34,6 +35,9 @@ class AttemptRecorder:
         for part in attempt_group:
             self.path /= part
         self.path /= self.attempt_id
+        self.writers = {}; self.trajectory = None; self.events = None; self.finished = False; self.steps = 0
+        from ..runtime.episode_guard import track_recorder
+        track_recorder(self)
         self.path.mkdir(parents=True, exist_ok=False)   # 已存在就抛错：永不覆盖
         self.collection = config["collection"]
         # config_sha256 把“这次到底用了什么配置”钉死在记录里，审计时会重新计算比对。
@@ -52,11 +56,28 @@ class AttemptRecorder:
         self.frame_index = []      # observations.json 的内容
         self.finished = False
 
+    def abort_close(self):
+        """Release partial/unsealed episode resources without editing its evidence."""
+        if self.finished:
+            return
+        errors=[]
+        for resource in [*self.writers.values(), self.trajectory, self.events]:
+            if resource is None or getattr(resource, 'closed', False):
+                continue
+            try: resource.close()
+            except Exception as exc: errors.append(exc)
+        if errors:
+            # Prefer fail-stop storage/GPU errors to a local encoder error.
+            from ..runtime.episode_guard import classify_episode_exception
+            raise next((e for e in errors if classify_episode_exception(e,'finalize')['failure_scope']=='shared'), errors[0])
+
+    @recording_operation
     def event(self, code, **fields):
         """追加一条事件（动作拒绝、异常、观察引用、协议违规等）。立即 flush。"""
         self.events.write(canonical({"code": code, **fields}) + b"\n")
         self.events.flush()
 
+    @recording_operation
     def observation(self, frames, *, step, time_s):
         """把三相机当前帧写成 PNG，并返回相对路径引用。
 
@@ -72,6 +93,7 @@ class AttemptRecorder:
         self.frame_index.append({"step": step, "time_s": time_s, "images": refs})
         return refs
 
+    @recording_operation
     def record_step(self, *, raw_action, command, before, after, check, observations):
         """写一行轨迹：动作、完整实际 ctrl、前后状态、验证结果、图像引用。
 
@@ -84,6 +106,7 @@ class AttemptRecorder:
         self.trajectory.flush()
         self.steps += 1
 
+    @recording_operation
     def video_frame(self, frames, time_s):
         """追加一帧到各相机 MP4；record_video=False 时是空操作（但 PNG 仍然保存）。"""
         if not self.collection["record_video"]:
@@ -103,6 +126,7 @@ class AttemptRecorder:
         from ..io import read_json
         return read_json(self.path / "config.json")["robot"]["control_hz"]
 
+    @recording_operation
     def finish(self, status, reason, results, *, extra=None):
         """收尾：关闭视频、写三个独立结果、写全文件摘要清单。
 
@@ -117,7 +141,9 @@ class AttemptRecorder:
             try:
                 writer.close()
             except Exception as exc:
-                close_errors.append({"camera": camera, "error_type": type(exc).__name__, "message": str(exc)})
+                from ..runtime.episode_guard import classify_episode_exception
+                close_errors.append({"camera": camera, "error_type": type(exc).__name__, "message": str(exc),
+                                     "failure_scope":classify_episode_exception(exc,"finalize")["failure_scope"]})
         if close_errors:
             status, reason = "infrastructure_error", "video_finalize_failed"
         self.trajectory.close()

@@ -87,7 +87,7 @@
 |---|---|---|---|
 | `val.json` | curobo / `legacy` | `radius_m=2.0`、`spacing_m=null`、320×240 | 旧后端（legacy）默认配置。 |
 | `curobo_v080.json` | curobo / **`curobo_v2_v080`** | `max_attempts=5`、`width=320/height=240`、`seed=20261009` | 当前 CLI 默认配置：原生 cuRobo v0.8.0 联合 base+单臂 10D 规划。 |
-| `curobo_v080_arm_reach_half_base_radius.json` | curobo / `curobo_v2_v080` | 仅改 `radius_m=0.7928056080178096`、`spacing_m=0.2217592080002628`，其余同 `curobo_v080.json` | **臂展半径 / 半底盘半径间距**的数值冻结配置，见顶层 README 与 `scripts/verify_reach_sampling.py`。 |
+| `curobo_v080_arm_reach_half_base_radius.json` | curobo / `curobo_v2_v080` | 仅改 `radius_m=0.7928056080178096`、`spacing_m=0.1108796040001314`，其余同 `curobo_v080.json` | **臂展半径 / 四分之一底盘半径间距（文件名沿用旧名）**的数值冻结配置，见顶层 README 与 `scripts/verify_reach_sampling.py`。 |
 | `molmobot.json` | **molmobot** / `legacy` | `policy_config=../policies/molmobot.json`、`width=1024/height=576`、`seed=20261011` | VLA 后端（`configs/policies/molmobot.json` 定义模型），只做站位评测、不跑 A* 导航。见 [`docs/molmobot-station-evaluation.md`](../../docs/molmobot-station-evaluation.md)。 |
 
 `curobo_v080_arm_reach_half_base_radius.json` 是当前模型的数值冻结配置，**不随更换模型自动更新**；

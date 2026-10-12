@@ -12,6 +12,7 @@ class NoEditConfig:
     schema_version: str = 'no-edit-v1'
     operation_backend: str = 'curobo'
     policy_config: str | None = None
+    augmented_variant: str | None = None  # frozen scene + verified coverage station set
     planner_backend: str = 'legacy'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
@@ -63,6 +64,8 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if self.augmented_variant is not None and (not isinstance(self.augmented_variant, str) or not self.augmented_variant):
+            raise ValueError('invalid augmented_variant')
         if self.operation_backend not in ('curobo', 'molmobot'):
             raise ValueError('unknown operation backend')
         if self.operation_backend == 'molmobot' and not self.policy_config:
@@ -125,6 +128,8 @@ class NoEditConfig:
 def load_no_edit_config(path):
     path = Path(path).resolve()
     value = read_json(path)
+    if value.get('augmented_variant'):
+        value['augmented_variant'] = str((path.parent / value['augmented_variant']).resolve())
     if value.get('policy_config'):
         value['policy_config'] = str((path.parent / value['policy_config']).resolve())
     return construct(NoEditConfig, value)
