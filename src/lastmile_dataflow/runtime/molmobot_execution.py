@@ -150,7 +150,9 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             observation.update(qpos={k:np.asarray(v,dtype=np.float32) for k,v in sim.robot.state().items()},
                                task=instruction(task))
             if step==0 and points is not None: observation['object_image_points']=points
-            response=policy.action(observation,task=task,attempt=attempt_id,seed=seed,first=step==0,timeout=remaining)
+            # The RPC deadline is the fixed policy timeout, NOT the remaining attempt
+            # budget: the budget is checked again right after the reply arrives.
+            response=policy.action(observation,task=task,attempt=attempt_id,seed=seed,first=step==0)
             if recorder.canonical_recorder is not None:
                 recorder.canonical_recorder.intent(response['raw_action'], producer='molmobot_prediction',
                     metadata={k: v for k, v in response.items() if k not in ('processed_images', 'conditioning_points', 'raw_action')})

@@ -9,6 +9,12 @@
 
 单元测试可离线且无需 GPU；真实验收依赖外部资产和 GPU 渲染，结果分开报告。
 
+## scene_datasets 独立入口
+
+`test_scene_datasets.py` 验证显式 house／目标选择、新 Case 新增数量、空间分散、配置绑定、摘要防篡改与站位不重采样。简化 fixture 不证明真实场景构造成功。
+`test_surface_capacity.py` 验证七类目标别名、Case1 支撑限制、合法最小资产存在时不得提前结束、预算不足不得当容量满、容量证据与最终状态绑定／篡改拒绝、同一角度域与低于 min_count 的构造分支。包含简化 MuJoCo 窄相和明确 MOCK 编排，仍不替代真实 ProcTHOR 构造。
+真实交付须另外执行 `discover-scene-datasets`、`build-scene-datasets` 和 `audit-scene-datasets --physical`，参见 [协议与运行说明](../docs/datas/scene-datasets-v1.md)。
+
 ## Raw-first 统一采集协议
 
 `test_canonical_data.py` 使用简化模型、真实 MuJoCo stepping 与明确的 MOCK RGB/depth，

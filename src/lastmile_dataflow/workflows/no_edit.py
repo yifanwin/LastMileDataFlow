@@ -76,9 +76,13 @@ def prepare_execution_stations(scene_path, task, config):
     """Bind immutable final points before loading an expensive VLA model."""
     task_path=scene_path/'tasks'/task['output_name']; task_path.mkdir(parents=True,exist_ok=True)
     station_input = None
-    if config.augmented_variant:
-        from ..stations.augmented_input import execution_stations
-        selected, station_input = execution_stations(scene_path, task)
+    if config.augmented_variant or config.scene_package:
+        if config.scene_package:
+            from ..stations.scene_package import package_stations
+            selected, station_input = package_stations(scene_path, task)
+        else:
+            from ..stations.augmented_input import execution_stations
+            selected, station_input = execution_stations(scene_path, task)
         if (task_path/'stations.json').exists() and read_json(task_path/'stations.json') != selected:
             raise ValueError('cached stations differ from augmented final set; use new run-id')
         if (task_path/'trials.json').exists() and any(r['station_id'] not in station_input['station_ids']
@@ -89,7 +93,7 @@ def prepare_execution_stations(scene_path, task, config):
         if not (task_path/'progress.json').exists():
             isolated_recording(scene_path,task['task_id'],'initial_progress',write_json,task_path/'progress.json', {'terminal_trials': 0,
                        'expected_trials': len(selected)*config.trials_per_station,
-                       'execution_point_count': len(selected), 'station_input': 'verified_augmented_final_set',
+                       'execution_point_count': len(selected), 'station_input': 'verified_scene_dataset_set' if config.scene_package else 'verified_augmented_final_set',
                        'updated_at_utc': datetime.now(timezone.utc).isoformat()})
 
 
@@ -248,6 +252,19 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
     from ..tasks.raw_scene import discover_tasks,robot_footprint
     scene_path=run_path/'scenes'/f'val_{record["house"]}'; scene_path.mkdir(parents=True,exist_ok=True)
     source=SceneSource.procthor(Path(record['xml']).parent,record['house'])
+    if config.scene_package:
+        from ..stations.scene_package import package_manifest, bind_package
+        manifest = package_manifest(config.scene_package, robot, config)
+        if manifest['scene_id'] != f'procthor-10k-val/val_{record["house"]}' or read_json(run_path/'frozen_config.json')['scene_dataset_input'] != manifest:
+            raise ValueError('scene package frozen identity mismatch')
+        version = read_json(Path(config.scene_package)/'scene/version.json')
+        if file_digest(record['metadata']) != version['source']['metadata_sha256'] or file_digest(record['xml']) != version['source']['xml_sha256']:
+            raise ValueError('scene package original source changed')
+        bind_package(scene_path, manifest)
+        # Hash-validated physical config is equal; use the frozen locator/JSON
+        # representation so harmless symlink aliases do not break snapshot load.
+        from ..config import RobotConfig
+        robot = RobotConfig(**version['robot'])
     if config.augmented_variant:
         from ..stations.augmented_input import variant_manifest, bind_scene_inputs
         manifest = variant_manifest(config.augmented_variant, robot, config)
@@ -272,8 +289,8 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
         assign_output_names(tasks)
         for task in tasks: task['operation_base_mode']=config.operation_base_mode
         if targets: tasks=[t for t in tasks if t['instance_id'] in targets or t['asset_id'] in targets or t['task_id'] in targets]
-        if config.augmented_variant:
-            source_task = read_json(scene_path/'augmented_input/baseline/task.json')
+        if config.augmented_variant or config.scene_package:
+            source_task = read_json(scene_path/'scene_dataset_input/task.json' if config.scene_package else scene_path/'augmented_input/baseline/task.json')
             matches = [t for t in tasks if t['task_id'] == source_task['task_id']
                        and t['target_body'] == source_task['target_body']]
             if len(matches) != 1:
@@ -388,6 +405,12 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
         if len(records) != 1 or manifest['scene_id'] != f'procthor-10k-val/val_{records[0]["house"]}':
             raise ValueError('augmented input requires exactly its source house')
         frozen['augmented_input'] = manifest
+    if config.scene_package:
+        from ..stations.scene_package import package_manifest
+        manifest = package_manifest(config.scene_package, robot, config)
+        if len(records) != 1 or manifest['scene_id'] != f'procthor-10k-val/val_{records[0]["house"]}':
+            raise ValueError('scene package requires exactly its source house')
+        frozen['scene_dataset_input'] = manifest
     policy_config=None
     if config.operation_backend=='molmobot':
         from ..policies.molmobot_config import load_policy_config,policy_manifest

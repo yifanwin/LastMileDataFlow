@@ -27,6 +27,13 @@ def environment_pool(sim, task, config):
         surface.update(rule['surface'])
     ground &= set(config.ground_categories)
     surface &= set(config.surface_categories)
+    if config.case_policy and config.case_policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
+        # Surface geometry and physical checks, not furniture names, decide support.
+        ground = set(config.ground_categories)
+        if not surface:
+            surface = set(config.surface_categories)
+        if config.case_policy.rule_version == 'scene-cases-v3':
+            surface = set(config.surface_categories)
     return {'support_categories': categories, 'ground': sorted(ground), 'surface': sorted(surface),
             'rules': 'explicit_environment_category_mapping_and_measured_geometry_not_visual_agent'}
 
@@ -94,7 +101,7 @@ def substantial_asset(asset, policy):
             (size['height'] >= policy.substantial_height_m or max(size['width'], size['depth']) >= policy.substantial_width_m))
 
 
-def case_assets(rng, count, pool, geometry, policy, mandatory):
+def case_assets(rng, count, pool, geometry, policy, mandatory, *, surface_area_m2=None):
     """Choose the complete asset tuple once: pose retries reuse compiled models."""
     available = [g for g in geometry.values() if g['category'] in pool['surface']]
     if policy and policy.case == 'Case2':
@@ -120,10 +127,21 @@ def case_assets(rng, count, pool, geometry, policy, mandatory):
         ordinary = available if policy else [g for g in geometry.values() if g['category'] in pool['ground'] + pool['surface']]
     if len(selected) < count and not ordinary:
         raise ValueError('no_loadable_ordinary_asset')
+    if policy and policy.rule_version in ('scene-cases-v2', 'scene-cases-v3') and surface_area_m2 is not None and len(selected) < count:
+        reserved = sum(g['size']['width'] * g['size']['depth'] for g in selected if g['category'] in pool['surface'])
+        allowance = max(0., .70 * surface_area_m2 - reserved) / (count - len(selected))
+        compact = [g for g in ordinary if g['size']['width'] * g['size']['depth'] <= allowance]
+        if compact:
+            ordinary = compact
+        elif not policy.allow_surface_capacity_shortfall:
+            raise ValueError('no_assets_within_measured_surface_packing_budget')
     while len(selected) < count:
         selected.append(ordinary[int(rng.integers(len(ordinary)))])
-    if policy and policy.case == 'Case2':
-        selected.sort(key=lambda g: g['size']['width'] * g['size']['depth'], reverse=True)
+    if policy and (policy.case == 'Case2' or policy.rule_version in ('scene-cases-v2', 'scene-cases-v3')):
+        ground_selected = [g for g in selected if g['category'] in pool['ground']]
+        surface_selected = [g for g in selected if g['category'] not in pool['ground']]
+        surface_selected.sort(key=lambda g: g['size']['width'] * g['size']['depth'], reverse=True)
+        selected = ground_selected + surface_selected
     return selected
 
 
@@ -169,7 +187,8 @@ def sample_surface_point(rng, asset, points, placements, occupied, policy, gap):
     choices = [p for p in points if p['region'].region_id == region.region_id]
     axes = np.asarray(region.axes)
     alignment = float(np.arctan2(axes[1, 0], axes[0, 0]))
-    yaw = alignment + int(rng.integers(4)) * np.pi / 2 + float(rng.uniform(-policy.surface_alignment_jitter_rad, policy.surface_alignment_jitter_rad))
+    jitter = float(rng.choice([-policy.surface_alignment_jitter_rad, 0., policy.surface_alignment_jitter_rad])) if policy.rule_version == 'scene-cases-v3' else float(rng.uniform(-policy.surface_alignment_jitter_rad, policy.surface_alignment_jitter_rad))
+    yaw = alignment + int(rng.integers(4)) * np.pi / 2 + jitter
     c, s = np.cos(yaw), np.sin(yaw)
     rotated = asset['local_points'] @ np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]).T
     center = (rotated[:, :2].min(0) + rotated[:, :2].max(0)) / 2
@@ -182,7 +201,7 @@ def sample_surface_point(rng, asset, points, placements, occupied, policy, gap):
     fit = (lo[:, 0] >= a + .01) & (hi[:, 0] <= b - .01) & (lo[:, 1] >= cc + .01) & (hi[:, 1] <= d - .01)
     world_lo, world_hi = xy + relative[:, :2].min(0), xy + relative[:, :2].max(0)
     for placed in placements:
-        if placed['kind'] != 'surface':
+        if placed['kind'] != 'surface' or policy.rule_version == 'scene-cases-v3':
             continue
         plo, phi = np.asarray(placed['world_bounds']['min'])[:2], np.asarray(placed['world_bounds']['max'])[:2]
         fit &= ~((world_lo < phi + .005).all(1) & (plo < world_hi + .005).all(1))

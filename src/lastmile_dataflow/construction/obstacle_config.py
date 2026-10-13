@@ -7,14 +7,18 @@ from ..config import construct
 from ..io import read_json
 from ..recording.edit_views import ViewConfig
 from ..runtime.preparation import SettleConfig
+from .scene_eligibility import SUPPORT_TYPES
 
 
 @dataclass(frozen=True)
 class CaseConstruction:
     """Case identity plus reusable budgets, surface and asset constraints."""
     case: str = 'Case1'
+    rule_version: str = 'obstacle-cases-v1'
     min_prefilter_points: int = 5
     max_final_stations: int = 20
+    min_final_points: int = 1
+    station_selection: str = 'coverage'
     surface_spacing_m: float = .055
     surface_alignment_jitter_rad: float = .12
     near_target_m: float = .85
@@ -23,11 +27,18 @@ class CaseConstruction:
     substantial_height_m: float = .20
     substantial_width_m: float = .25
     registered_assets_only: bool = True
+    allow_surface_capacity_shortfall: bool = False
+    capacity_probe_budget: int = 20000
+    case1_support_types: list = field(default_factory=lambda: list(SUPPORT_TYPES))
 
     def __post_init__(self):
         if self.case not in ('Case1', 'Case2'):
             raise ValueError('unimplemented construction.case: ' + self.case)
-        for key in ('min_prefilter_points', 'max_final_stations', 'min_substantial'):
+        if self.rule_version not in ('obstacle-cases-v1', 'scene-cases-v2', 'scene-cases-v3'):
+            raise ValueError('unknown case rule version')
+        if self.station_selection not in ('coverage', 'all_valid'):
+            raise ValueError('unknown station selection')
+        for key in ('min_prefilter_points', 'max_final_stations', 'min_substantial', 'min_final_points', 'capacity_probe_budget'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
         for key in ('surface_spacing_m', 'surface_alignment_jitter_rad', 'near_target_m', 'substantial_height_m', 'substantial_width_m'):
@@ -37,6 +48,10 @@ class CaseConstruction:
             raise ValueError('invalid substantial_categories')
         if type(self.registered_assets_only) is not bool:
             raise ValueError('registered_assets_only must be boolean')
+        if type(self.allow_surface_capacity_shortfall) is not bool or (self.allow_surface_capacity_shortfall and self.rule_version != 'scene-cases-v3'):
+            raise ValueError('capacity shortfall requires scene-cases-v3')
+        if not self.case1_support_types or set(self.case1_support_types)-set(SUPPORT_TYPES):
+            raise ValueError('Case1 supports must be countertops/tables')
 
 
 @dataclass(frozen=True)
@@ -71,7 +86,7 @@ class ObstacleConfig:
     construction: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.schema_version != 'procedural-obstacles-v1':
+        if self.schema_version not in ('procedural-obstacles-v1', 'procedural-obstacles-v2', 'procedural-obstacles-v3'):
             raise ValueError('unknown procedural obstacle schema')
         for key in ('variant_count', 'assets_per_category', 'max_candidates', 'max_physical_trials'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
@@ -80,12 +95,19 @@ class ObstacleConfig:
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError('nonnegative integer required: ' + key)
         policy = construct(CaseConstruction, self.construction) if self.construction else None
-        lo, hi = (6, 12) if policy and policy.case == 'Case2' else (1, 3)
+        modern = self.schema_version != 'procedural-obstacles-v1'
+        versions = {'procedural-obstacles-v1': 'obstacle-cases-v1', 'procedural-obstacles-v2': 'scene-cases-v2', 'procedural-obstacles-v3': 'scene-cases-v3'}
+        if policy and policy.rule_version != versions[self.schema_version] or modern and policy is None:
+            raise ValueError('schema and case rule version mismatch')
+        lo, hi = ((10, 20) if policy.case == 'Case2' else (6, 9)) if modern else (
+            (6, 12) if policy and policy.case == 'Case2' else (1, 3))
         if (len(self.obstacle_count) != 2 or any(type(x) is not int for x in self.obstacle_count)
                 or not lo <= self.obstacle_count[0] <= self.obstacle_count[1] <= hi):
             raise ValueError(f'obstacle_count must be an inclusive range within {lo}..{hi}')
         if policy and policy.case == 'Case1' and self.mandatory_categories != ['Chair']:
             raise ValueError('Case1 requires exactly one mandatory Chair')
+        if modern and policy.case == 'Case1' and (self.ground_categories != ['Chair'] or 'Chair' in self.surface_categories):
+            raise ValueError('Case1 requires one ground Chair and surface-only remainder')
         if policy and policy.case == 'Case2':
             if self.ground_categories or self.mandatory_categories:
                 raise ValueError('Case2 is surface-only; uses measured substantial assets')

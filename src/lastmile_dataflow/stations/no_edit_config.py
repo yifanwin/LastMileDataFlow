@@ -13,6 +13,7 @@ class NoEditConfig:
     operation_backend: str = 'curobo'
     policy_config: str | None = None
     augmented_variant: str | None = None  # frozen scene + verified coverage station set
+    scene_package: str | None = None  # public scene_datasets robot/sensor package; any strategy
     planner_backend: str = 'legacy'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
@@ -64,6 +65,10 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if self.scene_package is not None and (not isinstance(self.scene_package, str) or not self.scene_package):
+            raise ValueError('invalid scene_package')
+        if self.scene_package and self.augmented_variant:
+            raise ValueError('scene_package and augmented_variant are mutually exclusive')
         if self.augmented_variant is not None and (not isinstance(self.augmented_variant, str) or not self.augmented_variant):
             raise ValueError('invalid augmented_variant')
         if self.operation_backend not in ('curobo', 'molmobot'):
@@ -130,6 +135,8 @@ def load_no_edit_config(path):
     value = read_json(path)
     if value.get('augmented_variant'):
         value['augmented_variant'] = str((path.parent / value['augmented_variant']).resolve())
+    if value.get('scene_package'):
+        value['scene_package'] = str((path.parent / value['scene_package']).resolve())
     if value.get('policy_config'):
         value['policy_config'] = str((path.parent / value['policy_config']).resolve())
     return construct(NoEditConfig, value)
