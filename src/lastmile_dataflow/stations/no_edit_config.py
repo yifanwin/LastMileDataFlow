@@ -14,6 +14,10 @@ class NoEditConfig:
     policy_config: str | None = None
     augmented_variant: str | None = None  # frozen scene + verified coverage station set
     scene_package: str | None = None  # public scene_datasets robot/sensor package; any strategy
+    lastmile_selection: bool = False  # opt-in; legacy collection rules stay unchanged
+    lastmile_low: float = .2
+    lastmile_high: float = .8
+    lastmile_nearby_m: float = 1.
     planner_backend: str = 'legacy'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
@@ -65,6 +69,15 @@ class NoEditConfig:
     open_waypoint_step_m: float = .008
 
     def __post_init__(self):
+        if type(self.lastmile_selection) is not bool:
+            raise ValueError('invalid lastmile selection flag')
+        if any(type(v) not in (int, float) or not math.isfinite(v)
+               for v in (self.lastmile_low, self.lastmile_high)) or not 0 <= self.lastmile_low < self.lastmile_high <= 1:
+            raise ValueError('invalid lastmile low/high thresholds')
+        if self.lastmile_selection and (self.operation_backend != 'curobo' or not self.scene_package):
+            raise ValueError('lastmile selection requires a cuRobo scene package')
+        if self.lastmile_selection and (self.start_count > 3 or self.max_s1_candidates > 5):
+            raise ValueError('LastMile permits at most 3 starts and 5 S1 candidates per start')
         if self.scene_package is not None and (not isinstance(self.scene_package, str) or not self.scene_package):
             raise ValueError('invalid scene_package')
         if self.scene_package and self.augmented_variant:

@@ -42,10 +42,14 @@ def clone_sim(sim, *, target=None):
     return result
 
 
+from .no_edit_evidence import EXECUTION_SEMANTICS, PickEvidenceComplete, checkpoint_pick_success, hold_pick, resolve_timeout, timed
+
+
 class ContinuousContext:
     def __init__(self,sim,recorder,config,*,record_rgb=True,record_png=True):
         self.sim,self.recorder,self.config=sim,recorder,config
         self.phase='initialize'; self.started_at=time.monotonic()
+        self.initial_sim_time=float(sim.data.time); self.timings={}; self.pick_initial=None; self.active_control=None
         self.record_rgb=record_rgb
         self.record_png=record_png
         self.physics=track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
@@ -68,12 +72,14 @@ class ContinuousContext:
         if self.sim.started: return
         self.deadline()
         if self.record_rgb:
-            self.last_frames=self.sim.render(self.config.width,self.config.height)
+            with timed(self, 'rendering'):
+                self.last_frames=self.sim.render(self.config.width,self.config.height)
             if self.sim.third_person_camera is not None:
                 write_json(self.recorder.path/'third_person_initial.json',self.sim.third_person_camera.metadata())
             self.last_video_frames=self.video_frames(self.last_frames,float(self.sim.data.time))
             if self.record_png:
-                self.recorder.observation(self.last_frames,step=0,time_s=float(self.sim.data.time))
+                with timed(self, 'recording'):
+                    self.recorder.observation(self.last_frames,step=0,time_s=float(self.sim.data.time))
         self.replay.append((float(self.sim.data.time),self.sim.data.qpos.copy(),'initial')); self.sim.begin()
 
     def hold_torso_target(self):
@@ -137,22 +143,27 @@ class ContinuousContext:
                     facts['joint_value']=float(self.sim.data.qpos[self.open_joint]); row['joint_value']=facts['joint_value']
             self.physics.write(canonical(row)+b'\n')
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
-        command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
+        with timed(self, 'simulation_and_physics_evidence'):
+            command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
         if v2:
             self.last_legal_torso_target=float(action[19])
-        self.physics.flush(); after=self.state()
-        self.recorder.record_step(raw_action=raw_action.tolist(),command=command,before=before,after=after,
-            check=stop or {'valid':True,'issues':[]},observations={'phase':self.phase,
-                     'index_step':self.recorder.steps+1,
-                     'manifest':'observations.json' if self.record_png else 'videos.json'})
+        with timed(self, 'recording'):
+            self.physics.flush(); after=self.state()
+            self.recorder.record_step(raw_action=raw_action.tolist(),command=command,before=before,after=after,
+                check=stop or {'valid':True,'issues':[]},observations={'phase':self.phase,
+                         'index_step':self.recorder.steps+1,
+                         'manifest':'observations.json' if self.record_png else 'videos.json'})
         self.replay.append((after['time_s'],self.sim.data.qpos.copy(),self.phase))
         if self.record_rgb:
-            frames=self.sim.render(self.config.width,self.config.height)
-            if self.record_png:
-                self.recorder.observation(frames,step=self.recorder.steps,time_s=after['time_s'])
-            if self.recorder.steps == 1: self.recorder.video_frame(self.last_video_frames,before['time_s'])
-            self.recorder.video_frame(self.video_frames(frames,after['time_s']),after['time_s'])
+            with timed(self, 'rendering'):
+                frames=self.sim.render(self.config.width,self.config.height)
+            with timed(self, 'recording'):
+                if self.record_png:
+                    self.recorder.observation(frames,step=self.recorder.steps,time_s=after['time_s'])
+                if self.recorder.steps == 1: self.recorder.video_frame(self.last_video_frames,before['time_s'])
+                self.recorder.video_frame(self.video_frames(frames,after['time_s']),after['time_s'])
         if failures: raise OperationFailure(failures[0])
+        checkpoint_pick_success(self)
 
     def video_frames(self,frames,time_s):
         if self.analysis is None or 'third_person_camera' not in frames: return frames
@@ -218,7 +229,10 @@ class ContinuousContext:
     def plan(self,planner,goal):
         self.deadline()
         if self.plan_count >= self.max_plans: raise OperationFailure('planning_budget_no_solution')
-        self.plan_count+=1; result=planner.plan(goal); self.deadline()
+        self.plan_count+=1
+        with timed(self, 'motion_planning'):
+            result=planner.plan(goal)
+        self.deadline()
         self.plans.append({'phase':self.phase,'goal_world':goal.tolist(),**asdict(result)})
         write_json(self.recorder.path/'planning.json',self.plans)
         if result.status != 'success':
@@ -344,6 +358,9 @@ def manipulate(ctx,task,candidates,assets_dir,seed,forced=None):
     if task['operation']=='open':
         j=sim.model.joint(task['joint_name']).id; ctx.open_joint=int(sim.model.jnt_qposadr[j])
     initial=copy.deepcopy(ctx.monitor.initial)
+    ctx.pick_initial=initial if task['operation']=='pick' else None
+    ctx.active_control={k:v for k,v in control.items() if k != 'candidate'}
+    write_json(ctx.recorder.path/'task_evidence_initial.json',{'operation':task['operation'],'initial':initial,'control':control})
     ctx.begin(); ctx.phase='torso_adjust'; q=sim.robot.group(side+'_arm').copy(); h0=float(sim.robot.group('torso')[1])
     for value in np.linspace(h0,h,max(2,int(abs(h-h0)/.00125)+1))[1:]: ctx.arm_tick(side,q,-.05,float(value))
     for _ in range(20): ctx.arm_tick(side,q,-.05,h)
@@ -363,8 +380,7 @@ def manipulate(ctx,task,candidates,assets_dir,seed,forced=None):
             ctx.phase='lift_attached'; write_json(ctx.recorder.path/'attached_object.json',planner.attach_target_bbox())
             lift=tcp_pose(sim,side).copy(); lift[2,3]+=.04; ctx.follow(planner,lift,side,0.,h)
             ctx.phase='hold'; q=sim.robot.group(side+'_arm').copy()
-            for _ in range(50): ctx.arm_tick(side,q,0.,h)
-            verdict=evaluate_mobile_pick(ctx.samples,initial)
+            verdict=hold_pick(ctx,side,q,h)
         else:
             if not ctx.samples or len(ctx.samples[-1]['finger_forces_n']) != 2: raise OperationFailure('open_no_grip')
             ctx.phase='open'; j=sim.model.joint(task['joint_name']).id
@@ -425,7 +441,14 @@ def navigate(ctx,path,goal):
         a[:3]=delta
         if hold is not None: a[19]=hold()
         ctx.tick(a)
-    return {'status':'success','actual_base':sim.robot.group('base').tolist(),'steps':count}
+    actual=sim.robot.group('base')
+    xy_error=float(np.linalg.norm(actual[:2]-np.asarray(goal['base'])[:2]))
+    yaw_error=abs(ctx.yaw_gap(goal['base'][2],actual[2]))
+    if xy_error > cfg.arrival_tolerance_m or yaw_error > cfg.arrival_tolerance_rad:
+        raise OperationFailure('arrival_tracking_error')
+    return {'status':'success','actual_base':actual.tolist(),'steps':count,
+            'xy_error_m':xy_error,'yaw_error_rad':yaw_error,
+            'arrival_tolerance_m':cfg.arrival_tolerance_m,'arrival_tolerance_rad':cfg.arrival_tolerance_rad}
 
 
 @isolated_episode
@@ -435,9 +458,13 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     if config.third_person_enabled: sim.enable_third_person()
     # Keep actual three-camera video for ALL executed trials: S0 is selected only
     # afterwards. Avoid duplicate PNG streams except on continuous demonstrations.
-    packet={'schema_version':'no-edit-v1','robot':asdict(sim.robot.config),'collection':asdict(collection),
+    packet={'execution_semantics_version':EXECUTION_SEMANTICS,'schema_version':'no-edit-v1','robot':asdict(sim.robot.config),'collection':asdict(collection),
             'task':task,'station':station,'protocol':asdict(config),'contact_policy':CONTACT_POLICY,'seed':seed,'path':path,'goal':goal,
             'scene_version':read_json(root/'scene/version.json')['version_id']}
+    if config.scene_package:
+        binding=read_json(root/'scene_dataset_input/input_manifest.json')
+        packet['scene_dataset_binding']={key:binding[key] for key in
+            ('scene_dataset_id','sample_id','robot_sensor_config_id','task_id','package_checksums_sha256')}
     from ..exporting.no_edit_layout import attempt_group,index_attempt
     recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
     recorder.bind_simulation(sim, width=config.width, height=config.height)
@@ -460,6 +487,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     status='infrastructure_error'; reason='unfinished'; control=None
     if task['operation']=='open': ctx.max_plans=config.max_open_plans
     navigation={'status':'not_requested'}; attribution=None; retries=[]
+    execution_termination=None; task_outcome=None
     try:
         if path: navigation=navigate(ctx,path,goal)
         ctx.plan_count=0
@@ -496,9 +524,16 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         recorder.event('control_limit_warning',phase=ctx.phase,error_type='InvalidAction',message=str(exc))
         print(f'WARNING {attempt_id}: {reason}; skipping this attempt, continuing sampling',flush=True)
         if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
+    except PickEvidenceComplete as exc:
+        task_outcome=exc.verdict
+        status='success'; reason=task_outcome['reason']; control=ctx.active_control
+        recorder.event('physical_pick_success',phase=ctx.phase,task_outcome=task_outcome)
     except TimeoutError as exc:
-        status='timeout'; reason=str(exc)
-        recorder.event('episode_timeout',message=reason)
+        execution_termination,task_outcome=resolve_timeout(ctx,task,str(exc))
+        status=task_outcome['status'] if task_outcome['status'] in ('success','infrastructure_error','simulation_failure') else 'timeout'
+        reason=task_outcome['reason'] if status=='success' else str(exc)
+        control=ctx.active_control or control
+        recorder.event('episode_timeout',message=str(exc),task_outcome=task_outcome)
     except Exception as exc:
         classified=classify_episode_exception(exc,episode_phase())
         exception_detail={**classified,'traceback':traceback.format_exc()}
@@ -506,8 +541,22 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         recorder.event('exception',phase=ctx.phase,error_type=type(exc).__name__,message=str(exc))
     finally:
         mark_episode_phase('finalize')
-        ctx.finish()
-        result={'status':status,'reason':reason,'attribution':attribution,'control':control,
+        with timed(ctx, 'context_finalize'):
+            ctx.finish()
+        if execution_termination is None:
+            execution_termination={'status':'completed' if status in ('success','failure','planning_no_solution') else status,'reason':reason,'phase':ctx.phase}
+        if task_outcome is None:
+            observed=locals().get('verdict')
+            task_outcome=observed if observed and observed.get('status')==status else None
+            task_outcome=task_outcome or {'status':status if status in ('success','failure','simulation_failure') else 'unknown','reason':reason}
+        diagnostics={'schema_version':EXECUTION_SEMANTICS,'wall_elapsed_s':time.monotonic()-ctx.started_at,
+                     'attempt_wall_budget_s':config.attempt_timeout_s,
+                     'simulation_elapsed_s':float(sim.data.time)-ctx.initial_sim_time,
+                     'timings':ctx.timings, 'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder sealing reported separately'}
+        write_json(recorder.path/'execution_diagnostics.json',diagnostics)
+        result={'execution_semantics_version':EXECUTION_SEMANTICS,'execution_termination':execution_termination,
+                'task_outcome':task_outcome,'execution_diagnostics':diagnostics,
+                'status':status,'reason':reason,'attribution':attribution,'control':control,
                 'exception_detail':locals().get('exception_detail'),
                 'navigation':navigation,'retry_history':retries,'continuous_simulation':True,
                 'operation_base_mode':config.operation_base_mode,
@@ -515,15 +564,20 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                 'manipulation_protocol':'mobile-pick-v2' if task['operation']=='pick' else 'mobile-open-v2',
                 'torso_error_policy':config.torso_error_policy, 'contact_policy':CONTACT_POLICY,
                 'trajectory_metrics':ctx.contact_stats.metrics(
-                    task_success=status=='success' if status in ('success','failure') else None,
+                    task_success=task_outcome['status']=='success' if task_outcome['status'] in ('success','failure') else None,
                     simulation_valid=False if status=='simulation_failure' else True if sim.started else None)}
         write_json(recorder.path/'outcome.json',result)
+        seal_started=time.monotonic()
         recorder.finish(status,reason,{'scene_validity':{'status':'valid','scope':'robot initialization'},
                         'case_condition':{'status':'not_applicable','reason':'no_scene_edit'},
-                        'task_completion':{'status':status if status in ('success','failure') else 'unknown','reason':reason}},
-                        extra={'navigation':navigation,'phase':ctx.phase,'no_edit':True,
+                        'task_completion':{'status':task_outcome['status'] if task_outcome['status'] in ('success','failure') else 'unknown','reason':task_outcome['reason']}},
+                        extra={'execution_termination':execution_termination,'task_outcome':task_outcome,
+                               'execution_semantics_version':EXECUTION_SEMANTICS,
+                               'navigation':navigation,'phase':ctx.phase,'no_edit':True,
                                'operation_base_mode':config.operation_base_mode,
                                'contact_policy':CONTACT_POLICY, 'trajectory_metrics':result['trajectory_metrics']})
+        diagnostics['recorder_finalize_wall_s']=time.monotonic()-seal_started
+        diagnostics['wall_including_recorder_finalize_s']=time.monotonic()-ctx.started_at
         sim.close()
     finalized=read_json(recorder.path/'result.json')
     if finalized['status']=='infrastructure_error': result['status']='infrastructure_error'

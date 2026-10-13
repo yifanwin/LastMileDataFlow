@@ -38,7 +38,7 @@ class RetryDirectoryTests(unittest.TestCase):
                 query('goalset')
                 return (False, 0, {}, {'reason':'no_solution'})
             planner.grasp.side_effect=grasp
-            candidate={'body':'target','pose_local':np.eye(4)}
+            candidate={'body':'target','pose_local':np.eye(4),'row':0,'source':'fixture'}
             with patch('lastmile_dataflow.runtime.no_edit_v2.candidate_pool',return_value=[candidate]), \
                  patch('lastmile_dataflow.runtime.no_edit_v2.body_pose',return_value=np.eye(4)), \
                  patch('lastmile_dataflow.runtime.no_edit_v2.V2Planner',return_value=planner):
@@ -59,7 +59,8 @@ class RetryDirectoryTests(unittest.TestCase):
             marker=closed/'previous.json'; marker.write_text('{}')
             planner=Mock()
             planner.grasp.return_value=(True,0,{'pregrasp':[],'approach':[]},{})
-            candidate={'body':'target','pose_local':np.eye(4)}
+            candidate={'body':'target','pose_local':np.eye(4),'row':0,'source':'fixture'}
+            ctx.sim.robot.group.return_value=np.zeros(7)
             monitor=SimpleNamespace(fingers=[], initial={})
             with patch('lastmile_dataflow.runtime.no_edit_v2.candidate_pool',return_value=[candidate]), \
                  patch('lastmile_dataflow.runtime.no_edit_v2.body_pose',return_value=np.eye(4)), \

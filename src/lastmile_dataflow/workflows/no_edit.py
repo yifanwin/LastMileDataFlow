@@ -97,7 +97,7 @@ def prepare_execution_stations(scene_path, task, config):
                        'updated_at_utc': datetime.now(timezone.utc).isoformat()})
 
 
-def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_trials=None,policy=None):
+def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_trials=None,policy=None,calibration_only=False):
     import mujoco
     import numpy as np
     from ..runtime.no_edit_execution import clone_sim,run_raw_attempt
@@ -112,7 +112,9 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     prepare_execution_stations(scene_path, task, config)
     if (task_path/'result.json').exists():
         prior=read_json(task_path/'result.json')
-        if prior['status'] not in ('incomplete','infrastructure_error'): return prior
+        resumable = ('incomplete','infrastructure_error','calibration_incomplete')
+        advance = config.lastmile_selection and prior['status']=='calibration_complete' and not calibration_only
+        if prior['status'] not in resumable and not advance: return prior
     task = {**task, 'support_obstacles':task_support_obstacles(baseline,task)}
     write_json(task_path/'task.json',task)
     footprint=read_json(scene_path/'robot_geometry.json'); spacing=config.spacing_m or footprint['radius_m']
@@ -142,6 +144,11 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     isolated_recording(scene_path,task['task_id'],'navigation_grid',np.savez_compressed,task_path/'navigation_grid.npz',origin=grid.origin,resolution_m=grid.resolution,free=grid.free,_diagnostics=recording_errors)
     isolated_recording(scene_path,task['task_id'],'navigation_map',export_navigation_map,task_path/'maps',grid,anchor,display_grid=heat_grid,_diagnostics=recording_errors)
     trials=read_json(task_path/'trials.json') if (task_path/'trials.json').exists() else []
+    if config.lastmile_selection:
+        from ..stations.lastmile_selection import recover_trial_records,accepted_trials
+        trials=recover_trial_records(scene_path,task,stations,trials,config)
+        accepted_trials(stations,trials,config.trials_per_station)
+        write_json(task_path/'trials.json',trials)
     rows=aggregate(stations,trials,config.trials_per_station)
     isolated_recording(scene_path,task['task_id'],'initial_heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,title=task['task_id']+' (initial coverage)',_diagnostics=recording_errors)
     error=None; count=0
@@ -150,6 +157,9 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
         for trial in range(config.trials_per_station):
             completed=[r for r in trials if r['station_id']==station['station_id'] and r['trial']==trial
                        and is_episode_terminal(r)]
+            if config.lastmile_selection:
+                from ..stations.lastmile_selection import evaluable
+                completed=[r for r in completed if evaluable(r)]
             if completed: continue
             check_disk(scene_path,config)
             attempt_id=task['operation']+'-'+task['output_name']+'-'+station['station_id']+f'-t{trial}-'+uuid.uuid4().hex[:8]
@@ -185,6 +195,25 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     rate=construction_rate(rows,config.trials_per_station,config.discard_below)
     selection={'starts':[],'successful':[],'failed_rollouts':[]}
     successful=[]; status=error or rate['status']
+    choices = None
+    if config.lastmile_selection:
+        from ..stations.lastmile_selection import calibration_binding,station_calibration,recovery_choices
+        binding=calibration_binding(scene_path,task,config)
+        calibration=station_calibration(stations,trials,config.trials_per_station,binding,config)
+        write_json(task_path/'calibration.json',calibration)
+        choices=recovery_choices(stations,calibration,binding,config)
+        rate={**rate,'status':'eligible' if calibration['complete'] else 'incomplete',
+              'global_discard_applied':False,'complete_valid_trials':calibration['complete']}
+        status=error or ('calibration_incomplete' if not calibration['complete'] else
+                        'calibration_complete' if calibration_only else 'eligible' if choices else 'no_eligible_pair')
+        if (task_path/'selection.json').exists():
+            selection=read_json(task_path/'selection.json')
+        from ..stations.lastmile_selection import recover_rollout_records
+        selection=recover_rollout_records(scene_path,task,selection,trials,config)
+        selection.update(binding=binding,calibration_sha256=file_digest(task_path/'calibration.json'),
+                         pair_candidates=[{'s0':s['station_id'],'s1_candidates':[g['station_id'] for g in goals],
+                                           'evidence':e} for s,goals,e in choices])
+        successful=list(selection['successful'])
     if status=='eligible' and config.operation_backend!='molmobot':
         goals=success_goals(rows)
         connections={}
@@ -194,14 +223,38 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                 path=search(grid,start['xy'],goal['xy'])
                 if path: connections[(start['station_id'],goal['station_id'])]=path
             return any(key[0]==start['station_id'] for key in connections)
-        starts=select_starts(rows,config.start_count,reachable=reachable)
+        if choices is None:
+            starts=select_starts(rows,config.start_count,reachable=reachable)
+            goals_by_start={s['station_id']:[g for g in goals if (s['station_id'],g['station_id']) in connections]
+                            for s in starts}
+        else:
+            starts=[s for s,_,_ in choices]
+            goals_by_start={s['station_id']:gs for s,gs,_ in choices}
         selection['starts']=starts
         for start in starts:
-            ordered=[g for g in goals if (start['station_id'],g['station_id']) in connections]
-            if config.max_s1_candidates: ordered=ordered[:config.max_s1_candidates]
+            ordered=goals_by_start[start['station_id']]
+            if config.lastmile_selection:
+                ordered=ordered[:config.max_s1_candidates or 5]
+            elif config.max_s1_candidates:
+                ordered=ordered[:config.max_s1_candidates]
             for goal in ordered:
+                if config.lastmile_selection:
+                    if any(p['start']['station_id']==start['station_id'] and
+                           p['goal']['station_id']==goal['station_id'] for p in successful):
+                        continue
+                    prior=[p for p in selection['failed_rollouts'] if p['start']['station_id']==start['station_id']
+                           and p['goal']['station_id']==goal['station_id']]
+                    if any(p['status'] not in ('infrastructure_error','incomplete','recording_error','episode_error','simulation_failure','initialization_error') for p in prior):
+                        continue
+                    path=search(grid,start['xy'],goal['xy'])
+                    if not path:
+                        selection['failed_rollouts'].append({'start':start,'goal':goal,'status':'path_unavailable',
+                                                            'reason':'astar_no_path','attempt':None,'path':None})
+                        write_json(task_path/'selection.json',selection)
+                        continue
+                    connections[(start['station_id'],goal['station_id'])]=path
                 check_disk(scene_path,config)
-                control=next(r['control'] for r in trials if r['station_id']==goal['station_id'] and r['status']=='success')
+                control=next(r['control'] for r in reversed(trials) if r['station_id']==goal['station_id'] and r['status']=='success')
                 path=connections[(start['station_id'],goal['station_id'])]
                 attempt_id=task['operation']+'-'+task['output_name']+'-rollout-'+start['station_id']+'-'+goal['station_id']+'-'+uuid.uuid4().hex[:8]
                 outcome=execute_isolated_episode(run_raw_attempt,baseline,task,start,candidates,assets_dir,config,collection,scene_path,attempt_id,
@@ -215,13 +268,29 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                     'attribution':r.get('attribution')} for r in packet['s0_failure_evidence']]
                 if outcome['status']=='success' and outcome['navigation']['status']=='success':
                     successful.append(packet); selection['successful'].append(packet)
-                    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors); break
-                selection['failed_rollouts'].append(packet); isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
+                    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
+                    if not config.lastmile_selection: break
+                else:
+                    selection['failed_rollouts'].append(packet); isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
                 if outcome['status']=='infrastructure_error': error='infrastructure_error'; break
             if error: break
-        status='retained' if len(successful) >= config.min_successful_rollouts else (error or 'no_successful_rollout')
+        status=error or ('retained' if len(successful) >= config.min_successful_rollouts else 'no_successful_rollout')
     if config.operation_backend=='molmobot' and not error and rate['status']!='incomplete':
         status='station_evaluation_complete' if rate['status']!='no_valid_stations' else 'no_valid_stations'
+    if config.lastmile_selection:
+        groups=[]
+        for start, goals, evidence in choices or []:
+            selected_goals=goals[:config.max_s1_candidates or 5]
+            success_ids={p['goal']['station_id'] for p in successful
+                         if p['start']['station_id']==start['station_id']}
+            groups.append({'s0':start['station_id'],
+                           's1_selected':[g['station_id'] for g in selected_goals],
+                           'successful_s1':sorted(success_ids),
+                           'successful_s1_count':len(success_ids),
+                           'minimum_met':bool(success_ids),
+                           'warnings':['single_successful_solution'] if len(success_ids)==1 else []})
+        selection['start_groups']=groups
+        selection['warnings']=(['fewer_than_preferred_starts'] if 0 < len(groups) < config.start_count else [])
     isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
     isolated_recording(scene_path,task['task_id'],'final_heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'],_diagnostics=recording_errors)
     result={'schema_version':'no-edit-v1','task_id':task['task_id'],'instruction':task['instruction'],
@@ -232,7 +301,11 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             'completed_episodes':sum(r.get('completed_episodes',r['terminal_trials']) for r in rows),
             'episode_errors':sum(r.get('episode_errors',0) for r in rows),
             'operation_backend':config.operation_backend,'station_only':config.operation_backend=='molmobot',
+            'lastmile_selection':config.lastmile_selection,'calibration_only':calibration_only,
             'heatmap':str(task_path/'maps/success_heatmap.png')}
+    if config.lastmile_selection:
+        result['start_groups']=selection.get('start_groups',[])
+        result['warnings']=selection.get('warnings',[])
     result['recording_errors']=list(recording_errors)
     result['recording_complete']=not recording_errors
     if recording_errors: result['dataset_eligible']=False
@@ -243,7 +316,7 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     return result
 
 
-def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=None,max_tasks=None,max_trials=None):
+def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=None,max_tasks=None,max_trials=None,calibration_only=False):
     if config.operation_backend == 'molmobot' and (
             robot.control_profile != 'molmobot-native-v1' or robot.control_hz != 10. or robot.physics_dt != .004):
         raise ValueError('MolmoBot requires explicit native motors and 100/20/4ms stepping')
@@ -316,12 +389,14 @@ def run_scene(record,robot,config,collection,assets_dir,run_path, *, targets=Non
         results=[]
         for task in tasks:
             print(f'Begin {scene_path.name}/{task["task_id"]} {task["operation"]}',flush=True)
-            result=collect_task(sim,task,assets_dir,config,collection,scene_path,max_trials=max_trials,policy=policy)
+            result=collect_task(sim,task,assets_dir,config,collection,scene_path,max_trials=max_trials,policy=policy,
+                                calibration_only=calibration_only)
             results.append(result); write_json(scene_path/'task_results.json',results)
             if result['status']=='infrastructure_error' or result.get('collection_error')=='infrastructure_error': break
         status='infrastructure_error' if any(r['status']=='infrastructure_error' or r.get('collection_error')=='infrastructure_error' for r in results) else (
-                'incomplete' if any(r['status']=='incomplete' for r in results) or len(results)<len(tasks) else 'completed')
+                'incomplete' if any(r['status'] in ('incomplete','calibration_incomplete') for r in results) or len(results)<len(tasks) else 'completed')
         summary={'house':record['house'],'status':status,'tasks':len(tasks),'processed_tasks':len(results),
+                 'calibration_only':calibration_only,
                  'retained_tasks':sum(r['dataset_eligible'] for r in results),
                  'successful_rollouts':sum(r['successful_rollouts'] for r in results)}
         write_json(scene_path/'summary.json',summary); return summary
@@ -381,7 +456,7 @@ def rebuild_dataset_index(run_path):
 
 
 def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_ids,max_workers=2,
-                  houses=None,resume=False,index_only=False,targets=None,max_tasks=None,max_trials=None):
+                  houses=None,resume=False,index_only=False,targets=None,max_tasks=None,max_trials=None,calibration_only=False):
     if config.planner_backend == 'curobo_v2_v080' and not index_only:
         from ..planning.curobo_v2 import verify_version
         verify_version()
@@ -433,12 +508,13 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
     pending=[]; completed={}
     for record in records:
         summary=root/'scenes'/f'val_{record["house"]}'/'summary.json'
-        if resume and summary.exists() and read_json(summary)['status']=='completed':
+        if resume and summary.exists() and read_json(summary)['status']=='completed' and not (
+                config.lastmile_selection and read_json(summary).get('calibration_only') and not calibration_only):
             completed[record['house']]=read_json(summary)
         elif record['status']=='ready': pending.append(record)
         else: completed[record['house']]={'status':'missing_metadata','house':record['house']}
     ctx=multiprocessing.get_context('spawn'); active={}; stop=None
-    options={'targets':targets,'max_tasks':max_tasks,'max_trials':max_trials}
+    options={'targets':targets,'max_tasks':max_tasks,'max_trials':max_trials,'calibration_only':calibration_only}
     def interrupted(signum,frame):
         raise KeyboardInterrupt('signal '+str(signum))
     previous_signals={s:signal.signal(s,interrupted) for s in (signal.SIGTERM,signal.SIGINT)}

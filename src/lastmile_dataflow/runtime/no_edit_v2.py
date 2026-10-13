@@ -6,6 +6,7 @@ from ..planning.curobo import body_pose, tcp_pose
 from ..planning.curobo_v2 import V2Planner
 from ..validation.pick import PickMonitor
 from ..validation.no_edit import evaluate_mobile_pick, evaluate_open
+from .no_edit_evidence import hold_pick, timed
 
 
 def candidate_pool(ctx, candidates, seed, forced):
@@ -50,18 +51,21 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             ctx.deadline()
             directory = ctx.recorder.path / f'v080-{ctx.plan_serial}-{side}'
             directory.mkdir(parents=True, exist_ok=True)
-            planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
+            with timed(ctx, 'planner_setup'):
+                planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
             goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
             for goal in goals:
                 goal[:3, 3] += goal[:3, 2] * ctx.config.approach_offset_m
             if not goals:
                 raise OperationFailure('no_grasp_candidates')
             if task['operation'] == 'pick':
-                success, index, stages, diagnostic = planner.grasp(goals, query)
+                with timed(ctx, 'grasp_planning'):
+                    success, index, stages, diagnostic = planner.grasp(goals, query)
             else:
                 # A door handle is not lifted. Still use the native goal-set
                 # approach/grasp pipeline, with lift explicitly disabled.
-                success, index, stages, diagnostic = planner.grasp(goals, query, lift=False)
+                with timed(ctx, 'grasp_planning'):
+                    success, index, stages, diagnostic = planner.grasp(goals, query, lift=False)
             ctx.deadline()
             ctx.plans.append({'phase': 'native_grasp_result', **diagnostic})
             if success:
@@ -75,6 +79,11 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         ctx.monitor = PickMonitor(sim, side); ctx.fingers = ctx.monitor.fingers; ctx.samples = []
         ctx.monitor.initial.update(workspace_center_xy=task['anchor_world'][:2], workspace_radius_m=ctx.config.radius_m)
         initial = copy.deepcopy(ctx.monitor.initial)
+        ctx.pick_initial = initial if task['operation'] == 'pick' else None
+        ctx.active_control = {'arm': side, 'torso_h': float(sim.robot.group('torso')[1]), 'torso_mode': 'continuous_mimic',
+                              'grasp_row': c['row'], 'grasp_source': c['source'], 'seed': seed}
+        write_json(ctx.recorder.path / 'task_evidence_initial.json',
+                   {'operation': task['operation'], 'initial': initial, 'control': ctx.active_control})
         ctx.manip_base_target = sim.robot.group('base').copy()
         if task['operation'] == 'open':
             j = sim.model.joint(task['joint_name']).id
@@ -93,16 +102,15 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         planner.close(); planner = None
         directory = ctx.recorder.path / f'v080-closed-{ctx.plan_serial}-{side}'
         directory.mkdir(parents=True, exist_ok=True)
-        planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
+        with timed(ctx, 'planner_setup'):
+            planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
         if task['operation'] == 'pick':
             write_json(ctx.recorder.path / 'attached_object.json', planner.attach_target_geometry())
             ctx.phase = 'lift_actual'
             lift = tcp_pose(sim, side).copy(); lift[2, 3] += .10
             ctx.follow(planner, lift, side, 0., h)
             ctx.phase = 'hold'; q = sim.robot.group(side + '_arm').copy(); h = ctx.hold_torso_target()
-            for _ in range(50):
-                ctx.arm_tick(side, q, 0., h)
-            verdict = evaluate_mobile_pick(ctx.samples, initial)
+            verdict = hold_pick(ctx, side, q, h)
         else:
             if not ctx.samples or len(ctx.samples[-1]['finger_forces_n']) != 2:
                 raise OperationFailure('open_no_grip')

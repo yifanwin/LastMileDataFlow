@@ -24,6 +24,10 @@ scenes-datasets-design
 当前命令入口见[运行手册（cuRobo + MolmoBot 合并版）](docs/运行手册.md)；其中本机 worktree、环境和 GPU 参数须按实际部署调整。
 数据契约集中于 `docs/datas/`，历史设计与旧运行说明集中于 `docs/archives/`。
 
+新增独立 [LastMile Datasets v0 入口](docs/datas/lastmile-datasets-v0.md)：`collect-lastmile-datasets` 读取封存场景包，
+复用 cuRobo 逐点标定、S0/S1 选择、连续导航操作及 raw-first 记录，按审计结果发布数据视图，MolmoBot 格式留在 adapter。
+软件实现与真实运行状态见 [实施报告](reports/lastmile_datasets/IMPLEMENTATION.md)；入口存在不代表已有成功闭环数据。
+
 纯程序化障碍物增强使用独立 `augment-obstacles` 入口，不调用 Agent；配置位于 `configs/case_edits/procedural_obstacles_*.json`。
 构造与审计命令见[增强场景构造运行指南](docs/增强场景构造运行指南.md)。
 最新 [稠密站位 Case1 / Case2 验收报告](reports/obstacle_augmentation/2026-10-11-dense-cases/REPORT.md)：各 5 份、60 张真实 RGB；全 161 点独立初始化与覆盖压缩已验证，导航／抓取未验证。
