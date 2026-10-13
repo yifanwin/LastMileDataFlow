@@ -17,8 +17,8 @@ DATA = BASE / "data"
 FIG = BASE / "figures"
 ROOT = Path("/data0/wenyifan/MoMaTrajGen/LastMileDataFlow")
 NOEDIT = ROOT / ".worktrees/no-edit-lastmile-val/outputs/no_edit"
-AUG = ROOT / ".worktrees/procedural-obstacle-augmentation/outputs/no_edit"
-AUGD = ROOT / ".worktrees/procedural-obstacle-augmentation/outputs/diagnostics"
+AUG = ROOT / ".worktrees/scenes-datasets-design/outputs/no_edit"
+AUGD = ROOT / ".worktrees/scenes-datasets-design/outputs/diagnostics"
 
 ROWS = {x["run_id"]: x for x in csv.DictReader((DATA / "runs.csv").open())}
 STATIONS = list(csv.DictReader((DATA / "stations.csv").open()))
@@ -31,9 +31,9 @@ CUROBO = ["no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707",
           "no-edit-final20-case2-v001-20261011-225943"]
 VLA = ["molmobot-val103-cup30-20261011-194653",
        "no-edit-molmobot-case1-v000-20261011-224025",
-       "no-edit-molmobot-case2-v001-20261011-230626",
+       "no-edit-molmobot-case2-v001-fix2-20261012-230054",
        "no-edit-molmobot-final20-case1-v000-20261011-232238",
-       "no-edit-molmobot-final20-case2-v001-20261011-232238"]
+       "no-edit-molmobot-final20-case2-v001-fix3-20261012-232021"]
 COLS = ["基线 · 37 点", "Case1 · 161 点", "Case2 · 161 点", "Case1 · 终选 20 点", "Case2 · 终选 20 点"]
 UNOBS = "#f2f1ee"
 BLOCKED = "#b9b7b0"
@@ -153,8 +153,9 @@ def main():
     fig.text(0.055, 0.055,
              "数据：各 run 的 tasks/cup2/maps/success_heatmap.npz（直接读原始数组按统一色标重绘，未使用 run 自带 PNG）；"
              "障碍物包围盒取 dense-case1/2-five-20261011-r5-views/variants/v000|v001/edits.json。\n"
-             "注意：Case1/2 的 161 点 run 只跑了格点扫描顺序最前面的若干站位（见 图 1B 的红杠），因此其热图覆盖是不完整的；"
-             "“未观测”面积大不代表失败。",
+             "除左下角 VLA Case2·161 点外，每个面板都已把该 run 的全部几何有效站位各测 5 次；"
+             "VLA Case2·161 点是写本快照时仍在采集（49/58 站位），其“未观测”面积不代表失败。"
+             "VLA 的实测成功率被大量墙钟 timeout 稀释（见 图 3），直接比色场深浅会低估其能力。",
              fontsize=7.2, color=viz.MUTED, va="top", ha="left")
     viz.save(fig, FIG / "fig2-success-heatmaps.png")
 

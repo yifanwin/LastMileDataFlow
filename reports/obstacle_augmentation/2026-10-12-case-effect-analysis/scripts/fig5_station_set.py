@@ -15,7 +15,7 @@ DATA = BASE / "data"
 FIG = BASE / "figures"
 ROOT = Path("/data0/wenyifan/MoMaTrajGen/LastMileDataFlow")
 NOEDIT = ROOT / ".worktrees/no-edit-lastmile-val/outputs/no_edit"
-AUG = ROOT / ".worktrees/procedural-obstacle-augmentation/outputs/no_edit"
+AUG = ROOT / ".worktrees/scenes-datasets-design/outputs/no_edit"
 
 RUNS = {
     "cuRobo 基线": ("curobo", NOEDIT / "no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707"),

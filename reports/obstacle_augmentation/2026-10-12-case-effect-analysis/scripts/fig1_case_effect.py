@@ -16,7 +16,7 @@ DATA = BASE / "data"
 FIG = BASE / "figures"
 ROOT = Path("/data0/wenyifan/MoMaTrajGen/LastMileDataFlow")
 NOEDIT = ROOT / ".worktrees/no-edit-lastmile-val/outputs/no_edit"
-AUG = ROOT / ".worktrees/procedural-obstacle-augmentation/outputs/no_edit"
+AUG = ROOT / ".worktrees/scenes-datasets-design/outputs/no_edit"
 
 ROWS = {x["run_id"]: x for x in csv.DictReader((DATA / "runs.csv").open())}
 
@@ -29,13 +29,13 @@ MATRIX = [
      "no-edit-molmobot-case1-v000-20261011-224025"),
     ("Case2\n161 点",
      "no-edit-curobo-case2-v001-20261011-222602",
-     "no-edit-molmobot-case2-v001-20261011-230626"),
+     "no-edit-molmobot-case2-v001-fix2-20261012-230054"),
     ("Case1\n终选 20 点",
      "no-edit-final20-case1-v000-20261011-225943",
      "no-edit-molmobot-final20-case1-v000-20261011-232238"),
     ("Case2\n终选 20 点",
      "no-edit-final20-case2-v001-20261011-225943",
-     "no-edit-molmobot-final20-case2-v001-20261011-232238"),
+     "no-edit-molmobot-final20-case2-v001-fix3-20261012-232021"),
 ]
 
 STACK_RUNS = [
@@ -65,8 +65,14 @@ def station_causes(run_id):
     return {"valid": valid, "new_obstacle": new, "pre_existing": old, "total": len(st)}
 
 
+def run_is_complete(run_id):
+    """Both the scene and the task result must be final for a complete denominator."""
+    row = ROWS[run_id]
+    return row["run_status"] == "completed" and row["task_status"] not in ("not_yet_written", "incomplete")
+
+
 def unfinished(run_id):
-    return ROWS[run_id]["run_status"] != "completed"
+    return not run_is_complete(run_id)
 
 
 def main():
@@ -84,25 +90,34 @@ def main():
             row = ROWS[rid]
             term, succ = int(row["terminal_trials"]), int(row["successes"])
             rates.append(100.0 * succ / term if term else 0.0)
-            ann.append((f"{succ}/{term}", unfinished(rid)))
+            # In-flight/stopped runs get a "≥" prefix: their denominator is only the
+            # episodes finished so far, not the planned 5 per station.
+            partial = "≥" if not run_is_complete(rid) else ""
+            ann.append((f"{partial}{succ}/{term}", unfinished(rid), rid))
         ax1.bar(xs + off, rates, width=w, color=viz.BACKEND[backend],
                 edgecolor=viz.SURFACE, linewidth=1.6, zorder=3,
-                hatch=["////" if a else None for _, a in ann],
+                hatch=["////" if a else None for _, a, _ in ann],
                 label="cuRobo v0.8.0 规划器" if backend == "curobo" else "MolmoBot VLA 策略")
-        for x, rate, (txt, a) in zip(xs + off, rates, ann):
+        for x, rate, (txt, a, rid) in zip(xs + off, rates, ann):
             ax1.text(x, rate + 1.6, txt, ha="center", fontsize=8.5, color=viz.INK,
                      fontweight="bold")
             if a:
-                ax1.text(x, rate + 6.2, "未跑完", ha="center", fontsize=7,
+                # Part of the denominator is missing: label how, so a reader does not
+                # read "≥21/251" as either finished or as a plain failure.
+                row = ROWS[rid]
+                # Keep the on-bar marker short (long text collides with the
+                # neighbouring bar); the exact station count goes in the footnote.
+                label = "已停止" if row.get("run_stopped_early") == "True" else "未跑完"
+                ax1.text(x, rate + 6.4, label, ha="center", va="bottom", fontsize=7,
                          color=viz.STATUS["critical"])
     ax1.set_ylabel("实测成功率（站位试验池化，%）")
     ax1.set_title("A 同一 Cup_30 / val_103 任务：障碍物与站位密度对成功率的影响", loc="left", pad=30)
-    ax1.set_ylim(0, 78)
+    ax1.set_ylim(0, 82)
     ax1.set_yticks(range(0, 71, 10))
     viz.clean(ax1)
     ax1.legend(loc="upper right", ncol=2)
     ax1.text(0.0, 1.012,
-             "斜纹 = run 未跑完（incomplete），分母不是完整的每点 5 次。同组内左柱 cuRobo、右柱 VLA 是两个不同后端的算法，"
+             "斜纹 = run 提前停止或仍在跑，分母不是完整的每点 5 次（VLA Case2 161 点已在 51/58 站位处按用户决定停止）；同组内左柱 cuRobo、右柱 VLA 是两个不同后端的算法，"
              "不要互相当作消融对照。",
              transform=ax1.transAxes, fontsize=7, color=viz.MUTED, va="bottom")
 
@@ -134,7 +149,7 @@ def main():
                  arrowprops=dict(arrowstyle="->", color=viz.MUTED, lw=1))
 
     viz.note(fig, "数据：各 run 的 scenes/val_103/tasks/cup2/{result.json, station_statistics.json, stations.json}；"
-                  "基线在 .worktrees/no-edit-lastmile-val，Case 在 .worktrees/procedural-obstacle-augmentation。"
+                  "基线在 .worktrees/no-edit-lastmile-val，Case 在 .worktrees/scenes-datasets-design。"
                   "“被新增障碍物判为碰撞”= 该站位的初始碰撞记录里出现开头的 procedural_obstacle_* body。")
     viz.save(fig, FIG / "fig1-case-effect-overview.png")
     for name, rid in STACK_RUNS:
