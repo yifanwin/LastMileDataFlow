@@ -207,7 +207,10 @@ def validate_augmented_scene(sim, placements, settling, control, config, *, capa
     stable = bool(settling['stable'])
     healthy = finite and not settling['new_warnings']
     case = case_construction_check(sim, placements, config, capacity_evidence=capacity_evidence)
-    return {'valid': bool(stable and healthy and collision['valid'] and support['valid'] and effects['valid'] and case['valid']),
+    from ..construction.fixed_chair import check_fixed_chair
+    fixed = check_fixed_chair(sim, placements, getattr(config, 'fixed_chair', {}))
+    return {'valid': bool(stable and healthy and collision['valid'] and support['valid'] and effects['valid'] and case['valid'] and fixed['valid']),
+            'fixed_chair':fixed,
             'stability': stable, 'solver_health': healthy, 'settling': settling,
             'collision': collision, 'support': support, 'source_effects': effects,
             'source_absolute_penetrations_recorded_not_claimed_absent': settling['severe_penetration'],

@@ -48,6 +48,8 @@ class ThorLibrary:
                             if not registered_only or registry.get(asset.name) == category:
                                 candidates.append(asset/(asset.name + '.xml'))
                 accepted = 0
+                if request.get('asset_ids'):
+                    candidates = [p for p in candidates if p.stem in request['asset_ids']]
                 for index in rng.permutation(len(candidates))[:max(limit*4, limit)]:
                     if deadline is not None and time.monotonic() >= deadline:
                         raise TimeoutError('asset_retrieval_wall_clock_budget')

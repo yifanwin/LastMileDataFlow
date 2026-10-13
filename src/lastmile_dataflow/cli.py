@@ -35,6 +35,7 @@ def parser():
     lastmile.add_argument('--assets-dir', required=True, type=Path)
     lastmile.add_argument('--config', type=Path, default=ROOT/'configs/lastmile_datasets/v0.json')
     lastmile.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    lastmile.add_argument('--publication-root', type=Path, help='explicit parent dataset directory; actual sample attempts stay inside it')
     lastmile.add_argument('--run-id', required=True)
     lastmile.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))
     lastmile.add_argument('--workers', type=int, default=1)
@@ -72,6 +73,7 @@ def parser():
     scene_build.add_argument('--config', required=True, type=Path)
     scene_build.add_argument('--discovery', required=True, type=Path)
     scene_build.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    scene_build.add_argument('--dataset-root', type=Path, help='explicit scene dataset directory without another dataset-id wrapper')
     scene_build.add_argument('--dataset-id', required=True)
     scene_build.add_argument('--gpu-ids', nargs='+', type=int, required=True)
     scene_build.add_argument('--workers', type=int, default=2)
@@ -249,7 +251,7 @@ def main(argv=None):
     if args.command == 'build-scene-datasets':
         from .workflows.scene_datasets import build_scene_dataset
         path = build_scene_dataset(args.config, args.discovery, args.output_dir, args.dataset_id,
-                                   args.gpu_ids, args.workers, args.resume, args.allow_partial_targets)
+                                   args.gpu_ids, args.workers, args.resume, args.allow_partial_targets, dataset_root=args.dataset_root)
         print(path)
         return 0 if read_json(path/'manifest.json')['status'] == 'sealed' else 1
     if args.command == 'scene-dataset-unit':
@@ -301,7 +303,8 @@ def main(argv=None):
         path=collect(args.dataset,args.assets_dir,args.config,args.output_dir,run_id=args.run_id,
                      gpu_ids=args.gpu_ids,workers=args.workers,samples=args.samples,resume=args.resume,
                      calibration_only=args.calibration_only,preflight_only=args.preflight_only,
-                     max_trials=args.max_trials,export_state_images=not args.no_molmobot_export)
+                     max_trials=args.max_trials,export_state_images=not args.no_molmobot_export,
+                     publication_root=args.publication_root)
         print(path)
         return 0 if read_json(path/'summary.json')['status'] in ('completed','calibration_complete','preflight_complete') else 1
     if args.command == 'collect-no-edit':

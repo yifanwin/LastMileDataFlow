@@ -236,7 +236,7 @@ def collect_views(parent, units, *, export_state_images=True):
 
 def collect(dataset, assets_dir, config_path, output_dir, *, run_id, gpu_ids, workers=1,
             samples=None, resume=False, calibration_only=False, max_trials=None,
-            preflight_only=False, export_state_images=True):
+            preflight_only=False, export_state_images=True, publication_root=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]+',run_id):
         raise ValueError('unsafe parent run ID')
     if type(workers) is not int or workers != 1:
@@ -250,14 +250,16 @@ def collect(dataset, assets_dir, config_path, output_dir, *, run_id, gpu_ids, wo
     if config.operation_backend != 'curobo' or config.augmented_variant or config.scene_package:
         raise ValueError('parent config must be an unbound cuRobo configuration')
     source, units = input_units(dataset,config,samples=samples)
+    root = Path(publication_root).resolve() if publication_root else output_dir/'lastmile_datasets'/run_id
+    if publication_root and len({u['sample_id'] for u in units}) != len(units):
+        raise ValueError('direct sample layout requires one physical config per sample')
     for unit in units:
         unit['run_id'] = run_id+'-'+unit['unit_id']
-        unit['run_path'] = str(output_dir/'no_edit'/unit['run_id'])
+        unit['run_path'] = str(root/'samples'/unit['sample_id']) if publication_root else str(output_dir/'no_edit'/unit['run_id'])
     identity = {'schema_version':SCHEMA,'dataset':str(dataset),'source_manifest_sha256':file_digest(dataset/'manifest.json'),
                 'assets_dir':str(assets_dir),'output_dir':str(output_dir),'units':units,
                 'code_sha256':code_identity()['code_sha256'],'max_trials':max_trials,
                 'preflight_only':preflight_only,'export_state_images':export_state_images}
-    root = output_dir/'lastmile_datasets'/run_id
     root.mkdir(parents=True,exist_ok=resume)
     with (root/'run.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -293,7 +295,8 @@ def collect(dataset, assets_dir, config_path, output_dir, *, run_id, gpu_ids, wo
                 child = collect_batch(unit['dataset_dir'],assets_dir,construct(RobotConfig,unit['robot']),cfg,collection,
                                       run_id=unit['run_id'],gpu_ids=gpu_ids,max_workers=1,houses=[unit['house']],
                                       resume=resume and Path(unit['run_path']).exists(),max_trials=max_trials,
-                                      calibration_only=calibration_only)
+                                      calibration_only=calibration_only,
+                                      **({'run_root':unit['run_path']} if publication_root else {}))
                 summary = read_json(child/'summary.json')
                 states[unit['unit_id']] = {'status':summary['status'],'calibration_only':calibration_only}
                 write_json(root/'progress.json',{'status':'running','active_unit':None,'units':states})

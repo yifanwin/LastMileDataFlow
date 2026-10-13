@@ -21,6 +21,10 @@ scenes-datasets-design
 
 ## 独立采集与评测入口
 
+当前版本[固定椅子Case1样例](docs/datas/fixed-chair-case1-examples.md)：
+`outputs/case1-v3-fixed-chair-examples-20261013/`内一份scenes-datasets、一份lastmile-datasets，共三个对应sample。
+固定Chair根位置、随机旋转与桌面物品；真实采集文件和RGB/depth位于各sample内部。执行状态见对应报告，不以目录存在宣称采集完成。
+
 当前命令入口见[运行手册（cuRobo + MolmoBot 合并版）](docs/运行手册.md)；其中本机 worktree、环境和 GPU 参数须按实际部署调整。
 数据契约集中于 `docs/datas/`，历史设计与旧运行说明集中于 `docs/archives/`。
 

@@ -338,6 +338,7 @@ def qualify_scene_discovery(discovery, output):
 
 
 def _seal_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, evidence, seed, elapsed, provenance):
+    dataset_id = read_json(root/'build.json').get('scene_dataset_id', root.name) if (root/'build.json').exists() else root.name
     robot = load_scene_robot(recipe.robot_config); geometry = recipe.geometry
     selected, selection = select_stations(rows, task['anchor_world'], recipe.station_selection, recipe.max_final_stations)
     if len(selected) < recipe.min_final_points or not checks['valid']:
@@ -381,7 +382,7 @@ def _seal_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, e
     write_json(package / 'validation/checks.json', checks)
     write_json(package / 'initialization.json', {'parked_robot': 'exact state stored in scene/initial.npz',
         'execution': 'use each selected station initial verbatim before Simulation.begin; no post-begin resets'})
-    manifest = {'schema_version': 'scene-station-package-v1', 'status': 'sealed', 'scene_dataset_id': root.name,
+    manifest = {'schema_version': 'scene-station-package-v1', 'status': 'sealed', 'scene_dataset_id': dataset_id,
         'sample_id': sample_id, 'robot_sensor_config_id': config_id, 'binding': binding, 'scene_id': unit['source']['scene_id'],
         'task_id': task['task_id'], 'case': unit['case'], 'rule_version': recipe.rule_version,
         'selection_mode': recipe.station_selection, 'max_final_stations': recipe.max_final_stations,
@@ -391,7 +392,7 @@ def _seal_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, e
     write_json(package / 'manifest.json', manifest)
     write_json(package / 'checksums.json', {str(p.relative_to(package)): file_digest(p) for p in package.rglob('*') if p.is_file()})
     package_manifest(package)
-    sample = {'schema_version': 'scene-sample-v1', 'status': 'sealed', 'scene_dataset_id': root.name,
+    sample = {'schema_version': 'scene-sample-v1', 'status': 'sealed', 'scene_dataset_id': dataset_id,
         'sample_id': sample_id, 'house': unit['house'], 'scene_id': unit['source']['scene_id'],
         'task_id': task['task_id'], 'instance_id': task['instance_id'], 'asset_id': task['asset_id'],
         'operation': task['operation'], 'case': unit['case'], 'rule_version': recipe.rule_version, 'seed': seed,
@@ -454,7 +455,8 @@ def run_scene_dataset_unit(root, index):
     """One immutable unit, retries in distinct runs; individually publish good variants."""
     root = Path(root).resolve(); build = read_json(root / 'build.json')
     recipe = load_scene_recipe(build['recipe_path']); unit = build['units'][index]
-    out = Path(build['output_dir']); diagnostic = out / 'diagnostics' / f'{root.name}-unit-{index:03d}'
+    dataset_id = build.get('scene_dataset_id', root.name)
+    out = Path(build['output_dir']); diagnostic = out / 'diagnostics' / f'{dataset_id}-unit-{index:03d}'
     diagnostic.mkdir(parents=True, exist_ok=False)
     started = time.monotonic(); samples = []; exclusions = []
     result = {'unit_index': index, 'house': unit['house'], 'case': unit['case'], 'task_id': unit['task']['task_id'],
@@ -472,6 +474,7 @@ def run_scene_dataset_unit(root, index):
                 count = [n + 1 for n in recipe.case1_added_surface_count] if case1 else recipe.case2_added_surface_count
                 config = ObstacleConfig(baseline_config=build['recipe_path'], dataset_dir=recipe.dataset_dir,
                     input_snapshot=unit['input_snapshot'],
+                    fixed_chair=recipe.fixed_chair,
                     asset_library=recipe.asset_library, target_instance=unit['task']['instance_id'], house=unit['house'],
                     schema_version='procedural-obstacles-v3' if recipe.rule_version == 'scene-cases-v3' else 'procedural-obstacles-v2', variant_count=missing,
                     seed=int(digest([recipe.seed, unit['house'], unit['task']['task_id'], unit['case'], retry])[:8], 16),
@@ -485,7 +488,7 @@ def run_scene_dataset_unit(root, index):
                         'min_substantial': recipe.min_substantial,
                         'allow_surface_capacity_shortfall': recipe.allow_surface_capacity_shortfall,
                         'capacity_probe_budget': recipe.capacity_probe_budget, 'case1_support_types': recipe.case1_support_types})
-                run_id = f'{root.name}-u{index:03d}-r{retry:02d}'
+                run_id = f'{dataset_id}-u{index:03d}-r{retry:02d}'
                 path = augment_obstacles(config, out, run_id=run_id, geometry_config=recipe.geometry,
                                          robot_config=load_scene_robot(recipe.robot_config))
                 summary = read_json(path / 'summary.json')
@@ -658,7 +661,7 @@ def expected_scene_samples(recipe, rows):
     return total
 
 
-def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=2, resume=False, allow_partial_targets=False):
+def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=2, resume=False, allow_partial_targets=False, dataset_root=None):
     recipe_path = Path(recipe_path).resolve(); output_dir = Path(output_dir).resolve()
     recipe = load_scene_recipe(recipe_path); plan = read_json(discovery)
     if plan['recipe_sha256'] != digest(asdict(recipe)):
@@ -671,7 +674,7 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
         raise ValueError('unsafe dataset id')
     if workers <= 0 or not gpu_ids or any(type(g) is not int or not 0 <= g <= 7 for g in gpu_ids):
         raise ValueError('explicit GPU 0..7 list and positive workers required')
-    root = output_dir / 'scene_datasets' / dataset_id
+    root = Path(dataset_root).resolve() if dataset_root else output_dir / 'scene_datasets' / dataset_id
     if root.exists() and not resume:
         raise FileExistsError(root)
     root.mkdir(parents=True, exist_ok=resume)
@@ -679,6 +682,8 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
              if (case == 'Case3') == (row['task']['operation'] == 'open')]
     payload = {'recipe_path': str(recipe_path), 'recipe': asdict(recipe), 'recipe_sha256': plan['recipe_sha256'],
                'units': units, 'output_dir': str(output_dir), 'discovery': plan, 'allow_partial_targets': allow_partial_targets}
+    if dataset_root:
+        payload['scene_dataset_id'] = dataset_id
     if resume:
         old = read_json(root / 'build.json')
         if digest(payload) != old['input_sha256']:

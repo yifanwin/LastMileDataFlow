@@ -64,6 +64,7 @@ class SceneDatasetRecipe:
     rule_version: str = 'scene-cases-v2'
     targets: dict = field(default_factory=dict)
     input_snapshots: dict = field(default_factory=dict)
+    fixed_chair: dict = field(default_factory=dict)
     categories: list = field(default_factory=list)
     pick_target_types: list = field(default_factory=list)
     case1_support_types: list = field(default_factory=lambda: list(SUPPORT_TYPES))
@@ -93,6 +94,10 @@ class SceneDatasetRecipe:
     views: dict = field(default_factory=lambda: {'width': 640, 'height': 480})
 
     def __post_init__(self):
+        from .fixed_chair import validate_fixed_chair
+        validate_fixed_chair(self.fixed_chair)
+        if self.fixed_chair and self.cases != ['Case1']:
+            raise ValueError('fixed Chair recipe must contain only Case1')
         if self.schema_version != 'scene-dataset-recipe-v1' or self.rule_version not in ('scene-cases-v2', 'scene-cases-v3'):
             raise ValueError('unknown scene dataset recipe/rule version')
         if type(self.allow_surface_capacity_shortfall) is not bool or (self.allow_surface_capacity_shortfall and self.rule_version != 'scene-cases-v3'):

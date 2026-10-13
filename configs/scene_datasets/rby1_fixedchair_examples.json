@@ -1,0 +1,1 @@
+{"cameras":["head_camera","wrist_camera_l","wrist_camera_r"],"control_hz":20.0,"control_profile":"position-v1","model_path":"/data0/wenyifan/MoMaTrajGen/molmospaces_data/assets/robots/rby1m/rby1_v1.2_site_control.xml","physics_dt":0.004}

@@ -153,6 +153,11 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
             unique_regions = {p['region'].region_id: p['region'] for p in surfaces}
             area = sum((r.bounds[1] - r.bounds[0]) * (r.bounds[3] - r.bounds[2]) for r in unique_regions.values())
         selected_assets = case_assets(rng, count, pool, geometry, policy, config.mandatory_categories, surface_area_m2=area)
+        if config.fixed_chair:
+            fixed = geometry.get(config.fixed_chair['asset_id'])
+            if fixed is None or fixed['category'] != 'Chair':
+                raise ValueError('fixed_chair_asset_unavailable')
+            selected_assets[0] = fixed
     except ValueError as exc:
         result['reason'] = str(exc)
         write_json(path / 'result.json', result)
@@ -207,6 +212,8 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                     alternatives = [g for g in geometry.values() if g['category'] == asset['category']
                                     and g['asset_id'] != asset['asset_id']
                                     and (not require_substantial or substantial_asset(g, policy))]
+                    if config.fixed_chair and asset['category'] == 'Chair':
+                        alternatives = []
                     if alternatives:
                         selected_assets[index] = alternatives[int(rng.integers(len(alternatives)))]
                     resamples[index] += 1
@@ -222,9 +229,11 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                 category = row['category']
                 ground = category in pool['ground']
                 points = regions['points'] if ground else surfaces
+                if ground and config.fixed_chair:
+                    points = [{'point_id':'fixed-chair-root-xy', 'xy':config.fixed_chair['root_xy'], 'sources':[]}]
                 row.update(asset_id=asset['asset_id'], kind='ground' if ground else 'surface')
                 if forced_proposal is None:
-                    if not points:
+                    if not points and not (ground and config.fixed_chair):
                         row.update(status='geometry_rejected', reason='no_candidate_points')
                         record(row)
                         continue
@@ -236,6 +245,10 @@ def _variant(session, baseline, task, config, no_edit, pool, geometry, regions, 
                     support_center = np.mean([np.asarray(o['min'])[:2] + np.asarray(o['max'])[:2] for o in task['support_obstacles']], axis=0) / 2
                     facing = np.arctan2(*(support_center - point['xy'])[::-1])
                     yaw = float(facing + rng.uniform(-config.yaw_jitter_rad, config.yaw_jitter_rad))
+                    if ground and config.fixed_chair:
+                        from ..construction.fixed_chair import fixed_chair_point
+                        yaw = float(rng.uniform(-np.pi, np.pi))
+                        point = fixed_chair_point(asset['local_points'], config.fixed_chair['root_xy'], yaw)
                     if not ground and policy:
                         point, yaw = sample_surface_point(rng, asset, surfaces, placements, occupied, policy, config.placement_gap_m)
                         if point is None:
@@ -494,6 +507,8 @@ def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot
         requests = [{'categories': [c], 'size_constraints_m':
                      {'width': [.01, .65], 'depth': [.01, .65], 'height': [.005, .75]} if policy and c in pool['surface'] else {}}
                     for c in categories]
+        if config.fixed_chair:
+            next(r for r in requests if r['categories'] == ['Chair'])['asset_ids'] = [config.fixed_chair['asset_id']]
         assets = ThorLibrary(config.asset_library).retrieve(requests, path / 'assets', limit=config.assets_per_category, seed=config.seed,
                          registered_only=bool(policy and policy.registered_assets_only))
         geometry = asset_geometry(assets)

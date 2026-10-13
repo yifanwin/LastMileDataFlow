@@ -61,6 +61,7 @@ class ObstacleConfig:
     asset_library: str
     target_instance: str
     input_snapshot: str | None = None
+    fixed_chair: dict = field(default_factory=dict)
     house: int = 103
     schema_version: str = 'procedural-obstacles-v1'
     variant_count: int = 5
@@ -95,6 +96,10 @@ class ObstacleConfig:
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError('nonnegative integer required: ' + key)
         policy = construct(CaseConstruction, self.construction) if self.construction else None
+        from .fixed_chair import validate_fixed_chair
+        validate_fixed_chair(self.fixed_chair)
+        if self.fixed_chair and (policy is None or policy.case != 'Case1'):
+            raise ValueError('fixed Chair requires Case1')
         modern = self.schema_version != 'procedural-obstacles-v1'
         versions = {'procedural-obstacles-v1': 'obstacle-cases-v1', 'procedural-obstacles-v2': 'scene-cases-v2', 'procedural-obstacles-v3': 'scene-cases-v3'}
         if policy and policy.rule_version != versions[self.schema_version] or modern and policy is None:
