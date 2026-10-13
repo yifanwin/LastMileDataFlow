@@ -30,6 +30,20 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
+    lastmile = sub.add_parser('collect-lastmile-datasets', help='scene packages -> cuRobo calibration -> continuous recovery -> audited raw-first publication')
+    lastmile.add_argument('--dataset', required=True, type=Path)
+    lastmile.add_argument('--assets-dir', required=True, type=Path)
+    lastmile.add_argument('--config', type=Path, default=ROOT/'configs/lastmile_datasets/v0.json')
+    lastmile.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
+    lastmile.add_argument('--run-id', required=True)
+    lastmile.add_argument('--gpu-ids', nargs='+', type=int, default=list(range(8)))
+    lastmile.add_argument('--workers', type=int, default=1)
+    lastmile.add_argument('--samples', nargs='+', help='explicit sample IDs; all matching configuration packages are included')
+    lastmile.add_argument('--resume', action='store_true')
+    lastmile.add_argument('--calibration-only', action='store_true')
+    lastmile.add_argument('--preflight-only', action='store_true', help='verify immutable inputs without GPU execution')
+    lastmile.add_argument('--max-trials', type=int, help='diagnostic per-package attempt limit; not a formal full calibration')
+    lastmile.add_argument('--no-molmobot-export', action='store_true', help='keep audited raw-first data; derive model packages separately')
     bench_build = sub.add_parser('build-lastmilebench', help='freeze a minimal MolmoBot-native benchmark from scene_datasets')
     bench_build.add_argument('--dataset', required=True, type=Path)
     bench_build.add_argument('--output', required=True, type=Path)
@@ -75,6 +89,9 @@ def parser():
     obstacles.add_argument('--config', required=True, type=Path)
     obstacles.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
     obstacles.add_argument('--run-id', required=True)
+    timeout_review = sub.add_parser('review-lastmile-timeouts', help='read-only full physical trace audit into an independent derived publication')
+    timeout_review.add_argument('--run', required=True, type=Path)
+    timeout_review.add_argument('--output', required=True, type=Path)
     canonical_audit = sub.add_parser('audit-canonical', help='read-only raw-first timing, arrays, cameras and integrity audit')
     canonical_audit.add_argument('attempt', type=Path)
     canonical_index = sub.add_parser('index-canonical', help='all-outcome index, separate from success-only training index')
@@ -250,8 +267,14 @@ def main(argv=None):
         path = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)
         print(path)
         return 0 if read_json(path/'summary.json')['status'] == 'completed' else 1
+    if args.command == 'review-lastmile-timeouts':
+        import json
+        from .workflows.timeout_review import review
+        print(json.dumps(review(args.run,args.output),ensure_ascii=False,indent=2))
+        return 0
     if args.command == 'audit-canonical':
         import json
+        from .validation.canonical import audit_canonical
         report = audit_canonical(args.attempt)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report['valid'] else 1
@@ -273,6 +296,14 @@ def main(argv=None):
     if args.command == 'no-edit-status':
         import json
         return 0
+    if args.command == 'collect-lastmile-datasets':
+        from .workflows.lastmile_datasets import collect
+        path=collect(args.dataset,args.assets_dir,args.config,args.output_dir,run_id=args.run_id,
+                     gpu_ids=args.gpu_ids,workers=args.workers,samples=args.samples,resume=args.resume,
+                     calibration_only=args.calibration_only,preflight_only=args.preflight_only,
+                     max_trials=args.max_trials,export_state_images=not args.no_molmobot_export)
+        print(path)
+        return 0 if read_json(path/'summary.json')['status'] in ('completed','calibration_complete','preflight_complete') else 1
     if args.command == 'collect-no-edit':
         from .stations.no_edit_config import load_no_edit_config
         from .workflows.no_edit import collect_batch

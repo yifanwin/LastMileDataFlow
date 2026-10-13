@@ -1,0 +1,20 @@
+{
+  "schema_version": "no-edit-v1",
+  "operation_backend": "curobo",
+  "planner_backend": "curobo_v2_v080",
+  "max_attempts": 5,
+  "operation_base_mode": "holonomic_joint_planning",
+  "trials_per_station": 5,
+  "lastmile_low": 0.2,
+  "lastmile_high": 0.8,
+  "lastmile_nearby_m": 1.0,
+  "start_count": 3,
+  "min_successful_rollouts": 1,
+  "operation_retries": 1,
+  "third_person_enabled": true,
+  "attempt_timeout_s": 300.0,
+  "scene_timeout_s": 86400.0,
+  "min_free_disk_gb": 50.0,
+  "operations": ["pick", "open"],
+  "seed": 20261012
+}
