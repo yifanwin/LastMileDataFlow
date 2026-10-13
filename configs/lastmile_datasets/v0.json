@@ -9,6 +9,7 @@
   "lastmile_high": 0.8,
   "lastmile_nearby_m": 1.0,
   "start_count": 3,
+  "max_s1_candidates": 5,
   "min_successful_rollouts": 1,
   "operation_retries": 1,
   "third_person_enabled": true,

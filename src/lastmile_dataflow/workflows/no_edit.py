@@ -232,12 +232,16 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             goals_by_start={s['station_id']:gs for s,gs,_ in choices}
         selection['starts']=starts
         for start in starts:
-            if config.lastmile_selection and any(p['start']['station_id']==start['station_id'] for p in successful):
-                continue
             ordered=goals_by_start[start['station_id']]
-            if config.max_s1_candidates: ordered=ordered[:config.max_s1_candidates]
+            if config.lastmile_selection:
+                ordered=ordered[:config.max_s1_candidates or 5]
+            elif config.max_s1_candidates:
+                ordered=ordered[:config.max_s1_candidates]
             for goal in ordered:
                 if config.lastmile_selection:
+                    if any(p['start']['station_id']==start['station_id'] and
+                           p['goal']['station_id']==goal['station_id'] for p in successful):
+                        continue
                     prior=[p for p in selection['failed_rollouts'] if p['start']['station_id']==start['station_id']
                            and p['goal']['station_id']==goal['station_id']]
                     if any(p['status'] not in ('infrastructure_error','incomplete','recording_error','episode_error','simulation_failure','initialization_error') for p in prior):
@@ -264,13 +268,29 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
                     'attribution':r.get('attribution')} for r in packet['s0_failure_evidence']]
                 if outcome['status']=='success' and outcome['navigation']['status']=='success':
                     successful.append(packet); selection['successful'].append(packet)
-                    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors); break
-                selection['failed_rollouts'].append(packet); isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
+                    isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
+                    if not config.lastmile_selection: break
+                else:
+                    selection['failed_rollouts'].append(packet); isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
                 if outcome['status']=='infrastructure_error': error='infrastructure_error'; break
             if error: break
         status=error or ('retained' if len(successful) >= config.min_successful_rollouts else 'no_successful_rollout')
     if config.operation_backend=='molmobot' and not error and rate['status']!='incomplete':
         status='station_evaluation_complete' if rate['status']!='no_valid_stations' else 'no_valid_stations'
+    if config.lastmile_selection:
+        groups=[]
+        for start, goals, evidence in choices or []:
+            selected_goals=goals[:config.max_s1_candidates or 5]
+            success_ids={p['goal']['station_id'] for p in successful
+                         if p['start']['station_id']==start['station_id']}
+            groups.append({'s0':start['station_id'],
+                           's1_selected':[g['station_id'] for g in selected_goals],
+                           'successful_s1':sorted(success_ids),
+                           'successful_s1_count':len(success_ids),
+                           'minimum_met':bool(success_ids),
+                           'warnings':['single_successful_solution'] if len(success_ids)==1 else []})
+        selection['start_groups']=groups
+        selection['warnings']=(['fewer_than_preferred_starts'] if 0 < len(groups) < config.start_count else [])
     isolated_recording(scene_path,task['task_id'],'selection',write_json,task_path/'selection.json',selection,_diagnostics=recording_errors)
     isolated_recording(scene_path,task['task_id'],'final_heatmap',export_heatmap,task_path/'maps',heat_grid,rows,anchor,sigma,max_support_distance_m=config.smoothing_support_distance_m,selection=selection,title=task['task_id'],_diagnostics=recording_errors)
     result={'schema_version':'no-edit-v1','task_id':task['task_id'],'instruction':task['instruction'],
@@ -283,6 +303,9 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
             'operation_backend':config.operation_backend,'station_only':config.operation_backend=='molmobot',
             'lastmile_selection':config.lastmile_selection,'calibration_only':calibration_only,
             'heatmap':str(task_path/'maps/success_heatmap.png')}
+    if config.lastmile_selection:
+        result['start_groups']=selection.get('start_groups',[])
+        result['warnings']=selection.get('warnings',[])
     result['recording_errors']=list(recording_errors)
     result['recording_complete']=not recording_errors
     if recording_errors: result['dataset_eligible']=False

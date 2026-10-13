@@ -21,7 +21,7 @@ bin/lastmile-dataflow collect-lastmile-datasets \
 - 初版按 sample/config 串行执行，`--workers` 必须为 1。GPU 从候选集合实时选择：利用率 ≤50%、空闲显存 ≥10000 MB，先低利用率，再高空闲显存。CUDA/EGL 绑定同一物理 GPU，不干预其它进程。
 - `--preflight-only` 仅校验真实输入和配置，不初始化策略、不分配 GPU、不执行物理动作；输出单独预检 run。
 - `--calibration-only` 完成逐点标定与选择证据，不采连续段；同一 run 使用 `--resume` 并去掉此开关可进入连续采集。
-- `--resume` 只接受相同输入、配置、代码、诊断预算、导出设置；已有有效 trial 和登记的成功连续段不重复执行。
+- `--resume` 只接受相同输入、配置、代码、诊断预算、导出设置；已有有效 trial 和登记的成功 S0→S1 连续段不重复执行；某个 S1 成功不跳过同一 S0 的其他 S1。正常终结的失败配对不自动重跑，基础设施/记录等异常配对可恢复重试。
 - `--max-trials N` 是每个包的新标定尝试数诊断上限，不截取源 selected 集合。使用该开关的 run 不得冒充完整正式标定；不能去掉上限后强行 resume 同一诊断 run。
 - 默认对审计合格的成功 Pick episode 导出 MolmoBot state/images；`--no-molmobot-export` 可将派生工作留到后续。
 
@@ -37,7 +37,7 @@ bin/lastmile-dataflow collect-lastmile-datasets \
 
 逐点默认 5 次独立试验，有限预算 success/failure/planning_no_solution/timeout 为有效结果。仿真、记录、初始化、基础设施异常及未执行不伪装成正常任务失败。正式选择要求全部 selected 点都达到计划有效 trial 数；旧错误 attempts 保留，同一 trial 不重复计数。封存结果在索引落盘前被中断时，可从既有 outcome/config 重新登记，不重写原 attempt。
 
-默认 S0 实测率 ≤0.2，S1 ≥0.8，XY 距离 ≤1.0 m，最多 3 个 S0。复用 benchmark selector，只用实测计数。新模式不应用整体平均率 `discard_below`；未启用 LastMile 模式的旧 collector 规则不变。
+默认 S0 实测率 ≤0.2，S1 ≥0.8，XY 距离 ≤1.0 m。每个 sample/config/task 尽量选择 3 个 S0，至少需要 1 个合格 S0；只有 1–2 个时保留并警告，0 个时为 `no_eligible_pair`。每个 S0 最多选择 5 个 S1（`max_s1_candidates=5`；LastMile 模式下 0 也按 5 处理），按成功率降序、距离升序、站位 ID 排序截取。首条成功后继续处理其余选定 S1，不用第 6 个替补无路径或失败的候选。复用 benchmark selector，只用实测计数。新模式不应用整体平均率 `discard_below`；未启用 LastMile 模式的旧 collector 规则不变。
 
 高率邻点不证明通路。连续采集另用 A*，真实导航到站并复核 XY/yaw，再从实际状态规划操作。`begin()` 后不恢复快照、传送或重启。S0 标定失败是独立证据，不拼接成当前连续 episode。
 
@@ -107,3 +107,14 @@ bin/lastmile-dataflow review-lastmile-timeouts \
 最多 4 个 CPU worker。复核已有完整物理 trace；旧 monitor 初值仅在可由 frozen model/initial_state 可靠重建时使用，否则 unknown。物理成功候选另做 canonical audit；不合格物理候选只核验所用证据与原 attempt seal，不浪费完整相机审计。结果是独立的 posthoc evidence，不是原封存率表的标签改写，也不是连续恢复训练数据。
 
 修复与验收见 [TIMEOUT-FIX.md](../../reports/lastmile_datasets/TIMEOUT-FIX.md)。
+
+## 7. 同起点多终点采集
+
+同一 S0 的各条轨迹从相同冻结场景和完整机器人初态初始化，每条使用独立 Simulation/attempt；执行开始后禁止重置、传送或拼接标定失败轨迹。非 LastMile 模式保留旧的首条成功即停止行为。
+
+`selection.json` / task result 新增 `start_groups`，记录每个 S0 的选定 S1、不同成功终点数、最低要求和警告。父 `unit_results.jsonl` / summary 的组统计额外提供 `train_s1` / `train_s1_count`，按实际进入 train_index 的不同 S1 计数，而不是将未通过审计的物理成功计入可发布成功解。
+
+- 每个 S0 有至少 1 个成功且审计通过的连续解即可入集；只有 1 个时警告 `single_successful_solution`，不阻止发布。
+- 0 个成功解的组标记 `no_audited_successful_solution`，不贡献训练轨迹；其他 S0 的合格轨迹不因此丢弃。
+- 不足首选 S0 数时警告 `fewer_than_preferred_starts`；无合格 S0 或无成功解仍保留真实负结果。
+- 新代码/配置必须使用新 run ID，不修改既有封存数据，也不能用新配置 resume 旧 run。

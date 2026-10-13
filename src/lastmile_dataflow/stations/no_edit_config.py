@@ -76,6 +76,8 @@ class NoEditConfig:
             raise ValueError('invalid lastmile low/high thresholds')
         if self.lastmile_selection and (self.operation_backend != 'curobo' or not self.scene_package):
             raise ValueError('lastmile selection requires a cuRobo scene package')
+        if self.lastmile_selection and (self.start_count > 3 or self.max_s1_candidates > 5):
+            raise ValueError('LastMile permits at most 3 starts and 5 S1 candidates per start')
         if self.scene_package is not None and (not isinstance(self.scene_package, str) or not self.scene_package):
             raise ValueError('invalid scene_package')
         if self.scene_package and self.augmented_variant:

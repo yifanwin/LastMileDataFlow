@@ -34,6 +34,12 @@ class SelectionTests(unittest.TestCase):
         self.config = NoEditConfig(lastmile_selection=True,scene_package='fixture')
         self.binding = {'sample_id':'fixture','robot_sensor_config_id':'position'}
 
+    def test_lastmile_candidate_limits(self):
+        for kw in ({'start_count':4},{'max_s1_candidates':6}):
+            with self.assertRaises(ValueError):
+                NoEditConfig(lastmile_selection=True,scene_package='fixture',**kw)
+        self.assertEqual(NoEditConfig(max_s1_candidates=6).max_s1_candidates,6)
+
     def test_existing_benchmark_rule_used_and_count_boundaries(self):
         rows = trials()
         rows[0]['status']='success'
@@ -99,23 +105,24 @@ class SelectionTests(unittest.TestCase):
 
 class CollectorTests(unittest.TestCase):
     def run_fixture(self, root, *, calibration_only=False, trial_rows=None, outcome='success',
-                    path=True, max_trials=None):
+                    path=True, max_trials=None, station_rows=None, start_count=1):
         tp=root/'tasks'/'t'; tp.mkdir(parents=True,exist_ok=True)
         write_json(root/'robot_geometry.json',{'radius_m':.4})
         write_json(root/'scene_dataset_input/input_manifest.json',
                    {'scene_dataset_id':'fixture-dataset','sample_id':'sample','package_checksums_sha256':'fixture-sha',
                     'robot_sensor_config_id':'position'})
         (root/'scene').mkdir(exist_ok=True); (root/'scene/model.mjb').write_bytes(b'SYNTHETIC identity, not a real model')
-        write_json(tp/'stations.json',stations())
+        write_json(tp/'stations.json',station_rows or stations())
         if trial_rows is not None: write_json(tp/'trials.json',trial_rows)
         task={'task_id':'t','operation':'pick','target_body':'target','anchor_world':[0.,0.,1.],
               'instruction':'synthetic fixture only','output_name':'t'}
-        config=NoEditConfig(scene_package='fixture',lastmile_selection=True,discard_below=.99,start_count=1)
+        config=NoEditConfig(scene_package='fixture',lastmile_selection=True,discard_below=.99,start_count=start_count)
         grid=Grid(np.array([-1.,-1.]),1.,np.ones((6,6),bool))
         calls=[]
         def attempt(*args,**kw):
             calls.append(kw)
-            return {'station_id':args[2]['station_id'],'status':outcome,'attempt':str(root/'fixture-attempt'),
+            status=outcome(len(calls)) if callable(outcome) else outcome
+            return {'station_id':args[2]['station_id'],'status':status,'attempt':str(root/('fixture-attempt-'+str(len(calls)))),
                     'navigation':{'status':'success'},'control':{'seed':1},'attribution':{'category':'fixture'},
                     'continuous_simulation':True}
         with patch('lastmile_dataflow.workflows.no_edit.prepare_execution_stations'), \
@@ -139,6 +146,78 @@ class CollectorTests(unittest.TestCase):
             self.assertFalse(result['rate']['global_discard_applied'])
             result,calls=self.run_fixture(root)
             self.assertEqual(len(calls),0); self.assertEqual(result['successful_rollouts'],1)
+
+    def multi_rows(self, lows=1, highs=6):
+        ss=[{'station_id':f'low{i}','geometry':'valid','xy':[0.,i*.01],
+             'base':[0.,i*.01,0.]} for i in range(lows)]
+        ss += [{'station_id':f'high{i}','geometry':'valid','xy':[.1+i*.05,0.],
+                'base':[.1+i*.05,0.,0.]} for i in range(highs)]
+        ts=[{'station_id':st['station_id'],'trial':i,
+             'status':'success' if st['station_id'].startswith('high') else 'failure',
+             'attempt':f'synthetic-{st["station_id"]}-{i}','control':{'seed':1},'seed':i}
+            for st in ss for i in range(5)]
+        return ss,ts
+
+    def test_multiple_goals_cap_and_pair_resume(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); ss,ts=self.multi_rows()
+            result,calls=self.run_fixture(root,station_rows=ss,trial_rows=ts)
+            self.assertEqual(len(calls),5)
+            self.assertEqual(result['start_groups'][0]['successful_s1_count'],5)
+            self.assertEqual(result['start_groups'][0]['warnings'],[])
+            # Simulate interruption after the first pair was registered.
+            selection=read_json(root/'tasks/t/selection.json')
+            selection['successful']=selection['successful'][:1]
+            write_json(root/'tasks/t/selection.json',selection)
+            (root/'tasks/t/result.json').unlink()  # crash before final task result
+            result,calls=self.run_fixture(root,station_rows=ss)
+            self.assertEqual(len(calls),4)
+            result,calls=self.run_fixture(root,station_rows=ss)
+            self.assertEqual(len(calls),0)
+            self.assertEqual(result['successful_rollouts'],5)
+
+    def test_infrastructure_resume_keeps_success_and_retries_pending_pair(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); ss,ts=self.multi_rows(highs=3)
+            result,calls=self.run_fixture(root,station_rows=ss,trial_rows=ts,
+                                          outcome=lambda n:'success' if n==1 else 'infrastructure_error')
+            self.assertEqual(result['status'],'infrastructure_error')
+            self.assertEqual(len(calls),2)
+            result,calls=self.run_fixture(root,station_rows=ss)
+            self.assertEqual(len(calls),2)
+            self.assertEqual(result['successful_rollouts'],3)
+            self.assertEqual(len(read_json(root/'tasks/t/selection.json')['failed_rollouts']),1)
+
+    def test_no_eligible_start_does_not_execute_rollout(self):
+        with tempfile.TemporaryDirectory() as d:
+            ss,ts=self.multi_rows(lows=0,highs=2)
+            result,calls=self.run_fixture(Path(d),station_rows=ss,trial_rows=ts,start_count=3)
+            self.assertEqual(result['status'],'no_eligible_pair')
+            self.assertEqual(calls,[])
+
+    def test_three_starts_each_collect_multiple_goals(self):
+        with tempfile.TemporaryDirectory() as d:
+            ss,ts=self.multi_rows(lows=4,highs=2)
+            result,calls=self.run_fixture(Path(d),station_rows=ss,trial_rows=ts,start_count=3)
+            self.assertEqual(len(calls),6)
+            self.assertEqual(len(result['start_groups']),3)
+            self.assertTrue(all(g['successful_s1_count']==2 for g in result['start_groups']))
+
+    def test_single_solution_warning_does_not_block_retention(self):
+        with tempfile.TemporaryDirectory() as d:
+            result,calls=self.run_fixture(Path(d),trial_rows=trials(),start_count=3)
+            self.assertTrue(result['dataset_eligible'])
+            self.assertEqual(result['warnings'],['fewer_than_preferred_starts'])
+            self.assertEqual(result['start_groups'][0]['warnings'],['single_successful_solution'])
+
+    def test_terminal_pair_failures_not_repeated(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); ss,ts=self.multi_rows(highs=2)
+            result,calls=self.run_fixture(root,station_rows=ss,trial_rows=ts,outcome='failure')
+            self.assertEqual(len(calls),2)
+            self.assertFalse(result['dataset_eligible'])
+            result,calls=self.run_fixture(root,station_rows=ss)
+            self.assertEqual(calls,[])
 
     def test_calibration_only_advances_without_repeating_trials(self):
         with tempfile.TemporaryDirectory() as d:
@@ -229,13 +308,21 @@ class PublicationTests(unittest.TestCase):
             write_json(taskroot/'result.json',{'status':'retained','dataset_eligible':True})
             packet={'attempt':str(attempt),'start':stations()[0],'goal':stations()[1],'path':{},
                     'status':'success','navigation':{'status':'success'},'continuous_simulation':True}
-            write_json(taskroot/'selection.json',{'successful':[packet],'failed_rollouts':[]})
+            write_json(taskroot/'selection.json',{'successful':[packet],'failed_rollouts':[],
+                       'start_groups':[{'s0':'low','s1_selected':['high']} ]})
             unit={'run_path':str(child),'house':1,'unit_id':'u','selected_points':2, **dict.fromkeys(
                   ['scene_dataset_id','sample_id','robot_sensor_config_id','task_id','compiled_model_sha256','source_package_sha256'],'fixture')}
             with patch('lastmile_dataflow.workflows.lastmile_datasets.audit_canonical',return_value={'valid':False,'issues':['synthetic failure']}):
                 view=collect_views(parent,[unit],export_state_images=False)
             self.assertEqual(view['all_attempts'],1); self.assertEqual(view['recovery_attempts'],1)
             self.assertEqual(view['train_episodes'],0); self.assertEqual(view['successful_recoveries'],1)
+            group=view['unit_results'][0]['start_groups'][0]
+            self.assertEqual(group['train_s1_count'],0)
+            self.assertFalse(group['minimum_met'])
+            with patch('lastmile_dataflow.workflows.lastmile_datasets.audit_canonical',return_value={'valid':True}):
+                view=collect_views(parent,[unit],export_state_images=False)
+            self.assertEqual(view['train_episodes'],1)
+            self.assertEqual(view['unit_results'][0]['start_groups'][0]['warnings'],['single_successful_solution'])
 
     def test_phase_ranges_follow_actual_interval_times(self):
         with tempfile.TemporaryDirectory() as d:

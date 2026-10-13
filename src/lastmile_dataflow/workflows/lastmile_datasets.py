@@ -205,6 +205,23 @@ def collect_views(parent, units, *, export_state_images=True):
             all_attempts.append({**{k:unit[k] for k in ('scene_dataset_id','sample_id','robot_sensor_config_id','task_id','compiled_model_sha256','source_package_sha256')},
                                  **ref,'role':'unindexed_attempt','status':value.get('status','incomplete'),
                                  'reason':'attempt_not_yet_in_trial_or_selection_index','train_eligible':False})
+    # Count distinct audited endpoints per S0, not raw successes or repeat attempts.
+    for unit_result in unit_results:
+        unit = next(u for u in units if u['unit_id']==unit_result['unit_id'])
+        selected_path=parent/'selections'/unit['sample_id']/(unit['robot_sensor_config_id']+'.json')
+        selection=read_json(selected_path) if selected_path.is_file() else {}
+        groups=[]
+        for group in selection.get('start_groups',[]):
+            endpoints={e['s1']['station_id'] for e in train
+                       if all(e.get(k)==unit_result.get(k) for k in
+                              ('sample_id','robot_sensor_config_id','task_id','source_package_sha256'))
+                       and e['s0']['station_id']==group['s0']}
+            groups.append({**group,'train_s1':sorted(endpoints),'train_s1_count':len(endpoints),
+                           'minimum_met':bool(endpoints),
+                           'warnings':['single_successful_solution'] if len(endpoints)==1 else [],
+                           'status':'retained' if endpoints else 'no_audited_successful_solution'})
+        unit_result['start_groups']=groups
+        unit_result['warnings']=selection.get('warnings',[])
     write_rows(parent/'all_attempts_index.jsonl',all_attempts)
     write_rows(parent/'lastmile_index.jsonl',recoveries)
     write_rows(parent/'train_index.jsonl',train)
