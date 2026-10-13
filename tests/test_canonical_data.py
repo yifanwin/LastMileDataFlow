@@ -13,12 +13,13 @@ from helpers import make_sim
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.io import file_digest, read_json, write_json
 from lastmile_dataflow.recording.calibration import rendered_camera
-from lastmile_dataflow.recording.protocol import files_digest, rows, safe_path
+from lastmile_dataflow.recording.protocol import rows, safe_path
+from scripts.debug.audit_canonical import files_digest, audit_canonical
 from lastmile_dataflow.recording.recorder import AttemptRecorder
 from lastmile_dataflow.integrations.molmobot_dataset import export_molmobot, state22, UnsupportedMolmoBotData
 from lastmile_dataflow.integrations.molmobot_images import fisheye, transform_point
 from lastmile_dataflow.exporting.canonical_index import rebuild_canonical_index
-from lastmile_dataflow.validation.canonical import audit_canonical
+from lastmile_dataflow.validation.canonical import episode_record, export_inputs
 
 
 class CanonicalTests(unittest.TestCase):
@@ -209,14 +210,16 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual(len(rows(path / 'raw/observations.jsonl')), 6)
         self.assertEqual(len(rows(path / 'raw/intent-events.jsonl')), 1)
 
-    def test_symlink_or_noncanonical_artifact_tampering_is_rejected(self):
+    def test_research_record_has_no_recursive_seal_and_paths_are_safe(self):
         self.bind()
         path = self.finish('planning_no_solution')
-        result = path / 'source.json'
-        result.write_text('{"tampered":true}\n')
-        self.assertIn('whole_attempt_artifact_checksum_mismatch', audit_canonical(path)['issues'])
+        self.assertTrue((path / 'episode.json').is_file())
+        self.assertFalse((path / 'artifacts.json').exists())
+        self.assertFalse((path / 'canonical/checksums.json').exists())
+        self.assertEqual(read_json(path / 'canonical/manifest.json')['status'], 'complete')
         (path / 'raw/evil').symlink_to('/tmp')
-        self.assertFalse(audit_canonical(path)['valid'])
+        with self.assertRaises(ValueError):
+            safe_path(path, 'raw/evil/escape')
 
     def test_native_three_clocks_state22_action_chunks_and_immutable_export(self):
         self.bind(native=True)
@@ -298,7 +301,7 @@ class CanonicalTests(unittest.TestCase):
             self.assertFalse(z['action_valid_mask'][0])
         self.assertFalse(rows(output / 'samples.jsonl')[0]['native_safe_bounds_valid'])
 
-    def test_checksum_and_alignment_tampering_are_rejected(self):
+    def test_deep_debug_alignment_and_safe_references_are_rejected(self):
         self.bind()
         self.sim.begin()
         self.tick()
@@ -320,7 +323,7 @@ class CanonicalTests(unittest.TestCase):
         entry = rows(self.root / 'canonical_index.jsonl')[0]
         self.assertEqual(entry['termination_status'], 'planning_no_solution')
         self.assertIsNone(entry['success'])
-        self.assertEqual(entry['canonical_status'], 'sealed')
+        self.assertEqual(entry['canonical_status'], 'complete')
 
     def test_open_requires_explicit_point_and_saved_first_head_conditioning(self):
         self.task.update(operation='open', instruction='Open the door.')

@@ -2,13 +2,14 @@
 from dataclasses import asdict
 from pathlib import Path
 import shutil
+import os
 
 import imageio.v2 as imageio
 import mujoco
 import numpy as np
 
 from ..io import digest, file_digest, write_json
-from .protocol import SCHEMA, append, code_identity, diagnostic, files_digest, write_npz
+from .protocol import SCHEMA, append, code_identity, diagnostic, write_npz
 
 
 def model_map(sim):
@@ -120,6 +121,10 @@ class CanonicalRecorder:
         self.sim, self.config = sim, config
         self.width = width or config['collection'].get('width', 320)
         self.height = height or config['collection'].get('height', 240)
+        self.trace_enabled = config['collection'].get('record_physics_trace', False)
+        self.last_timestamp = None
+        self.submitted_ctrl = None
+        self.stream_counts = {}
         self.depth_enabled = config['collection'].get('record_depth', True)
         self.frame_id = -1
         self.step_id = 0
@@ -133,19 +138,29 @@ class CanonicalRecorder:
         self.last_groups = None
         self.closed = False
         self.streams = {}
+        attempt.canonical_recorder = self  # Constructor failures still release partial streams.
         for relative in ('raw/state-index.jsonl', 'raw/commands.jsonl', 'raw/intent-events.jsonl', 'raw/controls.jsonl',
                          'raw/observations.jsonl', 'raw/contacts.jsonl', 'canonical/frames.jsonl',
                          'canonical/robot-state.jsonl', 'canonical/executed-actions.jsonl',
-                         'canonical/camera-poses.jsonl', 'canonical/scene-states.jsonl', 'canonical/events.jsonl'):
+                         'canonical/camera-poses.jsonl', 'canonical/events.jsonl'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             self.streams[relative] = path.open('xb')
         mapping = model_map(sim)
+        self.quaternions = [j['qpos_address'] + (3 if j['type'] == 'free' else 0)
+            for j in mapping['joints'] if j['type'] in ('free', 'ball')]
         write_json(self.root / 'raw/model-map.json', mapping)
         raw_scene = self.root / 'raw/scene'
         raw_scene.mkdir()
-        mujoco.mj_saveModel(sim.model, str(raw_scene / 'model.mjb'), None)
-        self.model_hash = file_digest(raw_scene / 'model.mjb')
+        if config.get('scene_dataset_binding'):
+            if sim.model_hash is None:
+                raise ValueError('research scene model identity is missing')
+            self.model_hash = sim.model_hash
+            self.model_source = str(attempt.output_root / 'scene/model.mjb')
+        else:
+            mujoco.mj_saveModel(sim.model, str(raw_scene / 'model.mjb'), None)
+            self.model_hash = file_digest(raw_scene / 'model.mjb')
+            self.model_source = 'raw/scene/model.mjb'
         task = config.get('task', {})
         write_json(self.root / 'canonical/task.json', {
             **task, 'task_id': task.get('task_id'),
@@ -192,11 +207,11 @@ class CanonicalRecorder:
             'task_id': task.get('task_id'), 'scene_id': self.scene_id,
             'clock_definitions': {'sim': {'unit': 's', 'source': 'MuJoCo_data.time', 'origin': float(sim.data.time)}},
             'sampling_cadence': {'state': 'executed_interval_boundary', 'RGB': 'executed_interval_boundary',
-                                 'ctrl': 'all_actual_control_submissions', 'contacts': 'every_physics_tick'},
+                                 'ctrl': 'all_actual_control_submissions', 'contacts': 'every_physics_tick' if self.trace_enabled else 'disabled; online contact metrics retained'},
             **self.timing, 'robot_asset_id': sim.robot.config.name, 'robot_asset_version': None,
             'asset_sha256': file_digest(asset) if asset.is_file() else None,
             'asset_identity_status': 'source_hash_available' if asset.is_file() else 'source_asset_unavailable; compiled_model_preserved',
-            'compiled_model_sha256': self.model_hash, 'controller_profile': sim.robot.config.control_profile,
+            'compiled_model_sha256': self.model_hash, 'compiled_model_source': self.model_source, 'controller_profile': sim.robot.config.control_profile,
             'camera_profile': {'resolution': [self.width, self.height], 'cameras': cameras},
             'simulator_version': mujoco.__version__, 'config_sha256': digest(config), **code_identity(),
             'capabilities': {'rgb': {'available': True, 'status': 'pending'},
@@ -205,15 +220,16 @@ class CanonicalRecorder:
                              'third_person': {'available': True, 'status': 'enabled' if sim.third_person_camera else 'disabled',
                                               'reason': None if sim.third_person_camera else 'observer_not_enabled'},
                              'actuator_ctrl': {'available': True, 'status': 'recorded'}},
-            'durability': {'fsync': 'each_JSONL_record_and_array_chunk',
+            'durability': {'fsync': 'finalize_JSONL_streams_and_each_array_chunk',
                            'crash_tail': 'in_flight_tick/frame_may_be_incomplete; no_synthetic_recovery'},
-            'sealed': False, 'recording_complete': False, 'execution_status': 'not_executed',
+            'status': 'building', 'data_valid': False, 'recording_complete': False, 'execution_status': 'not_executed',
         }
         write_json(self.root / 'canonical/manifest.json', self.manifest)
         self.snapshot('initial')
 
     def emit(self, relative, value):
         append(self.streams[relative], value)
+        self.stream_counts[relative] = self.stream_counts.get(relative, 0) + 1
 
     def event(self, code, **fields):
         self.emit('canonical/events.jsonl', {'code': code, 'timestamp': float(self.sim.data.time),
@@ -238,14 +254,15 @@ class CanonicalRecorder:
         write_npz(self.root / relative, qpos=d.qpos.copy(), qvel=d.qvel.copy(),
                   actuator_ctrl=d.ctrl.copy(), act=d.act.copy(), qfrc_actuator=d.qfrc_actuator.copy(),
                   sensordata=d.sensordata.copy())
+        if self.last_timestamp is not None and float(d.time) <= self.last_timestamp:
+            self.errors.append({'frame_id': frame, 'kind': 'noncontinuous_frame_time'})
+        self.last_timestamp = float(d.time)
         timing = {**self.timing, 'timestamp': float(d.time), 'frame_id': frame,
                   'physics_tick_id': self.physics_tick_id}
         self.emit('raw/state-index.jsonl', {**timing, 'state_id': frame, 'path': relative})
         groups = robot_state(sim)
         self.emit('canonical/robot-state.jsonl', {**timing, 'groups': groups,
                                                  'raw_state_ref': relative, 'valid': bool(np.isfinite(d.qpos).all() and np.isfinite(d.qvel).all())})
-        observed = sim.observe_state()
-        self.emit('canonical/scene-states.jsonl', {**timing, 'instances': observed['instances']})
         observations = {}
         if sensors:
             try:
@@ -276,6 +293,21 @@ class CanonicalRecorder:
                     pose = cal.pop('T_world_camera_optical')
                     source_camera = cal.pop('source_camera', None)
                     simulator_camera = cal.pop('simulator_camera_state', None)
+                    transform = np.asarray(pose, float)
+                    K = np.asarray(cal['intrinsics']['K'], float)
+                    valid_camera = (transform.shape == (4, 4) and np.isfinite(transform).all()
+                        and np.allclose(transform[3], [0, 0, 0, 1])
+                        and np.allclose(transform[:3, :3].T @ transform[:3, :3], np.eye(3), atol=1e-5)
+                        and np.isclose(np.linalg.det(transform[:3, :3]), 1, atol=1e-5)
+                        and K.shape == (3, 3) and np.isfinite(K).all() and K[0, 0] > 0 and K[1, 1] > 0
+                        and cal['resolution'] == [self.width, self.height]
+                        and np.isfinite([cal['near_m'], cal['far_m']]).all() and 0 < cal['near_m'] < cal['far_m'])
+                    if simulator_camera and valid_camera:
+                        rotation = np.asarray(simulator_camera['rotation_world_source']) @ np.asarray(simulator_camera['source_to_optical_rotation'])
+                        valid_camera = bool(np.allclose(transform[:3, :3], rotation, atol=1e-5)
+                            and np.allclose(transform[:3, 3], simulator_camera['position_world_m'], atol=1e-5))
+                    if not valid_camera:
+                        self.errors.append({'frame_id': frame, 'camera': camera, 'kind': 'invalid_camera_calibration'})
                     cal_id = digest({'camera': camera, **cal})
                     self.calibrations[cal_id] = {'camera_id': camera, 'calibration_id': cal_id, **cal}
                     self.emit('canonical/camera-poses.jsonl', {**timing, 'sample_id': sample_id,
@@ -308,7 +340,9 @@ class CanonicalRecorder:
                             self.errors.append({'frame_id': frame, 'camera': camera, 'kind': 'depth_missing', 'error': error})
                 observations[camera] = {'sample_id': sample_id, 'status': row['status']}
                 self.emit('raw/observations.jsonl', row)
-        valid = bool(np.isfinite(d.qpos).all() and np.isfinite(d.qvel).all())
+        valid = bool(np.isfinite(d.qpos).all() and np.isfinite(d.qvel).all() and np.isfinite(d.ctrl).all() and np.isfinite(d.act).all()
+            and np.isfinite(d.sensordata).all() and np.isfinite(d.qfrc_actuator).all()
+            and all(np.isclose(np.linalg.norm(d.qpos[a:a+4]), 1, atol=1e-5) for a in self.quaternions))
         if not valid:
             self.errors.append({'frame_id': frame, 'kind': 'nonfinite_state'})
         self.emit('canonical/frames.jsonl', {**timing, 'raw_state_ref': relative,
@@ -349,6 +383,11 @@ class CanonicalRecorder:
                   'not_execution_evidence': True})
 
     def submitted(self, command, request_id):
+        vector = np.asarray(command['submitted_action'], float)
+        ctrl = np.asarray(command['ctrl'], float)
+        if vector.shape != (20,) or not np.isfinite(vector).all() or ctrl.shape != (self.sim.model.nu,) or not np.isfinite(ctrl).all():
+            self.errors.append({'kind': 'invalid_submitted_action'})
+        self.submitted_ctrl = ctrl.copy()
         row_id = self.command_count
         self.command_count += 1
         native = self.sim.robot.config.control_profile == 'molmobot-native-v1'
@@ -367,6 +406,8 @@ class CanonicalRecorder:
         return row_id
 
     def control(self, command_id, *, ticks):
+        if self.submitted_ctrl is None or not np.array_equal(self.sim.data.ctrl, self.submitted_ctrl):
+            self.errors.append({'kind': 'applied_ctrl_differs_from_submitted'})
         row_id = self.control_count
         self.control_count += 1
         self.emit('raw/controls.jsonl', {'control_id': row_id, 'command_submitted_id': command_id,
@@ -379,6 +420,8 @@ class CanonicalRecorder:
 
     def physics_tick(self):
         self.physics_tick_id += 1
+        if not self.trace_enabled:
+            return
         d, m = self.sim.data, self.sim.model
         contacts = []
         for i in range(d.ncon):
@@ -400,6 +443,8 @@ class CanonicalRecorder:
             return
         end_frame = self.capture()
         t_end = float(self.sim.data.time)
+        if start_frame != self.step_id or end_frame != start_frame + 1 or actual_ticks <= 0 or not np.isclose(t_end - t_start, actual_ticks * self.timing['physics_dt'], atol=1e-9):
+            self.errors.append({'kind': 'action_frame_or_duration_mismatch', 'step_id': self.step_id})
         self.emit('canonical/executed-actions.jsonl', {
             'step_id': self.step_id, **self.timing, 't_start': t_start, 't_end': t_end,
             'actual_dt': t_end - t_start, 'requested_dt': 1 / self.sim.robot.config.control_hz,
@@ -425,6 +470,13 @@ class CanonicalRecorder:
             self.capture(sensors=False)
         self.snapshot('final')
         write_json(self.root / 'canonical/calibration.json', {'cameras': self.cameras, 'calibrations': self.calibrations})
+        expected = self.step_id + 1
+        for relative in ('canonical/frames.jsonl', 'raw/state-index.jsonl', 'canonical/robot-state.jsonl'):
+            if self.stream_counts.get(relative, 0) != expected:
+                self.errors.append({'kind': 'frame_state_count_mismatch', 'stream': relative})
+        if self.stream_counts.get('canonical/executed-actions.jsonl', 0) != self.step_id:
+            self.errors.append({'kind': 'action_count_mismatch'})
+        self.errors.extend(extra.get('recording_errors', []))
         metrics = extra.get('trajectory_metrics', {})
         verdict = results.get('task_completion', {}).get('status', 'unknown')
         success = metrics.get('task_success')
@@ -438,16 +490,18 @@ class CanonicalRecorder:
                    'protocol_valid': False if status == 'protocol_invalid' else None,
                    'recording_complete': not self.errors, 'collision': None, 'grasp_state': 'unknown',
                    'contact_policy': self.config.get('contact_policy'), 'contact_metrics': metrics,
-                   'contact_evidence_ref': 'raw/contacts.jsonl', 'results': results,
+                   'contact_evidence_ref': 'raw/contacts.jsonl' if self.trace_enabled else None, 'results': results,
                    'quality_labels_do_not_override_task_success': True, 'recording_errors': self.errors}
         write_json(self.root / 'canonical/outcomes.json', outcome)
         for stream in self.streams.values():
+            stream.flush()
+            os.fsync(stream.fileno())
             stream.close()
         expert_files = [str(p.relative_to(self.root)) for p in sorted(self.root.iterdir())
                         if p.name == 'planning.json' or 'planner' in p.name or p.name.startswith('dry_plans-')]
         write_json(self.root / 'canonical/expert.json', {'producer': 'molmobot' if 'policy' in self.config else 'curobo' if expert_files else 'unknown',
                                                        'references': expert_files, 'is_generic_action': False})
-        self.manifest.update(sealed=True, recording_complete=not self.errors,
+        self.manifest.update(status='complete', data_valid=not self.errors, recording_complete=not self.errors,
                              execution_status=outcome['execution_status'], frame_count=self.frame_id + 1,
                              executed_steps=self.step_id, physics_ticks=self.physics_tick_id,
                              recording_errors=self.errors)
@@ -455,8 +509,4 @@ class CanonicalRecorder:
         self.manifest['capabilities']['depth']['status'] = ('error' if any(e['kind'] == 'depth_missing' for e in self.errors)
             else 'recorded' if self.step_id and self.depth_enabled else 'not_executed' if self.depth_enabled else 'disabled')
         write_json(self.root / 'canonical/manifest.json', self.manifest)
-        checksums = {}
-        for name in ('raw', 'canonical'):
-            checksums.update({f'{name}/{p}': v for p, v in files_digest(self.root / name).items()})
-        write_json(self.root / 'canonical/checksums.json', {'schema_version': SCHEMA, 'files_sha256': checksums})
         self.closed = True

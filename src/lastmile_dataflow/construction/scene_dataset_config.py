@@ -107,7 +107,7 @@ class SceneDatasetRecipe:
         object.__setattr__(self, 'houses', normalized)
         if not self.cases or set(self.cases) - {'Case1', 'Case2', 'Case3'} or len(set(self.cases)) != len(self.cases):
             raise ValueError('invalid cases')
-        if self.station_selection not in ('coverage', 'all_valid'):
+        if self.station_selection != 'coverage':
             raise ValueError('invalid station selection')
         for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
             value = getattr(self, key)
@@ -118,8 +118,10 @@ class SceneDatasetRecipe:
                     'max_candidates', 'max_physical_trials', 'min_substantial', 'capacity_probe_budget'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
-        if self.station_selection == 'coverage' and self.min_final_points > self.max_final_stations:
-            raise ValueError('final station limit below publication minimum')
+        if self.max_final_stations > 20:
+            raise ValueError('research station limit must be <=20')
+        if self.min_final_points > self.max_final_stations:
+            raise ValueError('final station limit below minimum')
         for name, bounds in (('case1_added_surface_count', (5, 8)), ('case2_added_surface_count', (10, 20))):
             values = getattr(self, name)
             if not isinstance(values, list) or len(values) != 2 or any(type(v) is not int for v in values) or not bounds[0] <= values[0] <= values[1] <= bounds[1]:

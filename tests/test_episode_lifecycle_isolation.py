@@ -72,7 +72,7 @@ class LifecycleIsolationTests(unittest.TestCase):
         client.connection.poll.return_value=False
         with self.assertRaises(PolicyInfrastructureError):client.receive(1)
 
-    def test_video_finalize_local_failure_not_global_and_sealed_evidence_not_rewritten(self):
+    def test_video_finalize_local_failure_not_global_and_committed_evidence_not_rewritten(self):
         for error,expected in [(RuntimeError('encoder failed'),'recording_error'),
                                (OSError(errno.ENOSPC,'disk full'),'infrastructure_error')]:
             def run(root,task,station,attempt_id):
@@ -84,7 +84,7 @@ class LifecycleIsolationTests(unittest.TestCase):
             result=self.execute(run,expected)
             self.assertEqual(result['status'],expected)
             self.assertEqual(read_json(Path(result['attempt'])/'result.json')['status'],'infrastructure_error')
-            self.assertTrue((Path(result['attempt'])/'artifacts.json').exists())
+            self.assertTrue((Path(result['attempt'])/'episode.json').exists())
 
     def test_recording_diagnostic_local_continue_storage_fail_stop(self):
         self.assertIsNone(isolated_recording(self.root,'one','heatmap',Mock(side_effect=ValueError('plot failed'))))

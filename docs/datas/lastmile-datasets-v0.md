@@ -1,3 +1,5 @@
+> 本文描述旧协议。当前 scene/lastmile 默认入口采用 [Research 数据协议](research-data-protocol.md)，不再执行封存和默认全量复审。旧记录仅供读取与参考，不原地迁移。
+
 # LastMile Datasets v0：场景包 → cuRobo → 连续恢复数据
 
 `collect-lastmile-datasets` 是独立薄编排入口。它复用现有 cuRobo collector、A*、raw/canonical recorder 和 MolmoBot adapter；不恢复原五阶段路线，不重新构造障碍物。

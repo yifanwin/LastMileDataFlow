@@ -11,7 +11,7 @@ scenes-datasets-design
 └── lastmilebench-design
 ```
 
-## 当前状态（2026-10-12）
+## 当前状态（2026-10-13）
 
 **原定五阶段数据采集管线目前属于失败、半废弃状态，不是已交付或持续推进中的完整可用管线。**
 历史阶段代码、测试和报告保留供参考与局部复用；
@@ -24,9 +24,10 @@ scenes-datasets-design
 当前命令入口见[运行手册（cuRobo + MolmoBot 合并版）](docs/运行手册.md)；其中本机 worktree、环境和 GPU 参数须按实际部署调整。
 数据契约集中于 `docs/datas/`，历史设计与旧运行说明集中于 `docs/archives/`。
 
-新增独立 [LastMile Datasets v0 入口](docs/datas/lastmile-datasets-v0.md)：`collect-lastmile-datasets` 读取封存场景包，
-复用 cuRobo 逐点标定、S0/S1 选择、连续导航操作及 raw-first 记录，按审计结果发布数据视图，MolmoBot 格式留在 adapter。
-软件实现与真实运行状态见 [实施报告](reports/lastmile_datasets/IMPLEMENTATION.md)；入口存在不代表已有成功闭环数据。
+独立 `build-scene-datasets` / `collect-lastmile-datasets` 已切换到 [Research 数据协议](docs/datas/research-data-protocol.md)：
+保留构造期物理与 case 检查、连续执行和采集期数据语义检查，删除默认全量复审、嵌套封存与重复 episode 索引。
+`episode.json` 是实际 attempt 完成记录；`episodes.jsonl` 为唯一全局视图，`summary.json` 可重建。
+新 run 使用新 ID；旧数据与历史报告保留，不自动迁移。入口存在不代表真实 CUDA 导航／抓取闭环已验证。
 
 纯程序化障碍物增强使用独立 `augment-obstacles` 入口，不调用 Agent；配置位于 `configs/case_edits/procedural_obstacles_*.json`。
 构造与审计命令见[增强场景构造运行指南](docs/增强场景构造运行指南.md)。
@@ -108,8 +109,8 @@ pip 的安装入口为 `lastmile-dataflow`；非 editable 安装时显式传入�
 
 ## 输出与结果
 
-每次生成 `outputs/attempts/<唯一ID>/`：冻结配置、完整模型/初态、实例映射、实际轨迹、三相机图像/MP4、
-最终现场、异常事件、三个独立结果和文件摘要。已有 attempt 不允许覆盖。
+每次生成 `outputs/attempts/<唯一ID>/`：冻结配置、完整模型/初态、实例映射、实际轨迹、三相机图像/可选 MP4、
+最终现场、异常事件、三个独立结果和原子 episode 完成记录。已有 attempt 不允许覆盖。
 源 XML、原始资产及旧工程不修改。
 
 `execution_complete` 只表示有界短动作执行完毕；case 条件与任务完成在本阶段为 `unknown`，

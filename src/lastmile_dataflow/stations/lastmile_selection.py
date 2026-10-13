@@ -8,9 +8,15 @@ import numpy as np
 from ..benchmark.episodes import select_starts
 from ..io import digest, file_digest, read_json
 from .no_edit_statistics import is_episode_timeout
+from .no_edit_config import critical_config
+from ..validation.canonical import episode_record
 
 
 def evaluable(row):
+    if row.get('recording_complete') is False or row.get('data_valid') is False or row.get('simulation_valid') is False:
+        return False
+    if row.get('execution_status') == 'not_executed' and row.get('status') in ('success', 'failure'):
+        return False
     return row.get('status') in ('success', 'failure', 'planning_no_solution') or is_episode_timeout(row)
 
 
@@ -33,22 +39,26 @@ def accepted_trials(stations, trials, expected):
 
 
 def recover_trial_records(scene_path, task, stations, trials, config):
-    """Reconcile sealed outcomes after a crash between finish and trial-index append."""
+    """Reconcile committed outcomes after a crash between finish and trial-index append."""
     known = {str(Path(r['attempt']).resolve()) for r in trials}
     ids = {s['station_id'] for s in stations}
     recovered = []
     for outcome_path in sorted((Path(scene_path)/'attempts').glob('*/*/*/outcome.json')):
         attempt = outcome_path.parent
-        if str(attempt.resolve()) in known or not (attempt/'config.json').is_file() or not (attempt/'artifacts.json').is_file():
+        if str(attempt.resolve()) in known or not (attempt/'config.json').is_file() or not (attempt/'episode.json').is_file():
             continue
         packet = read_json(attempt/'config.json')
         match = re.search(r'-t(\d+)-[0-9a-f]+$', attempt.name)
         if not match or packet.get('task',{}).get('task_id') != task['task_id'] or packet.get('path'):
             continue
         sid = packet.get('station',{}).get('station_id')
-        if sid not in ids or packet.get('protocol') != asdict(config):
+        if sid not in ids or critical_config(packet.get('protocol', {})) != critical_config(config):
             raise ValueError('orphan calibration input mismatch')
         outcome = read_json(outcome_path)
+        committed = episode_record(attempt)
+        if committed.get('status') != 'complete':
+            continue
+        outcome['status'] = committed['termination_status']
         result = read_json(attempt/'result.json')
         status = 'infrastructure_error' if result.get('status') == 'infrastructure_error' else outcome['status']
         recovered.append({**outcome,'status':status,'station_id':sid,'trial':int(match[1]),
@@ -61,14 +71,18 @@ def recover_rollout_records(scene_path, task, selection, trials, config):
     known = {str(Path(p['attempt']).resolve()) for p in selection['successful']+selection['failed_rollouts'] if p.get('attempt')}
     for outcome_path in sorted((Path(scene_path)/'attempts').glob('*/*/*/outcome.json')):
         attempt = outcome_path.parent
-        if str(attempt.resolve()) in known or not (attempt/'config.json').is_file() or not (attempt/'artifacts.json').is_file():
+        if str(attempt.resolve()) in known or not (attempt/'config.json').is_file() or not (attempt/'episode.json').is_file():
             continue
         packet = read_json(attempt/'config.json')
         if packet.get('task',{}).get('task_id') != task['task_id'] or not packet.get('path'):
             continue
-        if packet.get('protocol') != asdict(config):
+        if critical_config(packet.get('protocol', {})) != critical_config(config):
             raise ValueError('orphan recovery input mismatch')
         outcome = read_json(outcome_path)
+        committed = episode_record(attempt)
+        if committed.get('status') != 'complete':
+            continue
+        outcome['status'] = committed['termination_status']
         if read_json(attempt/'result.json').get('status') == 'infrastructure_error':
             outcome['status'] = 'infrastructure_error'
         entry = {**outcome,'attempt':str(attempt),'start':packet['station'],'goal':packet['goal'],
@@ -84,7 +98,7 @@ def calibration_binding(scene_path, task, config):
     root = Path(scene_path)
     manifest = read_json(root/'scene_dataset_input/input_manifest.json')
     return {'scene_dataset_id': manifest['scene_dataset_id'], 'sample_id': manifest['sample_id'],
-            'source_package_sha256': manifest['package_checksums_sha256'],
+            'source_package_identity': manifest['package_identity'],
             'robot_sensor_config_id': manifest['robot_sensor_config_id'],
             'compiled_model_sha256': file_digest(root/'scene/model.mjb'), 'task_id': task['task_id']}
 

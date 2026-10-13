@@ -116,7 +116,7 @@ class Simulation:
         write_json(path / "version.json", version)
         write_json(path / "instances.json", self.catalog)
         self.save_snapshot(path / "initial.npz")
-        write_json(path / "checksums.json", {name: file_digest(path / name) for name in
+        write_json(path / "checksums.json", {name: (self.model_hash if name == 'model.mjb' else file_digest(path / name)) for name in
                     ("model.mjb", "initial.npz", "version.json", "instances.json")})
         return version
 
@@ -188,7 +188,7 @@ class Simulation:
         from ..io import digest
         if digest({k: v for k, v in version.items() if k != "version_id"}) != version["version_id"]:
             raise ValueError("scene version digest mismatch")
-        model_hash = file_digest(frozen_dir / "model.mjb")
+        model_hash = checksums["model.mjb"]
         if model_hash != version["compiled_model_sha256"]:
             raise ValueError("frozen model modified")
         saved_robot = dict(version["robot"])

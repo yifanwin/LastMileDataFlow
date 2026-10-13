@@ -1,14 +1,14 @@
 {
   "schema_version": "scene-dataset-recipe-v1",
   "rule_version": "scene-cases-v3",
-  "dataset_dir": "../../../../../molmospaces_data/assets/scenes/procthor-10k-val",
-  "asset_library": "../../../../../molmospaces_data/assets/objects/thor",
+  "dataset_dir": "../../../molmospaces_data/assets/scenes/procthor-10k-val",
+  "asset_library": "../../../molmospaces_data/assets/objects/thor",
   "robot_config": "rby1_position_head320.json",
   "houses": [
     "val103"
   ],
   "input_snapshots": {
-    "103": "../../../no-edit-lastmile-val/outputs/no_edit/no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707/scenes/val_103/scene"
+    "103": "../../.worktrees/no-edit-lastmile-val/outputs/no_edit/no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707/scenes/val_103/scene"
   },
   "variants_per_case": 1,
   "max_pick_targets_per_house": 1,

@@ -1,3 +1,5 @@
+> 本文描述旧协议。当前 scene/lastmile 默认入口采用 [Research 数据协议](research-data-protocol.md)，不再执行封存和默认全量复审。旧记录仅供读取与参考，不原地迁移。
+
 # scene_datasets v1：策略无关的场景输入契约
 
 `scene_datasets` 是场景输入，不是 cuRobo/MolMoBot 执行 datasets。

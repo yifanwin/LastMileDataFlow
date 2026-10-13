@@ -85,7 +85,7 @@ class SelectionTests(unittest.TestCase):
                    {'lastmile_low':float('nan')},{'lastmile_nearby_m':0}):
             with self.assertRaises(ValueError): NoEditConfig(**kw)
 
-    def test_sealed_orphan_attempts_reconciled_without_reexecution(self):
+    def test_committed_orphan_attempts_reconciled_without_reexecution(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); path={'xy':[[0,0],[.4,0]]}
             for name,route in [('pick-t-low-t0-abc123',None),('pick-t-rollout-low-high-abc456',path)]:
@@ -94,7 +94,8 @@ class SelectionTests(unittest.TestCase):
                            'protocol':asdict(self.config),'seed':1,'path':route})
                 write_json(attempt/'outcome.json',{'status':'success','navigation':{'status':'success'},'continuous_simulation':True})
                 write_json(attempt/'result.json',{'status':'success'})
-                write_json(attempt/'artifacts.json',{'fixture':True})
+                write_json(attempt/'episode.json',{'schema_version':'research-episode-v1', 'status':'complete',
+                    'termination_status':'success', 'episode_id':attempt.name, 'required_files':[], 'config_sha256':digest(read_json(attempt/'config.json'))})
             recovered=recover_trial_records(root,{'task_id':'t'},stations(),[],self.config)
             self.assertEqual(len(recovered),1); self.assertEqual(recovered[0]['trial'],0)
             selection=recover_rollout_records(root,{'task_id':'t'},{'successful':[],'failed_rollouts':[]},recovered,self.config)
@@ -109,7 +110,7 @@ class CollectorTests(unittest.TestCase):
         tp=root/'tasks'/'t'; tp.mkdir(parents=True,exist_ok=True)
         write_json(root/'robot_geometry.json',{'radius_m':.4})
         write_json(root/'scene_dataset_input/input_manifest.json',
-                   {'scene_dataset_id':'fixture-dataset','sample_id':'sample','package_checksums_sha256':'fixture-sha',
+                   {'scene_dataset_id':'fixture-dataset','sample_id':'sample','package_identity':'fixture-sha',
                     'robot_sensor_config_id':'position'})
         (root/'scene').mkdir(exist_ok=True); (root/'scene/model.mjb').write_bytes(b'SYNTHETIC identity, not a real model')
         write_json(tp/'stations.json',station_rows or stations())
@@ -267,10 +268,13 @@ class PublicationTests(unittest.TestCase):
             entries.append({'sample_id':sample,'robot_sensor_config_id':'rs-fixture','path':str(package.relative_to(dataset))})
             manifests[str(package)]={'sample_id':sample,'robot_sensor_config_id':'rs-fixture','scene_dataset_id':'fixture-dataset',
                 'task_id':'pick-'+sample,'case':'Case1','scene_id':'procthor-10k-val/val_1','station_count':20,
-                'binding':{'station_geometry':{}},'package_checksums_sha256':'fixture-sha'}
-        write_json(dataset/'manifest.json',{'schema_version':'scene-datasets-v1','status':'partial','scene_dataset_id':'fixture-dataset','missing_samples':1})
-        write_rows(dataset/'packages.jsonl',entries)
-        write_json(dataset/'checksums.json',{name:file_digest(dataset/name) for name in ('manifest.json','packages.jsonl')})
+                'binding':{'station_geometry':{}},'package_identity':'fixture-sha',
+                'scene_identity':{'model.mjb':file_digest(package/'scene/model.mjb')}}
+        for package, manifest in manifests.items():
+            write_json(Path(package) / 'manifest.json', manifest)
+        write_json(dataset/'manifest.json',{'schema_version':'scene-datasets-research-v2','status':'failed','scene_dataset_id':'fixture-dataset','missing_samples':1})
+        write_rows(dataset/'samples.jsonl',[{'sample_id': e['sample_id'], 'path': str(Path(e['path']).parents[1]),
+            'robot_sensor_config_ids': [e['robot_sensor_config_id']]} for e in entries])
         return dataset,manifests
 
     def test_same_house_packages_get_distinct_units_and_partial_scope_preserved(self):
@@ -278,12 +282,12 @@ class PublicationTests(unittest.TestCase):
             dataset,manifests=self.input_fixture(Path(d))
             with patch('lastmile_dataflow.workflows.lastmile_datasets.package_manifest',side_effect=lambda p,*args:manifests[str(p)]):
                 source,units=input_units(dataset,NoEditConfig())
-                self.assertEqual(source['status'],'partial'); self.assertEqual([u['house'] for u in units],[1,1])
+                self.assertEqual(source['status'],'failed'); self.assertEqual([u['house'] for u in units],[1,1])
                 self.assertNotEqual(units[0]['unit_id'],units[1]['unit_id'])
                 self.assertTrue(all(u['config']['lastmile_selection'] for u in units))
                 with self.assertRaisesRegex(ValueError,'subset'): input_units(dataset,NoEditConfig(),samples=['foreign'])
 
-    def test_preflight_has_no_gpu_or_execution_and_seal_tampering_rejected(self):
+    def test_preflight_has_no_gpu_or_execution_and_wrong_schema_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); dataset,manifests=self.input_fixture(root)
             config=root/'config.json'; write_json(config,{'schema_version':'no-edit-v1'})
@@ -294,35 +298,37 @@ class PublicationTests(unittest.TestCase):
                 summary=read_json(output/'summary.json')
                 self.assertEqual(summary['selected_points'],40); self.assertTrue(summary['no_physical_execution'])
                 write_json(dataset/'manifest.json',{'modified':True})
-                with self.assertRaisesRegex(ValueError,'modified'): input_units(dataset,NoEditConfig())
+                with self.assertRaisesRegex(ValueError,'research scene dataset'): input_units(dataset,NoEditConfig())
 
-    def test_success_but_failed_audit_is_retained_only_in_all_result_views(self):
+    def test_success_but_incomplete_recording_is_not_training_data(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); parent=root/'publication'; parent.mkdir()
+            root=Path(d); parent=root/'research'; parent.mkdir()
             child=root/'child'; taskroot=child/'scenes/val_1/tasks/t'; taskroot.mkdir(parents=True)
-            attempt=root/'attempt'; attempt.mkdir()
-            write_json(attempt/'canonical/manifest.json',{'sealed':True,'episode_id':'synthetic'})
-            write_json(attempt/'canonical/checksums.json',{'fixture':True})
-            write_json(attempt/'canonical/outcomes.json',{'success':True,'simulation_valid':True,'recording_complete':True})
-            write_json(taskroot/'task.json',{'task_id':'t','operation':'pick'})
+            attempt=child/'scenes/val_1/attempts/pick/low/synthetic'; attempt.mkdir(parents=True)
+            write_json(attempt/'attempt.json', {'attempt_id':'synthetic'})
+            write_json(attempt/'config.json', {})
+            record={'config_sha256':digest({}), 'schema_version':'research-episode-v1', 'status':'complete', 'episode_id':'synthetic',
+                'task_id':'fixture', 'role':'recovery', 'trial_id':'pair', 'termination_status':'success',
+                'compiled_model_sha256':'fixture', 'execution_status':'executed', 'required_files':[],
+                'task_success':True, 'simulation_valid':True, 'recording_complete':False, 'data_valid':False,
+                'navigation_success':True, 'continuous_simulation':True, 's0':stations()[0], 's1':stations()[1]}
+            write_json(attempt/'episode.json',record)
+            write_json(taskroot/'task.json',{'task_id':'fixture','operation':'pick'})
             write_json(taskroot/'result.json',{'status':'retained','dataset_eligible':True})
-            packet={'attempt':str(attempt),'start':stations()[0],'goal':stations()[1],'path':{},
-                    'status':'success','navigation':{'status':'success'},'continuous_simulation':True}
-            write_json(taskroot/'selection.json',{'successful':[packet],'failed_rollouts':[],
-                       'start_groups':[{'s0':'low','s1_selected':['high']} ]})
+            write_json(taskroot/'selection.json',{'start_groups':[{'s0':'low','s1_selected':['high']}]})
             unit={'run_path':str(child),'house':1,'unit_id':'u','selected_points':2, **dict.fromkeys(
-                  ['scene_dataset_id','sample_id','robot_sensor_config_id','task_id','compiled_model_sha256','source_package_sha256'],'fixture')}
-            with patch('lastmile_dataflow.workflows.lastmile_datasets.audit_canonical',return_value={'valid':False,'issues':['synthetic failure']}):
-                view=collect_views(parent,[unit],export_state_images=False)
+                  ['scene_dataset_id','sample_id','robot_sensor_config_id','task_id','compiled_model_sha256','source_package_identity'],'fixture')}
+            view=collect_views(parent,[unit],export_state_images=False)
             self.assertEqual(view['all_attempts'],1); self.assertEqual(view['recovery_attempts'],1)
             self.assertEqual(view['train_episodes'],0); self.assertEqual(view['successful_recoveries'],1)
-            group=view['unit_results'][0]['start_groups'][0]
-            self.assertEqual(group['train_s1_count'],0)
-            self.assertFalse(group['minimum_met'])
-            with patch('lastmile_dataflow.workflows.lastmile_datasets.audit_canonical',return_value={'valid':True}):
-                view=collect_views(parent,[unit],export_state_images=False)
+            self.assertFalse(view['unit_results'][0]['start_groups'][0]['minimum_met'])
+            write_json(attempt/'episode.json',{**record,'recording_complete':True,'data_valid':True})
+            view=collect_views(parent,[unit],export_state_images=False)
             self.assertEqual(view['train_episodes'],1)
             self.assertEqual(view['unit_results'][0]['start_groups'][0]['warnings'],['single_successful_solution'])
+            self.assertTrue((parent/'episodes.jsonl').is_file())
+            for name in ('all_attempts_index.jsonl','lastmile_index.jsonl','train_index.jsonl','exports.jsonl'):
+                self.assertFalse((parent/name).exists())
 
     def test_phase_ranges_follow_actual_interval_times(self):
         with tempfile.TemporaryDirectory() as d:
@@ -343,17 +349,32 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'mismatch'):
                     collect(dataset,root,config,root/'outputs',run_id='fixture',gpu_ids=[0],preflight_only=True,resume=True,max_trials=1)
 
+    def test_resume_ignores_code_export_and_resource_diagnostics_not_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); dataset, manifests=self.input_fixture(root)
+            config=root/'config.json'; write_json(config, {'schema_version':'no-edit-v1'})
+            with patch('lastmile_dataflow.workflows.lastmile_datasets.package_manifest', side_effect=lambda p,*args:manifests[str(p)]):
+                collect(dataset,root,config,root/'outputs',run_id='resume',gpu_ids=[0],preflight_only=True)
+                write_json(config, {'schema_version':'no-edit-v1', 'min_free_disk_gb':99, 'third_person_enabled':False})
+                with patch('lastmile_dataflow.workflows.lastmile_datasets.code_identity',return_value={'code_commit':'different'}):
+                    collect(dataset,root,config,root/'outputs',run_id='resume',gpu_ids=[0],preflight_only=True,
+                            resume=True,export_state_images=False)
+                write_json(config, {'schema_version':'no-edit-v1', 'attempt_timeout_s':9999})
+                with self.assertRaisesRegex(ValueError,'critical input/config mismatch'):
+                    collect(dataset,root,config,root/'outputs',run_id='resume',gpu_ids=[0],preflight_only=True,resume=True)
+
     def test_v0_serial_workers_explicit_and_invalid_subsets(self):
         with self.assertRaisesRegex(ValueError,'serially'):
             collect('none','none','none','none',run_id='x',gpu_ids=[0],workers=2)
 
 
 class NavigationTests(unittest.TestCase):
-    def test_canonical_audit_cli_dispatch(self):
-        from lastmile_dataflow.cli import main
-        with patch('lastmile_dataflow.validation.canonical.audit_canonical', return_value={'valid':True}) as audit:
-            self.assertEqual(main(['audit-canonical','synthetic-attempt']),0)
-        audit.assert_called_once_with(Path('synthetic-attempt'))
+    def test_deep_audit_cli_is_not_a_normal_entry(self):
+        from lastmile_dataflow.cli import parser
+        commands = parser()._subparsers._group_actions[0].choices
+        for name in ('audit-canonical', 'audit-scene-datasets', 'review-lastmile-timeouts'):
+            self.assertNotIn(name, commands)
+        self.assertIn('index-lastmile-datasets', commands)
 
     def test_arrival_drift_cannot_be_reported_as_success(self):
         config=NoEditConfig()

@@ -153,3 +153,14 @@ def load_no_edit_config(path):
     if value.get('policy_config'):
         value['policy_config'] = str((path.parent / value['policy_config']).resolve())
     return construct(NoEditConfig, value)
+
+
+RESEARCH_EXECUTION_CONTRACT = 'research-v1'
+
+def critical_config(value):
+    """Scientific knobs stay frozen; observer/resource diagnostics may change."""
+    from dataclasses import asdict, is_dataclass
+    result = asdict(value) if is_dataclass(value) else dict(value)
+    for key in ('min_free_disk_gb', 'scene_timeout_s', 'third_person_enabled'):
+        result.pop(key, None)
+    return result

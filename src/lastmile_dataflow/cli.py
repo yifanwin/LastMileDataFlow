@@ -30,7 +30,7 @@ def parser():
     """声明全部子命令与参数。"""
     p = argparse.ArgumentParser(prog="lastmile-dataflow")
     sub = p.add_subparsers(dest="command", required=True)
-    lastmile = sub.add_parser('collect-lastmile-datasets', help='scene packages -> cuRobo calibration -> continuous recovery -> audited raw-first publication')
+    lastmile = sub.add_parser('collect-lastmile-datasets', help='scene packages -> cuRobo calibration -> continuous recovery -> research episodes and derived summary')
     lastmile.add_argument('--dataset', required=True, type=Path)
     lastmile.add_argument('--assets-dir', required=True, type=Path)
     lastmile.add_argument('--config', type=Path, default=ROOT/'configs/lastmile_datasets/v0.json')
@@ -41,9 +41,9 @@ def parser():
     lastmile.add_argument('--samples', nargs='+', help='explicit sample IDs; all matching configuration packages are included')
     lastmile.add_argument('--resume', action='store_true')
     lastmile.add_argument('--calibration-only', action='store_true')
-    lastmile.add_argument('--preflight-only', action='store_true', help='verify immutable inputs without GPU execution')
+    lastmile.add_argument('--preflight-only', action='store_true', help='verify scientific input identities without GPU execution')
     lastmile.add_argument('--max-trials', type=int, help='diagnostic per-package attempt limit; not a formal full calibration')
-    lastmile.add_argument('--no-molmobot-export', action='store_true', help='keep audited raw-first data; derive model packages separately')
+    lastmile.add_argument('--no-molmobot-export', action='store_true', help='keep research trajectories; derive model packages separately')
     bench_build = sub.add_parser('build-lastmilebench', help='freeze a minimal MolmoBot-native benchmark from scene_datasets')
     bench_build.add_argument('--dataset', required=True, type=Path)
     bench_build.add_argument('--output', required=True, type=Path)
@@ -68,7 +68,7 @@ def parser():
     qualification = sub.add_parser('qualify-scene-datasets', help='refine spatial choices with full visible station initialization')
     qualification.add_argument('--discovery', required=True, type=Path)
     qualification.add_argument('--output', required=True, type=Path)
-    scene_build = sub.add_parser('build-scene-datasets', help='construct and seal strategy-independent scene_datasets')
+    scene_build = sub.add_parser('build-scene-datasets', help='construct research scene_datasets without post-build physical audit')
     scene_build.add_argument('--config', required=True, type=Path)
     scene_build.add_argument('--discovery', required=True, type=Path)
     scene_build.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
@@ -76,26 +76,18 @@ def parser():
     scene_build.add_argument('--gpu-ids', nargs='+', type=int, required=True)
     scene_build.add_argument('--workers', type=int, default=2)
     scene_build.add_argument('--resume', action='store_true')
-    scene_build.add_argument('--allow-partial-targets', action='store_true', help='retain original quota; publish only qualified samples with explicit partial status')
+    scene_build.add_argument('--allow-partial-targets', action='store_true', help='retain original quota; retain accepted samples and explicit missing quota')
     scene_unit = sub.add_parser('scene-dataset-unit', help=argparse.SUPPRESS)
     scene_unit.add_argument('--dataset', required=True, type=Path)
     scene_unit.add_argument('--unit-index', required=True, type=int)
-    scene_audit = sub.add_parser('audit-scene-datasets', help='read-only sealed scene dataset audit')
-    scene_audit.add_argument('dataset', type=Path)
-    scene_audit.add_argument('--physical', action='store_true')
-    scene_audit.add_argument('--audit-inputs', type=Path, help='dataset-bound frozen config companion for relocated normal samples')
-    scene_audit.add_argument('--output', required=True, type=Path)
     obstacles = sub.add_parser('augment-obstacles', help='pure procedural obstacle construction and paired real RGB; no Agent calls')
     obstacles.add_argument('--config', required=True, type=Path)
     obstacles.add_argument('--output-dir', type=Path, default=ROOT/'outputs')
     obstacles.add_argument('--run-id', required=True)
-    timeout_review = sub.add_parser('review-lastmile-timeouts', help='read-only full physical trace audit into an independent derived publication')
-    timeout_review.add_argument('--run', required=True, type=Path)
-    timeout_review.add_argument('--output', required=True, type=Path)
-    canonical_audit = sub.add_parser('audit-canonical', help='read-only raw-first timing, arrays, cameras and integrity audit')
-    canonical_audit.add_argument('attempt', type=Path)
     canonical_index = sub.add_parser('index-canonical', help='all-outcome index, separate from success-only training index')
     canonical_index.add_argument('run', type=Path)
+    research_index = sub.add_parser('index-lastmile-datasets', help='rebuild the unique episode view and derived summary')
+    research_index.add_argument('run', type=Path)
     molmobot_export = sub.add_parser('export-molmobot', help='derive MolmoBot state22/images/native action without changing source')
     molmobot_export.add_argument('--attempt', required=True, type=Path)
     molmobot_export.add_argument('--output', required=True, type=Path)
@@ -251,36 +243,27 @@ def main(argv=None):
         path = build_scene_dataset(args.config, args.discovery, args.output_dir, args.dataset_id,
                                    args.gpu_ids, args.workers, args.resume, args.allow_partial_targets)
         print(path)
-        return 0 if read_json(path/'manifest.json')['status'] == 'sealed' else 1
+        return 0 if read_json(path/'manifest.json')['status'] == 'complete' else 1
     if args.command == 'scene-dataset-unit':
         from .workflows.scene_datasets import run_scene_dataset_unit
         return 0 if run_scene_dataset_unit(args.dataset, args.unit_index)['status'] == 'completed' else 1
-    if args.command == 'audit-scene-datasets':
-        from .workflows.scene_datasets import audit_scene_dataset
-        from .io import write_json
-        report = audit_scene_dataset(args.dataset, args.physical, args.audit_inputs)
-        write_json(args.output, report)
-        print(report['valid'])
-        return 0 if report['valid'] else 1
     if args.command == 'augment-obstacles':
         from .construction.obstacle_config import load_obstacle_config
         path = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)
         print(path)
         return 0 if read_json(path/'summary.json')['status'] == 'completed' else 1
-    if args.command == 'review-lastmile-timeouts':
-        import json
-        from .workflows.timeout_review import review
-        print(json.dumps(review(args.run,args.output),ensure_ascii=False,indent=2))
-        return 0
-    if args.command == 'audit-canonical':
-        import json
-        from .validation.canonical import audit_canonical
-        report = audit_canonical(args.attempt)
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0 if report['valid'] else 1
     if args.command == 'index-canonical':
         from .exporting.canonical_index import rebuild_canonical_index
         print(rebuild_canonical_index(args.run))
+        return 0
+    if args.command == 'index-lastmile-datasets':
+        from .workflows.lastmile_datasets import collect_views, generate_summary
+        import fcntl
+        with (args.run / 'run.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            plan = read_json(args.run / 'plan.json')
+            collect_views(args.run, plan['units'], export_state_images=False)
+            print(generate_summary(args.run))
         return 0
     if args.command == 'export-molmobot':
         from .integrations.molmobot_dataset import export_molmobot
@@ -303,7 +286,7 @@ def main(argv=None):
                      calibration_only=args.calibration_only,preflight_only=args.preflight_only,
                      max_trials=args.max_trials,export_state_images=not args.no_molmobot_export)
         print(path)
-        return 0 if read_json(path/'summary.json')['status'] in ('completed','calibration_complete','preflight_complete') else 1
+        return 0 if args.preflight_only or read_json(path/'summary.json')['status'] == 'complete' else 1
     if args.command == 'collect-no-edit':
         from .stations.no_edit_config import load_no_edit_config
         from .workflows.no_edit import collect_batch

@@ -29,7 +29,7 @@ def rebuild_canonical_index(run_path):
                         'executed_steps': canonical_value.get('executed_steps') if canonical_value else value.get('executed_steps', 0),
                         'legacy_executed_steps': value.get('executed_steps', 0),
                         'canonical_manifest': str(manifest.relative_to(root)) if canonical_value else None,
-                        'canonical_status': 'sealed' if canonical_value and canonical_value['sealed'] else 'incomplete' if canonical_value else 'legacy_partial',
+                        'canonical_status': 'complete' if canonical_value and canonical_value.get('status') == 'complete' else 'incomplete' if canonical_value else 'legacy_partial',
                         'manifest_sha256': file_digest(manifest) if canonical_value else None,
                         'recording_complete': canonical_value.get('recording_complete') if canonical_value else False,
                         'success': outcome.get('success') if outcome else None,

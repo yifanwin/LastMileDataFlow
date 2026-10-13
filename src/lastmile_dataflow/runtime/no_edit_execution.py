@@ -52,7 +52,8 @@ class ContinuousContext:
         self.initial_sim_time=float(sim.data.time); self.timings={}; self.pick_initial=None; self.active_control=None
         self.record_rgb=record_rgb
         self.record_png=record_png
-        self.physics=track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
+        self.physics=(track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
+                      if recorder.collection.get('record_physics_trace', False) else None)
         self.contact_stats=ContactStatistics()
         self.samples=[]; self.collisions=self.contact_stats.examples; self.plans=[]; self.replay=[]; self.monitor=None
         self.fingers=set(); self.target_bodies=descendants(sim.model,sim.target_id)
@@ -80,7 +81,9 @@ class ContinuousContext:
             if self.record_png:
                 with timed(self, 'recording'):
                     self.recorder.observation(self.last_frames,step=0,time_s=float(self.sim.data.time))
-        self.replay.append((float(self.sim.data.time),self.sim.data.qpos.copy(),'initial')); self.sim.begin()
+        if not self.config.lastmile_selection:
+            self.replay.append((float(self.sim.data.time),self.sim.data.qpos.copy(),'initial'))
+        self.sim.begin()
 
     def hold_torso_target(self):
         """Keep the last submitted target, not a physically overshooting qpos."""
@@ -116,7 +119,8 @@ class ContinuousContext:
             health=simulation_failure(self.sim)
             if health:
                 failures.append(health)
-                self.physics.write(canonical({'time_s':float(self.sim.data.time),'issue':health})+b'\n')
+                if self.physics is not None:
+                    self.physics.write(canonical({'time_s':float(self.sim.data.time),'issue':health})+b'\n')
                 return {'valid':False,'issues':[{'severity':'error','code':health}]}
             mujoco.mj_forward(self.sim.model,self.sim.data)
             contacts=contact_observations(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
@@ -141,19 +145,23 @@ class ContinuousContext:
                 if fail: failures.append(fail)
                 if hasattr(self,'open_joint'):
                     facts['joint_value']=float(self.sim.data.qpos[self.open_joint]); row['joint_value']=facts['joint_value']
-            self.physics.write(canonical(row)+b'\n')
+            if self.physics is not None:
+                self.physics.write(canonical(row)+b'\n')
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
         with timed(self, 'simulation_and_physics_evidence'):
             command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
         if v2:
             self.last_legal_torso_target=float(action[19])
         with timed(self, 'recording'):
-            self.physics.flush(); after=self.state()
+            if self.physics is not None:
+                self.physics.flush()
+            after=self.state()
             self.recorder.record_step(raw_action=raw_action.tolist(),command=command,before=before,after=after,
                 check=stop or {'valid':True,'issues':[]},observations={'phase':self.phase,
                          'index_step':self.recorder.steps+1,
                          'manifest':'observations.json' if self.record_png else 'videos.json'})
-        self.replay.append((after['time_s'],self.sim.data.qpos.copy(),self.phase))
+        if not self.config.lastmile_selection:
+            self.replay.append((after['time_s'],self.sim.data.qpos.copy(),self.phase))
         if self.record_rgb:
             with timed(self, 'rendering'):
                 frames=self.sim.render(self.config.width,self.config.height)
@@ -267,12 +275,15 @@ class ContinuousContext:
             raise OperationFailure('tcp_tracking_timeout')
 
     def finish(self):
-        self.physics.close(); write_json(self.recorder.path/'planning.json',self.plans)
+        if self.physics is not None:
+            self.physics.close()
+        write_json(self.recorder.path/'planning.json',self.plans)
         if self.sim.third_person_camera is not None:
             write_json(self.recorder.path/'third_person_final.json',self.sim.third_person_camera.metadata())
         if self.recorder.steps:
-            np.savez_compressed(self.recorder.path/'replay.npz',times=np.array([r[0] for r in self.replay]),
-                                qpos=np.array([r[1] for r in self.replay]),phases=np.array([r[2] for r in self.replay]))
+            if not self.config.lastmile_selection:
+                np.savez_compressed(self.recorder.path/'replay.npz',times=np.array([r[0] for r in self.replay]),
+                                    qpos=np.array([r[1] for r in self.replay]),phases=np.array([r[2] for r in self.replay]))
             self.sim.save_snapshot(self.recorder.path/'final_snapshot.npz')
             write_json(self.recorder.path/'final_state.json',self.state())
 
@@ -464,13 +475,14 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
     if config.scene_package:
         binding=read_json(root/'scene_dataset_input/input_manifest.json')
         packet['scene_dataset_binding']={key:binding[key] for key in
-            ('scene_dataset_id','sample_id','robot_sensor_config_id','task_id','package_checksums_sha256')}
+            ('scene_dataset_id','sample_id','robot_sensor_config_id','task_id','package_identity')}
     from ..exporting.no_edit_layout import attempt_group,index_attempt
     recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
     recorder.bind_simulation(sim, width=config.width, height=config.height)
     write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),'source':sim.source.provenance(),
                'initialization_only':station['base'],'no_scene_edits':True})
-    ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=bool(path))
+    ctx=ContinuousContext(sim,recorder,config,record_rgb=True,
+                          record_png=bool(path) and not config.lastmile_selection)
     if config.third_person_enabled:
         from ..recording.analysis_video import AnalysisVideo
         from ..tasks.raw_scene import robot_footprint
@@ -552,7 +564,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         diagnostics={'schema_version':EXECUTION_SEMANTICS,'wall_elapsed_s':time.monotonic()-ctx.started_at,
                      'attempt_wall_budget_s':config.attempt_timeout_s,
                      'simulation_elapsed_s':float(sim.data.time)-ctx.initial_sim_time,
-                     'timings':ctx.timings, 'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder sealing reported separately'}
+                     'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder finalization reported separately'}
         write_json(recorder.path/'execution_diagnostics.json',diagnostics)
         result={'execution_semantics_version':EXECUTION_SEMANTICS,'execution_termination':execution_termination,
                 'task_outcome':task_outcome,'execution_diagnostics':diagnostics,
@@ -567,7 +579,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                     task_success=task_outcome['status']=='success' if task_outcome['status'] in ('success','failure') else None,
                     simulation_valid=False if status=='simulation_failure' else True if sim.started else None)}
         write_json(recorder.path/'outcome.json',result)
-        seal_started=time.monotonic()
+        finalize_started=time.monotonic()
         recorder.finish(status,reason,{'scene_validity':{'status':'valid','scope':'robot initialization'},
                         'case_condition':{'status':'not_applicable','reason':'no_scene_edit'},
                         'task_completion':{'status':task_outcome['status'] if task_outcome['status'] in ('success','failure') else 'unknown','reason':task_outcome['reason']}},
@@ -576,11 +588,12 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                                'navigation':navigation,'phase':ctx.phase,'no_edit':True,
                                'operation_base_mode':config.operation_base_mode,
                                'contact_policy':CONTACT_POLICY, 'trajectory_metrics':result['trajectory_metrics']})
-        diagnostics['recorder_finalize_wall_s']=time.monotonic()-seal_started
+        diagnostics['recorder_finalize_wall_s']=time.monotonic()-finalize_started
         diagnostics['wall_including_recorder_finalize_s']=time.monotonic()-ctx.started_at
         sim.close()
     finalized=read_json(recorder.path/'result.json')
-    if finalized['status']=='infrastructure_error': result['status']='infrastructure_error'
+    if finalized['status'] in ('infrastructure_error', 'recording_error'):
+        result.update(status=finalized['status'], reason=finalized['termination_reason'])
     status_link=index_attempt(recorder.path,result['status'])
     media=read_json(recorder.path/'videos.json')
     recorded=bool(media['cameras']) and all((recorder.path/v['path']).is_file()

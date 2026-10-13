@@ -147,6 +147,10 @@ def collect_task(baseline,task,assets_dir,config,collection,scene_path, *, max_t
     if config.lastmile_selection:
         from ..stations.lastmile_selection import recover_trial_records,accepted_trials
         trials=recover_trial_records(scene_path,task,stations,trials,config)
+        from ..validation.canonical import episode_record
+        for row in trials:
+            if Path(row['attempt']).exists():
+                episode_record(row['attempt'])
         accepted_trials(stations,trials,config.trials_per_station)
         write_json(task_path/'trials.json',trials)
     rows=aggregate(stations,trials,config.trials_per_station)
@@ -425,6 +429,13 @@ def _scene_worker(record,robot,config,collection,assets_dir,run_path,gpu,options
 
 
 def rebuild_dataset_index(run_path):
+    run_path = Path(run_path)
+    frozen_path = run_path / 'frozen_config.json'
+    if frozen_path.is_file() and read_json(frozen_path).get('config', {}).get('lastmile_selection'):
+        # The parent research run owns the only global episode view. No copied
+        # rollout bundles, canonical_index or success-only dataset_index here.
+        return sum(read_json(p).get('task_success') is True
+                   for p in (run_path / 'scenes').glob('*/attempts/*/*/*/episode.json'))
     from ..exporting.canonical_index import rebuild_canonical_index
     rebuild_canonical_index(run_path)
     (run_path/'datasets').mkdir(exist_ok=True)
@@ -467,12 +478,10 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
     lock=(root/'run.lock').open('a'); fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     generation_start=datetime.now(timezone.utc);generation_monotonic=time.monotonic()
     records=scene_manifest(dataset_dir,houses)
-    source_hash=digest({str(p.relative_to(Path(__file__).parents[1])):file_digest(p)
-                       for p in sorted(Path(__file__).parents[1].rglob('*.py'))})
     from ..validation.contacts import CONTACT_POLICY
     frozen={'contact_policy':CONTACT_POLICY,'schema_version':'no-edit-v1','dataset_dir':str(Path(dataset_dir).resolve()),
             'assets_dir':str(Path(assets_dir).resolve()),'robot':asdict(robot),'config':asdict(config),
-            'collection':asdict(collection),'code_sha256':source_hash,'scene_manifest':records,
+            'collection':asdict(collection),'execution_contract':'research-v1','scene_manifest':records,
             'subset':{'targets':targets,'max_tasks':max_tasks,'max_trials':max_trials}}
     if config.augmented_variant:
         from ..stations.augmented_input import variant_manifest
@@ -492,10 +501,15 @@ def collect_batch(dataset_dir,assets_dir,robot,config,collection,*,run_id,gpu_id
         policy_config=load_policy_config(config.policy_config)
         frozen['model_manifest']=policy_manifest(policy_config)
         write_json(root/'model_manifest.json',frozen['model_manifest'])
-    frozen['input_digest']=digest(frozen)
+    from ..stations.no_edit_config import critical_config, RESEARCH_EXECUTION_CONTRACT
+    frozen['execution_contract'] = RESEARCH_EXECUTION_CONTRACT
+    critical = {**frozen, 'config': critical_config(frozen['config']), 'collection': {k: v for k, v in frozen['collection'].items() if k != 'record_physics_trace'}}
+    frozen['input_digest']=digest(critical)
+    from ..recording.protocol import code_identity
+    frozen['code']=code_identity()
     if resume and (root/'frozen_config.json').exists():
         if read_json(root/'frozen_config.json')['input_digest'] != frozen['input_digest']:
-            raise ValueError('resume configuration/code mismatch: use a new run-id')
+            raise ValueError('resume critical configuration mismatch: use a new run-id')
     else: write_json(root/'frozen_config.json',frozen)
     from ..recording.timing import GenerationTimer
     timer=GenerationTimer(root/'timing.json',resume=resume,started_at=generation_start,

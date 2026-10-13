@@ -1,4 +1,4 @@
-"""Bounded discovery, physical construction and sealed public scene datasets.
+"""Bounded discovery, physical construction and research scene datasets.
 
 Never imports a planner/policy implementation or performs robot task execution.
 """
@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import json
+import fcntl
 import os
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from ..construction.obstacle_config import ObstacleConfig
 from ..construction.obstacle_regions import support_regions, station_regions, approach_points
 from ..construction.scene_eligibility import pick_type, allowed_case1_support
 from ..io import canonical, digest, file_digest, read_json, write_json
+from ..recording.protocol import code_identity
 from ..navigation.astar import task_support_obstacles
 from ..runtime.obstacle_edit_session import clone_preparation
 from ..runtime.preparation import SettleConfig, settle_scene
@@ -37,50 +39,19 @@ def now():
 
 
 def write_dataset_readme(root):
-    """Document each delivered dataset directory without changing scene payloads."""
     root = Path(root)
     manifest = read_json(root / 'manifest.json')
-    (root / 'README.md').write_text(f'''# {manifest['scene_dataset_id']}
+    (root / 'README.md').write_text(f"""# {manifest['scene_dataset_id']}
 
-本目录是 scene_datasets，包含 {manifest['sample_count']} 个场景样本。
-场景快照与站位绑定机器人、传感器和物理控制配置，与具体规划器或策略无关。
-不包含 cuRobo / MolmoBot 执行数据，不代表导航或抓取成功。
-
-## 目录结构
-
-```text
-./
-├── manifest.json       数据集身份、规则版本、样本数及封存状态
-├── samples.jsonl       样本索引：目标、case、数量、站位数及相对路径
-├── packages.jsonl      机器人/传感器配置包索引
-├── checksums.json      已登记文件的 SHA256 校验和
-├── build.json          冻结构建配方与构建单元
-├── discovery.json      场景/目标筛选及预检查记录
-├── exclusions.jsonl    排除与失败记录
-├── timing.json         发现、单元及并行构造时间（详见计时范围）
-├── progress.json       构建期历史检查点；最终状态以 manifest 为准
-└── samples/<sample_id>/
-    ├── manifest.json / checksums.json  样本身份与校验和
-    ├── task.json / objects.json / environment.json  任务、实例与环境
-    ├── construction/   编辑记录、来源、时间及冻结对照场景
-    ├── validation/     物理与 case 检查
-    ├── media/          构造前后真实 RGB 与配对信息
-    └── robot_sensor_configs/<config_id>/
-        ├── manifest.json / checksums.json  配置绑定与校验和
-        ├── scene/      model.mjb、initial.npz、版本与实例描述
-        ├── stations/   候选、合格、选定站位及选择记录
-        ├── validation/ 该配置下的检查结果
-        └── task.json / initialization.json  任务与初始化描述
-```
-
-## 读取顺序与边界
-
-先读取 manifest，再按 samples.jsonl / packages.jsonl 的相对路径读取样本与配置包。
-障碍物数量为新增数量，不含目标与原有物品；站位合格仅表示物理合法及目标可见。
-下游执行 datasets 和 benchmarks 应引用 dataset/sample/config 三层 ID，不能修改冻结输入或静默重采样。
-MJB 受 MuJoCo 版本兼容约束；重新构造仍需配方所引用的外部资产。
-时间字段有不同计时范围，不能把并行墙钟与单元耗时相加混用。
-''', encoding='utf-8')
+Research scene dataset: {manifest['sample_count']} accepted samples.
+Read manifest.json, recipe.json and samples.jsonl. Each sample lists its
+robot_sensor_configs; configuration packages hold task, snapshot and stations.
+construction.json records placements, source and construction parameters;
+validation.json records the construction verdict. Exclusions remain explicit.
+Only fixed snapshot identities are checked; no publication seal or physical re-audit.
+Legal stations do not imply navigation or task success. Existing samples must not
+be edited or overwritten. Model binaries require the recorded MuJoCo version.
+""", encoding='utf-8')
 
 
 def write_lines(path, rows):
@@ -337,61 +308,53 @@ def qualify_scene_discovery(discovery, output):
     return output
 
 
-def _seal_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, evidence, seed, elapsed, provenance):
+def _save_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, evidence, seed, elapsed, provenance):
     robot = load_scene_robot(recipe.robot_config); geometry = recipe.geometry
     selected, selection = select_stations(rows, task['anchor_world'], recipe.station_selection, recipe.max_final_stations)
     if len(selected) < recipe.min_final_points or not checks['valid']:
-        raise ValueError('sample fails publication checks/minimum stations')
+        raise ValueError('sample fails construction checks/minimum stations')
     environment = {'source': unit['source'], 'case': unit['case'], 'rule_version': recipe.rule_version,
         'target_instance': task['instance_id'], 'task_id': task['task_id'], 'seed': seed,
         'placements': read_json(evidence / 'edits.json') if unit['case'] != 'Case3' else []}
     sample_id = f'val_{unit["house"]}-{unit["case"].lower()}-{digest(environment)[:16]}'
     destination = root / 'samples' / sample_id
     if destination.exists():
-        raise FileExistsError(destination)
+        if (destination / 'sample.json').is_file():
+            return read_json(destination / 'sample.json')
+        import uuid
+        sample_id += '-retry-' + uuid.uuid4().hex[:8]
+        destination = root / 'samples' / sample_id
     binding = _binding(robot, geometry); config_id = 'rs-' + digest(binding)
     package = destination / 'robot_sensor_configs' / config_id
     package.mkdir(parents=True)
     shutil.copytree(snapshot, package / 'scene')
-    write_json(destination / 'environment.json', environment)
     write_json(destination / 'task.json', task)
-    write_json(destination / 'objects.json', read_json(snapshot / 'instances.json'))
-    write_json(destination / 'construction/provenance.json', provenance)
-    write_json(destination / 'construction/timing.json', {'sample_wall_s': elapsed, 'scope': 'variant_not_shared_baseline_or_asset_retrieval',
-        'timings': provenance.get('timings', {})})
-    write_json(destination / 'validation/checks.json', checks)
-    if unit['case'] != 'Case3':
-        shutil.copy2(evidence / 'edits.json', destination / 'construction/edits.json')
-        shutil.copy2(evidence / 'control_settling.json', destination / 'construction/control_settling.json')
-        if (evidence / 'capacity.json').exists():
-            shutil.copy2(evidence / 'capacity.json', destination / 'construction/capacity.json')
-        shutil.copytree(evidence / 'before_scene', destination / 'construction/control_scene')
-        shutil.copytree(evidence / 'rgb', destination / 'media')
-        packet = read_json(destination / 'media/pair.json')
-        for record in packet['images']:
-            record['source_path'] = record['path']; record['path'] = Path(record['path']).name
-        write_json(destination / 'media/pair.json', packet)
-    else:
-        shutil.copytree(evidence / 'media', destination / 'media')
+    write_json(destination / 'construction.json', {**environment, 'provenance': provenance,
+        'construction_config': read_json(evidence.parents[1] / 'frozen_config.json')['augmentation']
+            if unit['case'] != 'Case3' else None,
+        'settling': checks.get('settling'), 'elapsed_s': elapsed,
+        'capacity': read_json(evidence / 'capacity.json') if (evidence / 'capacity.json').is_file() else None})
+    write_json(destination / 'validation.json', checks)
     write_json(package / 'task.json', task)
-    write_json(package / 'stations/candidates.json', [{k: r[k] for k in ('station_id', 'xy', 'grid_index')} for r in candidates])
-    write_json(package / 'stations/validated.json', rows)
-    write_json(package / 'stations/selected.json', selected)
-    write_json(package / 'stations/selection.json', selection)
-    write_json(package / 'validation/checks.json', checks)
+    write_json(package / 'stations.json', {
+        'candidates': [{k: r[k] for k in ('station_id', 'xy', 'grid_index')} for r in candidates],
+        'validated': rows, 'selected_ids': [r['station_id'] for r in selected], 'selection': selection})
     write_json(package / 'initialization.json', {'parked_robot': 'exact state stored in scene/initial.npz',
         'execution': 'use each selected station initial verbatim before Simulation.begin; no post-begin resets'})
-    manifest = {'schema_version': 'scene-station-package-v1', 'status': 'sealed', 'scene_dataset_id': root.name,
+    manifest = {'schema_version': 'scene-station-package-research-v2', 'status': 'complete', 'scene_dataset_id': root.name,
         'sample_id': sample_id, 'robot_sensor_config_id': config_id, 'binding': binding, 'scene_id': unit['source']['scene_id'],
         'task_id': task['task_id'], 'case': unit['case'], 'rule_version': recipe.rule_version,
         'selection_mode': recipe.station_selection, 'max_final_stations': recipe.max_final_stations,
         'min_final_points': recipe.min_final_points, 'station_count': len(selected),
+        'construction_valid': checks['valid'],
         'prefilter_count': unit['prefilter_count'], 'candidate_count': len(candidates),
         'validated_count': sum(r['geometry'] == 'valid' for r in rows), 'task_completion': 'unknown'}
+    from ..runtime.snapshot_identity import snapshot_identity
+    manifest['scene_identity'] = snapshot_identity(package / 'scene')
+    manifest['stations_sha256'] = digest(selected)
     write_json(package / 'manifest.json', manifest)
-    write_json(package / 'checksums.json', {str(p.relative_to(package)): file_digest(p) for p in package.rglob('*') if p.is_file()})
     package_manifest(package)
-    sample = {'schema_version': 'scene-sample-v1', 'status': 'sealed', 'scene_dataset_id': root.name,
+    sample = {'schema_version': 'scene-sample-research-v2', 'status': 'complete', 'scene_dataset_id': root.name,
         'sample_id': sample_id, 'house': unit['house'], 'scene_id': unit['source']['scene_id'],
         'task_id': task['task_id'], 'instance_id': task['instance_id'], 'asset_id': task['asset_id'],
         'operation': task['operation'], 'case': unit['case'], 'rule_version': recipe.rule_version, 'seed': seed,
@@ -401,9 +364,9 @@ def _seal_sample(root, recipe, unit, task, snapshot, candidates, rows, checks, e
         'capacity_shortfall': checks.get('case_construction', {}).get('capacity_shortfall', False),
         'surface_obstacle_bounds': recipe.case1_added_surface_count if unit['case'] == 'Case1' else recipe.case2_added_surface_count if unit['case'] == 'Case2' else [0, 0],
         'candidate_count': len(candidates), 'validated_count': manifest['validated_count'],
-        'station_count': len(selected), 'construction_wall_s': elapsed, 'task_completion': 'unknown'}
-    write_json(destination / 'manifest.json', sample)
-    write_json(destination / 'checksums.json', {str(p.relative_to(destination)): file_digest(p) for p in destination.rglob('*') if p.is_file() and p != destination / 'checksums.json'})
+        'station_count': len(selected), 'construction_wall_s': elapsed, 'task_completion': 'unknown',
+        'construction_unit': unit['construction_unit']}
+    write_json(destination / 'sample.json', sample)
     return sample
 
 
@@ -444,27 +407,38 @@ def _open_sample(root, recipe, unit, diagnostic):
         finally:
             view.close()
         write_json(diagnostic / 'parking.json', parking)
-        return _seal_sample(root, recipe, unit, task, diagnostic / 'scene', candidates, rows, checks,
+        return _save_sample(root, recipe, unit, task, diagnostic / 'scene', candidates, rows, checks,
             diagnostic, recipe.seed, time.monotonic() - started, {'source': unit['source'], 'no_edits': True, 'parking': parking})
     finally:
         sim.close()
 
 
 def run_scene_dataset_unit(root, index):
-    """One immutable unit, retries in distinct runs; individually publish good variants."""
+    """One immutable unit, retries in distinct runs; individually commit good variants."""
     root = Path(root).resolve(); build = read_json(root / 'build.json')
-    recipe = load_scene_recipe(build['recipe_path']); unit = build['units'][index]
-    out = Path(build['output_dir']); diagnostic = out / 'diagnostics' / f'{root.name}-unit-{index:03d}'
+    recipe = SceneDatasetRecipe(**build['recipe']); unit = {**build['units'][index], 'construction_unit': index}
+    out = Path(build['output_dir'])
+    base_diagnostic = out / 'diagnostics' / f'{root.name}-unit-{index:03d}'
+    diagnostic = base_diagnostic / ('attempt-' + str(time.time_ns()))
     diagnostic.mkdir(parents=True, exist_ok=False)
-    started = time.monotonic(); samples = []; exclusions = []
+    prior = read_json(base_diagnostic / 'result.json') if (base_diagnostic / 'result.json').is_file() else {}
+    samples = list(prior.get('samples', []))
+    for path in sorted((root / 'samples').glob('*/sample.json')):
+        saved = read_json(path)
+        if saved.get('construction_unit') == index and saved['sample_id'] not in {r['sample_id'] for r in samples}:
+            samples.append(saved)
+    started = time.monotonic(); exclusions = list(prior.get('exclusions', []))
     result = {'unit_index': index, 'house': unit['house'], 'case': unit['case'], 'task_id': unit['task']['task_id'],
-        'started_at': now(), 'gpu_id': os.environ.get('MUJOCO_EGL_DEVICE_ID'), 'status': 'running', 'samples': []}
+        'started_at': now(), 'gpu_id': os.environ.get('MUJOCO_EGL_DEVICE_ID'), 'status': 'building',
+        'samples': samples, 'next_retry': prior.get('next_retry', 0)}
     write_json(diagnostic / 'progress.json', result)
     try:
-        if unit['case'] == 'Case3':
+        if unit['case'] == 'Case3' and not samples:
             samples.append(_open_sample(root, recipe, unit, diagnostic))
-        else:
-            for retry in range(3):
+        elif unit['case'] != 'Case3':
+            retry_base = int(prior.get('next_retry', 0))
+            for retry in range(retry_base, retry_base + 3):
+                result['next_retry'] = retry + 1
                 missing = recipe.variants_per_case - len(samples)
                 if missing <= 0:
                     break
@@ -486,6 +460,7 @@ def run_scene_dataset_unit(root, index):
                         'allow_surface_capacity_shortfall': recipe.allow_surface_capacity_shortfall,
                         'capacity_probe_budget': recipe.capacity_probe_budget, 'case1_support_types': recipe.case1_support_types})
                 run_id = f'{root.name}-u{index:03d}-r{retry:02d}'
+                write_json(base_diagnostic / 'result.json', result)
                 path = augment_obstacles(config, out, run_id=run_id, geometry_config=recipe.geometry,
                                          robot_config=load_scene_robot(recipe.robot_config))
                 summary = read_json(path / 'summary.json')
@@ -499,7 +474,7 @@ def run_scene_dataset_unit(root, index):
                         continue
                     task = read_json(path / 'baseline/task.json')
                     rows = read_json(evidence / 'navigation/comparison.json')['stations_after']
-                    samples.append(_seal_sample(root, recipe, unit, task, evidence / 'scene', read_json(path / 'baseline/stations.json'),
+                    samples.append(_save_sample(root, recipe, unit, task, evidence / 'scene', read_json(path / 'baseline/stations.json'),
                         rows, read_json(evidence / 'checks.json'), evidence, variant['seed'], variant['elapsed_s'],
                         {'construction_run': str(path), 'variant_id': variant['variant_id'], 'timings': variant.get('timings', {}),
                          'construction_provenance': read_json(path / 'provenance.json')}))
@@ -513,126 +488,9 @@ def run_scene_dataset_unit(root, index):
         traceback.print_exc()
     finally:
         result.update(samples=samples, exclusions=exclusions, elapsed_s=time.monotonic() - started, finished_at=now())
-        write_json(diagnostic / 'result.json', result)
+        write_json(base_diagnostic / 'result.json', result)
     return result
 
-
-def audit_scene_dataset(root, physical=False, audit_inputs=None):
-    """Checksum/identity/selection audit, optionally reload physical frozen scenes."""
-    root = Path(root).resolve(); manifest = read_json(root / 'manifest.json'); errors = []; records = []
-    portable_inputs = None
-    if audit_inputs is not None:
-        audit_inputs = Path(audit_inputs).resolve()
-        portable_inputs = read_json(audit_inputs / 'manifest.json')
-        if (portable_inputs.get('schema_version') != 'scene-audit-inputs-v1'
-                or portable_inputs.get('scene_dataset_id') != manifest['scene_dataset_id']
-                or portable_inputs.get('dataset_manifest_sha256') != file_digest(root / 'manifest.json')):
-            raise ValueError('portable audit inputs dataset identity mismatch')
-    expected = read_json(root / 'checksums.json')
-    for name, checksum in expected.items():
-        path = (root / name).resolve()
-        if not path.is_relative_to(root) or not path.is_file() or file_digest(path) != checksum:
-            errors.append('dataset checksum mismatch: ' + name)
-    samples = [json.loads(line) for line in (root / 'samples.jsonl').read_text().splitlines()]
-    for sample in samples:
-        try:
-            destination = root / sample['path']
-            if read_json(destination / 'manifest.json') != sample:
-                raise ValueError('sample index mismatch')
-            for name, checksum in read_json(destination / 'checksums.json').items():
-                target = (destination / name).resolve()
-                if not target.is_relative_to(destination) or file_digest(target) != checksum:
-                    raise ValueError('sample checksum mismatch: ' + name)
-            packages = list((destination / 'robot_sensor_configs').iterdir())
-            for package in packages:
-                pm = package_manifest(package)
-                if pm['sample_id'] != sample['sample_id']:
-                    raise ValueError('package sample identity mismatch')
-                if physical:
-                    robot = RobotConfig(**read_json(package / 'scene/version.json')['robot'])
-                    task = read_json(package / 'task.json')
-                    sim = Simulation.from_snapshot(package / 'scene', robot, target=task['target_body'])
-                    try:
-                        if not np.isfinite(sim.state_vector()).all():
-                            raise ValueError('nonfinite physical snapshot')
-                        if sample['case'] != 'Case3':
-                            from ..validation.obstacle_augmentation import validate_augmented_scene
-                            p = read_json(destination / 'construction/provenance.json')
-                            if portable_inputs is None:
-                                config_values = read_json(Path(p['construction_run']) / 'frozen_config.json')['augmentation']
-                            else:
-                                record = portable_inputs['configs'][sample['sample_id']]
-                                location = (audit_inputs / record['file']).resolve()
-                                if not location.is_relative_to(audit_inputs) or file_digest(location) != record['sha256']:
-                                    raise ValueError('portable augmentation config checksum/path mismatch')
-                                config_values = read_json(location)
-                            config = ObstacleConfig(**config_values)
-                            control = Simulation.from_snapshot(destination / 'construction/control_scene', robot, target=task['target_body'])
-                            try:
-                                stored = read_json(package / 'validation/checks.json')
-                                placements = read_json(destination / 'construction/edits.json')
-                                capacity = None
-                                if (destination / 'construction/capacity.json').exists():
-                                    from ..catalog.edit_assets import EditAssetCatalog
-                                    from ..construction.obstacle_sampling import asset_geometry, surface_points
-                                    from ..construction.surface_capacity import valid_certificate
-                                    from ..runtime.obstacle_edit_session import ObstacleEditSession
-                                    from .obstacle_augmentation import _capacity_probe
-                                    capacity = read_json(destination / 'construction/capacity.json')
-                                    if not valid_certificate(sim, placements, capacity):
-                                        raise ValueError('capacity certificate state/domain mismatch')
-                                    run = Path(p['construction_run'])
-                                    baseline = Simulation.from_snapshot(run / 'baseline/scene', robot, target=task['target_body'])
-                                    try:
-                                        assets = EditAssetCatalog(run / 'assets/catalog.json')
-                                        geometry = asset_geometry(assets)
-                                        footprint_filter = read_json(run / 'assets/footprint_filter.json')
-                                        excluded = set(footprint_filter['excluded']) if footprint_filter.get('applied', True) else set()
-                                        geometry = {k:g for k,g in geometry.items() if k not in excluded}
-                                        points = surface_points(support_regions(baseline, task), config.case_policy.surface_spacing_m)
-                                        if config.case_policy.case == 'Case1':
-                                            points = [q for q in points if np.linalg.norm(np.asarray(q['xy'])-task['anchor_world'][:2]) <= config.case_policy.near_target_m]
-                                        with ObstacleEditSession(baseline, assets, SettleConfig(**config.settle)) as probe:
-                                            replay, _, _ = _capacity_probe(probe, sim, placements, geometry, points, config, None)
-                                        if not valid_certificate(sim, placements, replay) or replay['domain_sha256'] != capacity['domain_sha256']:
-                                            raise ValueError('capacity exhaustive replay failed')
-                                    finally:
-                                        baseline.close()
-                                checks = validate_augmented_scene(sim, placements, stored['settling'], control, config, capacity_evidence=capacity)
-                                if not checks['valid']:
-                                    raise ValueError('physical collision/support/case/source-effect audit failed')
-                            finally:
-                                control.close()
-                        else:
-                            j = sim.model.joint(task['joint_name']).id
-                            if abs(float(sim.data.qpos[sim.model.jnt_qposadr[j]]) - task['joint_initial']) > 1e-12:
-                                raise ValueError('Case3 articulation changed')
-                    finally:
-                        sim.close()
-            if sample['case'] != 'Case3':
-                import imageio.v2 as imageio
-                from ..recording.obstacle_views import visibility_pass
-                packet = read_json(destination / 'media/pair.json')
-                edits = read_json(destination / 'construction/edits.json')
-                names = [f'procedural_obstacle_{i}' for i in range(len(edits))]
-                threshold = read_json(packages[0] / 'manifest.json')['binding']['station_geometry']['min_target_pixels']
-                if not visibility_pass(packet['visible_pixels_by_instance'], names, sample['instance_id'], threshold, True):
-                    raise ValueError('paired media segmentation coverage failed')
-                for view in ('top', 'oblique_a', 'oblique_b'):
-                    before = imageio.imread(destination / f'media/before_{view}.png')
-                    after = imageio.imread(destination / f'media/after_{view}.png')
-                    if before.shape != after.shape or not np.any(before != after) or float(before.std()) <= 1 or float(after.std()) <= 1:
-                        raise ValueError('paired RGB empty/unchanged')
-                if not all(r['pair_id'] == packet['pair_id'] and (destination / 'media' / r['path']).is_file() for r in packet['images']):
-                    raise ValueError('paired image identity/path mismatch')
-            records.append({'sample_id': sample['sample_id'], 'valid': True})
-        except Exception as exc:
-            records.append({'sample_id': sample['sample_id'], 'valid': False, 'reason': str(exc)})
-    if len(samples) != manifest['sample_count'] or len({s['sample_id'] for s in samples}) != len(samples):
-        errors.append('sample count/identity mismatch')
-    return {'schema_version': 'scene-dataset-audit-v1', 'valid': not errors and all(r['valid'] for r in records),
-        'dataset': str(root), 'scope': 'physical_frozen_scene_and_checksums' if physical else 'checksums_identity_station_selection',
-        'errors': errors, 'samples': records, 'sample_count': len(samples), 'task_execution': 'not_performed'}
 
 
 def target_quota_met(recipe, rows, house):
@@ -658,6 +516,24 @@ def expected_scene_samples(recipe, rows):
     return total
 
 
+def validate_dataset_records(root):
+    root = Path(root)
+    records = [json.loads(line) for line in (root / 'samples.jsonl').read_text().splitlines() if line.strip()]
+    manifest = read_json(root / 'manifest.json')
+    if len(records) != manifest['sample_count'] or len({s['sample_id'] for s in records}) != len(records):
+        raise ValueError('sample count/identity mismatch')
+    from ..recording.protocol import safe_path
+    for sample in records:
+        destination = safe_path(root, sample['path'])
+        if read_json(destination / 'sample.json') != sample:
+            raise ValueError('sample index identity mismatch')
+        for config_id in sample['robot_sensor_config_ids']:
+            package = package_manifest(safe_path(destination, 'robot_sensor_configs/' + config_id))
+            if package['sample_id'] != sample['sample_id'] or package['scene_dataset_id'] != manifest['scene_dataset_id']:
+                raise ValueError('foreign sample configuration')
+    return records
+
+
 def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=2, resume=False, allow_partial_targets=False):
     recipe_path = Path(recipe_path).resolve(); output_dir = Path(output_dir).resolve()
     recipe = load_scene_recipe(recipe_path); plan = read_json(discovery)
@@ -675,96 +551,90 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
     if root.exists() and not resume:
         raise FileExistsError(root)
     root.mkdir(parents=True, exist_ok=resume)
-    units = [{**row, 'case': case} for row in plan['selected'] for case in recipe.cases
-             if (case == 'Case3') == (row['task']['operation'] == 'open')]
-    payload = {'recipe_path': str(recipe_path), 'recipe': asdict(recipe), 'recipe_sha256': plan['recipe_sha256'],
-               'units': units, 'output_dir': str(output_dir), 'discovery': plan, 'allow_partial_targets': allow_partial_targets}
-    if resume:
-        old = read_json(root / 'build.json')
-        if digest(payload) != old['input_sha256']:
-            raise ValueError('build resume inputs changed')
-        if (root / 'manifest.json').exists() and read_json(root / 'manifest.json')['status'] == 'sealed':
-            if not audit_scene_dataset(root)['valid']:
-                raise ValueError('sealed dataset audit failed')
-            return root
-    else:
-        write_json(root / 'build.json', {**payload, 'input_sha256': digest(payload), 'started_at': now()})
-        write_json(root / 'discovery.json', plan)
-    expected = expected_scene_samples(recipe, plan['selected'])
-    qualified_expected = sum(1 if u['case'] == 'Case3' else recipe.variants_per_case for u in units)
-    started = time.monotonic(); completed = {}; active = {}; pending = []
-    for index in range(len(units)):
-        result = output_dir / 'diagnostics' / f'{dataset_id}-unit-{index:03d}' / 'result.json'
-        if result.exists():
-            completed[index] = read_json(result)
+    with (root / 'run.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        units = [{**row, 'case': case} for row in plan['selected'] for case in recipe.cases
+                 if (case == 'Case3') == (row['task']['operation'] == 'open')]
+        from ..runtime.snapshot_identity import snapshot_identity
+        snapshots = {path: snapshot_identity(path) for path in sorted({u['input_snapshot'] for u in units})}
+        payload = {'input_snapshots': snapshots, 'recipe_path': str(recipe_path), 'recipe': asdict(recipe), 'recipe_sha256': plan['recipe_sha256'],
+                   'units': units, 'output_dir': str(output_dir), 'discovery': plan, 'allow_partial_targets': allow_partial_targets}
+        if resume:
+            old = read_json(root / 'build.json')
+            if digest(payload) != old['input_sha256']:
+                raise ValueError('build resume inputs changed')
+            if (root / 'manifest.json').exists() and read_json(root / 'manifest.json')['status'] == 'complete':
+                validate_dataset_records(root)
+                return root
         else:
-            diagnostic = result.parent
-            if diagnostic.exists():
-                raise ValueError('interrupted unit requires a new dataset id; original evidence retained')
-            pending.append(index)
-    logs = output_dir / 'logs'; logs.mkdir(parents=True, exist_ok=True)
-    try:
-        while pending or active:
-            for gpu in gpu_ids:
-                if not pending or len(active) >= min(workers, len(gpu_ids)):
-                    break
-                if gpu in active:
-                    continue
-                index = pending.pop(0); env = dict(os.environ, MUJOCO_EGL_DEVICE_ID=str(gpu), PYTHONUNBUFFERED='1',
-                    OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', MKL_NUM_THREADS='1')
-                stream = (logs / f'{dataset_id}-unit-{index:03d}.log').open('a')
-                process = subprocess.Popen([sys.executable, '-m', 'lastmile_dataflow.cli', 'scene-dataset-unit',
-                    '--dataset', str(root), '--unit-index', str(index)], env=env, stdout=stream, stderr=subprocess.STDOUT)
-                active[gpu] = (process, index, stream)
-                print(f'GPU {gpu}: unit {index} val_{units[index]["house"]} {units[index]["task"]["asset_id"]} {units[index]["case"]}', flush=True)
-            for gpu, (process, index, stream) in list(active.items()):
-                if process.poll() is None:
-                    continue
-                stream.close(); path = output_dir / 'diagnostics' / f'{dataset_id}-unit-{index:03d}' / 'result.json'
-                completed[index] = read_json(path) if path.exists() else {'status': 'infrastructure_error', 'unit_index': index,
-                    'reason': f'worker_exit_{process.returncode}', 'samples': [], 'exclusions': []}
-                print(f'unit {index}: {completed[index]["status"]} ({len(completed[index]["samples"])} samples)', flush=True)
-                del active[gpu]
-            write_json(root / 'progress.json', {'status': 'running', 'expected_samples': expected,
-                'sealed_samples': sum(len(r['samples']) for r in completed.values()), 'completed_units': len(completed),
-                'pending_units': pending, 'active_units': {str(g): r[1] for g, r in active.items()}, 'wall_s': time.monotonic() - started})
-            if active:
-                time.sleep(2)
-    finally:
-        for process, _, stream in active.values():
-            process.terminate(); process.wait(); stream.close()
-    samples = [s for i in sorted(completed) for s in completed[i]['samples']]
-    exclusions = list(plan['exclusions']) + [e for r in completed.values() for e in r.get('exclusions', [])]
-    exclusions += [{k: v for k, v in r.items() if k not in ('samples', 'exclusions')} for r in completed.values() if r['status'] != 'completed']
-    write_lines(root / 'samples.jsonl', samples)
-    write_lines(root / 'packages.jsonl', [{'sample_id': s['sample_id'], 'robot_sensor_config_id': c,
-        'path': f'{s["path"]}/robot_sensor_configs/{c}'} for s in samples for c in s['robot_sensor_config_ids']])
-    write_lines(root / 'exclusions.jsonl', exclusions)
-    write_json(root / 'timing.json', {'wall_s': time.monotonic() - started, 'discovery_wall_s': plan['elapsed_s'],
-        'unit_wall_sum_s': sum(r.get('elapsed_s', 0.) for r in completed.values()), 'units': list(completed.values()),
-        'note': 'parallel wall time differs from sum of unit times; variant timings exclude shared setup'})
-    complete = len(samples) == expected and all(r['status'] == 'completed' for r in completed.values())
-    manifest = {'schema_version': 'scene-datasets-v1', 'scene_dataset_id': dataset_id,
-        'status': 'awaiting_audit' if complete else 'partial',
-        'source_dataset': Path(recipe.dataset_dir).name, 'houses': recipe.houses, 'rule_version': recipe.rule_version,
-        'sample_count': len(samples), 'expected_samples': expected, 'qualified_target_capacity': qualified_expected,
-        'missing_samples': expected-len(samples), 'package_count': len(samples), 'created_at': now(),
-        'task_execution': 'not_performed', 'benchmark': 'external_reference_not_embedded', 'recipe_sha256': plan['recipe_sha256'],
-        'target_selection_scope': plan.get('target_selection_scope', 'recipe_discovery_qualification')}
-    write_json(root / 'manifest.json', manifest)
-    write_dataset_readme(root)
-    write_json(root / 'checksums.json', {str(p.relative_to(root)): file_digest(p) for p in root.rglob('*') if p.is_file() and p != root / 'checksums.json'})
-    report = audit_scene_dataset(root, physical=True)
-    write_json(output_dir / 'diagnostics' / f'{dataset_id}-audit.json', report)
-    if not report['valid']:
-        manifest['status'] = 'audit_failed'
+            write_json(root / 'build.json', {**payload, 'input_sha256': digest(payload), 'started_at': now()})
+            write_json(root / 'discovery.json', plan)
+        write_json(root / 'recipe.json', asdict(recipe))
+        write_json(root / 'manifest.json', {'schema_version': 'scene-datasets-research-v2',
+            'scene_dataset_id': dataset_id, 'status': 'building'})
+        expected = expected_scene_samples(recipe, plan['selected'])
+        qualified_expected = sum(1 if u['case'] == 'Case3' else recipe.variants_per_case for u in units)
+        started = time.monotonic(); completed = {}; active = {}; pending = []
+        for index in range(len(units)):
+            result = output_dir / 'diagnostics' / f'{dataset_id}-unit-{index:03d}' / 'result.json'
+            if result.exists() and read_json(result)['status'] == 'completed':
+                completed[index] = read_json(result)
+                for sample in completed[index]['samples']:
+                    for config_id in sample['robot_sensor_config_ids']:
+                        package_manifest(root / sample['path'] / 'robot_sensor_configs' / config_id)
+            else:
+                pending.append(index)
+        logs = output_dir / 'logs'; logs.mkdir(parents=True, exist_ok=True)
+        try:
+            while pending or active:
+                for gpu in gpu_ids:
+                    if not pending or len(active) >= min(workers, len(gpu_ids)):
+                        break
+                    if gpu in active:
+                        continue
+                    index = pending.pop(0); env = dict(os.environ, MUJOCO_EGL_DEVICE_ID=str(gpu), PYTHONUNBUFFERED='1',
+                        OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', MKL_NUM_THREADS='1')
+                    stream = (logs / f'{dataset_id}-unit-{index:03d}.log').open('a')
+                    process = subprocess.Popen([sys.executable, '-m', 'lastmile_dataflow.cli', 'scene-dataset-unit',
+                        '--dataset', str(root), '--unit-index', str(index)], env=env, stdout=stream, stderr=subprocess.STDOUT)
+                    active[gpu] = (process, index, stream)
+                    print(f'GPU {gpu}: unit {index} val_{units[index]["house"]} {units[index]["task"]["asset_id"]} {units[index]["case"]}', flush=True)
+                for gpu, (process, index, stream) in list(active.items()):
+                    if process.poll() is None:
+                        continue
+                    stream.close(); path = output_dir / 'diagnostics' / f'{dataset_id}-unit-{index:03d}' / 'result.json'
+                    completed[index] = read_json(path) if path.exists() else {'status': 'infrastructure_error', 'unit_index': index,
+                        'reason': f'worker_exit_{process.returncode}', 'samples': [], 'exclusions': []}
+                    print(f'unit {index}: {completed[index]["status"]} ({len(completed[index]["samples"])} samples)', flush=True)
+                    del active[gpu]
+                write_json(root / 'progress.json', {'status': 'building', 'expected_samples': expected,
+                    'accepted_samples': sum(len(r['samples']) for r in completed.values()), 'completed_units': len(completed),
+                    'pending_units': pending, 'active_units': {str(g): r[1] for g, r in active.items()}, 'wall_s': time.monotonic() - started})
+                if active:
+                    time.sleep(2)
+        except BaseException:
+            write_json(root / 'manifest.json', {'schema_version': 'scene-datasets-research-v2',
+                'scene_dataset_id': dataset_id, 'status': 'failed'})
+            raise
+        finally:
+            for process, _, stream in active.values():
+                process.terminate(); process.wait(); stream.close()
+        samples = [s for i in sorted(completed) for s in completed[i]['samples']]
+        exclusions = list(plan['exclusions']) + [e for r in completed.values() for e in r.get('exclusions', [])]
+        exclusions += [{k: v for k, v in r.items() if k not in ('samples', 'exclusions')} for r in completed.values() if r['status'] != 'completed']
+        write_lines(root / 'samples.jsonl', samples)
+        write_lines(root / 'exclusions.jsonl', exclusions)
+        write_json(root / 'timing.json', {'wall_s': time.monotonic() - started, 'discovery_wall_s': plan['elapsed_s'],
+            'unit_wall_sum_s': sum(r.get('elapsed_s', 0.) for r in completed.values()), 'units': list(completed.values()),
+            'note': 'parallel wall time differs from sum of unit times; variant timings exclude shared setup'})
+        complete = len(samples) == expected and all(r['status'] == 'completed' for r in completed.values())
+        manifest = {'schema_version': 'scene-datasets-research-v2', 'scene_dataset_id': dataset_id,
+            'status': 'complete' if complete else 'failed',
+            'source_dataset': Path(recipe.dataset_dir).name, 'houses': recipe.houses, 'rule_version': recipe.rule_version,
+            'sample_count': len(samples), 'expected_samples': expected, 'qualified_target_capacity': qualified_expected,
+            'missing_samples': expected-len(samples), 'package_count': len(samples), 'created_at': now(),
+            'task_execution': 'not_performed', 'benchmark': 'external_reference_not_embedded', 'recipe_sha256': plan['recipe_sha256'],
+            'code': code_identity(), 'target_selection_scope': plan.get('target_selection_scope', 'recipe_discovery_qualification')}
         write_json(root / 'manifest.json', manifest)
-        checksums = read_json(root / 'checksums.json'); checksums['manifest.json'] = file_digest(root / 'manifest.json')
-        write_json(root / 'checksums.json', checksums)
-        raise ValueError('final scene dataset audit failed')
-    manifest['status'] = 'sealed' if complete else 'partial'
-    manifest['physical_audit_sha256'] = file_digest(output_dir / 'diagnostics' / f'{dataset_id}-audit.json')
-    write_json(root / 'manifest.json', manifest)
-    checksums = read_json(root / 'checksums.json'); checksums['manifest.json'] = file_digest(root / 'manifest.json')
-    write_json(root / 'checksums.json', checksums)
-    return root
+        write_dataset_readme(root)
+        return root

@@ -21,12 +21,7 @@ def case1_verdict(rows,source_base):
 def audit_station_attempt(path):
     path=Path(path); issues=[]
     try:
-        manifest=read_json(path/'artifacts.json')['files_sha256']
-        actual={str(p.relative_to(path)) for p in path.rglob('*') if p.is_file() and p.name!='artifacts.json'}
-        if set(manifest)!=actual: issues.append('manifest_file_set_mismatch')
-        for name,sha in manifest.items():
-            file=path/name
-            if not file.resolve().is_relative_to(path.resolve()) or not file.is_file() or file_digest(file)!=sha: issues.append('modified_or_unsafe:'+name)
+        if not (path / 'episode.json').is_file(): issues.append('episode_not_committed')
         cfg=read_json(path/'config.json'); meta=read_json(path/'attempt.json'); result=read_json(path/'result.json'); layers=read_json(path/'layers.json')
         if digest(cfg)!=meta['config_sha256']: issues.append('configuration_digest_mismatch')
         rows=[json.loads(v) for v in (path/'trajectory.jsonl').read_text().splitlines()]

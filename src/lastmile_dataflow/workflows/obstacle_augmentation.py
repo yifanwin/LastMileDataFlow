@@ -430,12 +430,12 @@ def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot
                'seed': config.seed, 'started_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()}
     try:
         write_json(path / 'frozen_config.json', {'augmentation': asdict(config), 'baseline': asdict(no_edit), 'robot': asdict(robot)})
-        code = {str(p.relative_to(Path(__file__).parents[1])): file_digest(p) for p in Path(__file__).parents[1].rglob('*.py')}
-        write_json(path / 'provenance.json', {'base_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+        from ..recording.protocol import code_identity
+        write_json(path / 'provenance.json', {'code': code_identity(),
                    'source': source.provenance(), 'input_snapshot': config.input_snapshot,
-                   'input_snapshot_checksums': read_json(Path(config.input_snapshot) / 'checksums.json') if config.input_snapshot else None,
-                   'code_sha256': digest(code), 'source_files': code, 'mujoco': mujoco.__version__,
-                   'MUJOCO_GL': os.environ.get('MUJOCO_GL'), 'MUJOCO_EGL_DEVICE_ID': os.environ.get('MUJOCO_EGL_DEVICE_ID')})
+                   'input_snapshot_identity': read_json(Path(config.input_snapshot) / 'checksums.json') if config.input_snapshot else None,
+                   'mujoco': mujoco.__version__, 'MUJOCO_GL': os.environ.get('MUJOCO_GL'),
+                   'MUJOCO_EGL_DEVICE_ID': os.environ.get('MUJOCO_EGL_DEVICE_ID')})
         metadata = read_json(source.metadata_path)
         tasks, _ = discover_tasks(baseline, metadata, no_edit)
         tasks = [t for t in tasks if t['instance_id'] == config.target_instance and t['operation'] == 'pick']

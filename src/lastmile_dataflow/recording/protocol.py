@@ -10,7 +10,7 @@ import numpy as np
 
 from ..io import canonical, digest, file_digest
 
-SCHEMA = 'raw-first-canonical/1.0.0'
+SCHEMA = 'research-canonical/2.0.0'
 
 
 def diagnostic(value):
@@ -48,7 +48,6 @@ def write_npz(path, **arrays):
 def append(stream, value):
     stream.write(canonical(diagnostic(value)) + b'\n')
     stream.flush()
-    os.fsync(stream.fileno())
 
 
 def rows(path):
@@ -68,14 +67,6 @@ def safe_path(root, relative):
     return path
 
 
-def files_digest(root, *, exclude=()):
-    root = Path(root)
-    if root.is_symlink() or any(p.is_symlink() for p in root.rglob('*')):
-        raise ValueError('sealed package may not contain symlinks')
-    return {str(p.relative_to(root)): file_digest(p) for p in sorted(root.rglob('*'))
-            if p.is_file() and str(p.relative_to(root)) not in exclude}
-
-
 @lru_cache(maxsize=1)
 def code_identity():
     package = Path(__file__).resolve().parents[1]
@@ -87,5 +78,4 @@ def code_identity():
         dirty = bool(subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], text=True))
     except (OSError, subprocess.CalledProcessError):
         commit, dirty = None, None
-    return {'code_commit': commit, 'code_dirty': dirty, 'code_sha256': digest(files),
-            'source_files_sha256': files}
+    return {'code_commit': commit, 'code_dirty': dirty, 'code_sha256': digest(files)}

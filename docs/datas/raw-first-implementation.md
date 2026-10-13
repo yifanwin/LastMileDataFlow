@@ -1,3 +1,5 @@
+> 本文描述旧协议。当前 scene/lastmile 默认入口采用 [Research 数据协议](research-data-protocol.md)，不再执行封存和默认全量复审。旧记录仅供读取与参考，不原地迁移。
+
 # Raw-first 采集与 MolmoBot Adapter 使用说明
 
 **新采集默认实时保存 raw / canonical；Adapter 只实现 MolmoBot。**

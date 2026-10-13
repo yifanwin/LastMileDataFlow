@@ -191,29 +191,19 @@ def audit_attempt(path):
     """轻量一致性校验，后续质量/发布层可复用；不会产生成功标签。
 
     它检查的是“这份记录自己跟自己是否自洽”，而不是“任务是否成功”：
-      - artifacts.json 是否覆盖目录下全部文件，摘要是否匹配（防篡改）
+      - 必需文件和 episode 完成记录是否存在
       - attempt.json / result.json / trajectory 的步数与状态是否一致
       - 仿真时间是否严格连续（防“偷偷重置再续跑”）
       - 视频帧数是否 = 步数 + 1（防“没执行却生成视频”）
       - 阶段一绝不允许出现 task_completion=success
     """
     path = Path(path)
-    manifest = read_json(path / "artifacts.json")
     issues = []
     required = {"attempt.json", "config.json", "source.json", "result.json", "trajectory.jsonl",
-                "events.jsonl", "observations.json", "videos.json"}
-    files = manifest["files_sha256"]
-    if not required.issubset(files):
-        issues.append(f"missing required evidence: {sorted(required - set(files))}")
-    actual = {str(p.relative_to(path)) for p in path.rglob("*") if p.is_file() and p.name != "artifacts.json"}
-    if actual != set(files):
-        issues.append("artifact manifest does not cover all files")
-    for name, checksum in manifest["files_sha256"].items():
-        file = path / name
-        if not file.resolve().is_relative_to(path.resolve()):
-            issues.append(f"unsafe artifact path: {name}")
-        elif not file.is_file() or file_digest(file) != checksum:
-            issues.append(f"missing or modified artifact: {name}")
+                "events.jsonl", "observations.json", "videos.json", "episode.json"}
+    missing = {name for name in required if not (path / name).is_file()}
+    if missing:
+        issues.append(f"missing required recording: {sorted(missing)}")
     rows = [read_json_line(line) for line in (path / "trajectory.jsonl").read_text().splitlines()]
     result = read_json(path / "result.json")
     attempt = read_json(path / "attempt.json")
@@ -230,8 +220,9 @@ def audit_attempt(path):
     for camera, video in videos["cameras"].items():
         if video["frame_count"] != len(video["frame_times_s"]) or video["frame_count"] != len(rows) + 1:
             issues.append(f"video frame count mismatch: {camera}")
-        if video["path"] not in files:
-            issues.append(f"video absent from manifest: {camera}")
+        from ..recording.protocol import safe_path
+        if not safe_path(path, video['path']).is_file():
+            issues.append(f'video absent: {camera}')
     previous_time = None
     for index, row in enumerate(rows):
         if row["step"] != index or len(row["command"]["submitted_action"]) != 20:

@@ -1,3 +1,5 @@
+> 本文描述旧协议。当前 scene/lastmile 默认入口采用 [Research 数据协议](research-data-protocol.md)，不再执行封存和默认全量复审。旧记录仅供读取与参考，不原地迁移。
+
 # cuRobo 数据采集统一协议：Raw-first
 
 **采集机器人真实看到、收到和执行的内容；模型输入格式留给 Adapter。**

@@ -79,8 +79,8 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1,
         raise ValueError('invalid benchmark budget')
     dataset, output = Path(dataset).resolve(), Path(output).resolve()
     source = read_json(dataset/'manifest.json')
-    if source.get('status')!='sealed' or source.get('schema_version')!='scene-datasets-v1':
-        raise ValueError('LastMileBench requires sealed scene_datasets')
+    if source.get('status')!='complete' or source.get('schema_version')!='scene-datasets-research-v2':
+        raise ValueError('LastMileBench requires complete research scene_datasets')
     if calibration_dir is None and not allow_uncalibrated:
         raise ValueError('provide calibration, or explicitly enable uncalibrated smoke')
     packages = sorted((dataset/'samples').glob('*/robot_sensor_configs/*/manifest.json'))
@@ -107,7 +107,7 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1,
                 sample_root = output/'samples'/sample_id
                 native.freeze(sample_root/'scene')
                 binding = {'scene_dataset_id':source['scene_dataset_id'], 'sample_id':sample_id,
-                    'source_package_sha256':manifest['package_checksums_sha256'],
+                    'source_package_identity':manifest['package_identity'],
                     'robot_sensor_config_id':'rs-'+digest({'robot':robot_descriptor(native.robot.config),
                         'cameras':{'width':1024,'height':576,'head_fovy':139.,'wrist_fovy':58.}}),
                     'compiled_model_sha256':native.model_hash, 'task_id':task['task_id']}
@@ -117,7 +117,8 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1,
                 samples[sample_id] = {**binding, 'source_robot_sensor_config_id':manifest['robot_sensor_config_id'],
                     'source_package':str(package), 'scene_regenerated':False}
                 calibration = read_json(Path(calibration_dir)/(sample_id+'.json')) if calibration_dir else None
-                stations = read_json(package/('stations/validated.json' if calibration else 'stations/selected.json'))
+                station_data = read_json(package / 'stations.json')
+                stations = station_data['validated'] if calibration else [s for s in station_data['validated'] if s['station_id'] in station_data['selected_ids']]
                 choices = select_starts(stations,calibration,binding,limit=starts_per_sample)
                 if not choices:
                     raise ValueError('no eligible low/high nearby episode in '+sample_id)

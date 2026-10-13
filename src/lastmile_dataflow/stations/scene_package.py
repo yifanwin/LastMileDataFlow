@@ -1,9 +1,10 @@
-"""Public strategy-independent scene package reader and station selection."""
+"""Research scene identity and station selection; no package seals."""
 from dataclasses import asdict
 from pathlib import Path
 import shutil
 
 from ..io import digest, file_digest, read_json, write_json
+from ..runtime.snapshot_identity import check_snapshot_identity
 from .obstacle_selection import coverage_select
 
 
@@ -27,25 +28,17 @@ def robot_descriptor(robot):
     return value
 
 
-def package_manifest(path, robot=None, geometry=None):
-    """Verify sealed package; strategy/backend is deliberately not an argument."""
+def package_manifest(path, robot=None, geometry=None, *, scene_root=None):
+    """Check scientific identities without rereading physics or a file-tree seal."""
     root = Path(path).resolve()
     manifest = read_json(root / 'manifest.json')
-    if manifest['schema_version'] != 'scene-station-package-v1' or manifest['status'] != 'sealed':
-        raise ValueError('unsealed or unsupported scene package')
-    checksums = read_json(root / 'checksums.json')
-    for name, expected in checksums.items():
-        target = (root / name).resolve()
-        if not target.is_relative_to(root) or not target.is_file() or file_digest(target) != expected:
-            raise ValueError('scene package checksum mismatch: ' + name)
-    required = {'manifest.json', 'task.json', 'scene/model.mjb', 'scene/initial.npz', 'scene/version.json',
-                'scene/instances.json', 'scene/checksums.json', 'stations/candidates.json',
-                'stations/validated.json', 'stations/selected.json', 'stations/selection.json', 'validation/checks.json'}
-    if not required <= set(checksums):
-        raise ValueError('incomplete scene package')
+    if manifest['schema_version'] != 'scene-station-package-research-v2' or manifest['status'] != 'complete':
+        raise ValueError('unsupported or incomplete research scene package; use a new dataset')
+    scene_root = Path(scene_root) if scene_root is not None else root / 'scene'
+    check_snapshot_identity(scene_root, manifest['scene_identity'])
     if digest(manifest['binding']) != manifest['robot_sensor_config_id'].removeprefix('rs-'):
         raise ValueError('robot/sensor identity mismatch')
-    version = read_json(root / 'scene/version.json')
+    version = read_json(scene_root / 'version.json')
     if robot is not None and digest(robot_descriptor(robot)) != digest(manifest['binding']['robot']):
         raise ValueError('robot configuration mismatch; rebuild/revalidate required')
     if geometry is not None:
@@ -53,17 +46,19 @@ def package_manifest(path, robot=None, geometry=None):
             if not hasattr(geometry, key) or getattr(geometry, key) != value:
                 raise ValueError('sensor/station geometry mismatch: ' + key)
     task = read_json(root / 'task.json')
-    rows = read_json(root / 'stations/validated.json')
-    candidates = read_json(root / 'stations/candidates.json')
+    stations = read_json(root / 'stations.json')
+    rows, candidates = stations['validated'], stations['candidates']
     keys = ('station_id', 'xy', 'grid_index')
     if [{k: r[k] for k in keys} for r in rows] != candidates:
         raise ValueError('not all original candidates were validated')
-    selection = read_json(root / 'stations/selection.json')
+    selection = stations['selection']
     selected, expected = select_stations(rows, task['anchor_world'], manifest['selection_mode'], manifest['max_final_stations'])
-    if selected != read_json(root / 'stations/selected.json') or selection != expected:
+    if [r['station_id'] for r in selected] != stations['selected_ids'] or selection != expected:
         raise ValueError('station selection mismatch')
-    if not manifest['min_final_points'] <= len(selected) == manifest['station_count']:
-        raise ValueError('station publication minimum/count mismatch')
+    if digest(selected) != manifest['stations_sha256']:
+        raise ValueError('station identity mismatch')
+    if not manifest['min_final_points'] <= len(selected) == manifest['station_count'] <= 20:
+        raise ValueError('station minimum/count mismatch')
     for row in selected:
         if row.get('independent_simulation') is not True or row.get('non_robot_qpos_unchanged') is not True or row.get('new_solver_warnings'):
             raise ValueError('unverified station')
@@ -74,9 +69,9 @@ def package_manifest(path, robot=None, geometry=None):
             raise ValueError('station initialization pose mismatch')
     if task['task_id'] != manifest['task_id'] or version['source']['scene_id'] != manifest['scene_id']:
         raise ValueError('scene/task identity mismatch')
-    if not read_json(root / 'validation/checks.json')['valid']:
+    if manifest.get('construction_valid') is not True:
         raise ValueError('invalid scene checks')
-    return {**manifest, 'package': str(root), 'package_checksums_sha256': file_digest(root / 'checksums.json')}
+    return {**manifest, 'package': str(root), 'package_identity': digest(manifest)}
 
 
 def bind_package(scene_path, manifest):
@@ -85,27 +80,28 @@ def bind_package(scene_path, manifest):
     if destination.exists():
         if read_json(destination / 'input_manifest.json') != manifest:
             raise ValueError('scene package resume identity mismatch')
-        package_manifest(destination)
-        for name, checksum in read_json(destination / 'scene/checksums.json').items():
-            if file_digest(Path(scene_path) / 'scene' / name) != checksum:
-                raise ValueError('execution scene checksum mismatch')
+        package_manifest(destination, scene_root=Path(scene_path) / 'scene')
+        check_snapshot_identity(Path(scene_path) / 'scene', manifest['scene_identity'])
         return
     if (Path(scene_path) / 'scene').exists() or (Path(scene_path) / 'tasks').exists():
         raise ValueError('use a new execution run; cannot retrofit a scene package')
-    shutil.copytree(root, destination)
+    shutil.copytree(root, destination, ignore=shutil.ignore_patterns('scene'))
     write_json(destination / 'input_manifest.json', manifest)
     shutil.copytree(root / 'scene', Path(scene_path) / 'scene')
 
 
 def package_stations(scene_path, task):
     root = Path(scene_path) / 'scene_dataset_input'
-    manifest = package_manifest(root)
+    manifest = package_manifest(root, scene_root=Path(scene_path) / 'scene')
     if task['task_id'] != manifest['task_id'] or task['target_body'] != read_json(root / 'task.json')['target_body']:
         raise ValueError('scene package task identity mismatch')
-    return read_json(root / 'stations/selected.json'), {
+    stations = read_json(root / 'stations.json')
+    lookup = {s['station_id']: s for s in stations['validated']}
+    selected = [lookup[sid] for sid in stations['selected_ids']]
+    return selected, {
         'schema_version': 'scene-dataset-execution-input-v1',
         'scene_dataset_id': manifest['scene_dataset_id'], 'sample_id': manifest['sample_id'],
         'robot_sensor_config_id': manifest['robot_sensor_config_id'],
         'lattice_regenerated': False, 'execution_point_count': manifest['station_count'],
-        'station_ids': [s['station_id'] for s in read_json(root / 'stations/selected.json')],
-        'package_checksums_sha256': file_digest(root / 'checksums.json')}
+        'station_ids': stations['selected_ids'],
+        'package_identity': manifest['package_identity']}

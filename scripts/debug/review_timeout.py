@@ -7,12 +7,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import mujoco
 
-from ..io import digest, file_digest, read_json, write_json
-from ..recording.protocol import code_identity
-from ..validation.canonical import audit_canonical
-from ..validation.no_edit import evaluate_mobile_pick
-from ..runtime.no_edit_evidence import EXECUTION_SEMANTICS
-from .lastmile_datasets import write_rows
+from lastmile_dataflow.io import digest, file_digest, read_json, write_json
+from lastmile_dataflow.recording.protocol import code_identity
+from lastmile_dataflow.validation.canonical import episode_record
+from scripts.debug.audit_canonical import audit_canonical
+from lastmile_dataflow.validation.no_edit import evaluate_mobile_pick
+from lastmile_dataflow.runtime.no_edit_evidence import EXECUTION_SEMANTICS
+from lastmile_dataflow.workflows.lastmile_datasets import write_rows
 
 
 _MODELS = {}
@@ -26,7 +27,7 @@ def _review_trial(trial, run):
     config = read_json(attempt/'config.json')
     outcome = read_json(attempt/'outcome.json')
     refs = {name:file_digest(attempt/name) for name in
-            ('config.json','initial_state.json','outcome.json','physics.jsonl.gz','artifacts.json')}
+            ('config.json','initial_state.json','outcome.json','physics.jsonl.gz')}
     verdict = {'status':'unknown','reason':'no_pick_physics_trace'}
     audit = {'valid':False,'issues':['not_checked']}
     reconstruction = None
@@ -76,9 +77,13 @@ def _review_trial(trial, run):
                 verdict = evaluate_mobile_pick(samples, initial)
         audit = audit_canonical(attempt) if verdict['status']=='success' else {
             'valid':False, 'scope':'not_required_for_non_success_task_verdict', 'issues':[]}
-    stored = read_json(attempt/'artifacts.json')['files_sha256']
-    if any(stored.get(name) != sha for name,sha in refs.items() if name != 'artifacts.json'):
-        raise ValueError('physical evidence differs from original attempt seal')
+    if (attempt / 'episode.json').is_file():
+        episode_record(attempt)
+        refs['episode.json'] = file_digest(attempt / 'episode.json')
+    else:
+        stored = read_json(attempt / 'artifacts.json')['files_sha256']
+        if any(stored.get(name) != sha for name, sha in refs.items()):
+            raise ValueError('legacy physical evidence differs from its original record')
     after = {name:file_digest(attempt/name) for name in refs}
     if refs != after:
         raise ValueError('source changed during review')
@@ -152,3 +157,12 @@ def review(run, output, *, workers=4):
                'summary':summary,'source_run':str(run),'source_table_digest':digest(before)})
     write_json(output/'checksums.json',{str(p.relative_to(output)):file_digest(p) for p in output.rglob('*') if p.is_file()})
     return summary
+
+if __name__ == '__main__':
+    import argparse, json
+    parser = argparse.ArgumentParser(description='Explicit review of recorded full physics traces')
+    parser.add_argument('--run', required=True, type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--workers', type=int, default=4)
+    args = parser.parse_args()
+    print(json.dumps(review(args.run, args.output, workers=args.workers), ensure_ascii=False, indent=2))

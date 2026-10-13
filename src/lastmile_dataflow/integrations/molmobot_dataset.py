@@ -1,5 +1,6 @@
 """The only VLA Dataset Adapter: immutable MolmoBot-RBY1Multitask exports."""
 import html
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -8,9 +9,9 @@ import uuid
 import imageio.v2 as imageio
 import numpy as np
 
-from ..io import digest, file_digest, read_json, write_json
-from ..recording.protocol import append, code_identity, files_digest, rows, safe_path, write_npz
-from ..validation.canonical import audit_canonical
+from ..io import digest, read_json, write_json
+from ..recording.protocol import append, code_identity, safe_path, write_npz
+from ..validation.canonical import export_inputs
 from .molmobot_images import fisheye, transform_point
 
 ADAPTER_VERSION = 'molmobot-rby1-multitask/1.0.0'
@@ -94,14 +95,13 @@ def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=Non
                     seed=0, chunk_length=16, conditioning_point=None):
     source, output = Path(attempt).resolve(), Path(output).absolute()
     if output.resolve().is_relative_to(source):
-        raise ValueError('derived output must be outside the sealed source episode')
+        raise ValueError('derived output must be outside the source episode')
     if type(seed) is not int or not 0 <= seed < 2 ** 32 or type(chunk_length) is not int or chunk_length < 1:
         raise ValueError('invalid adapter seed or chunk length')
-    report = audit_canonical(source)
-    if not report['valid']:
-        raise UnsupportedMolmoBotData('source protocol audit failed: ' + ','.join(report['issues']))
-    manifest = read_json(source / 'canonical/manifest.json')
-    source_checksum = file_digest(source / 'canonical/checksums.json')
+    try:
+        record, manifest, inputs = export_inputs(source)
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+        raise UnsupportedMolmoBotData('invalid source episode: ' + str(exc)) from exc
     task = read_json(source / 'canonical/task.json')
     if not task.get('language_instruction'):
         raise UnsupportedMolmoBotData('language instruction was not collected')
@@ -115,19 +115,19 @@ def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=Non
         raise UnsupportedMolmoBotData('gripper mapping is only applicable to position-v1 action exports')
     if not state_images_only and profile != 'molmobot-native-v1' and gripper_map is None:
         raise UnsupportedMolmoBotData('position gripper is not motor: supply calibrated --gripper-map or --state-images-only')
-    frames = rows(source / 'canonical/frames.jsonl')
-    states = rows(source / 'canonical/robot-state.jsonl')
-    actions = rows(source / 'canonical/executed-actions.jsonl')
-    commands = rows(source / 'raw/commands.jsonl')
+    frames, states, actions, commands = (inputs[k] for k in ('frames', 'states', 'actions', 'commands'))
     robot_limits = read_json(source / 'config.json')['robot']
-    obs = {r['sample_id']: r for r in rows(source / 'raw/observations.jsonl')}
+    obs = {r['sample_id']: r for r in inputs['observations']}
+    if len(obs) != len(inputs['observations']):
+        raise UnsupportedMolmoBotData('duplicate observation identity')
     if not actions:
         raise UnsupportedMolmoBotData('not_executed episodes have no training transitions')
     windows = action_windows(actions)
     output.parent.mkdir(parents=True, exist_ok=True)
     lock = output.parent / ('.' + output.name + '.lock')
     temporary = output.parent / ('.molmobot-' + uuid.uuid4().hex)
-    with lock.open('xb'):
+    with lock.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
             if output.exists() or output.is_symlink():
                 raise FileExistsError(output)
@@ -149,7 +149,12 @@ def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=Non
                     if not ref or ref['status'] != 'recorded':
                         raise UnsupportedMolmoBotData('missing raw camera:' + camera)
                     observation = obs[ref['sample_id']]
+                    if observation['frame_id'] != frame_id or observation['sensor_id'] != camera or observation['timestamp'] != frames[frame_id]['timestamp']:
+                        raise UnsupportedMolmoBotData('camera/state alignment mismatch')
                     pixels = imageio.imread(safe_path(source, observation['path']))
+                    w, h = observation['resolution']
+                    if pixels.dtype != np.uint8 or pixels.shape != (h, w, 3):
+                        raise UnsupportedMolmoBotData('invalid source RGB')
                     target = temporary / f'images/{index:06d}/{camera}.png'
                     target.parent.mkdir(parents=True, exist_ok=True)
                     if camera == 'head_camera':
@@ -212,17 +217,17 @@ def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=Non
                     append(stream, row)
             configuration = {'state_images_only': state_images_only, 'seed': seed, 'chunk_length': chunk_length,
                              'gripper_map': gripper_map, 'conditioning_point': conditioning_point}
-            write_json(temporary / 'manifest.json', {
-                'adapter': ADAPTER_VERSION, 'kind': 'derived', 'sealed': True,
+            write_json(temporary / 'export_config.json', {
+                'adapter': ADAPTER_VERSION, 'kind': 'derived', 'status': 'complete',
                 'source_episode_id': manifest['episode_id'], 'source_schema_version': manifest['schema_version'],
-                'source_path': str(source), 'source_checksums_sha256': source_checksum,
-                'source_artifacts_sha256': file_digest(source / 'artifacts.json') if (source / 'artifacts.json').is_file() else None,
+                'source_path': str(source), 'source_config_sha256': record['config_sha256'],
+                'split_group': {'kind': 'source_scene', 'scene_id': record['scene_id']},
                 'configuration': configuration, 'configuration_sha256': digest(configuration), **code_identity(),
                 'state_layout': STATE_LAYOUT, 'torso_state_indices': [1, 2, 3],
                 'camera_order': CAMERAS, 'policy_hz': 10, 'source_controller_profile': profile,
                 'target_controller_profile': 'molmobot-native-v1' if not state_images_only else None,
                 'action_units': 'world_xy_m_yaw_rad; arms_rad_delta; grippers_native_motor; torso_h_rad',
-                'source_audit': report, 'sample_count': len(sample_rows), 'instruction': task['language_instruction'],
+                'sample_count': len(sample_rows), 'instruction': task['language_instruction'],
                 'conversion_report': {'used': ['raw_RGB', 'canonical_joint_state', 'submitted_targets' if not state_images_only else 'no_actions'],
                                       'ignored_in_model_input': ['depth', 'qvel', 'observer', 'expert', 'scene_ground_truth'],
                                       'raw_preserved': True, 'normalization': 'none; checkpoint_preprocessor_responsibility',
@@ -231,14 +236,10 @@ def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=Non
                                       'fisheye': 'NumPy_geometry_matches_upstream; uint8_rounding_may_differ_by_one',
                                       'camera_rig_compatibility': 'not_assumed; source_FOV_and_extrinsics_preserved; augmentation_is_not_lens_conversion',
                                       'open_prompt': 'explicit_first_frame_point; same_realized_warp_coefficients' if task['task_type'] == 'open' else 'language_only'}})
-            write_json(temporary / 'checksums.json', {'files_sha256': files_digest(temporary)})
-            if file_digest(source / 'canonical/checksums.json') != source_checksum or not audit_canonical(source)['valid']:
-                raise ValueError('source evidence changed during adaptation')
             if output.exists() or output.is_symlink():
                 raise FileExistsError(output)
             os.rename(temporary, output)
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
-            lock.unlink()
     return output

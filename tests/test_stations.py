@@ -151,7 +151,7 @@ class PlanningGateTests(unittest.TestCase):
             self.assertEqual((path/'trajectory.jsonl').read_text(),'')
             self.assertEqual(json.loads((path/'result.json').read_text())['status'],'planning_no_solution')
             self.assertFalse((path/'videos').exists()); self.assertTrue(audit_station_attempt(path)['valid'])
-            (path/'planning.json').write_text('[]')
+            write_json(path/'planning.json',[{'status':'no_solution','positions':[[0]*7]}])
             self.assertFalse(audit_station_attempt(path)['valid'])
     def test_illegal_initial_joint_is_geometry_not_infrastructure(self):
         with tempfile.TemporaryDirectory() as d:

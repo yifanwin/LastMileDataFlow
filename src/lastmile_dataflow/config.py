@@ -98,6 +98,7 @@ class CollectionConfig:
     record_video: bool = True
     raw_first: bool = True
     record_depth: bool = True
+    record_physics_trace: bool = False
     protocol_version: str = "lightweight-v1"
     penetration_ratio: float = 0.10
     penetration_floor_m: float = 0.010
@@ -105,7 +106,7 @@ class CollectionConfig:
     feedback_warning_rad: float = 0.05
 
     def __post_init__(self):
-        for key in ('record_video', 'raw_first', 'record_depth'):
+        for key in ('record_video', 'raw_first', 'record_depth', 'record_physics_trace'):
             if not isinstance(getattr(self, key), bool):
                 raise ValueError(key + " must be boolean")
         for key in ("max_steps", "max_initialization_trials", "width", "height"):

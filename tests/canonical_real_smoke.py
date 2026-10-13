@@ -9,7 +9,7 @@ from pathlib import Path
 from lastmile_dataflow.config import CollectionConfig, RobotConfig, TaskConfig, construct
 from lastmile_dataflow.io import read_json, write_json
 from lastmile_dataflow.runtime.runner import run_attempt
-from lastmile_dataflow.validation.canonical import audit_canonical
+from scripts.debug.audit_canonical import audit_canonical
 
 
 def main():

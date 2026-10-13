@@ -14,26 +14,7 @@ from lastmile_dataflow.construction.obstacle_config import ObstacleConfig
 from lastmile_dataflow.io import digest, file_digest, read_json, write_json
 from lastmile_dataflow.stations.scene_package import package_manifest, robot_descriptor, select_stations, bind_package, package_stations
 from lastmile_dataflow.stations.no_edit_config import NoEditConfig, load_no_edit_config
-from lastmile_dataflow.workflows.scene_datasets import spatial_select, _binding, qualify_scene_discovery, audit_scene_dataset, target_quota_met, expected_scene_samples, print_scene_counts
-
-
-class PortableAuditTests(unittest.TestCase):
-    def test_companion_bound_to_dataset_manifest(self):
-        # Empty contract fixture, not a physical scene acceptance test.
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / 'dataset'; companion = Path(directory) / 'audit_inputs'
-            write_json(root / 'manifest.json', {'scene_dataset_id': 'one', 'sample_count': 0})
-            write_json(root / 'checksums.json', {})
-            (root / 'samples.jsonl').write_text('')
-            bound = {'schema_version': 'scene-audit-inputs-v1', 'scene_dataset_id': 'one',
-                     'dataset_manifest_sha256': file_digest(root / 'manifest.json'), 'configs': {}}
-            write_json(companion / 'manifest.json', bound)
-            self.assertTrue(audit_scene_dataset(root, audit_inputs=companion)['valid'])
-            for field, value in [('scene_dataset_id', 'other'), ('dataset_manifest_sha256', 'tampered'),
-                                 ('schema_version', 'unknown')]:
-                write_json(companion / 'manifest.json', {**bound, field: value})
-                with self.assertRaisesRegex(ValueError, 'identity mismatch'):
-                    audit_scene_dataset(root, audit_inputs=companion)
+from lastmile_dataflow.workflows.scene_datasets import spatial_select, _binding, qualify_scene_discovery, target_quota_met, expected_scene_samples, print_scene_counts
 
 
 class RecipeTests(unittest.TestCase):
@@ -181,30 +162,30 @@ class PackageTests(unittest.TestCase):
             'new_solver_warnings': [], 'visibility': {'target': 'cup', 'visible_pixels': 100},
             'initial': {'base': [.1*i, .2, 0]}} for i in range(6)]
         binding = _binding(self.robot, self.geometry)
-        self.manifest = {'schema_version': 'scene-station-package-v1', 'status': 'sealed',
+        self.manifest = {'schema_version': 'scene-station-package-research-v2', 'status': 'complete',
             'scene_dataset_id': 'fixture', 'sample_id': 'sample', 'task_id': 'pick-cup', 'scene_id': 'val_103',
             'robot_sensor_config_id': 'rs-' + digest(binding), 'binding': binding,
-            'selection_mode': 'coverage', 'max_final_stations': 20, 'min_final_points': 5, 'station_count': 6}
+            'construction_valid': True, 'selection_mode': 'coverage', 'max_final_stations': 20, 'min_final_points': 5, 'station_count': 6}
         for name in ('model.mjb', 'initial.npz', 'instances.json'):
             path = self.package / 'scene' / name; path.parent.mkdir(exist_ok=True); path.write_bytes(b'fixture-not-real-snapshot')
         write_json(self.package / 'scene/version.json', {'source': {'scene_id': 'val_103'}})
         write_json(self.package / 'scene/checksums.json', {str(p.name): file_digest(p) for p in (self.package / 'scene').iterdir()})
         write_json(self.package / 'manifest.json', self.manifest)
         write_json(self.package / 'task.json', self.task)
-        write_json(self.package / 'stations/candidates.json', [{k: r[k] for k in ('station_id', 'xy', 'grid_index')} for r in self.rows])
-        write_json(self.package / 'stations/validated.json', self.rows)
         selected, selection = select_stations(self.rows, self.task['anchor_world'])
-        write_json(self.package / 'stations/selected.json', selected)
-        write_json(self.package / 'stations/selection.json', selection)
-        write_json(self.package / 'validation/checks.json', {'valid': True})
+        write_json(self.package / 'stations.json', {'validated': self.rows,
+            'candidates': [{k: r[k] for k in ('station_id', 'xy', 'grid_index')} for r in self.rows],
+            'selected_ids': [r['station_id'] for r in selected], 'selection': selection})
         self.refresh()
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def refresh(self):
-        write_json(self.package / 'checksums.json', {str(p.relative_to(self.package)): file_digest(p)
-            for p in self.package.rglob('*') if p.is_file() and p != self.package / 'checksums.json'})
+        from lastmile_dataflow.runtime.snapshot_identity import snapshot_identity
+        self.manifest['scene_identity'] = snapshot_identity(self.package / 'scene')
+        self.manifest['stations_sha256'] = digest([r for r in self.rows if r['station_id'] in read_json(self.package / 'stations.json')['selected_ids']])
+        write_json(self.package / 'manifest.json', self.manifest)
 
     def test_same_package_for_different_backends(self):
         from types import SimpleNamespace
@@ -214,21 +195,21 @@ class PackageTests(unittest.TestCase):
         b = SimpleNamespace(**{**vars(a), 'operation_backend': 'another-policy', 'planner_backend': 'another-planner'})
         self.assertEqual(package_manifest(self.package, self.robot, a), package_manifest(self.package, self.robot, b))
 
-    def test_sensor_robot_and_checksum_changes_rejected(self):
+    def test_sensor_robot_and_snapshot_identity_changes_rejected(self):
         with self.assertRaisesRegex(ValueError, 'robot configuration'):
             package_manifest(self.package, replace(self.robot, control_hz=10), self.geometry)
         with self.assertRaisesRegex(ValueError, 'geometry mismatch'):
             package_manifest(self.package, self.robot, replace(self.geometry, width=640))
         (self.package / 'scene/initial.npz').write_bytes(b'tampered')
-        with self.assertRaisesRegex(ValueError, 'checksum'):
+        with self.assertRaisesRegex(ValueError, 'identity'):
             package_manifest(self.package)
 
     def test_selection_and_full_candidate_evidence_rejected(self):
-        write_json(self.package / 'stations/selected.json', self.rows[:5]); self.refresh()
+        packet = read_json(self.package / 'stations.json')
+        write_json(self.package / 'stations.json', {**packet, 'selected_ids': [r['station_id'] for r in self.rows[:5]]}); self.refresh()
         with self.assertRaisesRegex(ValueError, 'selection'):
             package_manifest(self.package)
-        write_json(self.package / 'stations/selected.json', self.rows)
-        write_json(self.package / 'stations/validated.json', self.rows[:5]); self.refresh()
+        write_json(self.package / 'stations.json', {**packet, 'validated': self.rows[:5]}); self.refresh()
         with self.assertRaisesRegex(ValueError, 'all original'):
             package_manifest(self.package)
 
@@ -240,7 +221,7 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'identity'):
             package_stations(scene, {**self.task, 'task_id': 'another'})
         (scene / 'scene/model.mjb').write_bytes(b'tampered')
-        with self.assertRaisesRegex(ValueError, 'checksum'):
+        with self.assertRaisesRegex(ValueError, 'identity'):
             bind_package(scene, manifest)
 
     def test_all_valid_mode_preserves_all_points(self):

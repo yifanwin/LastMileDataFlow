@@ -11,15 +11,15 @@
 
 ## scene_datasets 独立入口
 
-`test_scene_datasets.py` 验证显式 house／目标选择、新 Case 新增数量、空间分散、配置绑定、摘要防篡改与站位不重采样。简化 fixture 不证明真实场景构造成功。
+`test_scene_datasets.py` 验证显式 house／目标选择、新 Case 新增数量、空间分散、配置与关键快照身份绑定、覆盖选择与站位不重采样。简化 fixture 不证明真实场景构造成功。
 `test_surface_capacity.py` 验证七类目标别名、Case1 支撑限制、合法最小资产存在时不得提前结束、预算不足不得当容量满、容量证据与最终状态绑定／篡改拒绝、同一角度域与低于 min_count 的构造分支。包含简化 MuJoCo 窄相和明确 MOCK 编排，仍不替代真实 ProcTHOR 构造。
-真实交付须另外执行 `discover-scene-datasets`、`build-scene-datasets` 和 `audit-scene-datasets --physical`，参见 [协议与运行说明](../docs/datas/scene-datasets-v1.md)。
+真实验收须另执行场景构造及 `tests/research_real_smoke.py`；默认 build 不再执行完成后物理复审。参见 [Research 数据协议](../docs/datas/research-data-protocol.md)。
 
 ## Raw-first 统一采集协议
 
 `test_canonical_data.py` 使用简化模型、真实 MuJoCo stepping 与明确的 MOCK RGB/depth，
 覆盖完整 qpos/qvel、12/13 ticks、native 三层时钟、partial/拒绝/异常、缺失传感器、标定、深度 mask、
-原始摘要不变、全 outcome 索引、MolmoBot 22D/20D/chunk、显式夹爪映射、open 点提示与只读 upstream warp 对照。
+原始记录不被导出改写、全 outcome 索引、MolmoBot 22D/20D/chunk、显式夹爪映射、open 点提示与只读 upstream warp 对照。
 它不证明真实机器人、CUDA 规划或 VLA 推理成功。
 `canonical_real_smoke.py` 要求显式冻结 scene 和新输出目录，最多10步，检查真实 stepping、RGB/depth/标定及审计，
 不调用 cuRobo/VLA，不给任务成功标签。运行方式见 [使用说明](../docs/raw-first-implementation.md)。
@@ -116,3 +116,11 @@ CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=0 PYTHONPATH=src \
 `scripts/audit_head_fov_replay.py --frozen-run <run> --attempt <attempt> [--attempt <attempt>] --output <new-json>` 对**已有实测 replay**做只读几何审计。逐帧离线审计是评测，不是规划器的 hard validator，也不等同无遮挡可见像素判定。未执行的 constrained planning failure 不应有伪造 replay/video。
 
 `test_no_edit_layout.py` 覆盖语义目录名、attempt 分类链接、安全/独占路径、成功 rollout 独立打包和索引幂等性。使用合成文件，不代表真实视频解码或机器人成功验收。
+
+## Research 精简回归
+
+`test_research_protocol.py` 覆盖原子提交前中断、孤儿记录重建、缺失观测、trace 显式开启、
+导出失败隔离、有效 trial 去重与分母、无封存场景保存及 resume。MuJoCo 为简化模型，RGB 明确 MOCK。
+`tests/research_real_smoke.py` 对显式真实 Case 包执行合法站位初始化、2 个连续控制步、
+真实 RGB/depth 记录及 MolmoBot state/images 导出；不调用 cuRobo，也不给导航或任务成功标签。
+旧重型 audit 已移到 scripts/debug/；相关测试只显式调用 debug，不恢复默认审计设计。
