@@ -10,12 +10,12 @@
   "lastmile_nearby_m": 1.0,
   "start_count": 3,
   "max_s1_candidates": 5,
-  "min_successful_rollouts": 1,
   "operation_retries": 1,
   "third_person_enabled": true,
   "attempt_timeout_s": 300.0,
-  "scene_timeout_s": 86400.0,
-  "min_free_disk_gb": 50.0,
-  "operations": ["pick", "open"],
+  "operations": [
+    "pick",
+    "open"
+  ],
   "seed": 20261012
 }

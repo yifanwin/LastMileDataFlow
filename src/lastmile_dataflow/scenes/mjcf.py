@@ -4,7 +4,6 @@ Parse text first and bind the original model directory afterwards. Included XML
 is provided through a flat virtual filesystem with unique names; its resource
 paths retain their original directories. Geometry and source files are unchanged.
 """
-import hashlib
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -45,7 +44,7 @@ def load_spec(path):
                 seen.add(identity)
                 nested = ET.fromstring(candidate.read_text())
                 expand(nested, candidate)
-                key = 'include_' + hashlib.sha256(str(candidate).encode()).hexdigest() + '.xml'
+                key = f'include_{len(includes):04d}.xml'
                 includes[key] = ET.tostring(nested)
                 child.set('file', key)
             else:

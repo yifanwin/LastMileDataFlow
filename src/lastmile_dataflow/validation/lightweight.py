@@ -14,7 +14,7 @@ def inspect_state(sim, config, *, initialization=False):
     # 廉价的第一道闸：任何非有限值立即返回，避免后面算出 NaN 比较。
     if not all(np.isfinite(a).all() for a in (d.qpos, d.qvel, d.ctrl, d.qacc)):
         issues.append({"severity": "error", "code": "nonfinite_physics_state"})
-        return {"valid": False, "issues": issues, "contacts": [], "protocol": config.protocol_version}
+        return {"valid": False, "issues": issues, "contacts": []}
     # MuJoCo 自身的警告（求解器不稳、约束冲突等）一律当 error。
     for i, warning in enumerate(d.warning):
         if warning.number:
@@ -42,7 +42,7 @@ def inspect_state(sim, config, *, initialization=False):
         if np.max(np.abs(robot.group("head") - robot.fixed_head)) > config.feedback_warning_rad:
             issues.append({"severity": "warning", "code": "head_feedback_drift"})
     return {"valid": not any(i["severity"] == "error" for i in issues),
-            "issues": issues, "contacts": contacts, "protocol": config.protocol_version}
+            "issues": issues, "contacts": contacts}
 
 
 def independent_results(scene=None):

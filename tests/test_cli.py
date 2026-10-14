@@ -14,8 +14,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(set(subcommands.choices), {
             'collect-lastmile-datasets', 'build-lastmilebench', 'evaluate-lastmilebench',
             'discover-scene-datasets', 'qualify-scene-datasets', 'build-scene-datasets',
-            'scene-dataset-unit', 'augment-obstacles', 'export-molmobot',
-            'collect-no-edit', 'no-edit-status',
+            'augment-obstacles', 'export-molmobot',
+            'collect-no-edit',
         })
 
     def test_obstacle_dispatch(self):

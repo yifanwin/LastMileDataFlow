@@ -29,7 +29,7 @@ class HeadFOVCost:
 def camera_definition(sim, width, height):
     """Reuse the actual MuJoCo optical mount, not base heading."""
     import mujoco
-    from .curobo import body_pose, pose7
+    from ..scenes.geometry import body_pose, pose7
     cid = sim.model.camera(sim.robot.camera_names['head_camera']).id
     if sim.model.cam_mode[cid] != int(mujoco.mjtCamLight.mjCAMLIGHT_FIXED):
         raise ValueError('head FOV requires a fixed mounted camera')

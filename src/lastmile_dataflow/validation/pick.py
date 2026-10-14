@@ -16,7 +16,7 @@
 """
 import mujoco
 import numpy as np
-from ..planning.curobo import body_pose,tcp_pose
+from ..scenes.geometry import body_pose,tcp_pose
 from ..scenes.geometry import descendants
 from .contacts import CONTACT_POLICY, SIMULATION_FAILURES
 

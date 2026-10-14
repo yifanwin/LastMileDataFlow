@@ -1,6 +1,6 @@
 """Full-lifecycle episode isolation; shared resource failures are fail-stop.
 
-Diagnostic sidecars never rewrite sealed attempts or invent execution evidence.
+Failures remain results; cleanup never invents execution evidence.
 """
 from contextvars import ContextVar
 from functools import wraps
@@ -60,11 +60,6 @@ def track_recorder(recorder):
         scope.resources.append((recorder, recorder.abort_close))
 
 
-def episode_diagnostic(root, attempt_id, detail, stage='lifecycle'):
-    # Unique append-only sidecar, including failures before an attempt was created.
-    path = Path(root)/'episode_errors'/f'{attempt_id}-{stage}-{uuid.uuid4().hex[:8]}.json'
-    write_json(path, detail)  # If even minimal evidence cannot be saved, stop safely.
-    return str(path)
 
 
 class EpisodeScope:
@@ -95,17 +90,10 @@ def execute_isolated_episode(function, *args, **kwargs):
             if not isinstance(result,dict) or result.get('station_id',station['station_id']) != station['station_id']:
                 raise ValueError('invalid episode result identity')
             result={**result,'station_id':station['station_id']}
-            canonical(result)  # Reject unserializable episode data before the shared ledger.
-            if result.get('status')=='infrastructure_error' and result.get('reason')=='video_finalize_failed':
-                report=Path(result['attempt'])/'result.json'
-                errors=read_json(report).get('recording_errors',[]) if report.exists() else []
-                if not any(e.get('failure_scope')=='shared' for e in errors):
-                    result={**result,'original_status':'infrastructure_error','status':'recording_error',
-                            'failure_scope':'episode','artifact_complete':False}
         except Exception as exc:
             caught=traceback.format_exc()
             result={**classify_episode_exception(exc,scope.phase),'station_id':station['station_id'],
-                    'attempt':str(Path(root)/'attempts'/task['operation']/station['station_id']/attempt_id),
+                    'attempt':str(Path(root)/'rollouts'/attempt_id),
                     'executed_steps':getattr(scope.recorder,'steps',None),
                     'recorded_steps':getattr(scope.recorder,'steps',None),
                     'execution_started':any(getattr(r,'started',False) is True for r,_ in scope.resources),
@@ -124,10 +112,8 @@ def execute_isolated_episode(function, *args, **kwargs):
                 result['attribution']=result['exception_detail']['attribution']
         if result.get('status')=='infrastructure_error':
             result['failure_scope']='shared'
-        if result.get('status') in (*LOCAL_ERRORS,'infrastructure_error'):
-            result['error_evidence']=episode_diagnostic(root,attempt_id,
-                {'episode_result':result,'traceback':caught,'phase':scope.phase,
-                 'attempt_exists':Path(result['attempt']).exists()})
+        if caught:
+            result['error'] = caught
         return result
     finally:
         _SCOPE.reset(token)
@@ -152,19 +138,3 @@ def recording_operation(function):
         if scope is not None: scope.phase=previous
         return result
     return wrapper
-
-def isolated_recording(root, attempt_id, stage, function, *args, **kwargs):
-    """Auxiliary/ledger write failure: persist diagnostic; shared storage errors stop."""
-    diagnostics=kwargs.pop('_diagnostics',None)
-    try:
-        return function(*args,**kwargs)
-    except Exception as exc:
-        detail=classify_episode_exception(exc,'recording')
-        record={'stage':stage,**detail,'traceback':traceback.format_exc()}
-        if stage in ('trials','task_result') and len(args)>1 and args[1]:
-            record['last_episode' if stage=='trials' else 'intended_task_result']=args[1][-1] if stage=='trials' else args[1]
-        evidence=episode_diagnostic(root,attempt_id,record,stage)
-        if diagnostics is not None:
-            diagnostics.append({'stage':stage,**detail,'error_evidence':evidence})
-        if detail['failure_scope']=='shared': raise
-        return None

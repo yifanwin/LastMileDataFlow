@@ -1,5 +1,3 @@
 # planning
 
-保留核心使用的 cuRobo v0.8.0 移动底盘/躯干规划、碰撞世界、FOV 约束与机器人模型工具。
-`curobo.py` 中旧规划路线及共享位姿函数暂存；当前 v2 仍借用其中工具，不能整文件删除。
-历史固定底盘 station-map 入口已删除。算法与版本检查的后续简化见重构实施方案。
+cuRobo 仅 V2Planner（0.8.0）；11D 底盘/躯干/手臂、碰撞和 head-FOV 约束保留。旧 planner 已删除，位姿数学在 scenes.geometry。

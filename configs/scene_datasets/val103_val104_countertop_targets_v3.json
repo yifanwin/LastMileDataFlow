@@ -44,7 +44,5 @@
     "CoffeeTable",
     "SideTable",
     "Desk"
-  ],
-  "allow_surface_capacity_shortfall": true,
-  "capacity_probe_budget": 20000
+  ]
 }

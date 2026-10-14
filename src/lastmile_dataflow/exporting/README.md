@@ -1,4 +1,3 @@
 # exporting
 
-保留逐点热图、导航图、程序化增强视图、现有 rollout 布局与核心仍调用的 canonical 索引。
-历史站位发布、交付浏览与回放 CLI 已删除。重复布局与索引待步骤三处理。
+heatmap.py 绘制主 trials 记录的成败图；不维护第二套协议索引。模型格式转换位于 integrations/molmobot_dataset.py。

@@ -13,7 +13,6 @@ from lastmile_dataflow.io import read_json, write_json
 from lastmile_dataflow.runtime.no_edit_execution import OperationFailure
 from lastmile_dataflow.runtime.no_edit_v2 import manipulate_v2
 from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.workflows.no_edit import collect_batch
 
 
 @dataclass
@@ -102,56 +101,3 @@ class RetryDirectoryTests(unittest.TestCase):
                 verdict,control=manipulate_v2(ctx,task,[],d,0,forced={'arm':'left'})
             self.assertEqual(verdict['status'],'success')
             self.assertTrue(marker.exists())
-
-
-class BatchFaultIsolationTests(unittest.TestCase):
-    def run_batch(self, first_status):
-        with tempfile.TemporaryDirectory() as d:
-            dataset=Path(d)/'procthor-10k-val'; dataset.mkdir()
-            for house in (1,2):
-                (dataset/f'val_{house}.xml').write_text('<fixture/>')
-                (dataset/f'val_{house}_metadata.json').write_text('{}')
-            started=[]
-            class FakeProcess:
-                def __init__(self, target, args): self.args=args
-                def start(self):
-                    record,_,_,_,_,root,_,_=self.args
-                    house=record['house']; started.append(house)
-                    status=first_status if house==1 else 'completed'
-                    if status is not None:
-                        write_json(root/'scenes'/f'val_{house}'/'summary.json',
-                                   {'house':house,'status':status,'reason':'fixture'})
-                def is_alive(self): return False
-                def join(self, *args): pass
-                def close(self): pass
-            with patch('lastmile_dataflow.workflows.no_edit.multiprocessing.get_context',
-                       return_value=SimpleNamespace(Process=FakeProcess)), \
-                 patch('lastmile_dataflow.workflows.no_edit.available_gpus',return_value=[{'index':1}]), \
-                 patch('lastmile_dataflow.workflows.no_edit.check_disk'), \
-                 patch('lastmile_dataflow.workflows.no_edit.time.sleep'):
-                root=collect_batch(dataset,d,FakeRobotConfig(),NoEditConfig(),
-                                   CollectionConfig(output_dir=d),run_id='fault-isolation',
-                                   gpu_ids=[1],max_workers=1)
-            summary=read_json(root/'summary.json')
-            self.assertEqual(started,[1,2])
-            self.assertEqual(summary['completed_scenes'],2)
-            self.assertEqual(summary['pending_scenes'],0)
-            self.assertEqual(summary['active'],{})
-            self.assertEqual(summary['scene_results']['2']['status'],'completed')
-            self.assertTrue((root/'dataset_index.jsonl').is_file())
-            return summary
-
-    def test_scene_error_does_not_stop_next_scene(self):
-        summary=self.run_batch('infrastructure_error')
-        self.assertEqual(summary['status'],'infrastructure_error')
-        self.assertEqual(summary['scene_results']['1']['reason'],'fixture')
-
-    def test_worker_without_summary_does_not_stop_next_scene(self):
-        summary=self.run_batch(None)
-        self.assertEqual(summary['status'],'infrastructure_error')
-        self.assertEqual(summary['scene_results']['1']['reason'],'worker_no_summary')
-
-    def test_success_and_incomplete_statuses_unchanged(self):
-        for status in ('completed','incomplete'):
-            with self.subTest(status=status):
-                self.assertEqual(self.run_batch(status)['status'],status)

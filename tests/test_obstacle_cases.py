@@ -155,37 +155,6 @@ class CaseTests(unittest.TestCase):
             rows = evaluate_stations(None, {'anchor_world': [0, 0, 1]}, SimpleNamespace(radius_m=.1, spacing_m=.1), static_only=True)
         self.assertTrue(all(s['geometry'] == 'geometry_filtered' and s['reason'] == 'robot_initialization_solver_warning' for s in rows))
 
-    def test_scene_target_below_five_skips_before_asset_retrieval(self):
-        from helpers import fixtures
-        from lastmile_dataflow.runtime.simulation import Simulation
-        from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-        from lastmile_dataflow.io import read_json
-        with tempfile.TemporaryDirectory() as tmp:
-            source, robot = fixtures(tmp)
-            sim = Simulation.from_source(source, robot, target='target')
-            task = {'operation': 'pick', 'instance_id': 'target', 'target_body': 'target', 'anchor_world': [2, 0, .15]}
-            rows = [{'station_id': str(i), 'xy': [i, 0], 'grid_index': [i, 0],
-                     'geometry': 'valid' if i < 4 else 'geometry_filtered'} for i in range(5)]
-            c = ObstacleConfig('base', tmp, tmp, 'target', construction={'case': 'Case1'})
-            module = 'lastmile_dataflow.workflows.obstacle_augmentation.'
-            with patch(module + 'load_no_edit_config', return_value=NoEditConfig()), \
-                 patch(module + 'SceneSource.procthor', return_value=source), \
-                 patch(module + 'Simulation.from_source', return_value=sim), \
-                 patch(module + 'read_json', return_value={}), \
-                 patch(module + 'discover_tasks', return_value=([task], [])), \
-                 patch(module + 'park_robot', return_value={}), \
-                 patch(module + 'settle_scene', return_value={'new_warnings': [], 'stable': True}), \
-                 patch(module + 'task_support_obstacles', return_value=[{'body': 'table'}]), \
-                 patch(module + 'robot_footprint', return_value={'radius_m': .05}), \
-                 patch(module + 'evaluate_stations', return_value=rows) as evaluate, \
-                 patch(module + 'ThorLibrary') as library:
-                run = augment_obstacles(c, Path(tmp) / 'out', run_id='below-five')
-            summary = read_json(run / 'summary.json')
-            self.assertEqual(summary['status'], 'skipped')
-            self.assertEqual(summary['prefilter_count_before'], 4)
-            self.assertEqual(summary['variants'], [])
-            self.assertTrue(evaluate.call_args.kwargs['static_only'])
-            library.assert_not_called()
 
 
 if __name__ == '__main__':

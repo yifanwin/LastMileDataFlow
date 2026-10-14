@@ -22,7 +22,6 @@ from ..validation.pick import PickMonitor
 from ..validation.no_edit import torso_tracking_error
 from ..validation.molmobot import constraint, evaluate, PROTOCOL
 from ..robots.action import InvalidAction
-from ..exporting.no_edit_layout import attempt_group, index_attempt
 from .no_edit_execution import clone_sim, navigate, OperationFailure
 from types import SimpleNamespace
 
@@ -54,22 +53,20 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         'collection':asdict(collection), 'task':task, 'station':station,
         'protocol':asdict(config), 'contact_policy':CONTACT_POLICY, 'seed':seed, 'policy':asdict(policy.config),
         'model_service':policy.metadata, 'navigation_path':path, 'navigation_goal':goal,
-        'scene_version':read_json(root/'scene/version.json')['version_id']}
-    recorder = AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),
-                               attempt_id=attempt_id,strategy='molmobot_station')
+        'scene':getattr(baseline, 'scene_id', None)}
+    recorder = AttemptRecorder(root,packet,attempt_id=attempt_id,strategy='molmobot_station')
     recorder.bind_simulation(sim, width=1024, height=576)
-    write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),
-        'source':sim.source.provenance(), 'no_scene_edits':True, 'initialization_only':station['base']})
     all_fingers = {sim.model.body(f'robot_0/ee_finger_{s}{i}').id for s in ('l','r') for i in (1,2)}
     monitors = {side:PickMonitor(sim,side,allowed_target_fingers=all_fingers) for side in ('left','right')}
     for monitor in monitors.values():
         monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=config.radius_m)
-    samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples; replay=[]
+    samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
     analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled else None
-    physics = track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
-    actions = track_resource((recorder.path/'policy_actions.jsonl').open('xb'))
-    requests = track_resource((recorder.path/'policy_requests.jsonl').open('xb'))
+    from ..recording.recorder import open_trace
+    physics = track_resource(open_trace(recorder.path/'physics.jsonl.gz', collection.record_physics))
+    actions = track_resource(open_trace(recorder.path/'policy_actions.jsonl.gz', collection.record_physics))
+    requests = track_resource(open_trace(recorder.path/'policy_requests.jsonl.gz', collection.record_physics))
     status='infrastructure_error'; reason='unfinished'; verdict=None
     started=time.monotonic(); budget=config.attempt_timeout_s
     navigation={'status':'not_requested'}; phase='vla_operation'
@@ -92,7 +89,6 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             frames=sim.render(1024,576)
             recorder.observation(frames,step=0,time_s=float(sim.data.time))
             write_json(recorder.path/'initial_state.json',state())
-            replay.append((float(sim.data.time),sim.data.qpos.copy()))
             recorder.video_frame(video(frames),float(sim.data.time))
             def nav_tick(action):
                 nonlocal frames
@@ -107,7 +103,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
                     return {'valid':not health,'issues':[health] if health else []}
                 if not sim.started: sim.begin()
                 command,stop=sim.step_policy(action,substep_check=nav_check)
-                after=state(); replay.append((float(sim.data.time),sim.data.qpos.copy()))
+                after=state()
                 recorder.record_step(raw_action=np.asarray(action).tolist(),command=command,before=before,
                     after=after,check=stop or {'valid':True,'issues':[]},observations={'phase':'navigation'})
                 frames=sim.render(1024,576); recorder.video_frame(video(frames),after['time_s'])
@@ -141,7 +137,6 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         write_json(recorder.path/'analysis_video.json',{'style':'actual observer + wrist inset + measured facts',
             'camera':'third_person_camera','dimensions':[1280,720],'planned_path':None,
             'policy_input':False,'robot_videos':'raw 1024x576 RGB, pre-fisheye'})
-        replay.append((float(sim.data.time),sim.data.qpos.copy()))
         mark_episode_phase('execution')
         for step in range(policy.config.task_horizon):
             remaining=budget-(time.monotonic()-started)
@@ -153,9 +148,8 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             # The RPC deadline is the fixed policy timeout, NOT the remaining attempt
             # budget: the budget is checked again right after the reply arrives.
             response=policy.action(observation,task=task,attempt=attempt_id,seed=seed,first=step==0)
-            if recorder.canonical_recorder is not None:
-                recorder.canonical_recorder.intent(response['raw_action'], producer='molmobot_prediction',
-                    metadata={k: v for k, v in response.items() if k not in ('processed_images', 'conditioning_points', 'raw_action')})
+            recorder.intent(response['raw_action'], producer='molmobot_prediction',
+                metadata={k: v for k, v in response.items() if k not in ('processed_images', 'conditioning_points', 'raw_action')})
             # Persist predictions BEFORE validation/dispatch: rejected actions still
             # have raw, postprocessed, and input evidence, but no fake executed ctrl.
             requests.write(canonical({'step':step,'time_s':float(sim.data.time),
@@ -202,7 +196,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
                 return {'valid':not failures,'issues':sorted(set(failures))}
             if not sim.started: sim.begin()
             command,stop=sim.step_policy(action,substep_check=check,command_raw=response['raw_action'])
-            after=state(); replay.append((float(sim.data.time),sim.data.qpos.copy()))
+            after=state()
             actions.write(canonical({'step':step,'time_s':before['time_s'],
                 **{k:v for k,v in response.items() if k not in ('processed_images','conditioning_points')},
                 'submitted_action':command['submitted_action'],'ctrl':command['ctrl']})+b'\n'); actions.flush()
@@ -246,11 +240,14 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
         if navigation['status']=='running': navigation={'status':'unknown','reason':reason}
         mark_episode_phase('finalize')
         physics.close(); actions.close(); requests.close()
-        np.savez_compressed(recorder.path/'replay.npz',time_s=np.array([r[0] for r in replay]),
-                            qpos=np.array([r[1] for r in replay]))
-        write_json(recorder.path/'final_state.json',state())
-        if sim.model_hash: sim.save_snapshot(recorder.path/'final.npz')
+        termination = {'status': 'completed' if status in ('success', 'failure') else status, 'reason': reason}
+        if status == 'timeout':
+            verdict = evaluate(task, samples, {side: monitor.initial for side, monitor in monitors.items()}, config.open_hold_s)
+            if verdict['status'] == 'success':
+                status, reason = 'success', verdict['reason']
+        task_outcome = {'status': status if status in ('success', 'failure') else 'unknown', 'reason': reason}
         outcome={'status':status,'reason':reason,'verdict':verdict,'protocol':PROTOCOL,
+            'execution_termination':termination, 'task_outcome':task_outcome,
             'exception_detail':locals().get('exception_detail'),
             'operation_backend':'molmobot','continuous_simulation':True,'navigation':navigation,
             'gripper_mode':policy.config.gripper_mode,'seed':seed,'elapsed_wall_s':time.monotonic()-started,
@@ -260,15 +257,10 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
             'attribution':{'category':'SimulationFailure' if status=='simulation_failure' else 'EpisodeTimeout' if status=='timeout' else 'PolicyFailure' if status=='failure' else 'Unknown',
                            'reason':reason,'collisions':collisions},
             'control':{'seed':seed,'policy':'MolmoBot-RBY1Multitask'}}
-        write_json(recorder.path/'outcome.json',outcome)
         recorder.finish(status,reason,{'scene_validity':{'status':'valid','scope':'robot initialization'},
             'case_condition':{'status':'not_applicable'},
             'task_completion':{'status':status if status in ('success','failure') else 'unknown','reason':reason}},extra=outcome)
         sim.close()
-    finalized=read_json(recorder.path/'result.json'); outcome['status']=finalized['status']
-    media=read_json(recorder.path/'videos.json')
-    return {**outcome,'station_id':station['station_id'],'attempt':str(recorder.path),
-        'executed_steps':recorder.steps,'status_directory':index_attempt(recorder.path,outcome['status']),
-        'videos':str(recorder.path/'videos.json'),
-        'video_status':'not_executed' if not recorder.steps else 'recorded' if media['cameras'] else 'disabled',
-        'third_person_video':str(recorder.path/'videos/third_person_camera.mp4') if 'third_person_camera' in media['cameras'] else None}
+    return {**outcome, 'status': recorder.result['status'], 'station_id': station['station_id'],
+        'rollout_id': recorder.attempt_id, 'attempt': str(recorder.path), 'executed_steps': recorder.steps,
+        'recording_complete': recorder.result['recording_complete']}

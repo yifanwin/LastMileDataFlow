@@ -11,7 +11,7 @@ import numpy as np
 
 from .episode_guard import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
 from ..io import canonical,read_json,write_json
-from ..planning.curobo import NativePlanner,body_pose,tcp_pose
+from ..scenes.geometry import body_pose,tcp_pose
 from ..robots.action import InvalidAction
 from ..robots.action_limits import sanitize_action
 from ..robots.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
@@ -35,9 +35,7 @@ def clone_sim(sim, *, target=None):
     track_resource(result)
     mujoco.mj_setState(result.model,result.data,sim.state_vector(),sim.state_spec)
     result.robot.fixed_head=sim.robot.fixed_head.copy(); result._clock_remainder=sim._clock_remainder
-    result.source=sim.source; result.restoration=None; result.model_hash=sim.model_hash
-    result.frozen_provenance=getattr(sim,'frozen_provenance',None)
-    if result.frozen_provenance is None: result.frozen_provenance=sim.source.provenance()
+    result.source=sim.source; result.restoration=None; result.spec=None
     mujoco.mj_forward(result.model,result.data)
     return result
 
@@ -52,7 +50,8 @@ class ContinuousContext:
         self.initial_sim_time=float(sim.data.time); self.timings={}; self.pick_initial=None; self.active_control=None
         self.record_rgb=record_rgb
         self.record_png=record_png
-        self.physics=track_resource(gzip.open(recorder.path/'physics.jsonl.gz','wb'))
+        from ..recording.recorder import open_trace
+        self.physics=track_resource(open_trace(recorder.path/'physics.jsonl.gz', recorder.collection.get('record_physics', False)))
         self.contact_stats=ContactStatistics()
         self.samples=[]; self.collisions=self.contact_stats.examples; self.plans=[]; self.replay=[]; self.monitor=None
         self.fingers=set(); self.target_bodies=descendants(sim.model,sim.target_id)
@@ -80,7 +79,7 @@ class ContinuousContext:
             if self.record_png:
                 with timed(self, 'recording'):
                     self.recorder.observation(self.last_frames,step=0,time_s=float(self.sim.data.time))
-        self.replay.append((float(self.sim.data.time),self.sim.data.qpos.copy(),'initial')); self.sim.begin()
+        self.sim.begin()
 
     def hold_torso_target(self):
         """Keep the last submitted target, not a physically overshooting qpos."""
@@ -91,26 +90,21 @@ class ContinuousContext:
 
     def tick(self,action,*,fixed_base=False):
         raw_action=np.asarray(action, dtype=float).copy()
-        evidence = getattr(self.recorder, 'canonical_recorder', None)
-        if evidence is not None:
-            evidence.intent(raw_action, producer='curobo_execution', metadata={'phase': self.phase, 'stage': 'before_sanitize'})
-        v2=self.config.planner_backend == 'curobo_v2_v080'
-        if v2:
-            action=raw_action.copy()
-            action[19]=bounded_torso_command(action[19],self.sim.robot.config.torso_limits)
-            if action[19] != raw_action[19]:
-                # Append evidence before stepping; never rewrite qpos or loosen model limits.
-                event={'phase':self.phase,'time_s':float(self.sim.data.time),
-                       'input_h':float(raw_action[19]),'submitted_h':float(action[19]),
-                       'command_tolerance_rad':COMMAND_TOLERANCE_RAD}
-                with (self.recorder.path/'torso_command_adjustments.jsonl').open('ab') as stream:
-                    stream.write(canonical(event)+b'\n')
-        if v2:
-            action,adjustments=sanitize_action(self.sim.robot,action,fixed_base=fixed_base)
-            for adjustment in adjustments:
-                adjustment.update(phase=self.phase,time_s=float(self.sim.data.time))
-                with (self.recorder.path/'command_limit_adjustments.jsonl').open('ab') as stream:
-                    stream.write(canonical(adjustment)+b'\n')
+        self.recorder.phase = self.phase
+        action=raw_action.copy()
+        action[19]=bounded_torso_command(action[19],self.sim.robot.config.torso_limits)
+        if action[19] != raw_action[19]:
+            # Append evidence before stepping; never rewrite qpos or loosen model limits.
+            event={'phase':self.phase,'time_s':float(self.sim.data.time),
+                   'input_h':float(raw_action[19]),'submitted_h':float(action[19]),
+                   'command_tolerance_rad':COMMAND_TOLERANCE_RAD}
+            with (self.recorder.path/'torso_command_adjustments.jsonl').open('ab') as stream:
+                stream.write(canonical(event)+b'\n')
+        action,adjustments=sanitize_action(self.sim.robot,action,fixed_base=fixed_base)
+        for adjustment in adjustments:
+            adjustment.update(phase=self.phase,time_s=float(self.sim.data.time))
+            with (self.recorder.path/'command_limit_adjustments.jsonl').open('ab') as stream:
+                stream.write(canonical(adjustment)+b'\n')
         self.deadline(); self.begin(); before=self.state(); failures=[]
         def check():
             health=simulation_failure(self.sim)
@@ -122,15 +116,14 @@ class ContinuousContext:
             contacts=contact_observations(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
             self.contact_stats.update(contacts)
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
-            if v2:
-                # `record_only` protocol: a torso feedback excursion is telemetry, not a
-                # stop condition. Only a gross violation (real loss of control) stops.
-                h_actual=float(self.sim.robot.group('torso')[1])
-                margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
-                row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
-                           torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
-                if margin > TORSO_SEVERE_FEEDBACK_RAD:
-                    failures.append('torso_feedback_limit')
+            # `record_only` protocol: a torso feedback excursion is telemetry, not a
+            # stop condition. Only a gross violation (real loss of control) stops.
+            h_actual=float(self.sim.robot.group('torso')[1])
+            margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
+            row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
+                       torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
+            if margin > TORSO_SEVERE_FEEDBACK_RAD:
+                failures.append('torso_feedback_limit')
             if self.monitor:
                 self.monitor.phase=self.phase; self.monitor.command_h=float(action[19])
                 facts=self.monitor.sample()
@@ -145,15 +138,13 @@ class ContinuousContext:
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
         with timed(self, 'simulation_and_physics_evidence'):
             command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
-        if v2:
-            self.last_legal_torso_target=float(action[19])
+        self.last_legal_torso_target=float(action[19])
         with timed(self, 'recording'):
             self.physics.flush(); after=self.state()
             self.recorder.record_step(raw_action=raw_action.tolist(),command=command,before=before,after=after,
                 check=stop or {'valid':True,'issues':[]},observations={'phase':self.phase,
                          'index_step':self.recorder.steps+1,
                          'manifest':'observations.json' if self.record_png else 'videos.json'})
-        self.replay.append((after['time_s'],self.sim.data.qpos.copy(),self.phase))
         if self.record_rgb:
             with timed(self, 'rendering'):
                 frames=self.sim.render(self.config.width,self.config.height)
@@ -176,9 +167,7 @@ class ContinuousContext:
         return result
 
     def yaw_gap(self, target, current):
-        gap=float(target-current)
-        if self.config.planner_backend == 'curobo_v2_v080': return gap
-        return (gap+np.pi)%(2*np.pi)-np.pi
+        return float(target-current)
 
     def arm_tick(self,side,q,grip,h):
         a=self.sim.robot.neutral_action(); offset=3 if side=='left' else 11
@@ -267,14 +256,9 @@ class ContinuousContext:
             raise OperationFailure('tcp_tracking_timeout')
 
     def finish(self):
-        self.physics.close(); write_json(self.recorder.path/'planning.json',self.plans)
-        if self.sim.third_person_camera is not None:
-            write_json(self.recorder.path/'third_person_final.json',self.sim.third_person_camera.metadata())
-        if self.recorder.steps:
-            np.savez_compressed(self.recorder.path/'replay.npz',times=np.array([r[0] for r in self.replay]),
-                                qpos=np.array([r[1] for r in self.replay]),phases=np.array([r[2] for r in self.replay]))
-            self.sim.save_snapshot(self.recorder.path/'final_snapshot.npz')
-            write_json(self.recorder.path/'final_state.json',self.state())
+        self.physics.close()
+        if self.plans:
+            write_json(self.recorder.path / 'planning.json', self.plans)
 
 
 def planner_options(config,assets_dir,seed):
@@ -298,113 +282,12 @@ def arm_reach_bound(sim,side):
     return bound+.005
 
 
-def choose_control(ctx,task,candidates,assets_dir,seed,forced=None):
-    """Dry candidate plans in a NEW diagnostic sim; the actual rollout is not reset."""
-    dry=clone_sim(ctx.sim,target=task['target_body']); cfg=ctx.config
-    rng=np.random.default_rng(seed); options=planner_options(cfg,assets_dir,seed)
-    base=ctx.sim.robot.group('base'); scored=[]
-    for candidate in candidates:
-        goal=body_pose(ctx.sim,ctx.sim.model.body(candidate['body']).id)@candidate['pose_local']
-        vector=goal[:3,3]-np.r_[base[:2],goal[2,3]]
-        scored.append((float(np.dot(goal[:3,2],vector)/max(np.linalg.norm(vector),1e-9)),candidate))
-    scored.sort(key=lambda x:-x[0]); pool=[c for _,c in scored[:max(cfg.max_grasp_candidates*8,16)]]
-    if forced:
-        pool=[c for c in candidates if c['row']==forced['grasp_row'] and c['source']==forced['grasp_source']]
-        if not pool: dry.close(); raise ValueError('missing winning grasp')
-    elif pool:
-        pool=[pool[i] for i in rng.permutation(len(pool))[:cfg.max_grasp_candidates]]
-    initial=copy.deepcopy(ctx.sim.robot.config.initial); state=ctx.sim.robot.state()
-    for key in ('base','head','left_arm','right_arm'): initial[key]=state[key]
-    initial['torso']=[float(state['torso'][1])]
-    best_reason='planning_no_solution'; diagnostic=None
-    path=ctx.recorder.path/f'dry_plans-{len(ctx.plans)}'; path.mkdir()
-    try:
-        for index,candidate in enumerate(pool):
-            sides=[forced['arm']] if forced else (['left','right'] if index%2 == 0 else ['right','left'])
-            h=forced['torso_h'] if forced else cfg.torso_heights[index%len(cfg.torso_heights)]
-            if not forced and task['anchor_world'][2] < .8: h=max(cfg.torso_heights)
-            initial['torso']=[h]; dry.robot.initialize(initial)
-            goal=body_pose(dry,dry.model.body(candidate['body']).id)@candidate['pose_local']
-            pre=goal.copy(); pre[:3,3]-=goal[:3,2]*.08
-            # Fixed-shoulder reach rejection is invalid when x/y/yaw are active.
-            contacts=robot_contacts(dry)
-            if contacts:
-                best_reason='robot_collision'; diagnostic={'dry_collisions':contacts}; continue
-            for side in sides:
-                ctx.deadline(); directory=path/f'{index}-{side}'; directory.mkdir()
-                planner=NativePlanner(dry,options,side,directory,mobile_base=True,
-                                      workspace=(task['anchor_world'],cfg.radius_m))
-                try:
-                    ctx.phase='dry_pregrasp'; ctx.plan(planner,pre)
-                    return {'arm':side,'torso_h':h,'grasp_row':candidate['row'],
-                            'grasp_source':candidate['source'],'candidate':candidate,'seed':seed}
-                except OperationFailure as exc:
-                    best_reason,diagnostic=exc.reason,exc.diagnostic
-                    if ctx.plan_count >= ctx.max_plans-3: raise
-                finally: del planner
-        raise OperationFailure(best_reason,diagnostic)
-    finally: dry.close()
 
 
-def manipulate(ctx,task,candidates,assets_dir,seed,forced=None):
-    if ctx.config.planner_backend == 'curobo_v2_v080':
-        from .no_edit_v2 import manipulate_v2
-        return manipulate_v2(ctx,task,candidates,assets_dir,seed,forced)
-    control=choose_control(ctx,task,candidates,assets_dir,seed,forced)
-    side,h=control['arm'],control['torso_h']; sim=ctx.sim
-    ctx.monitor=PickMonitor(sim,side); ctx.fingers=ctx.monitor.fingers; ctx.samples=[]
-    ctx.monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=ctx.config.radius_m)
-    ctx.manip_base_target=sim.robot.group('base').copy()
-    if task['operation']=='open':
-        j=sim.model.joint(task['joint_name']).id; ctx.open_joint=int(sim.model.jnt_qposadr[j])
-    initial=copy.deepcopy(ctx.monitor.initial)
-    ctx.pick_initial=initial if task['operation']=='pick' else None
-    ctx.active_control={k:v for k,v in control.items() if k != 'candidate'}
-    write_json(ctx.recorder.path/'task_evidence_initial.json',{'operation':task['operation'],'initial':initial,'control':control})
-    ctx.begin(); ctx.phase='torso_adjust'; q=sim.robot.group(side+'_arm').copy(); h0=float(sim.robot.group('torso')[1])
-    for value in np.linspace(h0,h,max(2,int(abs(h-h0)/.00125)+1))[1:]: ctx.arm_tick(side,q,-.05,float(value))
-    for _ in range(20): ctx.arm_tick(side,q,-.05,h)
-    directory=ctx.recorder.path/f'measured_planner-{len(ctx.plans)}'; directory.mkdir()
-    planner=NativePlanner(sim,planner_options(ctx.config,assets_dir,seed),side,directory,mobile_base=True,
-                          workspace=(task['anchor_world'],ctx.config.radius_m))
-    try:
-        c=control['candidate']; goal=body_pose(sim,sim.model.body(c['body']).id)@c['pose_local']
-        pre=goal.copy(); pre[:3,3]-=goal[:3,2]*.08
-        ctx.phase='pregrasp'; ctx.follow(planner,pre,side,-.05,h)
-        goal[:3,3]+=goal[:3,2]*ctx.config.approach_offset_m
-        ctx.phase='approach'; ctx.follow(planner,goal,side,-.05,h)
-        ctx.phase='close'; q=sim.robot.group(side+'_arm').copy()
-        for _ in range(20): ctx.arm_tick(side,q,0.,h)
-        if task['operation']=='pick':
-            ctx.phase='lift'; lift=tcp_pose(sim,side).copy(); lift[2,3]+=.06; ctx.follow(planner,lift,side,0.,h)
-            ctx.phase='lift_attached'; write_json(ctx.recorder.path/'attached_object.json',planner.attach_target_bbox())
-            lift=tcp_pose(sim,side).copy(); lift[2,3]+=.04; ctx.follow(planner,lift,side,0.,h)
-            ctx.phase='hold'; q=sim.robot.group(side+'_arm').copy()
-            verdict=hold_pick(ctx,side,q,h)
-        else:
-            if not ctx.samples or len(ctx.samples[-1]['finger_forces_n']) != 2: raise OperationFailure('open_no_grip')
-            ctx.phase='open'; j=sim.model.joint(task['joint_name']).id
-            step=ctx.config.open_waypoint_step_m if task['joint_kind']=='slide' else ctx.config.open_waypoint_step_rad
-            budget=int(abs(task['joint_goal']-task['joint_initial'])/step)*3+12
-            direction=np.sign(task['joint_goal']-task['joint_initial'])
-            for index in range(budget):
-                value=float(sim.data.qpos[ctx.open_joint]); remaining=direction*(task['joint_goal']-value)
-                if remaining <= 1e-3: break
-                delta=direction*min(step,remaining+.002); tcp=tcp_pose(sim,side).copy(); axis=sim.data.xaxis[j].copy()
-                if task['joint_kind']=='slide': tcp[:3,3]+=axis*delta
-                else:
-                    skew=np.array([[0,-axis[2],axis[1]],[axis[2],0,-axis[0]],[-axis[1],axis[0],0]])
-                    rotation=np.eye(3)+np.sin(delta)*skew+(1-np.cos(delta))*(skew@skew)
-                    origin=sim.data.xanchor[j]; tcp[:3,3]=origin+rotation@(tcp[:3,3]-origin); tcp[:3,:3]=rotation@tcp[:3,:3]
-                world_path=directory/f'world-{index}'; world_path.mkdir(); planner.refresh_world(world_path)
-                ctx.follow(planner,tcp,side,0.,h)
-                if len(ctx.samples[-1]['finger_forces_n']) != 2: raise OperationFailure('open_contact_lost')
-            ctx.phase='open_hold'; q=sim.robot.group(side+'_arm').copy()
-            for _ in range(int(np.ceil((ctx.config.open_hold_s+.1)*sim.robot.config.control_hz))): ctx.arm_tick(side,q,0.,h)
-            verdict=evaluate_open(task,ctx.samples,ctx.config.open_hold_s)
-        write_json(ctx.recorder.path/f'verdict-{len(ctx.plans)}.json',verdict)
-        return verdict,{k:v for k,v in control.items() if k != 'candidate'}
-    finally: del planner
+
+def manipulate(ctx, task, candidates, assets_dir, seed, forced=None):
+    from .no_edit_v2 import manipulate_v2
+    return manipulate_v2(ctx, task, candidates, assets_dir, seed, forced)
 
 
 def navigate(ctx,path,goal):
@@ -419,7 +302,7 @@ def navigate(ctx,path,goal):
     for index,xy in enumerate(points):
         fraction=index/max(1,len(points)-1)
         yaw=start_yaw+fraction*ctx.yaw_gap(yaw_goal,start_yaw)
-        target=np.r_[xy,yaw if cfg.planner_backend == 'curobo_v2_v080' else float((yaw+np.pi)%(2*np.pi)-np.pi)]
+        target=np.r_[xy,yaw]
         while True:
             current=sim.robot.group('base'); delta=target-current; delta[2]=ctx.yaw_gap(target[2],current[2])
             if np.linalg.norm(delta[:2]) <= cfg.arrival_tolerance_m and abs(delta[2]) <= cfg.arrival_tolerance_rad: break
@@ -456,21 +339,13 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                     *,seed,path=None,goal=None,winning_control=None):
     sim=clone_sim(baseline,target=task['target_body']); place_frozen_station(sim,station)
     if config.third_person_enabled: sim.enable_third_person()
-    # Keep actual three-camera video for ALL executed trials: S0 is selected only
-    # afterwards. Avoid duplicate PNG streams except on continuous demonstrations.
+    # One live recorder; optional diagnostic streams share this rollout.
     packet={'execution_semantics_version':EXECUTION_SEMANTICS,'schema_version':'no-edit-v1','robot':asdict(sim.robot.config),'collection':asdict(collection),
             'task':task,'station':station,'protocol':asdict(config),'contact_policy':CONTACT_POLICY,'seed':seed,'path':path,'goal':goal,
-            'scene_version':read_json(root/'scene/version.json')['version_id']}
-    if config.scene_package:
-        binding=read_json(root/'scene_dataset_input/input_manifest.json')
-        packet['scene_dataset_binding']={key:binding[key] for key in
-            ('scene_dataset_id','sample_id','robot_sensor_config_id','task_id','package_checksums_sha256')}
-    from ..exporting.no_edit_layout import attempt_group,index_attempt
-    recorder=AttemptRecorder(root,packet,attempt_group=attempt_group(task,station),attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
+            'scene':getattr(baseline, 'scene_id', None)}
+    recorder=AttemptRecorder(root,packet,attempt_id=attempt_id,strategy='no_edit_continuous' if path else 'no_edit_station')
     recorder.bind_simulation(sim, width=config.width, height=config.height)
-    write_json(recorder.path/'source.json',{'frozen_scene':str(root/'scene'),'source':sim.source.provenance(),
-               'initialization_only':station['base'],'no_scene_edits':True})
-    ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=bool(path))
+    ctx=ContinuousContext(sim,recorder,config,record_rgb=True,record_png=collection.record_images)
     if config.third_person_enabled:
         from ..recording.analysis_video import AnalysisVideo
         from ..tasks.raw_scene import robot_footprint
@@ -552,7 +427,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
         diagnostics={'schema_version':EXECUTION_SEMANTICS,'wall_elapsed_s':time.monotonic()-ctx.started_at,
                      'attempt_wall_budget_s':config.attempt_timeout_s,
                      'simulation_elapsed_s':float(sim.data.time)-ctx.initial_sim_time,
-                     'timings':ctx.timings, 'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder sealing reported separately'}
+                     'timings':ctx.timings, 'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder finalization reported separately'}
         write_json(recorder.path/'execution_diagnostics.json',diagnostics)
         result={'execution_semantics_version':EXECUTION_SEMANTICS,'execution_termination':execution_termination,
                 'task_outcome':task_outcome,'execution_diagnostics':diagnostics,
@@ -566,8 +441,7 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                 'trajectory_metrics':ctx.contact_stats.metrics(
                     task_success=task_outcome['status']=='success' if task_outcome['status'] in ('success','failure') else None,
                     simulation_valid=False if status=='simulation_failure' else True if sim.started else None)}
-        write_json(recorder.path/'outcome.json',result)
-        seal_started=time.monotonic()
+        finish_started=time.monotonic()
         recorder.finish(status,reason,{'scene_validity':{'status':'valid','scope':'robot initialization'},
                         'case_condition':{'status':'not_applicable','reason':'no_scene_edit'},
                         'task_completion':{'status':task_outcome['status'] if task_outcome['status'] in ('success','failure') else 'unknown','reason':task_outcome['reason']}},
@@ -576,17 +450,10 @@ def run_raw_attempt(baseline,task,station,candidates,assets_dir,config,collectio
                                'navigation':navigation,'phase':ctx.phase,'no_edit':True,
                                'operation_base_mode':config.operation_base_mode,
                                'contact_policy':CONTACT_POLICY, 'trajectory_metrics':result['trajectory_metrics']})
-        diagnostics['recorder_finalize_wall_s']=time.monotonic()-seal_started
+        diagnostics['recorder_finalize_wall_s']=time.monotonic()-finish_started
         diagnostics['wall_including_recorder_finalize_s']=time.monotonic()-ctx.started_at
         sim.close()
-    finalized=read_json(recorder.path/'result.json')
-    if finalized['status']=='infrastructure_error': result['status']='infrastructure_error'
-    status_link=index_attempt(recorder.path,result['status'])
-    media=read_json(recorder.path/'videos.json')
-    recorded=bool(media['cameras']) and all((recorder.path/v['path']).is_file()
-                    and v['frame_count']>=2 for v in media['cameras'].values())
-    return {**result,'station_id':station['station_id'],'attempt':str(recorder.path),'status_directory':status_link,
-            'seed':seed,'executed_steps':recorder.steps,'videos':str(recorder.path/'videos.json'),
-            'video_status':'not_executed' if not recorder.steps else 'recorded' if recorded else 'disabled' if not collection.record_video else 'recording_error',
-            'third_person_video':str(recorder.path/'videos/third_person_camera.mp4') if 'third_person_camera' in media['cameras'] else None,
-            'operation_base_mode':config.operation_base_mode}
+    result['status'] = recorder.result['status']
+    return {**result, 'station_id': station['station_id'], 'attempt': str(recorder.path),
+            'rollout_id': recorder.attempt_id, 'seed': seed, 'executed_steps': recorder.steps,
+            'recording_complete': recorder.result['recording_complete']}

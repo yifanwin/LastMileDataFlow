@@ -7,7 +7,7 @@ import mujoco
 import numpy as np
 
 from .edit_assets import EditAssetCatalog
-from ..io import file_digest, write_json, read_json
+from ..io import write_json, read_json
 from ..scenes.mjcf import load_spec
 
 
@@ -34,9 +34,9 @@ class ThorLibrary:
         path.mkdir(parents=True, exist_ok=False)
         entries, records, seen = [], [], set()
         rng = np.random.default_rng(seed)
-        registry_path = self.root / 'asset_id_to_object_type.json' if self.root else None
-        registry = read_json(registry_path) if registry_path and registry_path.is_file() else {}
-        if registered_only and not registry:
+        types_path = self.root / 'asset_id_to_object_type.json' if self.root else None
+        asset_types = read_json(types_path) if types_path and types_path.is_file() else {}
+        if registered_only and not asset_types:
             raise ValueError('registered_asset_map_required')
         for request in requests:
             for category in request['categories']:
@@ -45,7 +45,7 @@ class ThorLibrary:
                     # Select the canonical asset XML, not *_mesh/prim/old variants.
                     for asset in sorted(directory.iterdir()):
                         if asset.is_dir() and (asset/(asset.name + '.xml')).is_file():
-                            if not registered_only or registry.get(asset.name) == category:
+                            if not registered_only or asset_types.get(asset.name) == category:
                                 candidates.append(asset/(asset.name + '.xml'))
                 accepted = 0
                 for index in rng.permutation(len(candidates))[:max(limit*4, limit)]:
@@ -56,12 +56,11 @@ class ThorLibrary:
                     if asset_id in seen:
                         continue
                     row = {'asset_id': asset_id, 'category': category, 'source_xml': str(source), 'status': 'loading',
-                           'thor_registered': registry.get(asset_id) == category}
+                           'thor_registered': asset_types.get(asset_id) == category}
                     records.append(row)
                     derived = path/asset_id
                     derived.mkdir(exist_ok=False)
                     try:
-                        row['source_sha256'] = file_digest(source)
                         raw = load_spec(source)
                         roots = list(raw.worldbody.bodies)
                         if len(roots) != 1 or list(raw.worldbody.geoms) or list(raw.lights) or list(raw.actuators) or list(raw.sensors) or list(raw.equalities):
@@ -96,14 +95,11 @@ class ThorLibrary:
                         entry = {'asset_id': asset_id, 'xml_path': str(xml.resolve()), 'root_body': name,
                                  'category': category, 'type': 'object'}
                         manifest = derived/'manifest.json'
-                        write_json(manifest, {'asset_catalog_version': '0.1', 'assets': [entry]})
-                        catalog = EditAssetCatalog(manifest)
+                        catalog = EditAssetCatalog(manifest, assets=[entry])
                         _, geometry = catalog.load(asset_id)
                         if any(not bounds[0] <= geometry['size'][key] <= bounds[1]
                                for key, bounds in request['size_constraints_m'].items()):
                             raise ValueError('measured_dimensions_outside_request')
-                        if row['source_sha256'] != file_digest(source):
-                            raise ValueError('source_asset_changed')
                         entries.append(entry)
                         seen.add(asset_id)
                         row.update(status='loadable', size=geometry['size'],
@@ -115,8 +111,4 @@ class ThorLibrary:
                         break
         manifest = path/'catalog.json'
         write_json(manifest, {'asset_catalog_version': '0.1', 'assets': entries})
-        write_json(path/'retrieval.json', {'library': str(self.root) if self.root else None,
-                   'requests': requests, 'seed': seed, 'records': records, 'loadable_count': len(entries),
-                   'registered_only': registered_only,
-                   'registry_sha256': file_digest(registry_path) if registry else None})
         return EditAssetCatalog(manifest)

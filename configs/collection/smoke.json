@@ -3,9 +3,7 @@
   "seed": 20261002,
   "max_steps": 6,
   "max_initialization_trials": 80,
-  "agent_call_budget": 0,
   "width": 320,
   "height": 240,
-  "record_video": true,
-  "protocol_version": "lightweight-v1"
+  "record_video": true
 }

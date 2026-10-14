@@ -3,9 +3,5 @@
   "checkpoint": "../../../../../nas_wenyifan/models/MolmoBot-RBY1Multitask",
   "python": "../../../../../MolmoBot/MolmoBot/.venv/bin/python",
   "gripper_mode": "model_default",
-  "task_horizon": 400,
-  "min_free_gpu_mb": 12288,
-  "max_gpu_utilization": 60,
-  "gpu_sample_count": 3,
-  "gpu_sample_interval_s": 5.0
+  "task_horizon": 400
 }

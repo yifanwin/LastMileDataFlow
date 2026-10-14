@@ -3,5 +3,9 @@
   "control_profile": "position-v1",
   "control_hz": 20.0,
   "physics_dt": 0.004,
-  "cameras": ["head_camera", "wrist_camera_l", "wrist_camera_r"]
+  "cameras": [
+    "head_camera",
+    "wrist_camera_l",
+    "wrist_camera_r"
+  ]
 }

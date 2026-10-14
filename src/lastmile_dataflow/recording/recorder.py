@@ -1,191 +1,157 @@
-"""每个 attempt 独立目录；失败也保留；无执行不生成执行视频。
-
-【核心职责】把一次试验的全部原始证据落盘，并且**只增不删**。所有阶段
-（一/二/三）都复用这个类，因为它已经实现了工程级的三条纪律：
-
-  1. attempt 目录独占：`exist_ok=False`，已存在直接报错 → 永不覆盖。
-  2. 边跑边刷盘：trajectory/events 每写一行都 flush，崩溃也不会丢已发生的运动。
-  3. 结束才生成全文件摘要清单 artifacts.json，成为不可篡改证据。
-
-【文件一览】config.json / source.json / attempt.json / trajectory.jsonl / events.jsonl /
-  observations/（图片）/ observations.json / videos/（mp4）/ videos.json /
-  final_snapshot.npz / result.json / artifacts.json
-"""
-from datetime import datetime, timezone
+"""一套实时轨迹与观测；不产生发布包、重复 replay 或审计侧车。"""
 from pathlib import Path
 import uuid
-
 import imageio.v2 as imageio
 import numpy as np
 
-from ..io import canonical, digest, file_digest, write_json
-from ..runtime.episode_guard import recording_operation
+from ..io import append_row, write_json
+from ..runtime.episode_guard import recording_operation, track_recorder
 
 
 class AttemptRecorder:
-    def __init__(self, root, config, *, attempt_id=None, strategy="short_action", parent=None, attempt_group=()):
-        # 未指定 ID 时用“UTC 时间戳 + 随机后缀”，保证全局唯一且可排序。
-        self.attempt_id = attempt_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10]
-        # 防御路径穿越：ID 里不能出现 / 或 ..，否则会写到目录外面。
-        if not self.attempt_id or Path(self.attempt_id).name != self.attempt_id or self.attempt_id in (".", ".."):
-            raise ValueError("invalid attempt id")
-        if any(not part or Path(part).name != part or part in (".", "..") for part in attempt_group):
-            raise ValueError("invalid attempt group")
+    def __init__(self, root, config, *, attempt_id=None, strategy=None):
         self.output_root = Path(root)
-        self.path = self.output_root / "attempts"
-        for part in attempt_group:
-            self.path /= part
-        self.path /= self.attempt_id
-        self.writers = {}; self.trajectory = None; self.events = None; self.finished = False; self.steps = 0
-        from ..runtime.episode_guard import track_recorder
-        track_recorder(self)
-        self.path.mkdir(parents=True, exist_ok=False)   # 已存在就抛错：永不覆盖
-        self.collection = config["collection"]
+        self.attempt_id = attempt_id or uuid.uuid4().hex[:12]
+        self.path = self.output_root / 'rollouts' / self.attempt_id
+        self.path.mkdir(parents=True, exist_ok=False)
         self.config = config
-        self.canonical_recorder = None
-        # config_sha256 把“这次到底用了什么配置”钉死在记录里，审计时会重新计算比对。
-        self.metadata = {"schema_version": "1.0", "attempt_id": self.attempt_id,
-                         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-                         "strategy": strategy, "parent_attempt": parent,
-                         "config_sha256": digest(config), "status": "preparing"}
-        write_json(self.path / "config.json", config)
-        write_json(self.path / "source.json", {"source": None})
-        write_json(self.path / "attempt.json", self.metadata)
-        self.trajectory = (self.path / "trajectory.jsonl").open("xb")
-        self.events = (self.path / "events.jsonl").open("xb")
-        self.writers = {}          # 每台相机一个视频写入器
+        self.collection = config['collection']
         self.steps = 0
-        self.frames = {}           # 每台相机的真实时间戳列表
-        self.frame_index = []      # observations.json 的内容
         self.finished = False
+        self.sim = None
+        self.samples = []
+        self.actions = []
+        self.requested = []
+        self.phases = []
+        self.writers = {}
+        self.frame_index = []
+        self.errors = []
+        self.phase = 'initialize'
+        self.requested_action = None
+        self.result = None
+        track_recorder(self)
 
-    def abort_close(self):
-        """Release partial/unsealed episode resources without editing its evidence."""
-        if self.finished:
-            return
-        errors=[]
-        for resource in [*self.writers.values(), self.trajectory, self.events]:
-            if resource is None or getattr(resource, 'closed', False):
-                continue
-            try: resource.close()
-            except Exception as exc: errors.append(exc)
-        if errors:
-            # Prefer fail-stop storage/GPU errors to a local encoder error.
-            from ..runtime.episode_guard import classify_episode_exception
-            raise next((e for e in errors if classify_episode_exception(e,'finalize')['failure_scope']=='shared'), errors[0])
+    def bind_simulation(self, sim, *, width=None, height=None):
+        if sim.started:
+            raise RuntimeError('bind recorder before execution')
+        self.sim = sim
+        self.width = width or self.collection['width']
+        self.height = height or self.collection['height']
+        sim.evidence_recorder = self
 
     @recording_operation
-    def bind_simulation(self, sim, *, width=None, height=None):
-        """Attach live recording before begin(); never infer raw from legacy JSON."""
-        if self.finished or self.canonical_recorder is not None or sim.started:
-            raise RuntimeError('bind a fresh simulation exactly once before execution')
-        if not self.collection.get('raw_first', True):
-            self.event('raw_first_disabled', reason='explicit_collection_config')
-            return
-        from .canonical import CanonicalRecorder
-        self.canonical_recorder = CanonicalRecorder(self, sim, self.config, width=width, height=height)
-        sim.evidence_recorder = self.canonical_recorder
-
     def event(self, code, **fields):
-        """追加一条事件（动作拒绝、异常、观察引用、协议违规等）。立即 flush。"""
-        self.events.write(canonical({"code": code, **fields}) + b"\n")
-        self.events.flush()
-        if self.canonical_recorder is not None and not self.canonical_recorder.closed:
-            self.canonical_recorder.event(code, **fields)
+        append_row(self.path / 'events.jsonl', {'code': code, **fields})
+
+    def intent(self, value, *, producer, metadata=None):
+        self.phase = (metadata or {}).get('phase', 'operation')
+
+    @recording_operation
+    def capture(self):
+        from ..integrations.molmobot_dataset import state22
+        groups = {key: {'position': self.sim.robot.group(key)} for key in self.sim.robot.groups}
+        sample = {'time_s': float(self.sim.data.time), 'qpos': self.sim.data.qpos.copy(),
+                  'qvel': self.sim.data.qvel.copy(), 'ctrl': self.sim.data.ctrl.copy(),
+                  'state22': state22(groups)}
+        self.samples.append(sample)
+        if self.collection.get('record_images', True):
+            if self.collection.get('record_depth', False):
+                sensors = self.sim.capture_sensors(self.width, self.height, depth=True)
+                frames = {key: value['rgb'] for key, value in sensors.items()}
+                for key, value in sensors.items():
+                    if value['depth'] is not None:
+                        target = self.path / 'images' / key
+                        target.mkdir(parents=True, exist_ok=True)
+                        np.save(target / f'{self.steps:06d}-depth.npy', value['depth'])
+            else:
+                frames = self.sim.render(self.width, self.height)
+            self.sim._raw_frame_cache = (sample['time_s'], self.width, self.height, frames)
+            self.observation(frames, step=self.steps, time_s=sample['time_s'])
+
+    @recording_operation
+    def executed(self, command):
+        self.actions.append(np.asarray(command['submitted_action'], float))
+        self.requested.append(np.asarray(self.requested_action, float))
+        self.phases.append(self.phase)
+        self.steps += 1
+        self.capture()
+
+    def record_step(self, *, raw_action, command, before, after, check, observations):
+        # State/action are recorded in Simulation at actual interval boundaries.
+        # Keep only the execution phase here, not another copy of the trajectory.
+        if self.phases:
+            self.phases[-1] = observations.get('phase', self.phase)
 
     @recording_operation
     def observation(self, frames, *, step, time_s):
-        """把三相机当前帧写成 PNG，并返回相对路径引用。
-
-        step=0 是初态，step=n 是第 n 个控制步之后的状态；这个编号是审计视频/轨迹对应的依据。
-        """
-        directory = self.path / "observations" / f"{step:06d}"
-        directory.mkdir(parents=True, exist_ok=False)
+        if not self.collection.get('record_images', True):
+            return {}
         refs = {}
         for camera, pixels in frames.items():
-            file = directory / f"{camera}.png"
-            imageio.imwrite(file, pixels)
-            refs[camera] = str(file.relative_to(self.path))
-        self.frame_index.append({"step": step, "time_s": time_s, "images": refs})
+            path = self.path / 'images' / camera / f'{step:06d}.png'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                imageio.imwrite(path, pixels)
+            refs[camera] = str(path.relative_to(self.path))
         return refs
 
     @recording_operation
-    def record_step(self, *, raw_action, command, before, after, check, observations):
-        """写一行轨迹：动作、完整实际 ctrl、前后状态、验证结果、图像引用。
-
-        顺序很重要：先写轨迹再渲染。这样即使渲染崩溃，物理上已发生的运动也有据可查。
-        """
-        row = {"step": self.steps, "raw_action": raw_action, "command": command,
-               "state_before": before, "state_after": after, "validation": check,
-               "observations": observations}
-        self.trajectory.write(canonical(row) + b"\n")
-        self.trajectory.flush()
-        self.steps += 1
-
-    @recording_operation
     def video_frame(self, frames, time_s):
-        """追加一帧到各相机 MP4；record_video=False 时是空操作（但 PNG 仍然保存）。"""
-        if not self.collection["record_video"]:
+        if not self.collection.get('record_video', False):
             return
         for camera, pixels in frames.items():
             if camera not in self.writers:
-                video_dir = self.path / "videos"
-                video_dir.mkdir(exist_ok=True)
-                self.writers[camera] = imageio.get_writer(
-                    video_dir / f"{camera}.mp4", fps=self._video_fps(),
-                    codec="libx264", macro_block_size=2, ffmpeg_log_level="error")
+                directory = self.path / 'videos'
+                directory.mkdir(exist_ok=True)
+                self.writers[camera] = imageio.get_writer(directory / f'{camera}.mp4',
+                    fps=self.sim.robot.config.control_hz, codec='libx264', macro_block_size=2)
             self.writers[camera].append_data(pixels)
-            self.frames.setdefault(camera, []).append(float(time_s))
-
-    def _video_fps(self):
-        """视频 FPS 取配置里的控制频率（不是物理频率）。"""
-        from ..io import read_json
-        return read_json(self.path / "config.json")["robot"]["control_hz"]
 
     @recording_operation
     def finish(self, status, reason, results, *, extra=None):
-        """收尾：关闭视频、写三个独立结果、写全文件摘要清单。
-
-        注意：如果视频关闭失败（ffmpeg 问题），状态被强制改成 infrastructure_error。
-        这是“记录设施异常”与“机器人任务失败”严格区分的体现——
-        视频编不出来绝不能算成机器人抓取失败。
-        """
         if self.finished:
-            raise RuntimeError("attempt already finalized")
-        close_errors = []
-        for camera, writer in self.writers.items():
+            raise RuntimeError('rollout already finished')
+        self.abort_close()
+        if self.samples:
+            arrays = {key: np.asarray([sample[key] for sample in self.samples]) for key in self.samples[0]}
+            arrays.update(actions=np.asarray(self.actions).reshape(-1, 20),
+                          requested_actions=np.asarray(self.requested).reshape(-1, 20),
+                          phases=np.asarray(self.phases, dtype=str))
+            np.savez_compressed(self.path / 'trajectory.npz', **arrays)
+        complete = not self.errors and len(self.samples) == self.steps + 1
+        if self.errors:
+            status = 'infrastructure_error' if any(e.get('failure_scope') == 'shared' for e in self.errors) else 'recording_error'
+        self.result = {'status': status, 'reason': reason, 'recording_complete': complete,
+                       'executed_steps': self.steps, 'recording_errors': self.errors}
+        write_json(self.path / 'recording.json', {'frames': len(self.samples), 'steps': self.steps,
+            'complete': complete, 'errors': self.errors, 'controller_profile': self.sim.robot.config.control_profile if self.sim else None,
+            'task': self.config.get('task'), 'seed': self.config.get('seed')})
+        self.finished = True
+        return self.path
+
+    def abort_close(self):
+        for camera, writer in list(self.writers.items()):
             try:
                 writer.close()
             except Exception as exc:
                 from ..runtime.episode_guard import classify_episode_exception
-                close_errors.append({"camera": camera, "error_type": type(exc).__name__, "message": str(exc),
-                                     "failure_scope":classify_episode_exception(exc,"finalize")["failure_scope"]})
-        if close_errors:
-            status, reason = "infrastructure_error", "video_finalize_failed"
-        self.trajectory.close()
-        self.events.close()
-        self.metadata.update(status=status, termination_reason=reason, executed_steps=self.steps,
-                             finished_at_utc=datetime.now(timezone.utc).isoformat())
-        write_json(self.path / "attempt.json", self.metadata)
-        # result.json 是“结论文件”：终止状态 + 三个独立结果 + 附加诊断。
-        write_json(self.path / "result.json", {"schema_version": "1.0", "status": status,
-                   "termination_reason": reason, "executed_steps": self.steps,
-                   "results": results, "extra": extra or {}, "recording_errors": close_errors})
-        write_json(self.path / "observations.json", self.frame_index)
-        write_json(self.path / "videos.json", {
-            "enabled": self.collection["record_video"],
-            "cameras": {k: {"path": f"videos/{k}.mp4", "frame_times_s": v,
-                             "frame_count": len(v), "fps": self._video_fps(),
-                             "data_layer": "derived", "encoding": "lossy_libx264",
-                             "raw_RGB_reference": "raw/observations.jsonl" if self.canonical_recorder is not None else None,
-                             "producer_metadata": [str(p.name) for p in (self.path/'analysis_video.json', self.path/'delivery_video.json') if p.is_file()],
-                             "kind": "real_execution", "timing": "constant_fps_with_actual_frame_timestamps"}
-                        for k, v in self.frames.items()}})
-        if self.canonical_recorder is not None:
-            self.canonical_recorder.finish(status, reason, results, extra or {})
-        # 最后生成摘要清单：之后任何文件被改动，audit 都能发现。
-        files = {str(p.relative_to(self.path)): file_digest(p)
-                 for p in sorted(self.path.rglob("*")) if p.is_file() and p.name != "artifacts.json"}
-        write_json(self.path / "artifacts.json", {"schema_version": "1.0", "files_sha256": files})
-        self.finished = True
-        return self.path
+                self.errors.append({'camera': camera, **classify_episode_exception(exc, 'recording')})
+            del self.writers[camera]
+
+
+class NullTrace:
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def open_trace(path, enabled):
+    if not enabled:
+        return NullTrace()
+    import gzip
+    return gzip.open(path, 'wb')

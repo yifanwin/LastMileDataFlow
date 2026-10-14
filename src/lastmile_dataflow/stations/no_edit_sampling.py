@@ -49,7 +49,6 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     initial['base'] = [*xy, float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))]
     yaw_adjustments=[]
     def legal_initial_yaw(value):
-        if getattr(config,'planner_backend',None) != 'curobo_v2_v080': return value
         from ..robots.action_limits import project, yaw_interval, ANGULAR_TOLERANCE_RAD
         return project(value,yaw_interval(sim.robot),ANGULAR_TOLERANCE_RAD,'base_theta',yaw_adjustments)
     initial['base'][2]=legal_initial_yaw(initial['base'][2])

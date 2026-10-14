@@ -7,7 +7,7 @@ from ..construction.obstacle_regions import ground_coverage
 from ..construction.obstacle_sampling import substantial_asset
 
 
-def case_construction_check(sim, placements, config, *, capacity_evidence=None):
+def case_construction_check(sim, placements, config):
     """Check requested construction, not grasp difficulty or task completion."""
     policy = config.case_policy
     if policy is None:
@@ -23,10 +23,8 @@ def case_construction_check(sim, placements, config, *, capacity_evidence=None):
             {'instance_id': config.target_instance, 'target_body': target, 'operation': 'pick', 'anchor_world': anchor})}
         if not expected_support or any(p['support_instance'] not in expected_support for p in placements if p['kind'] == 'surface'):
             reasons.append('added_objects_not_on_actual_target_support')
-    from ..construction.surface_capacity import valid_certificate
     capacity_shortfall = count < config.obstacle_count[0]
-    certified = bool(policy.allow_surface_capacity_shortfall and valid_certificate(sim, placements, capacity_evidence))
-    if count > config.obstacle_count[1] or capacity_shortfall and not certified:
+    if count > config.obstacle_count[1] or capacity_shortfall:
         reasons.append('object_count_outside_requested_range')
     substantial_count = 0
     for i, placement in enumerate(placements):
@@ -40,9 +38,9 @@ def case_construction_check(sim, placements, config, *, capacity_evidence=None):
             reasons.append('requires_one_ground_chair_and_surface_remainder')
         if policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
             surface_count = sum(p['kind'] == 'surface' for p in placements)
-            if surface_count > 8 or surface_count < 5 and not certified:
+            if surface_count > 8 or surface_count < 5:
                 reasons.append('requires_5_to_8_added_surface_objects')
-            if len({p['support_instance'] for p in placements if p['kind'] == 'surface'}) != 1 and not (certified and surface_count == 0):
+            if len({p['support_instance'] for p in placements if p['kind'] == 'surface'}) != 1:
                 reasons.append('requires_single_target_support_surface')
         if policy.rule_version == 'scene-cases-v3':
             from ..construction.scene_eligibility import allowed_case1_support
@@ -64,7 +62,7 @@ def case_construction_check(sim, placements, config, *, capacity_evidence=None):
             'added_ground_count': sum(p['kind'] == 'ground' for p in placements),
             'added_surface_count': sum(p['kind'] == 'surface' for p in placements),
             'substantial_count': int(substantial_count), 'failure_reasons': reasons,
-            'capacity_shortfall': capacity_shortfall, 'capacity_certificate_valid': certified,
+            'capacity_shortfall': capacity_shortfall,
             'scope': 'requested_obstacle_construction_not_task_difficulty'}
 
 
@@ -199,14 +197,14 @@ def matched_source_effects(control, candidate, config):
             'scope': 'unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_no_edit_control'}
 
 
-def validate_augmented_scene(sim, placements, settling, control, config, *, capacity_evidence=None):
+def validate_augmented_scene(sim, placements, settling, control, config):
     finite = bool(np.isfinite(sim.state_vector()).all())
     collision = collision_pairs(sim, placements, config, settled=True)
     support = load_support(sim, placements, config)
     effects = matched_source_effects(control, sim, config)
     stable = bool(settling['stable'])
     healthy = finite and not settling['new_warnings']
-    case = case_construction_check(sim, placements, config, capacity_evidence=capacity_evidence)
+    case = case_construction_check(sim, placements, config)
     return {'valid': bool(stable and healthy and collision['valid'] and support['valid'] and effects['valid'] and case['valid']),
             'stability': stable, 'solver_health': healthy, 'settling': settling,
             'collision': collision, 'support': support, 'source_effects': effects,

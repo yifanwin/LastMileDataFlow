@@ -9,7 +9,6 @@ from dataclasses import dataclass, field, replace
 import mujoco
 import numpy as np
 
-from ..io import digest
 from .geometry import (SupportRegion, body_points, collision_geoms, descendants,
                        extract_regions, geom_points, support_rays)
 
@@ -52,7 +51,7 @@ class SceneGraph:
                  'revision': self.revision, 'time_s': self.time_s, 'stage': self.stage,
                  'units': 'SI', 'pose_order': 'xyz_wxyz', 'nodes': copy.deepcopy(self.nodes),
                  'edges': copy.deepcopy(self.edges), 'issues': copy.deepcopy(self.issues)}
-        value['graph_id'] = digest(value)
+        value['graph_id'] = f'{self.scene_id}:{self.stage}:{self.revision}'
         return value
 
     @classmethod

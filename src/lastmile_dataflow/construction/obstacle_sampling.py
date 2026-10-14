@@ -133,7 +133,7 @@ def case_assets(rng, count, pool, geometry, policy, mandatory, *, surface_area_m
         compact = [g for g in ordinary if g['size']['width'] * g['size']['depth'] <= allowance]
         if compact:
             ordinary = compact
-        elif not policy.allow_surface_capacity_shortfall:
+        else:
             raise ValueError('no_assets_within_measured_surface_packing_budget')
     while len(selected) < count:
         selected.append(ordinary[int(rng.integers(len(ordinary)))])

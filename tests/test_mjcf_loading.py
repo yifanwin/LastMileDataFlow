@@ -6,7 +6,6 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.io import file_digest
 from lastmile_dataflow.scenes.mjcf import load_spec
 
 
@@ -19,13 +18,13 @@ class LoadingTests(unittest.TestCase):
         self.temp.cleanup()
 
     def assert_model_equal(self, path):
-        before = {p: file_digest(p) for p in self.root.rglob('*') if p.is_file()}
+        before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         native = mujoco.MjSpec.from_file(str(path)).compile()
         loaded = load_spec(path).compile()
         for field in ('names', 'body_pos', 'body_quat', 'body_mass', 'geom_pos', 'geom_size',
                       'geom_rgba', 'mesh_vert', 'mesh_face', 'jnt_type', 'qpos0'):
             np.testing.assert_array_equal(getattr(native, field), getattr(loaded, field), err_msg=field)
-        self.assertEqual(before, {p: file_digest(p) for p in before})
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
 
     def test_relative_mesh_and_model_directory(self):
         (self.root/'tetra.obj').write_text('v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 2 3\nf 1 4 2\nf 1 3 4\nf 2 4 3\n')

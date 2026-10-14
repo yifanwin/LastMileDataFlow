@@ -1,11 +1,13 @@
 """V2 per-geom scene export; separate target checker never disables robot links."""
-import hashlib
+import itertools
 import numpy as np
 import mujoco
 from ..io import write_json
 from ..scenes.geometry import descendants
-from .curobo import body_pose
+from ..scenes.geometry import body_pose
 
+
+_mesh_ids = itertools.count()
 
 def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False):
     """Per-geom collision mesh, never use furniture-wide AABB as exact geometry."""
@@ -47,7 +49,5 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
     vertex_array, face_array = np.concatenate(vertices), np.concatenate(faces)
     # V2 caches Warp meshes by name. Geometry baked in this measured frame
     # changes for articulated objects; do not reuse a stale mesh by fixed name.
-    digest = hashlib.sha256(vertex_array.tobytes()+face_array.tobytes()).hexdigest()[:16]
-    name = ('target-' if target_only else 'environment-') + digest
+    name = f"{'target' if target_only else 'environment'}_{next(_mesh_ids)}"
     return SceneCfg(mesh=[Mesh(name=name,pose=[0,0,0,1,0,0,0],vertices=vertex_array.tolist(),faces=face_array.tolist())])
-

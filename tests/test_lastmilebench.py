@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from helpers import make_sim
-from lastmile_dataflow.benchmark.episodes import select_starts, summarize, episode_id
+from lastmile_dataflow.benchmark.episodes import select_starts, summarize
 from lastmile_dataflow.runtime.benchmark_scene import native_scene
 from lastmile_dataflow.runtime.simulation import Simulation
 
@@ -65,9 +65,6 @@ class BenchmarkTests(unittest.TestCase):
                         [{'episode_id':'x','status':'success'}]*2):
             with self.assertRaises(ValueError): summarize(episodes,results)
 
-    def test_episode_id_deterministic(self):
-        self.assertEqual(episode_id({'a':1,'b':2}),episode_id({'b':2,'a':1}))
-        self.assertNotEqual(episode_id({'a':1}),episode_id({'a':2}))
 
     def test_frozen_station_preserves_nonrobot_velocity(self):
         from lastmile_dataflow.stations.no_edit_sampling import place_frozen_station

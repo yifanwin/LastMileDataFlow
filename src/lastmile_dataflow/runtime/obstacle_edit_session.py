@@ -18,8 +18,6 @@ def clone_preparation(sim):
     try:
         new.source, new.restoration = sim.source, sim.restoration
         new.spec = getattr(sim, 'spec', None)
-        if hasattr(sim, 'frozen_provenance'):
-            new.frozen_provenance = sim.frozen_provenance
         migrate_state(sim, new)
         return new
     except BaseException:
@@ -64,8 +62,6 @@ class ObstacleEditSession:
         while len(self.models) >= 4:
             self.models.popitem(last=False)
         if self.baseline_spec is None:
-            if hasattr(self.baseline, 'frozen_provenance') and self.baseline.source.provenance() != self.baseline.frozen_provenance:
-                raise ValueError('source_changed_since_baseline')
             source_spec = getattr(self.baseline, 'spec', None)
             self.baseline_spec = source_spec.copy() if source_spec is not None else Simulation.prepare_spec(
                 self.baseline.source, self.baseline.robot.config)
@@ -107,8 +103,6 @@ class ObstacleEditSession:
         new = Simulation(model, self.baseline.robot.config, copy.deepcopy(catalog), target=target)
         try:
             new.source, new.restoration, new.spec = self.baseline.source, self.baseline.restoration, spec
-            if hasattr(self.baseline, 'frozen_provenance'):
-                new.frozen_provenance = self.baseline.frozen_provenance
             # All added free joints must have legal proposal poses BEFORE forward.
             # Otherwise 6–12 default roots at the origin can overflow contact arena.
             migrate_state(self.baseline, new, forward=False)

@@ -5,7 +5,7 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig, TaskConfig, construct
+from lastmile_dataflow.config import CollectionConfig, RobotConfig, construct
 from lastmile_dataflow.robots.action import InvalidAction, torso_joints, validate_action
 from lastmile_dataflow.integrations.waypoints import PlanResult, arm_waypoint_action, navigation_action
 from lastmile_dataflow.runtime.simulation import Simulation
@@ -21,8 +21,6 @@ class ConfigurationTests(unittest.TestCase):
                 construct(CollectionConfig,args)
         with self.assertRaises(ValueError):
             RobotConfig('x',torso_limits=[0,2])
-        with self.assertRaises(ValueError):
-            TaskConfig(success_conditions={'lift':.05})
 
     def test_20d_layout_and_invalid_actions(self):
         c = RobotConfig('x')
@@ -78,11 +76,6 @@ class SimulationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):s.freeze(self.root/'other')
         with self.assertRaises(RuntimeError):s.robot.initialize()
 
-    def test_snapshot_tampering_blocked(self):
-        frozen=self.root/'frozen';self.sim.freeze(frozen)
-        with (frozen/'initial.npz').open('ab') as f:f.write(b'corrupt')
-        with self.assertRaisesRegex(ValueError,'modified'):
-            Simulation.from_snapshot(frozen,self.robot)
 
     def test_target_ambiguity_rejected(self):
         catalog=[{'instance_id':'a','asset_id':'Cup','mjcf_body':'target'},

@@ -67,8 +67,6 @@ class SceneDatasetRecipe:
     categories: list = field(default_factory=list)
     pick_target_types: list = field(default_factory=list)
     case1_support_types: list = field(default_factory=lambda: list(SUPPORT_TYPES))
-    allow_surface_capacity_shortfall: bool = False
-    capacity_probe_budget: int = 20000
     cases: list = field(default_factory=lambda: ['Case1', 'Case2', 'Case3'])
     variants_per_case: int = 5
     max_pick_targets_per_house: int = 3
@@ -95,8 +93,6 @@ class SceneDatasetRecipe:
     def __post_init__(self):
         if self.schema_version != 'scene-dataset-recipe-v1' or self.rule_version not in ('scene-cases-v2', 'scene-cases-v3'):
             raise ValueError('unknown scene dataset recipe/rule version')
-        if type(self.allow_surface_capacity_shortfall) is not bool or (self.allow_surface_capacity_shortfall and self.rule_version != 'scene-cases-v3'):
-            raise ValueError('capacity shortfall requires scene-cases-v3')
         if self.rule_version == 'scene-cases-v3' and (not self.pick_target_types or set(self.pick_target_types)-set(PICK_TYPES)):
             raise ValueError('v3 requires explicit approved pick target types')
         if not self.case1_support_types or set(self.case1_support_types)-set(SUPPORT_TYPES):
@@ -115,7 +111,7 @@ class SceneDatasetRecipe:
                 raise ValueError('target count must be -1 (unlimited) or a positive integer: ' + key)
         for key in ('variants_per_case',
                     'min_prefilter_points', 'min_final_points', 'max_final_stations', 'assets_per_category',
-                    'max_candidates', 'max_physical_trials', 'min_substantial', 'capacity_probe_budget'):
+                    'max_candidates', 'max_physical_trials', 'min_substantial'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
         if self.station_selection == 'coverage' and self.min_final_points > self.max_final_stations:

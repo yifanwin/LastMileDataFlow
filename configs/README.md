@@ -1,18 +1,5 @@
-# 配置入口
+# 配置
 
-历史 `builds/`、`stations/`、`tasks/foundation.json`、四 Agent 请求与 API 配置已删除。
-本轮保留核心命令当前使用的配置，不改数据协议或服务器路径默认值。
-
-| 位置 | 用途 |
-|---|---|
-| `scene_datasets/` | 场景库配方、机器人/传感器配置 |
-| `case_edits/procedural_obstacles_*.json` | 程序化障碍物配方；目录名后续整理 |
-| `case_edits/no_edit_*_final_stations.json` | 现有增强站位输入配置，待统一输入协议 |
-| `no_edit/` | cuRobo / MolmoBot 逐点评测和连续采集参数 |
-| `lastmile_datasets/v0.json` | 场景库驱动的 LastMile 采集 |
-| `policies/`、`robots/`、`scene_eval/` | 策略、机器人与 native 评测设置 |
-| `collection/` | 必要记录参数；旧协议字段待步骤三清理 |
-| `curobo-v080-pin.json` | 现有规划后端版本检查输入；本轮暂不改变 |
-
-配置相对路径按 JSON 所在目录解析；当前示例包含本机路径，需要按实际部署调整。
-动作和现有输出说明见 [data-format.md](../docs/datas/data-format.md)，统一路径与独立环境将在后续步骤处理。
+`scene_datasets/` 为场景库配方，`case_edits/` 为障碍物参数，`no_edit/` 为逐点执行，`lastmile_datasets/` 为连续采集，`robots/`、`policies/` 为机器人和策略。
+cuRobo 默认配置为 `no_edit/curobo_v2.json`，仅 V2；旧版配置和 pin 清单已删除。
+每次运行保存有效配置和种子，不保存审计身份。配置相对路径按配置文件位置解析；示例仍依赖用户已有的数据/模型位置，路径清理属于后续步骤。

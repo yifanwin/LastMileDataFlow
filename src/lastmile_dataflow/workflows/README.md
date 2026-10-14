@@ -1,7 +1,3 @@
 # workflows
 
-当前保留 scene-datasets 构造、程序化障碍物增强、逐点/连续采集与 LastMileBench。
-历史 build、case-edit、station-map 和独立 timeout 复核 workflow 已删除。
-
-`lastmile_datasets` 暂时仍调用 `no_edit`；先缩协议，再合并为 `collection.py`，本轮不搬目录。
-`native_station_input` 仍供现有 native 适配脚本使用。
+scene_datasets 构造场景，obstacle_augmentation 提供物理增强，no_edit 统一逐点与连续采集，lastmile_datasets 仅薄入口，lastmilebench 为困难起点评测。没有 child run、审计发布或历史兼容输入。

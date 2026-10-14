@@ -106,7 +106,6 @@ class EvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);baseline,_=make_sim(root)
             self.addCleanup(baseline.close)
-            write_json(root/'scene/version.json',{'version_id':'fixture'})
             def manipulation(ctx,*args):
                 fixture=context();ctx.pick_initial=fixture.pick_initial;ctx.samples=fixture.samples
                 ctx.phase='hold';ctx.active_control={'arm':'right','grasp_row':1,'grasp_source':'fixture'}
@@ -116,14 +115,11 @@ class EvidenceTests(unittest.TestCase):
                  patch('lastmile_dataflow.runtime.no_edit_execution.manipulate',side_effect=manipulation):
                 result=run_raw_attempt(baseline,{'target_body':'target','operation':'pick'},
                     {'station_id':'s','base':[0.,0.,0.]},[],root,NoEditConfig(third_person_enabled=False),
-                    CollectionConfig(output_dir=d,record_video=False,raw_first=False),root,'fixture-timeout',seed=1)
+                    CollectionConfig(output_dir=d,record_video=False,record_images=False),root,'fixture-timeout',seed=1)
             self.assertEqual(result['status'],'success')
             self.assertEqual(result['execution_termination']['status'],'timeout')
             self.assertEqual(result['task_outcome']['status'],'success')
             self.assertEqual(result['control']['grasp_source'],'fixture')
-            saved=read_json(Path(result['attempt'])/'outcome.json')
-            self.assertEqual(saved['execution_termination']['status'],'timeout')
-            self.assertEqual(saved['task_outcome']['status'],'success')
             self.assertIn('recorder_finalize_wall_s',result['execution_diagnostics'])
             self.assertFalse(baseline.closed)
 

@@ -1,3 +1,4 @@
+from dataclasses import asdict
 """Small physics/interface regressions; not real RBY-1 task-success evidence."""
 from dataclasses import replace
 from pathlib import Path
@@ -8,7 +9,7 @@ import mujoco
 import numpy as np
 
 from helpers import make_sim
-from lastmile_dataflow.config import CollectionConfig, freeze_config, TaskConfig
+from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.io import read_json
 from lastmile_dataflow.recording.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.no_edit_execution import ContinuousContext
@@ -91,9 +92,10 @@ class ContactPolicyTests(unittest.TestCase):
     def test_planner_runtime_keeps_stepping_after_environment_contact(self):
         with tempfile.TemporaryDirectory() as d:
             sim,robot=make_sim(d)
-            collection=CollectionConfig(record_video=False)
+            collection=CollectionConfig(record_video=False,record_images=False)
             sim.freeze(Path(d)/'scene')
-            recorder=AttemptRecorder(d,freeze_config(robot,TaskConfig(),collection),attempt_id='contact')
+            recorder=AttemptRecorder(d,{'robot':asdict(robot), 'collection':asdict(collection)},attempt_id='contact')
+            recorder.bind_simulation(sim)
             ctx=ContinuousContext(sim,recorder,NoEditConfig(),record_rgb=False,record_png=False)
             a=sim.robot.neutral_action()
             with patch('lastmile_dataflow.runtime.no_edit_execution.contact_observations',return_value=[CONTACT]) as contacts:

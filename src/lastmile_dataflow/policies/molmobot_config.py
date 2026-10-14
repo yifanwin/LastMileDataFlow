@@ -1,11 +1,11 @@
-"""Explicit model source, optional gripper override, and frozen upstream provenance."""
+"""Explicit model source, optional gripper override, and upstream model configuration."""
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import ast
 import subprocess
 
 from ..config import construct
-from ..io import read_json, file_digest, digest
+from ..io import read_json
 
 
 @dataclass(frozen=True)
@@ -18,24 +18,18 @@ class MolmoBotConfig:
     service_timeout_s: float = 300.
     rpc_timeout_s: float = 30.
     load_timeout_s: float = 900.
-    min_free_gpu_mb: int = 24576
-    max_gpu_utilization: int = 20
-    gpu_sample_count: int = 3
-    gpu_sample_interval_s: float = 5.
 
     def __post_init__(self):
         if self.gripper_mode not in ('model_default', 'binary', 'continuous'):
             raise ValueError('unknown gripper mode')
-        for name in ('task_horizon', 'min_free_gpu_mb', 'gpu_sample_count'):
+        for name in ('task_horizon',):
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError('invalid ' + name)
         import math
-        for name in ('service_timeout_s', 'rpc_timeout_s', 'load_timeout_s', 'gpu_sample_interval_s'):
+        for name in ('service_timeout_s', 'rpc_timeout_s', 'load_timeout_s'):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError('invalid ' + name)
-        if type(self.max_gpu_utilization) is not int or not 0 <= self.max_gpu_utilization <= 100:
-            raise ValueError('invalid GPU utilization')
 
 
 def load_policy_config(path):
@@ -73,17 +67,3 @@ def upstream_defaults(source):
         if sum(values['action_spec'].values()) != 20 or sum(values['state_spec'].values()) != 22:
             raise ValueError('upstream action/state protocol changed')
     return defaults
-
-
-def policy_manifest(config):
-    source, checkpoint = Path(config.source_dir), Path(config.checkpoint)
-    if not Path(config.python).is_file(): raise FileNotFoundError(config.python)
-    files = {str(p.relative_to(source)):file_digest(p)
-             for p in sorted((source/'olmo').rglob('*.py'))}
-    if not files: raise ValueError('empty model source')
-    commit = subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
-    return {'config':asdict(config), 'upstream_commit':commit, 'source_sha256':digest(files),
-            'checkpoint_files':{name:file_digest(checkpoint/name) for name in ('config.yaml','model.pt')},
-            'upstream_defaults':upstream_defaults(source),
-            'camera_profile':'RBY1GoProD455 nominal rig; no extrinsic jitter; upstream fisheye randomness seeded',
-            'protocol':'rby1-multitask-molmobot-native-v1'}

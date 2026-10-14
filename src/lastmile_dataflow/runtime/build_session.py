@@ -1,33 +1,5 @@
-"""场景编辑与快照加载仍使用的共享函数；旧 BuildSession 已删除。"""
-from dataclasses import asdict
-import hashlib
-
+"""构造期按关节/执行器名称迁移真实状态。"""
 import mujoco
-import numpy as np
-
-from ..io import digest
-
-
-def model_identity(sim, *, robot_config_payload=None):
-    """编译模型的稳定身份：模型字节 + 实例映射 + 机器人配置 + MuJoCo 版本。
-
-    注意用 mj_saveModel 到内存 buffer 再哈希，而不是哈希磁盘文件——
-    这样身份只取决于“模型内容”，与文件压缩细节无关。
-    """
-    buffer = np.empty(mujoco.mj_sizeModel(sim.model),dtype=np.uint8)
-    mujoco.mj_saveModel(sim.model,None,buffer)
-    return digest({'compiled_model':hashlib.sha256(buffer.tobytes()).hexdigest(), 'instances':sim.catalog,
-                   'robot':asdict(sim.robot.config) if robot_config_payload is None else robot_config_payload,
-                   'mujoco':mujoco.__version__})
-
-
-def checkpoint_identity(sim, model_id):
-    """检查点身份：模型身份 + 完整状态 + 固定头 + 时钟余数。
-
-    “模型身份”与“检查点身份”分开，是因为同一个模型可以有不同的动态状态。
-    """
-    return digest({'model_id':model_id,'state_spec':int(sim.state_spec),'state':sim.state_vector().tolist(),
-                   'fixed_head':sim.robot.fixed_head.tolist(),'clock_remainder':sim._clock_remainder})
 
 
 def migrate_state(old, new, *, forward=True):

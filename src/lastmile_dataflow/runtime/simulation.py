@@ -19,9 +19,9 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from ..io import file_digest, read_json, write_json
+from ..io import read_json, write_json
 from ..robots.rby1 import RBY1Adapter, prepare_robot_spec
-from ..scenes.source import instance_catalog, resolve_target, scene_version
+from ..scenes.source import instance_catalog, resolve_target
 from ..scenes.mjcf import load_spec
 
 
@@ -42,7 +42,6 @@ class Simulation:
         self.renderer = None
         self.third_person_camera = None
         self.state_spec = mujoco.mjtState.mjSTATE_INTEGRATION  # 快照包含的完整积分状态
-        self.model_hash = None
         self._clock_remainder = 0.0  # 控制周期与物理步长之间的余数，保证长期平均控制频率
         self.evidence_recorder = None
         self._raw_frame_cache = None
@@ -85,29 +84,30 @@ class Simulation:
         return spec
 
     def freeze(self, path):
-        """把当前场景冻结成可独立恢复的目录（仅准备阶段允许）。
-
-        产物：model.mjb（编译模型）+ initial.npz（初态快照）+ version.json（版本摘要）
-              + instances.json（实例映射）+ checksums.json（互校摘要）。
-        目录已存在时直接报错，绝不覆盖——这是“attempt 唯一且不覆盖”约束的落点。
-        """
+        """保存准备阶段场景。保留同版本二进制载荷，另导出 MJCF。"""
         if self.started:
-            raise RuntimeError("freeze initialization only before continuous execution")
+            raise RuntimeError('cannot save initialization after execution begins')
         path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
-        model_path = path / "model.mjb"
-        if model_path.exists():
-            raise FileExistsError(model_path)
-        mujoco.mj_saveModel(self.model, str(model_path), None)
-        self.model_hash = file_digest(model_path)
-        version = scene_version(self.source, asdict(self.robot.config), self.model_hash,
-                                self.restoration, provenance=getattr(self,"frozen_provenance",None))
-        write_json(path / "version.json", version)
-        write_json(path / "instances.json", self.catalog)
-        self.save_snapshot(path / "initial.npz")
-        write_json(path / "checksums.json", {name: file_digest(path / name) for name in
-                    ("model.mjb", "initial.npz", "version.json", "instances.json")})
-        return version
+        path.mkdir(parents=True, exist_ok=False)
+        mujoco.mj_saveModel(self.model, str(path / 'model.mjb'), None)
+        # Binary remains available until exported XML has been tested with the actual assets.
+        spec = getattr(self, 'spec', None)
+        if spec is not None:
+            import xml.etree.ElementTree as ET
+            xml = ET.fromstring(spec.to_xml())
+            defaults = xml.find('default')
+            # Attached main defaults have no class name; XML requires them at root.
+            if defaults is not None:
+                for child in list(defaults):
+                    if child.tag == 'default' and not child.get('class'):
+                        defaults.remove(child)
+                        defaults.extend(list(child))
+            (path / 'model.xml').write_text(ET.tostring(xml, encoding='unicode'))
+        value = {'robot': asdict(self.robot.config), 'source': self.source.to_dict(),
+                 'mujoco_version': mujoco.__version__, 'instances': self.catalog}
+        write_json(path / 'config.json', value)
+        self.save_snapshot(path / 'initial.npz')
+        return value
 
     def state_vector(self):
         """取一份完整积分状态向量（qpos/qvel/act/插件状态等），用于快照与身份计算。"""
@@ -116,98 +116,37 @@ class Simulation:
         return state
 
     def save_snapshot(self, path):
-        """保存快照；包含状态、模型摘要、MuJoCo 版本、固定头与时钟余数，保证可精确恢复。"""
-        path = Path(path)
-        if path.exists():
-            raise FileExistsError(path)
-        if self.model_hash is None:
-            raise RuntimeError("save compiled model before snapshot")
-        with path.open("xb") as stream:
-            np.savez_compressed(stream, state=self.state_vector(), model_sha256=self.model_hash,
-                                state_spec=int(self.state_spec),
-                                mujoco_version=mujoco.__version__,
-                                fixed_head=self.robot.fixed_head,
-                                clock_remainder=self._clock_remainder)
+        with Path(path).open('xb') as stream:
+            np.savez_compressed(stream, state=self.state_vector(), state_spec=int(self.state_spec),
+                                fixed_head=self.robot.fixed_head, clock_remainder=self._clock_remainder)
 
     def restore_snapshot(self, path):
-        """恢复快照（仅准备阶段允许）。所有校验失败都抛 ValueError，不做“尽力恢复”。"""
         if self.started or self.closed:
-            raise RuntimeError("snapshot restore prohibited after continuous execution starts")
+            raise RuntimeError('snapshot restore prohibited after execution begins')
         with np.load(path, allow_pickle=False) as saved:
-            if str(saved["model_sha256"]) != self.model_hash:
-                raise ValueError("snapshot model digest mismatch")
-            if str(saved["mujoco_version"]) != mujoco.__version__:
-                raise ValueError("snapshot MuJoCo version mismatch")
-            if int(saved["state_spec"]) != int(self.state_spec):
-                raise ValueError("snapshot state specification mismatch")
-            state = saved["state"]
+            state = saved['state']
             if state.shape != self.state_vector().shape or not np.isfinite(state).all():
-                raise ValueError("invalid snapshot state")
-            head = saved["fixed_head"]
-            if head.shape != (2,) or not np.isfinite(head).all():
-                raise ValueError("invalid snapshot head")
-            remainder = float(saved["clock_remainder"])
-            if not np.isfinite(remainder) or not 0 <= remainder < self.model.opt.timestep + 1e-10:
-                raise ValueError("invalid snapshot clock")
+                raise ValueError('snapshot state does not match this model')
             mujoco.mj_setState(self.model, self.data, state, self.state_spec)
-            self.robot.fixed_head = head.copy()
-            self._clock_remainder = remainder
+            self.robot.fixed_head = saved['fixed_head'].copy()
+            self._clock_remainder = float(saved['clock_remainder'])
         mujoco.mj_forward(self.model, self.data)
 
     @classmethod
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None):
-        """从冻结目录构建准备阶段仿真：先校验全部摘要，再恢复初态。
-
-        校验链（任一步失败都拒绝，不会“凑合加载”）：
-          checksums.json 覆盖完整 → 每个文件摘要一致 → version.json 自洽 →
-          model.mjb 摘要等于 version 中记录 → 机器人配置一致 → （v2）模型/检查点/映射身份一致。
-        这样能保证“独立恢复”拿到的是当初冻结的那一份，而不是被改过的现场。
-        """
         frozen_dir = Path(frozen_dir)
-        checksums = read_json(frozen_dir / "checksums.json")
-        required = {"model.mjb", "initial.npz", "version.json", "instances.json"}
-        if set(checksums) != required:
-            raise ValueError("incomplete frozen snapshot manifest")
-        for name, checksum in checksums.items():
-            if file_digest(frozen_dir / name) != checksum:
-                raise ValueError(f"frozen artifact modified: {name}")
-        version = read_json(frozen_dir / "version.json")
-        if version.get("schema_version") not in (None, "1.0", "2.0"):
-            raise ValueError("unknown frozen scene schema")
-        from ..io import digest
-        if digest({k: v for k, v in version.items() if k != "version_id"}) != version["version_id"]:
-            raise ValueError("scene version digest mismatch")
-        model_hash = file_digest(frozen_dir / "model.mjb")
-        if model_hash != version["compiled_model_sha256"]:
-            raise ValueError("frozen model modified")
-        saved_robot = dict(version["robot"])
-        # Old snapshots predate control_profile; absence means the old position
-        # protocol, never native motors. Validate original hashes BEFORE defaulting.
-        saved_robot.setdefault("control_profile", "position-v1")
-        if saved_robot != read_json_value(asdict(robot_config)):
-            raise ValueError("robot configuration mismatch")
-        model = mujoco.MjModel.from_binary_path(str(frozen_dir / "model.mjb"))
-        sim = cls(model, robot_config, read_json(frozen_dir / "instances.json"), target)
-        sim.model_hash = model_hash
-        sim.restore_snapshot(frozen_dir / "initial.npz")
-        if version.get("schema_version") == "2.0":
-            # v2 额外绑定“编译模型身份 + 检查点身份 + 实例映射身份”
-            from .build_session import model_identity, checkpoint_identity
-            # Use the authenticated historical config payload in the identity,
-            # rather than changing a pre-profile scene's model/checkpoint hashes.
-            if (model_identity(sim, robot_config_payload=version["robot"]) != version["model_id"] or
-                    checkpoint_identity(sim, version["model_id"]) != version["checkpoint_id"]):
-                sim.close()
-                raise ValueError("frozen model/checkpoint identity mismatch")
-            if digest(sim.catalog) != version["mapping_id"]:
-                sim.close()
-                raise ValueError("frozen instance mapping mismatch")
+        value = read_json(frozen_dir / 'config.json')
+        if read_json_value(asdict(robot_config)) != value['robot']:
+            raise ValueError('snapshot robot configuration mismatch')
+        if value['mujoco_version'] != mujoco.__version__:
+            raise ValueError('use the saved MuJoCo version; cross-version XML reconstruction is not verified')
+        model = mujoco.MjModel.from_binary_path(str(frozen_dir / 'model.mjb'))
+        sim = cls(model, robot_config, value['instances'], target)
+        sim.restore_snapshot(frozen_dir / 'initial.npz')
         from ..scenes.source import SceneSource
-        source = version["source"]
-        sim.source = SceneSource(**{k: source[k] for k in
-                                ("scene_id", "xml_path", "metadata_path", "dataset", "split")})
-        sim.restoration = version["restoration"]
-        sim.frozen_provenance = version["source"]
+        sim.source = SceneSource(**value['source'])
+        sim.restoration = None
+        sim.spec = None
         return sim
 
     def begin(self):
@@ -256,48 +195,27 @@ class Simulation:
         return self._advance(command, request_id, submitted_id, [5] * 5, substep_check)
 
     def _submit(self, action, *, fixed_base=False, command_raw=None):
-        recorder = self.evidence_recorder
-        request_id = recorder.requested(action if command_raw is None else command_raw, fixed_base=fixed_base) if recorder else None
-        try:
-            if recorder and (float(self.model.opt.timestep) != recorder.timing['physics_dt'] or
-                             self.robot.config.control_hz != recorder.config['robot']['control_hz'] or
-                             self.robot.config.control_profile != recorder.config['robot']['control_profile']):
-                recorder.errors.append({'kind': 'timing_or_controller_mutation'})
-                raise ValueError('raw-first live-v1 freezes physics_dt, frequency and controller profile')
-            command = self.robot.apply(action, fixed_base=fixed_base)
-        except Exception as exc:
-            if recorder:
-                recorder.event('command_rejected', command_raw_id=request_id, error_type=type(exc).__name__, error=str(exc))
-            raise
-        if command_raw is not None:
-            command['command_preprocessed'] = np.asarray(action).tolist()
-        submitted_id = recorder.submitted(command, request_id) if recorder else None
-        return command, request_id, submitted_id
+        command = self.robot.apply(action, fixed_base=fixed_base)
+        if self.evidence_recorder:
+            self.evidence_recorder.requested_action = np.asarray(action if command_raw is None else command_raw).copy()
+        return command, None, None
 
     def _advance(self, command, request_id, submitted_id, tick_groups, substep_check):
-        """Keep physical semantics, retain completed ticks even if a callback raises."""
-        recorder = self.evidence_recorder
         before = float(self.data.time)
-        start_frame = recorder.frame_id if recorder else None
-        start_groups = recorder.last_groups if recorder else None
-        actual_ticks, controls = 0, []
+        actual_ticks = 0
         stop = None
         error = None
         try:
             for ticks in tick_groups:
                 self.data.ctrl[:] = command['ctrl']
-                if recorder:
-                    controls.append(recorder.control(submitted_id, ticks=ticks))
                 for _ in range(ticks):
                     mujoco.mj_step(self.model, self.data)
                     actual_ticks += 1
-                    if recorder:
-                        recorder.physics_tick()
                     if substep_check:
-                        check = substep_check()
-                        if not check['valid']:
-                            stop = check
+                        stop = substep_check()
+                        if not stop['valid']:
                             break
+                        stop = None
                 if stop:
                     break
         except BaseException as exc:
@@ -308,10 +226,8 @@ class Simulation:
             command.update(time_before_s=before, time_after_s=float(self.data.time),
                            requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
                            completion='partial' if stop or error else 'complete')
-            if recorder:
-                recorder.executed(command=command, request_id=request_id, submitted_id=submitted_id,
-                    controls=controls, start_frame=start_frame, start_groups=start_groups, t_start=before,
-                    requested_ticks=sum(tick_groups), actual_ticks=actual_ticks, stopped=stop, exception=error)
+            if self.evidence_recorder and actual_ticks:
+                self.evidence_recorder.executed(command)
         return command, stop
 
     def observe_state(self):

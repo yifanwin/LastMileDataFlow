@@ -146,3 +146,19 @@ def placement_pose(sim, body, region, xy, yaw, gap=.003):
         return None
     if not support_rays(sim, body, region, projected): return None
     return np.r_[center, quat_yaw(yaw)].tolist()
+
+
+def body_pose(sim,body):
+    result=np.eye(4); result[:3,3]=sim.data.xpos[body]; result[:3,:3]=sim.data.xmat[body].reshape(3,3)
+    return result
+
+
+def tcp_pose(sim,side):
+    site=sim.model.site('robot_0/ee_site_'+side[0]).id
+    pose=np.eye(4); pose[:3,3]=sim.data.site_xpos[site]; pose[:3,:3]=sim.data.site_xmat[site].reshape(3,3)
+    return pose
+
+
+def pose7(matrix):
+    q=np.zeros(4); mujoco.mju_mat2Quat(q,np.ascontiguousarray(matrix[:3,:3]).reshape(-1))
+    return np.r_[matrix[:3,3],q].tolist()

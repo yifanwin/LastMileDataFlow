@@ -27,8 +27,6 @@ class CaseConstruction:
     substantial_height_m: float = .20
     substantial_width_m: float = .25
     registered_assets_only: bool = True
-    allow_surface_capacity_shortfall: bool = False
-    capacity_probe_budget: int = 20000
     case1_support_types: list = field(default_factory=lambda: list(SUPPORT_TYPES))
 
     def __post_init__(self):
@@ -38,7 +36,7 @@ class CaseConstruction:
             raise ValueError('unknown case rule version')
         if self.station_selection not in ('coverage', 'all_valid'):
             raise ValueError('unknown station selection')
-        for key in ('min_prefilter_points', 'max_final_stations', 'min_substantial', 'min_final_points', 'capacity_probe_budget'):
+        for key in ('min_prefilter_points', 'max_final_stations', 'min_substantial', 'min_final_points'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
         for key in ('surface_spacing_m', 'surface_alignment_jitter_rad', 'near_target_m', 'substantial_height_m', 'substantial_width_m'):
@@ -48,8 +46,6 @@ class CaseConstruction:
             raise ValueError('invalid substantial_categories')
         if type(self.registered_assets_only) is not bool:
             raise ValueError('registered_assets_only must be boolean')
-        if type(self.allow_surface_capacity_shortfall) is not bool or (self.allow_surface_capacity_shortfall and self.rule_version != 'scene-cases-v3'):
-            raise ValueError('capacity shortfall requires scene-cases-v3')
         if not self.case1_support_types or set(self.case1_support_types)-set(SUPPORT_TYPES):
             raise ValueError('Case1 supports must be countertops/tables')
 
@@ -84,6 +80,8 @@ class ObstacleConfig:
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
     views: dict = field(default_factory=lambda: {'width': 640, 'height': 480})
     construction: dict = field(default_factory=dict)
+
+    record_views: bool = False
 
     def __post_init__(self):
         if self.schema_version not in ('procedural-obstacles-v1', 'procedural-obstacles-v2', 'procedural-obstacles-v3'):

@@ -45,7 +45,7 @@ class ActionLimitTests(unittest.TestCase):
     def test_unsafe_yaw_wrap_not_allowed(self):
         ctx=ContinuousContext.__new__(ContinuousContext);ctx.config=NoEditConfig(planner_backend='curobo_v2_v080',max_attempts=5)
         self.assertAlmostEqual(ctx.yaw_gap(3.13,-3.13),6.26)
-        ctx.config=NoEditConfig();self.assertLess(abs(ctx.yaw_gap(3.13,-3.13)),.03)
+        ctx.config=NoEditConfig();self.assertAlmostEqual(ctx.yaw_gap(3.13,-3.13),6.26)
         r,v=robot_fixture();v['base'][2]=-3.13;a=np.zeros(20);a[19]=.3;a[2]=-.02
         with self.assertRaises(InvalidAction):sanitize_action(r,a)
 

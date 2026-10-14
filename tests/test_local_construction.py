@@ -7,7 +7,6 @@ import mujoco
 
 from helpers import table_scene
 from lastmile_dataflow.catalog.library import ThorLibrary
-from lastmile_dataflow.io import file_digest
 from lastmile_dataflow.runtime.preparation import prepare_scene, settle_scene, SettleConfig
 from lastmile_dataflow.runtime.simulation import InitializationError
 
@@ -53,7 +52,7 @@ class LocalConstructionTests(unittest.TestCase):
         root = self.root/'thor'; folder = root/'Kitchen Objects/Cup/Prefabs/Cup_fixture'; folder.mkdir(parents=True)
         source = folder/'Cup_fixture.xml'
         source.write_text('<mujoco><worldbody><body name="cup"><freejoint/><geom type="box" size=".1 .2 .15" mass="1"/></body></worldbody></mujoco>')
-        before = file_digest(source)
+        before = source.read_bytes()
         library = ThorLibrary(root)
         self.assertEqual(library.categories(), ['Cup'])
         assets = library.retrieve([{'categories': ['Cup'], 'intended_role': 'obstacle', 'size_constraints_m': {}}], self.root/'retrieval')
@@ -62,4 +61,4 @@ class LocalConstructionTests(unittest.TestCase):
         self.assertAlmostEqual(description[0]['size']['height'], .4)
         self.assertAlmostEqual(description[0]['size']['depth'], .3)
         self.assertEqual(description[0]['root_motion'], 'free')
-        self.assertEqual(file_digest(source), before)
+        self.assertEqual(source.read_bytes(), before)

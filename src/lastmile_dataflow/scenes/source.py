@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ..io import digest, file_digest, read_json
+from ..io import read_json
 
 
 @dataclass(frozen=True)
@@ -25,11 +25,8 @@ class SceneSource:
         return cls(f"{root.name}/{name}", str(root / f"{name}.xml"),
                    str(root / f"{name}_metadata.json"), root.name, split)
 
-    def provenance(self):
-        value = asdict(self)
-        value["xml_sha256"] = file_digest(self.xml_path)
-        value["metadata_sha256"] = file_digest(self.metadata_path) if self.metadata_path else None
-        return value
+    def to_dict(self):
+        return asdict(self)
 
 
 def instance_catalog(model, source):
@@ -74,9 +71,3 @@ def resolve_target(model, catalog, target):
     if len(names) != 1:
         raise ValueError(f"target must resolve uniquely: {target}, matches={sorted(names)}")
     return model.body(next(iter(names))).id
-
-
-def scene_version(source, robot_config, model_hash, restoration=None, *, provenance=None):
-    descriptor = {"source": provenance if provenance is not None else source.provenance(), "robot": robot_config,
-                  "compiled_model_sha256": model_hash, "restoration": restoration}
-    return {"version_id": digest(descriptor), **descriptor}

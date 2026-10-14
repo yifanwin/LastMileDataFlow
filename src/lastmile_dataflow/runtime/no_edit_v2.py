@@ -2,7 +2,7 @@
 import copy
 import numpy as np
 from ..io import write_json
-from ..planning.curobo import body_pose, tcp_pose
+from ..scenes.geometry import body_pose, tcp_pose
 from ..planning.curobo_v2 import V2Planner
 from ..validation.pick import PickMonitor
 from ..validation.no_edit import evaluate_mobile_pick, evaluate_open

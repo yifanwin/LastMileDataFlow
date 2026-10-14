@@ -4,8 +4,7 @@ import re
 import mujoco
 import numpy as np
 
-from ..io import digest
-from ..planning.curobo import body_pose
+from ..scenes.geometry import body_pose
 from ..scenes.geometry import body_points, descendants
 
 
@@ -69,7 +68,7 @@ def discover_tasks(sim, metadata, config):
             task = {**common, 'operation': 'pick', 'target_body': name,
                     'instruction': f'拿起{qualifier}的{label}。', 'anchor_world': center.tolist(),
                     'local_bounds': [lo.tolist(), hi.tolist()]}
-            task['task_id'] = 'pick-' + digest([name, asset])[:12]
+            task['task_id'] = f'pick-{b:04d}'
             tasks.append(task)
         elif 'pick' in config.operations and min(hi-lo) <= config.gripper_width_m:
             skipped.append({'instance': name, 'operation': 'pick', 'reason': 'not_free_moving_instance'})
@@ -124,7 +123,7 @@ def discover_tasks(sim, metadata, config):
                     'handle_local_bounds': [hlo.tolist(), hhi.tolist()],
                     'anchor_world': contact.tolist(),
                     'instruction': f'打开{qualifier}的{label}的第{found}个' + ('抽屉。' if unit == 'slide' else '门。')}
-            task['task_id'] = 'open-' + digest([name, joint_name])[:12]
+            task['task_id'] = f'open-{b:04d}-{j:04d}'
             tasks.append(task)
         if not found:
             skipped.append({'instance': name, 'operation': 'open', 'reason': 'no_eligible_articulation'})

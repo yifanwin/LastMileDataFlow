@@ -1,5 +1,4 @@
 """Pinned cuRoboV2 native grasp pipeline with 11D holobase/torso coupling."""
-import hashlib
 import importlib.metadata
 from pathlib import Path
 import time
@@ -7,7 +6,7 @@ import numpy as np
 
 from ..io import read_json, write_json
 from ..integrations.waypoints import PlanResult
-from .curobo import body_pose, tcp_pose, pose7
+from ..scenes.geometry import body_pose, tcp_pose, pose7
 from .rby1m_mobile_torso import derive_urdf, robot_config, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
 from .curobo_v2_costs import manager_type, fov_optimizer_configs
@@ -16,15 +15,10 @@ from .head_fov import (HeadFOVCost, SparseFOVValidator, camera_definition,
 
 
 def verify_version():
-    import curobo
-    root = Path(curobo.__file__).parent
-    pin = read_json(Path(__file__).resolve().parents[3] / 'configs/curobo-v080-pin.json')
-    if importlib.metadata.version('nvidia-curobo') != '0.8.0':
-        raise RuntimeError('no-edit V2 requires pinned nvidia-curobo==0.8.0; no legacy fallback')
-    for name, digest in pin['files'].items():
-        if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
-            raise RuntimeError('cuRobo v0.8.0 source mismatch: ' + name)
-    return {**pin, 'import_path': str(root)}
+    version = importlib.metadata.version('nvidia-curobo')
+    if version != '0.8.0':
+        raise RuntimeError('this planner requires nvidia-curobo==0.8.0')
+    return {'version': version}
 
 
 class V2Planner:

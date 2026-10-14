@@ -66,46 +66,24 @@ class RobotConfig:
 
 
 @dataclass(frozen=True)
-class TaskConfig:
-    task_id: str = "foundation-smoke"
-    case_type: str = "foundation"
-    target: str | None = None
-    operation: str = "short_action"
-    allowed_edits: tuple = ()
-    success_conditions: dict = field(default_factory=dict)
-    fixed_base: bool = False
-
-    def __post_init__(self):
-        if not isinstance(self.fixed_base, bool) or not isinstance(self.success_conditions, dict):
-            raise ValueError("invalid task flag or success conditions type")
-        if self.target is not None and not isinstance(self.target, str):
-            raise ValueError("target must be an explicit string identifier")
-        if self.case_type not in ("foundation", "case1", "case1.5", "case2", "case3"):
-            raise ValueError("unsupported case type in v1")
-        if self.operation != "short_action" or self.success_conditions or self.allowed_edits:
-            raise ValueError("phase 1 does not implement scene edits or task success evaluators")
-
-
-@dataclass(frozen=True)
 class CollectionConfig:
     output_dir: str = "outputs"
     seed: int = 0
     max_steps: int = 10
     max_initialization_trials: int = 80
-    agent_call_budget: int = 0
     width: int = 320
     height: int = 240
     record_video: bool = True
-    raw_first: bool = True
-    record_depth: bool = True
-    protocol_version: str = "lightweight-v1"
+    record_images: bool = True
+    record_physics: bool = False
+    record_depth: bool = False
     penetration_ratio: float = 0.10
     penetration_floor_m: float = 0.010
     penetration_ceiling_m: float = 0.030
     feedback_warning_rad: float = 0.05
 
     def __post_init__(self):
-        for key in ('record_video', 'raw_first', 'record_depth'):
+        for key in ('record_video', 'record_images', 'record_physics', 'record_depth'):
             if not isinstance(getattr(self, key), bool):
                 raise ValueError(key + " must be boolean")
         for key in ("max_steps", "max_initialization_trials", "width", "height"):
@@ -114,12 +92,8 @@ class CollectionConfig:
                 raise ValueError(f"{key} must be positive integer")
         if not isinstance(self.seed, int) or isinstance(self.seed, bool) or self.seed < 0:
             raise ValueError("seed must be a nonnegative integer")
-        if not isinstance(self.agent_call_budget, int) or isinstance(self.agent_call_budget, bool) or self.agent_call_budget < 0:
-            raise ValueError("invalid agent budget")
         if self.width % 2 or self.height % 2:
             raise ValueError("video dimensions must be even")
-        if self.protocol_version != "lightweight-v1":
-            raise ValueError("unknown protocol version")
         for key in ("penetration_ratio", "penetration_floor_m", "penetration_ceiling_m",
                     "feedback_warning_rad"):
             if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
@@ -135,9 +109,3 @@ def load_config(cls, path):
         if key in value:
             value[key] = str((path.parent / value[key]).resolve())
     return construct(cls, value)
-
-
-def freeze_config(robot, task, collection):
-    from .validation.contacts import CONTACT_POLICY
-    return {"schema_version": "1.0", "robot": asdict(robot), "task": asdict(task),
-            "collection": asdict(collection), "contact_policy": CONTACT_POLICY}

@@ -12,9 +12,9 @@ from ..scenes.mjcf import load_spec
 
 
 class EditAssetCatalog:
-    def __init__(self, path=None):
+    def __init__(self, path=None, *, assets=None):
         self.path = Path(path).resolve() if path else None
-        value = read_json(self.path) if path else {'asset_catalog_version': '0.1', 'assets': []}
+        value = {'asset_catalog_version': '0.1', 'assets': assets} if assets is not None else read_json(self.path) if path else {'asset_catalog_version': '0.1', 'assets': []}
         if set(value) != {'asset_catalog_version', 'assets'} or value['asset_catalog_version'] != '0.1' or not isinstance(value['assets'], list):
             raise ValueError('invalid edit asset catalog')
         self.assets, self._cache = {}, {}

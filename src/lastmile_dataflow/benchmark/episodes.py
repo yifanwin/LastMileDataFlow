@@ -2,7 +2,6 @@
 import math
 import numpy as np
 
-from ..io import digest
 
 
 def select_starts(stations, calibration, binding, *, limit=1, low=.2, high=.8, nearby_m=1.):
@@ -13,8 +12,6 @@ def select_starts(stations, calibration, binding, *, limit=1, low=.2, high=.8, n
         raise ValueError('duplicate station identity')
     if calibration is None:
         return [(s, {'status':'uncalibrated_smoke','recovery_verified':False}) for s in list(valid.values())[:limit]]
-    if calibration.get('schema_version') != 'lastmilebench-station-rates-v1' or calibration.get('backend') != 'curobo':
-        raise ValueError('unsupported station calibration')
     # A heatmap from another model / scene / task cannot justify this episode.
     for key, value in binding.items():
         if calibration.get(key) != value:
@@ -47,8 +44,6 @@ def select_starts(stations, calibration, binding, *, limit=1, low=.2, high=.8, n
     return result
 
 
-def episode_id(value):
-    return 'lm-' + digest(value)[:20]
 
 
 def summarize(episodes, results):

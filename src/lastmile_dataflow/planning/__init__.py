@@ -1,1 +1,1 @@
-"""Optional native cuRobo adapter; no legacy robotics package imports."""
+"""Optional cuRobo V2 planning adapter."""

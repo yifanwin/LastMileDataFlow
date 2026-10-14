@@ -37,10 +37,6 @@ def native_scene(parent):
     sim.robot.fixed_head = parent.robot.fixed_head.copy()
     sim.source = parent.source
     sim.restoration = parent.restoration
-    sim.frozen_provenance = {**getattr(parent, "frozen_provenance", parent.source.provenance()), 'kind':'lastmilebench-native-control-derivative-v1',
-        'parent_model_sha256':parent.model_hash, 'scene_regenerated':False,
-        'scene_geometry_changed':False, 'state_preserved_before_station_initialization':True,
-        'robot_only_changes':['finger_motor_controls','camera_fovy','control_hz','offscreen_buffer']}
     sim.robot.hold()
     mujoco.mj_forward(model, sim.data)
     if not np.array_equal(parent.data.qpos, sim.data.qpos) or not np.array_equal(parent.data.qvel, sim.data.qvel):
