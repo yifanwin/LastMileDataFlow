@@ -1,9 +1,9 @@
 {
+  "data_root": "data",
   "schema_version": "procedural-obstacles-v1",
-  "baseline_config": "../execution/curobo_v2.json",
-  "dataset_dir": "../../../../../molmospaces_data/assets/scenes/procthor-10k-val",
-  "asset_library": "../../../../../molmospaces_data/assets/objects/thor",
-  "input_snapshot": "../../../no-edit-lastmile-val/outputs/no_edit/no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707/scenes/val_103/scene",
+  "baseline_config": "configs/execution/curobo_v2.json",
+  "dataset_dir": "assets/scenes/procthor-10k-val",
+  "asset_library": "assets/objects/thor",
   "house": 103,
   "target_instance": "cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2",
   "variant_count": 5,

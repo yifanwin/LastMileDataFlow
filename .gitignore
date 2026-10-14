@@ -1,7 +1,9 @@
 __pycache__/
 *.egg-info/
 .venv/
-.venv-curobo-v080/
+.venv-policy/
+.venv-download/
+data/
 outputs/
 .pytest_cache/
 reports/logs/

@@ -3,9 +3,10 @@ from dataclasses import asdict, replace
 import os
 from pathlib import Path
 
+from ..config import read_config
 from ..data.benchmark import select_starts, summarize
 from ..config import CollectionConfig, RobotConfig
-from ..io import append_row, create_run, read_json, rows, write_json
+from ..io import append_row, create_run, rows, write_json
 from ..runtime.simulation import Simulation
 from ..runtime.benchmark_scene import native_scene
 from ..runtime.molmobot_execution import run_vla_attempt
@@ -24,15 +25,15 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
     os.environ['MUJOCO_EGL_DEVICE_ID'] = str(gpu_ids[0])
     source = Path(dataset).resolve()
     calibrations = rows(Path(calibration_dir) / 'trials.jsonl') if calibration_dir else []
-    cal_config = read_json(Path(calibration_dir) / 'config.json') if calibration_dir else None
+    cal_config = read_config(Path(calibration_dir) / 'config.json') if calibration_dir else None
     policy = load_policy_config(policy_path)
     config = ExecutionConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
         policy_config=str(Path(policy_path).resolve()), width=1024, height=576, radius_m=radius_m)
     root = create_run(output, {'dataset': str(source), 'policy': asdict(policy), 'seed': seed,
         'horizon': horizon, 'wall_timeout_s': wall_timeout_s, 'radius_m': radius_m,
-        'calibration': str(calibration_dir) if calibration_dir else None})
+        'calibration': str(Path(calibration_dir).resolve()) if calibration_dir else None})
     for scene in load_scenes(source):
-        robot = RobotConfig(**read_json(Path(scene['scene_path']) / 'config.json')['robot'])
+        robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
         parent = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
         sim = None
         try:
@@ -78,7 +79,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
     episodes = rows(benchmark / 'episodes.jsonl')
     if not episodes:
         raise ValueError('no benchmark episodes')
-    settings = read_json(benchmark / 'config.json')
+    settings = read_config(benchmark / 'config.json')
     policy_config = replace(load_policy_config(policy_path), task_horizon=settings['horizon'])
     os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]), MUJOCO_GL='egl')
     root = create_run(output, {'benchmark': str(benchmark), 'policy': asdict(policy_config),
@@ -91,7 +92,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
     try:
         for episode in episodes:
             scene = benchmark / episode['scene']
-            robot = RobotConfig(**read_json(scene / 'config.json')['robot'])
+            robot = RobotConfig(**read_config(scene / 'config.json')['robot'])
             sim = Simulation.from_snapshot(scene, robot, target=episode['task']['target_body'])
             sim.scene_id = episode['scene_id']
             try:

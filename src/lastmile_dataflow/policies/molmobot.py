@@ -28,9 +28,7 @@ class MolmoBotClient:
         token = secrets.token_hex(32)
         env = dict(os.environ, LASTMILE_POLICY_AUTH=token,
                    PYTHONDONTWRITEBYTECODE='1', TOKENIZERS_PARALLELISM='false')
-        package_root = str(Path(__file__).resolve().parents[2])
-        env['PYTHONPATH'] = self.config.source_dir + os.pathsep + package_root
-        # No caches or downloaded tokenizer assets go into the read-only upstream tree.
+        # Keep runtime caches with this experiment, not beside model weights.
         cache = Path(log_path).parent.parent/'dependencies'/'molmobot-cache'
         cache.mkdir(parents=True, exist_ok=True)
         env.update(HF_HOME=str(cache/'hf'), XDG_CACHE_HOME=str(cache), TORCH_HOME=str(cache/'torch'))
@@ -38,7 +36,7 @@ class MolmoBotClient:
         self.connection = None
         self.process = subprocess.Popen([self.config.python, '-m',
             'lastmile_dataflow.policies.molmobot_service', '--config', str(path), '--socket', socket],
-            env=env, cwd=package_root, stdout=self.log, stderr=subprocess.STDOUT)
+            env=env, stdout=self.log, stderr=subprocess.STDOUT)
         try:
             deadline = time.monotonic()+self.config.load_timeout_s
             while not Path(socket).exists():

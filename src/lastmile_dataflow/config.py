@@ -1,10 +1,10 @@
-"""三类严格配置。路径相对于配置文件，不相对于启动目录。"""
-from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
+"""Robot/config parameters and explicit repository/data path loading."""
+from dataclasses import dataclass, field, fields
 import math
 import re
-
-from .io import read_json
+import json
+import os
+from pathlib import Path
 
 
 def construct(cls, value):
@@ -102,10 +102,34 @@ class CollectionConfig:
             raise ValueError("invalid penetration interval")
 
 
+REPO_ROOT = Path(__file__).absolute().parents[2]
+
+
+def repo_path(value):
+    # Do not dereference the virtual-environment Python symlink.
+    return os.path.abspath(REPO_ROOT / Path(value).expanduser())
+
+
+def read_config(path, *, data_fields=(), repo_fields=()):
+    """Resolve only the fields explicitly named by the owning config loader."""
+    value = json.loads(Path(repo_path(path)).read_text())
+    root = value.pop('data_root', None)
+    if data_fields:
+        if not root:
+            raise ValueError('data_root must be configured explicitly')
+        root = Path(repo_path(root))
+        for key in data_fields:
+            item = value.get(key)
+            if isinstance(item, dict):
+                value[key] = {name: os.path.abspath(root / Path(p).expanduser()) for name, p in item.items()}
+            elif item:
+                value[key] = os.path.abspath(root / Path(item).expanduser())
+    for key in repo_fields:
+        if value.get(key):
+            value[key] = repo_path(value[key])
+    return value
+
+
 def load_config(cls, path):
-    path = Path(path).resolve()
-    value = read_json(path)
-    for key in ("model_path", "output_dir"):
-        if key in value:
-            value[key] = str((path.parent / value[key]).resolve())
-    return construct(cls, value)
+    data_fields = ('model_path',) if cls is RobotConfig else ('output_dir',)
+    return construct(cls, read_config(path, data_fields=data_fields))

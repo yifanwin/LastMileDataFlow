@@ -11,6 +11,7 @@ import time
 
 import numpy as np
 
+from ..config import read_config
 from ..scenes.dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
 from ..config import RobotConfig
 from ..scenes.obstacle_config import ObstacleConfig
@@ -84,7 +85,7 @@ def print_scene_counts(recipe, selected, houses, stage):
             totals[case] += counts[case]
     print(f'总计: Case1={totals["Case1"]}, Case2={totals["Case2"]}, '
           f'Case3={totals["Case3"]}, 全部={sum(totals.values())}', flush=True)
-    print('发现阶段仅为静态预估；资格检查后可能减少，最终以构造及物理审计为准。', flush=True)
+    print('发现阶段仅为静态预估；资格检查后可能减少，最终以实际构造与物理检查为准。', flush=True)
     return totals
 
 
@@ -102,12 +103,12 @@ def discover_scene_dataset(recipe, output):
         print(f'val_{house}: loading original baseline', flush=True)
         cached = recipe.input_snapshots.get(str(house))
         if cached:
-            version = read_json(Path(cached) / 'config.json')
+            version = read_config(Path(cached) / 'config.json')
             cached_robot = RobotConfig(**version['robot'])
             if version['source'] != source.to_dict() or robot_descriptor(cached_robot) != robot_descriptor(robot):
                 raise ValueError('cached original baseline source/robot mismatch')
             sim = Simulation.from_snapshot(cached, cached_robot)
-            sim.robot.config = robot  # identical physical config; canonicalize only locator/tuple representation
+            sim.robot.config = robot  # identical physical config; normalize only locator/tuple representation
         else:
             sim = Simulation.from_source(source, robot)
         baseline = output.parent / (output.stem + '-baselines') / f'val_{house}' / 'scene'
@@ -191,7 +192,7 @@ def qualify_scene_discovery(discovery, output):
     output = Path(output)
     if output.exists():
         raise FileExistsError(output)
-    plan = read_json(discovery)
+    plan = read_config(discovery)
     recipe = SceneDatasetRecipe(**plan['recipe'])
     robot = load_scene_robot(recipe.robot_config)
     start = time.monotonic(); selected = []; qualifications = []
@@ -280,7 +281,7 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
     if resume or workers != 1:
         raise ValueError('minimal scene construction uses a fresh run and one worker')
     recipe = load_scene_recipe(recipe_path)
-    plan = read_json(discovery)
+    plan = read_config(discovery)
     if plan['recipe'] != asdict(recipe):
         raise ValueError('discovery recipe mismatch')
     for house in recipe.houses:
@@ -338,3 +339,16 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
     write_json(root / 'summary.json', {'status': 'completed', 'accepted': sum(r['status'] == 'accepted' for r in records),
                                      'rejected': sum(r['status'] != 'accepted' for r in records)})
     return root
+
+
+def build_scenes(config, output_dir, run_id, *, gpu_ids, allow_partial_targets=False):
+    """Discover, qualify and construct once; intermediate baselines are temporary."""
+    import tempfile
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.update(MUJOCO_GL='egl', MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
+    with tempfile.TemporaryDirectory(prefix='scene-build-', dir=output_dir) as temporary:
+        discovery = discover_scene_dataset(config, Path(temporary) / 'discovery.json')
+        qualified = qualify_scene_discovery(discovery, Path(temporary) / 'qualified.json')
+        return build_scene_dataset(config, qualified, output_dir, run_id, gpu_ids,
+                                   allow_partial_targets=allow_partial_targets)

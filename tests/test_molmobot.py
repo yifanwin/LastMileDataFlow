@@ -12,7 +12,7 @@ import numpy as np
 from helpers import fixtures
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.runtime.action import InvalidAction
-from lastmile_dataflow.policies.molmobot_config import load_policy_config, upstream_defaults
+from lastmile_dataflow.policies.molmobot_config import load_policy_config
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.vla_outcomes import constraint
 
@@ -97,15 +97,11 @@ class NativeTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def test_model_defaults_are_from_selected_sim_configs(self):
+    def test_policy_config_uses_local_backend(self):
         config=load_policy_config(ROOT/'configs/policies/molmobot.json')
-        if not Path(config.source_dir).is_dir():self.skipTest('selected external model source not installed')
-        values=upstream_defaults(config.source_dir)
-        self.assertFalse(values['pick']['clamp_gripper'])
-        self.assertTrue(values['open']['clamp_gripper'])
-        self.assertEqual(values['open']['gripper_threshold'],5)
-        self.assertEqual(sum(values['pick']['state_spec'].values()),22)
-        self.assertEqual(values['open']['max_conditioning_points'],1)
+        self.assertEqual(config.gripper_mode, 'model_default')
+        self.assertTrue(config.tokenizer_path.endswith("models/Qwen3-tokenizer"))
+        self.assertFalse(hasattr(config, 'source_dir'))
         sampling=load_execution_config(ROOT/'configs/execution/molmobot.json')
         self.assertAlmostEqual(sampling.radius_m,0.7928056080178096)
         self.assertAlmostEqual(sampling.spacing_m,0.1108796040001314)

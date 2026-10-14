@@ -1,4 +1,4 @@
-"""核心命令与 workflow 分发；不执行真实采集。"""
+"""Core command routing, without actual robotics inference."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,41 +10,47 @@ from lastmile_dataflow.io import write_json
 
 class CliTests(unittest.TestCase):
     def test_core_commands_only(self):
-        subcommands = next(action for action in parser()._actions if action.dest == 'command')
-        self.assertEqual(set(subcommands.choices), {
-            'collect-lastmile-datasets', 'build-lastmilebench', 'evaluate-lastmilebench',
-            'discover-scene-datasets', 'qualify-scene-datasets', 'build-scene-datasets',
-            'augment-obstacles', 'export-molmobot',
-            'collect-no-edit',
-        })
+        commands = next(action for action in parser()._actions if action.dest == 'command')
+        self.assertEqual(set(commands.choices), {
+            'build-scenes', 'evaluate-stations', 'collect-lastmile', 'build-bench', 'evaluate-bench'})
 
-    def test_obstacle_dispatch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            write_json(output / 'summary.json', {'status': 'completed'})
-            with patch('lastmile_dataflow.scenes.obstacle_config.load_obstacle_config', return_value='config'), \
-                 patch('lastmile_dataflow.workflows.obstacle_augmentation.augment_obstacles', return_value=output) as augment:
-                self.assertEqual(main(['augment-obstacles', '--config', 'fixture.json',
-                                       '--output-dir', directory, '--run-id', 'fixture']), 0)
-            augment.assert_called_once_with('config', output, run_id='fixture')
+    def test_build_scenes_dispatch(self):
+        with patch('lastmile_dataflow.workflows.scene_datasets.build_scenes', return_value=Path('out')) as build:
+            main(['build-scenes', '--config', 'recipe.json', '--run-id', 'one', '--gpu', '6'])
+        build.assert_called_once_with(Path('recipe.json'), Path('outputs'), 'one',
+                                      gpu_ids=[6], allow_partial_targets=False)
 
     def test_collection_commands_use_the_two_public_functions(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'execution.json'
             write_json(config, {})
-            for command, flags, target in [
-                ('collect-no-edit', ['--dataset-dir', directory], 'evaluate_stations'),
-                ('collect-lastmile-datasets', ['--dataset', directory], 'collect_lastmile'),
-                ('collect-lastmile-datasets', ['--dataset', directory, '--calibration-only'], 'evaluate_stations'),
-            ]:
-                with self.subTest(command=command, flags=flags), \
+            for command, target in [('evaluate-stations', 'evaluate_stations'), ('collect-lastmile', 'collect_lastmile')]:
+                with self.subTest(command=command), \
                      patch('lastmile_dataflow.workflows.collection.evaluate_stations', return_value=Path(directory)) as stations, \
                      patch('lastmile_dataflow.workflows.collection.collect_lastmile', return_value=Path(directory)) as lastmile:
-                    main([command, *flags, '--assets-dir', directory, '--config', str(config),
-                          '--run-id', 'fixture', '--gpu-ids', '0'])
+                    main([command, '--dataset', directory, '--assets-dir', directory, '--config', str(config),
+                          '--run-id', 'fixture', '--gpu', '6'])
                     selected, other = (stations, lastmile) if target == 'evaluate_stations' else (lastmile, stations)
                     selected.assert_called_once()
                     other.assert_not_called()
+
+    def test_build_command_runs_the_three_existing_steps_in_order(self):
+        from lastmile_dataflow.workflows.scene_datasets import build_scenes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch('lastmile_dataflow.workflows.scene_datasets.discover_scene_dataset',
+                       side_effect=lambda config, path: path) as discover, \
+                 patch('lastmile_dataflow.workflows.scene_datasets.qualify_scene_discovery',
+                       side_effect=lambda path, output: output) as qualify, \
+                 patch('lastmile_dataflow.workflows.scene_datasets.build_scene_dataset', return_value=root / 'result') as build:
+                result = build_scenes('recipe.json', root, 'one', gpu_ids=[6])
+            discover.assert_called_once()
+            qualify.assert_called_once()
+            build.assert_called_once()
+            self.assertEqual(qualify.call_args.args[0], discover.call_args.args[1])
+            self.assertEqual(build.call_args.args[1], qualify.call_args.args[1])
+            self.assertEqual(result, root / 'result')
+            self.assertEqual(list(root.iterdir()), [])
 
 
 if __name__ == '__main__':

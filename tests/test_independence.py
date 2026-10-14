@@ -16,9 +16,23 @@ class IndependenceTests(unittest.TestCase):
                 else:continue
                 for name in names:
                     self.assertNotIn(name.split('.')[0],banned,msg=str(path))
-        entry=(root/'bin/lastmile-dataflow').read_text()
-        self.assertNotIn('setup_env.sh',entry)
-        self.assertNotIn('lastmile_pipeline',entry)
+        import tomllib
+        project = tomllib.loads((root / 'pyproject.toml').read_text())
+        self.assertEqual(project['project']['scripts']['lastmile-dataflow'], 'lastmile_dataflow.cli:main')
+        self.assertFalse((root / 'bin/lastmile-dataflow').exists())
+
+    def test_installed_module_starts_outside_repository_without_pythonpath(self):
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        environment = dict(os.environ)
+        environment.pop('PYTHONPATH', None)
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, '-m', 'lastmile_dataflow.cli', '--help'],
+                cwd=directory, env=environment, capture_output=True, text=True, check=True)
+        self.assertIn('evaluate-stations', result.stdout)
+        self.assertNotIn('collect-no-edit', result.stdout)
 
 
 if __name__=='__main__':unittest.main()

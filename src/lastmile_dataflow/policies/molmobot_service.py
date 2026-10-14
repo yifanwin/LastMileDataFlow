@@ -1,4 +1,4 @@
-"""Private local IPC model process. Imports only the explicitly selected upstream code."""
+"""Private local IPC model process. Uses the repository-local multitask inference backend."""
 import argparse
 import logging
 import os
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .molmobot_config import load_policy_config, upstream_defaults
+from .molmobot_config import load_policy_config
 
 
 class TraceAgent:
@@ -49,27 +49,23 @@ def main():
     ctypes.CDLL(None).prctl(1, signal.SIGTERM)
     if os.getppid() == 1: return
     config = load_policy_config(args.config)
-    import sys
-    sys.path.insert(0, config.source_dir)
     import torch
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA unavailable; do not silently run a CPU VLA')
-    from olmo.models.molmobot.inference_wrapper import SynthManipMolmoInferenceWrapper
-    from olmo.eval.real_robot_molmobot_rby1_multitask import MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig, MolmoBotRBY1DoorPlusOpenPolicyConfig
-    defaults = upstream_defaults(config.source_dir)
+    from .multitask.inference import SynthManipMolmoInferenceWrapper
+    from .multitask.policy import MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig, MolmoBotRBY1DoorPlusOpenPolicyConfig
     listener = Listener(args.socket, family='AF_UNIX', authkey=bytes.fromhex(os.environ['LASTMILE_POLICY_AUTH']))
     os.chmod(args.socket, 0o600)
     connection = listener.accept()
     try:
         started = time.monotonic()
         logging.info('Loading selected checkpoint %s', config.checkpoint)
-        trace = TraceAgent(SynthManipMolmoInferenceWrapper(checkpoint_path=config.checkpoint))
+        trace = TraceAgent(SynthManipMolmoInferenceWrapper(checkpoint_path=config.checkpoint, tokenizer_path=config.tokenizer_path))
         policies = {}
         for operation, cls in [('pick',MolmoBotRBY1PickPnPPolicyConfig),('open',MolmoBotRBY1DoorPlusOpenPolicyConfig)]:
-            values = defaults[operation].copy()
+            values = {}
             if config.gripper_mode != 'model_default':
                 values['clamp_gripper'] = config.gripper_mode == 'binary'
-            # Isolated wrapper is only the carrier; all SIM defaults above override it.
             pc = cls(checkpoint_path=config.checkpoint, img_resolution=(1024,576), **values)
             policies[operation] = MolmoBotRBY1MultitaskPolicy(pc)
             policies[operation].agent = trace

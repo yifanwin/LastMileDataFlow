@@ -8,6 +8,7 @@ import numpy as np
 
 from .assets import EditAssetCatalog
 from ..io import write_json, read_json
+
 from .mjcf import load_spec
 
 
@@ -92,10 +93,10 @@ class ThorLibrary:
                         model = mujoco.MjModel.from_xml_string(ET.tostring(tree, encoding='unicode'))
                         xml = derived/'asset.xml'
                         mujoco.mj_saveLastXML(str(xml), model)
-                        entry = {'asset_id': asset_id, 'xml_path': str(xml.resolve()), 'root_body': name,
+                        entry = {'asset_id': asset_id, 'xml_path': str(xml.relative_to(path)), 'root_body': name,
                                  'category': category, 'type': 'object'}
                         manifest = derived/'manifest.json'
-                        catalog = EditAssetCatalog(manifest, assets=[entry])
+                        catalog = EditAssetCatalog(manifest, assets=[{**entry, 'xml_path': str(xml.resolve())}])
                         _, geometry = catalog.load(asset_id)
                         if any(not bounds[0] <= geometry['size'][key] <= bounds[1]
                                for key, bounds in request['size_constraints_m'].items()):

@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 import time
 
+from ..config import read_config
 from ..config import RobotConfig
-from ..io import append_row, create_run, read_json, rows, write_json
+from ..io import append_row, create_run, rows, write_json
 from ..runtime.simulation import Simulation
 from ..runtime.execution import run_curobo_attempt
 from ..runtime.molmobot_execution import run_vla_attempt
@@ -106,28 +107,29 @@ def _collect_scene(sim, scene, assets_dir, config, collection, root, policy, pri
 
 
 def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, calibration):
-    geometry = read_json(Path(dataset) / 'config.json').get('geometry', {})
+    geometry = read_config(Path(dataset) / 'config.json').get('geometry', {})
     keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m')
     config = replace(config, **{key: geometry[key] for key in keys if key in geometry})
-    collection = replace(collection, width=config.width, height=config.height, seed=config.seed)
+    collection = replace(collection, width=config.width, height=config.height, seed=config.seed,
+                         output_dir=str(Path(output_dir).resolve()))
     scenes = load_scenes(dataset, samples)
     if not scenes:
         raise ValueError('no accepted scenes')
     profiles = {}
     for scene in scenes:
-        robot = RobotConfig(**read_json(Path(scene['scene_path']) / 'config.json')['robot'])
+        robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
         if (robot.control_profile == 'molmobot-native-v1') != (config.operation_backend == 'molmobot'):
             raise ValueError('scene control profile incompatible with requested backend; construct an explicit matching scene')
         profiles[scene['scene_id']] = execution_profile(robot, config)
     prior = None
     if calibration:
-        saved = read_json(Path(calibration) / 'config.json')
+        saved = read_config(Path(calibration) / 'config.json')
         if saved['profiles'] != profiles or saved['config'] != asdict(config):
             raise ValueError('calibration scene/backend/robot/sensor/policy configuration mismatch')
         prior = rows(Path(calibration) / 'trials.jsonl')
     root = create_run(Path(output_dir) / run_id, {
         'dataset': str(Path(dataset).resolve()), 'config': asdict(config), 'collection': asdict(collection),
-        'profiles': profiles, 'gpu': gpu, 'seed': config.seed, 'calibration': str(calibration) if calibration else None})
+        'profiles': profiles, 'gpu': gpu, 'seed': config.seed, 'calibration': str(Path(calibration).resolve()) if calibration else None})
     return root, scenes, config, collection, prior
 
 
@@ -146,7 +148,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             logs.mkdir(parents=True, exist_ok=True)
             policy = MolmoBotClient(config.policy_config, logs / f'{run_id}-policy.log')
         for scene in scenes:
-            robot = RobotConfig(**read_json(Path(scene['scene_path']) / 'config.json')['robot'])
+            robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
             sim = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
             sim.scene_id = scene['scene_id']
             try:

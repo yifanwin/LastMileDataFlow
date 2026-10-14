@@ -45,11 +45,11 @@ class ConfigTests(unittest.TestCase):
     def test_unknown_keys_and_relative_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'config.json'
-            values = {'baseline_config': 'base.json', 'dataset_dir': 'data', 'asset_library': 'assets',
+            values = {'data_root': tmp, 'baseline_config': 'base.json', 'dataset_dir': 'data', 'asset_library': 'assets',
                       'target_instance': 'target', 'input_snapshot': '../scene'}
             write_json(path, values)
             loaded = load_obstacle_config(path)
-            self.assertEqual(loaded.baseline_config, str(Path(tmp) / 'base.json'))
+            self.assertEqual(loaded.baseline_config, str(Path(__file__).resolve().parents[1] / 'base.json'))
             self.assertEqual(loaded.input_snapshot, str((Path(tmp) / '../scene').resolve()))
             write_json(path, {**values, 'agent_calls': 1})
             with self.assertRaises(ValueError):

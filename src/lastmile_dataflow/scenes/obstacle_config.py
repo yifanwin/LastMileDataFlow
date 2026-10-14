@@ -1,10 +1,8 @@
 """Strict, independent configuration for procedural obstacle augmentation."""
 from dataclasses import dataclass, field
-from pathlib import Path
 import math
 
-from ..config import construct
-from ..io import read_json
+from ..config import construct, read_config
 from ..data.edit_views import ViewConfig
 from ..runtime.preparation import SettleConfig
 from .eligibility import SUPPORT_TYPES
@@ -139,9 +137,4 @@ class ObstacleConfig:
 
 
 def load_obstacle_config(path):
-    path = Path(path).resolve()
-    values = read_json(path)
-    for key in ('baseline_config', 'dataset_dir', 'asset_library', 'input_snapshot'):
-        if values.get(key):
-            values[key] = str((path.parent / values[key]).resolve())
-    return construct(ObstacleConfig, values)
+    return construct(ObstacleConfig, read_config(path, data_fields=('dataset_dir', 'asset_library', 'input_snapshot'), repo_fields=('baseline_config',)))

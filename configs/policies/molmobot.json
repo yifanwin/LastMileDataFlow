@@ -1,7 +1,8 @@
 {
-  "source_dir": "../../../../../MolmoBot/.worktrees/upstream-main/MolmoBot",
-  "checkpoint": "../../../../../nas_wenyifan/models/MolmoBot-RBY1Multitask",
-  "python": "../../../../../MolmoBot/MolmoBot/.venv/bin/python",
+  "data_root": "data",
+  "checkpoint": "models/MolmoBot-RBY1Multitask",
+  "tokenizer_path": "models/Qwen3-tokenizer",
+  "python": ".venv/bin/python",
   "gripper_mode": "model_default",
   "task_horizon": 400
 }

@@ -1,10 +1,8 @@
 """Execution parameters and the shared robot/camera/backend profile."""
 from dataclasses import asdict, dataclass, field
 import math
-from pathlib import Path
 
-from ..config import construct
-from ..io import read_json
+from ..config import construct, read_config
 from ..policies.molmobot_config import load_policy_config
 
 
@@ -120,11 +118,7 @@ class ExecutionConfig:
 
 
 def load_execution_config(path):
-    path = Path(path).resolve()
-    value = read_json(path)
-    if value.get('policy_config'):
-        value['policy_config'] = str((path.parent / value['policy_config']).resolve())
-    return construct(ExecutionConfig, value)
+    return construct(ExecutionConfig, read_config(path, repo_fields=('policy_config',)))
 
 
 def execution_profile(robot, config):

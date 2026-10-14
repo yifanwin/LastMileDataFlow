@@ -255,7 +255,7 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
         for view, rgb in frames:
             file = path / (view.replace('/', '_') + '.png')
             imageio.imwrite(file, rgb)
-            packet['images'].append({'view': view, 'path': str(file.resolve()), 'pair_id': packet['pair_id']})
+            packet['images'].append({'view': view, 'path': file.name, 'pair_id': packet['pair_id']})
         write_json(path/'pair.json', packet)
         return packet
     except Exception as exc:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..config import read_config
 from ..scenes.asset_library import ThorLibrary
 from ..config import RobotConfig
 from ..scenes.obstacle_sampling import environment_pool, asset_geometry, surface_points
@@ -28,7 +29,7 @@ def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot
         {'augmentation': asdict(config), 'geometry': asdict(geometry_config), 'seed': config.seed})
     source = SceneSource.procthor(config.dataset_dir, config.house)
     if config.input_snapshot:
-        robot = RobotConfig(**read_json(Path(config.input_snapshot) / 'config.json')['robot'])
+        robot = RobotConfig(**read_config(Path(config.input_snapshot) / 'config.json')['robot'])
         baseline = Simulation.from_snapshot(config.input_snapshot, robot, target=config.target_instance)
     else:
         robot = robot_config or RobotConfig(str(Path(config.asset_library).parent.parent / 'robots/rby1m/rby1_v1.2_site_control.xml'))

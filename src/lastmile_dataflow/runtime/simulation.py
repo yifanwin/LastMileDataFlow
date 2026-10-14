@@ -10,7 +10,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from ..io import read_json, write_json
+from ..config import read_config
+from ..io import write_json
 from .robot import RBY1Adapter, prepare_robot_spec
 from ..scenes.source import instance_catalog, resolve_target
 from ..scenes.mjcf import load_spec
@@ -126,7 +127,7 @@ class Simulation:
     @classmethod
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None):
         frozen_dir = Path(frozen_dir)
-        value = read_json(frozen_dir / 'config.json')
+        value = read_config(frozen_dir / 'config.json')
         if read_json_value(asdict(robot_config)) != value['robot']:
             raise ValueError('snapshot robot configuration mismatch')
         if value['mujoco_version'] != mujoco.__version__:

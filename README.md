@@ -1,63 +1,57 @@
 # LastMileDataFlow
 
 面向快速实验的机器人数据代码：场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测。
-历史五阶段已删除；规划仅支持 **cuRobo V2（nvidia-curobo 0.8.0）**，没有旧版回退。策略当前为 MolmoBot，导航为 A*。
+规划仅支持 **cuRobo V2（0.8.0）**，策略当前为 MolmoBot，导航为 A*。没有旧五阶段、旧 planner 或审计发布体系。
 
-## 重构进度
+## 安装与数据准备
 
-步骤一至五已执行：删除历史代码和审计体系，缩减数据格式，源码收敛到六个领域目录；两种采集入口统一到 `workflows/collection.py`。CLI 命令名和薄 Shell 入口暂留，独立环境及数据下载说明尚未完成。
-单元回归不代表真实 GPU 规划、策略推理或全量数据采集成功。
-
-- [实施方案](reports/2026-10-14-refactor-light-implementation-plan.md)
-- [步骤三、四执行报告](reports/2026-10-14-refactor-light-step34.md)
-- [步骤五执行报告](reports/2026-10-14-refactor-light-step5.md)
-- [数据格式](docs/datas/data-format.md)
-- [运行手册](docs/运行手册.md)
-
-## 安装与入口
-
-Python 3.11+；基础依赖见 `pyproject.toml`。场景资产、机器人描述和策略权重需用户自行准备；当前示例配置仍有相邻仓库路径，独立部署改造尚未完成。
+从当前仓库根目录运行：
 
 ```bash
-python -m pip install -e '.[augmentation]'
-python -m lastmile_dataflow.cli --help
-# 可选薄包装，不是每次必须经过的协议层
-bin/lastmile-dataflow --help
+scripts/install.sh
+.venv/bin/lastmile-dataflow --help
 ```
 
-V2 规划需要 CUDA、`nvidia-curobo==0.8.0` 及 `planning-v080` 可选依赖。只装基础包不能运行规划。MolmoBot 使用显式配置的独立策略服务，不由本仓库重新实现模型。
+默认一次安装研究工具、cuRobo V2 和 MolmoBot 策略依赖。完整环境、前置数据来源、授权与摆放方式见 [setup.md](docs/setup.md)。数据、测试、cuRobo V2 和最小 multitask 策略共用本仓库的 `.venv`，不借相邻工作树环境。
+**当前机器人专用 XML/规划描述是否随公开资产提供尚未验证。** 基础安装成功不代表模型、资产和真实采集已可复现。
 
-## 当前命令
+## 五个命令
 
-| 功能 | 命令 |
+| 命令 | 用途 |
 |---|---|
-| 场景任务发现、站位资格检查、场景库构建 | `discover-scene-datasets`、`qualify-scene-datasets`、`build-scene-datasets` |
-| 独立障碍物增强 | `augment-obstacles` |
-| 场景库逐点 cuRobo / MolmoBot 成败图 | `collect-no-edit` |
-| 共用逐点标定及 S0→S1→操作采集 | `collect-lastmile-datasets` |
-| 最小困难起点评测构建、MolmoBot 执行 | `build-lastmilebench`、`evaluate-lastmilebench` |
-| 按需数据转换 | `export-molmobot` |
+| `build-scenes` | 内部依次发现、资格检查、增强/保存场景库 |
+| `evaluate-stations` | 场景库逐点 cuRobo / MolmoBot rollout 与热图 |
+| `collect-lastmile` | 匹配标定 → S0→S1→操作；无标定则在当前 run 标定一次 |
+| `build-bench` | 从完整标定构建最小困难 S0 benchmark |
+| `evaluate-bench` | 独立 MolmoBot 评测与覆盖率汇总 |
 
-不再提供 audit、seal、重复索引、worker 队列或旧数据兼容命令。每次新建实验目录，保留配置和种子；视频、深度和逐物理步诊断按需启用。
+每次新建 run，保存有效配置和 seed。图像默认保留，视频、深度和逐物理步日志按需。
+显式用 `--gpu <index>` 选择单卡；没有自动队列、旧命令别名或 Shell 启动包装。
+
+```bash
+.venv/bin/lastmile-dataflow build-scenes \
+  --config configs/scene_datasets/val103_cup30_minimal_v3.json --run-id small --gpu <index>
+.venv/bin/lastmile-dataflow evaluate-stations \
+  --dataset outputs/scene_datasets/small --assets-dir data/assets --run-id stations --gpu <index>
+.venv/bin/lastmile-dataflow collect-lastmile \
+  --dataset outputs/scene_datasets/small --assets-dir data/assets \
+  --calibration outputs/stations --run-id lastmile --gpu <index>
+```
+
+这些命令需先按 setup 完成输入准备；没有合格困难配对时保存负结果，不伪造成功。
 
 ## 代码入口
 
-源码只有六个领域目录：`scenes` 构建与采样，`runtime` 实际执行与任务判定，`planning` 包含 V2 和 A*，`policies` 接策略，`data` 记录/选点/绘图，`workflows` 编排。
+六个领域目录：`scenes / runtime / planning / policies / data / workflows`。
+Python 实验直接调用 `workflows.collection.evaluate_stations()` / `collect_lastmile()`；模型格式转换使用 `data.molmobot_dataset.export_molmobot()`，不另建索引。
 
-Python 实验可直接调用两个函数，不需要 CLI 模式开关：
+- [代码调用关系](docs/architecture.md)
+- [最小数据格式](docs/datas/data-format.md)
+- [运行手册](docs/运行手册.md)
+- [测试说明](tests/README.md)
+- [实施方案](reports/2026-10-14-refactor-light-implementation-plan.md)
+- [步骤六、七执行报告](reports/2026-10-14-refactor-light-step67.md)
 
-```python
-from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.workflows.collection import evaluate_stations, collect_lastmile
+步骤一至五已执行；本轮步骤六、七的安装与验证范围见执行报告。真实 GPU rollout、VLA 推理和完整主链验收属于步骤八，不能用软件回归代替。
 
-config = load_execution_config("configs/execution/curobo_v2.json")
-recording = CollectionConfig(record_video=False)
-calibration = evaluate_stations("<scene-dataset>", "<assets>", config, recording,
-                               "outputs", run_id="stations", gpu_ids=[0])
-collect_lastmile("<scene-dataset>", "<assets>", config, recording, "outputs",
-                 run_id="lastmile", gpu_ids=[0], calibration=calibration)
-```
-
-已有匹配标定不再执行逐点 rollout；没有标定时，在连续采集 run 内标定一次。有效试验不足时不执行正式 S0/S1 恢复。
-当前 CLI 的 `collect-no-edit` 和 `collect-lastmile-datasets` 分发到上述函数；命令改名留在步骤六。
+最小 multitask 推理迁移与单环境验证见 [实施记录](reports/2026-10-14-molmobot-multitask-implementation.md)。

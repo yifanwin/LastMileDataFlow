@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 
 
+
 def diagnostic(value):
     if isinstance(value, dict):
         return {k: diagnostic(v) for k, v in value.items()}

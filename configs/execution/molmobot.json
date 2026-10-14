@@ -1,6 +1,6 @@
 {
   "operation_backend": "molmobot",
-  "policy_config": "../policies/molmobot.json",
+  "policy_config": "configs/policies/molmobot.json",
   "operation_base_mode": "policy_relative",
   "torso_error_policy": "record_only",
   "third_person_enabled": true,

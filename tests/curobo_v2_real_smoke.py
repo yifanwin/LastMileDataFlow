@@ -4,6 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from lastmile_dataflow.config import CollectionConfig, RobotConfig
+from lastmile_dataflow.config import read_config
 from lastmile_dataflow.io import create_run, read_json, write_json
 from lastmile_dataflow.runtime.execution import run_curobo_attempt
 from lastmile_dataflow.runtime.simulation import Simulation
@@ -24,7 +25,7 @@ def main():
     config = load_execution_config(args.config)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     station = next(row for row in scene['stations'] if row['station_id'] == args.station)
-    robot = RobotConfig(**read_json(Path(scene['scene_path']) / 'config.json')['robot'])
+    robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
     collection = CollectionConfig(record_video=False, width=config.width, height=config.height, seed=config.seed)
     root = create_run(args.output, {'config': asdict(config), 'seed': config.seed, 'scene': scene['scene_id']})
     sim = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])

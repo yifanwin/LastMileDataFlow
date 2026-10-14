@@ -1,11 +1,9 @@
 """Strategy-free scene recipes and robot/sensor station geometry."""
 from dataclasses import dataclass, field
-from pathlib import Path
 import math
 import re
 
-from ..config import RobotConfig, construct
-from ..io import read_json
+from ..config import RobotConfig, construct, read_config
 from .eligibility import PICK_TYPES, SUPPORT_TYPES
 
 
@@ -115,7 +113,7 @@ class SceneDatasetRecipe:
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
         if self.station_selection == 'coverage' and self.min_final_points > self.max_final_stations:
-            raise ValueError('final station limit below publication minimum')
+            raise ValueError('final station limit below minimum count')
         for name, bounds in (('case1_added_surface_count', (5, 8)), ('case2_added_surface_count', (10, 20))):
             values = getattr(self, name)
             if not isinstance(values, list) or len(values) != 2 or any(type(v) is not int for v in values) or not bounds[0] <= values[0] <= values[1] <= bounds[1]:
@@ -143,17 +141,8 @@ class SceneDatasetRecipe:
 
 
 def load_scene_recipe(path):
-    path = Path(path).resolve()
-    values = read_json(path)
-    for key in ('dataset_dir', 'asset_library', 'robot_config'):
-        values[key] = str((path.parent / values[key]).resolve())
-    if values.get('input_snapshots'):
-        values['input_snapshots'] = {str(house_number(k)): str((path.parent / v).resolve()) for k, v in values['input_snapshots'].items()}
-    return construct(SceneDatasetRecipe, values)
+    return construct(SceneDatasetRecipe, read_config(path, data_fields=('dataset_dir', 'asset_library', 'input_snapshots'), repo_fields=('robot_config',)))
 
 
 def load_scene_robot(path):
-    path = Path(path).resolve()
-    values = read_json(path)
-    values['model_path'] = str((path.parent / values['model_path']).resolve())
-    return construct(RobotConfig, values)
+    return construct(RobotConfig, read_config(path, data_fields=('model_path',)))

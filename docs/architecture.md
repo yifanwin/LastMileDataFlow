@@ -21,4 +21,4 @@
 `sample_stations` 只检查候选点的初始化与可见性；`evaluate_stations` 才执行规划/策略 rollout，两者不混用。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
-`config.py`、`io.py` 和 `cli.py` 是包根的共用配置、读写和薄入口。CLI 旧命令名暂留到步骤六；不保留旧 workflow 文件或重导出别名。
+`config.py`、`io.py` 和 `cli.py` 是包根的共用配置、读写和薄入口。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。

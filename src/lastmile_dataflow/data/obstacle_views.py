@@ -52,7 +52,7 @@ def render_obstacle_pair(before, after, before_graph, after_graph, obstacle_name
         packet['camera_selection'] = 'bounded_programmatic_segmentation_checks_no_wall_hiding_no_scene_edits'
         packet['visibility_policy'] = 'three_view_union_with_each_pair_observed' if coverage_union else 'all_objects_each_view'
         for item in packet['images']:
-            item['path'] = str((path / Path(item['path']).name).resolve())
+            item['path'] = Path(item['path']).name
         write_json(path / 'pair.json', packet)
         write_json(path / 'camera_search.json', {'min_visible_pixels': min_pixels, 'trials': trials})
         return packet

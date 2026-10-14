@@ -1,8 +1,8 @@
-# `policies/`
+# 策略
 
-- **状态：规划目录，尚未实现。** 所属：第四阶段。
-- 职责：专家/VLA 策略、观测权限和执行预算。
-- 预定契约：PolicyObservation → 20D Action；策略不可直接写仿真状态。
-- 依赖与全流程图见 [完整架构](../../../docs/architecture.md)。
+- `molmobot.py`：现有仿真进程的模型客户端。
+- `molmobot_service.py`：独立 GPU 进程，服务 pick/open 请求。
+- `molmobot_config.py`：本地权重、tokenizer、解释器和执行预算。
+- `multitask/`：RBY1Multitask 最小推理代码：图像/文本/状态预处理、LLM、视觉连接器、action expert、flow matching 与动作缓冲。
 
-第一阶段不提供假实现，也不把该目录视为可用能力。
+不导入外部 MolmoBot 包，不包含训练、分布式并行、远端 checkpoint 或通用评测框架。策略返回 20D 动作，仿真仍由 runtime 控制。

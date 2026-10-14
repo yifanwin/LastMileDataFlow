@@ -5,6 +5,7 @@ import time
 import numpy as np
 
 from ..io import read_json, write_json
+
 from .waypoints import PlanResult
 from ..scenes.geometry import body_pose, tcp_pose, pose7
 from .rby1m_mobile_torso import derive_urdf, robot_config, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension

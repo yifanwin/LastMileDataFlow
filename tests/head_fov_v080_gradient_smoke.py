@@ -6,6 +6,7 @@ import torch
 from curobo.types import JointState
 from curobo._src.robot.kinematics.kinematics import Kinematics
 from lastmile_dataflow.config import RobotConfig, construct
+from lastmile_dataflow.config import read_config
 from lastmile_dataflow.io import read_json, write_json
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.runtime.execution import planner_options
@@ -28,7 +29,7 @@ def main():
     scene=next(row for row in load_scenes(args.dataset,[args.scene_id]))
     task=scene['task']
     station=next(row for row in scene['stations'] if row['station_id']==args.station)
-    robot=construct(RobotConfig,read_json(Path(scene['scene_path'])/'config.json')['robot'])
+    robot=construct(RobotConfig,read_config(Path(scene['scene_path'])/'config.json')['robot'])
     sim=Simulation.from_snapshot(scene['scene_path'],robot,target=task['target_body']);planner=None
     try:
         place_frozen_station(sim,station)

@@ -7,15 +7,30 @@ name = "lastmile-dataflow"
 version = "0.3.0"
 description = "Rule-based scene construction, RBY-1 execution and evidence"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26", "mujoco>=3.5,<4", "imageio>=2.34", "imageio-ffmpeg>=0.5"]
-
-[project.optional-dependencies]
-augmentation = ["matplotlib>=3.8", "Pillow>=10"]
-vla-client = ["matplotlib>=3.8", "Pillow>=10"]
-planning-v080 = ["torch>=2.5", "cuda-core[cu12]>=0.7,<2", "warp-lang>=1.11,<2", "yourdfpy>=0.0.53", "PyYAML>=6", "trimesh>=4", "matplotlib>=3.8", "Pillow>=10"]
+dependencies = [
+    "numpy>=1.26,<3",
+    "mujoco==3.5.0",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+    "matplotlib>=3.8",
+    "Pillow>=10",
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "transformers==5.4.0",
+    "pydantic>=2",
+    "einops>=0.8",
+    "PyYAML>=6",
+    "cuda-core[cu12]>=0.7,<2",
+    "nvidia-cuda-runtime-cu12<13",
+    "warp-lang>=1.11,<2",
+    "nvidia-curobo[cu12] @ git+https://github.com/NVlabs/curobo.git@v0.8.0",
+]
 
 [project.scripts]
 lastmile-dataflow = "lastmile_dataflow.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"lastmile_dataflow.policies.multitask" = ["LICENSE", "NOTICE"]
