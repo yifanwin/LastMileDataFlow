@@ -55,9 +55,7 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA unavailable; do not silently run a CPU VLA')
     from olmo.models.molmobot.inference_wrapper import SynthManipMolmoInferenceWrapper
-    from olmo.eval.real_robot_molmobot_rby1_multitask import (
-        MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig,
-        MolmoBotRBY1DoorPlusOpenPolicyConfig)
+    from olmo.eval.real_robot_molmobot_rby1_multitask import MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig, MolmoBotRBY1DoorPlusOpenPolicyConfig
     defaults = upstream_defaults(config.source_dir)
     listener = Listener(args.socket, family='AF_UNIX', authkey=bytes.fromhex(os.environ['LASTMILE_POLICY_AUTH']))
     os.chmod(args.socket, 0o600)

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from helpers import make_sim
-from lastmile_dataflow.benchmark.episodes import select_starts, summarize
+from lastmile_dataflow.data.benchmark import select_starts, summarize
 from lastmile_dataflow.runtime.benchmark_scene import native_scene
 from lastmile_dataflow.runtime.simulation import Simulation
 
@@ -67,7 +67,7 @@ class BenchmarkTests(unittest.TestCase):
 
 
     def test_frozen_station_preserves_nonrobot_velocity(self):
-        from lastmile_dataflow.stations.no_edit_sampling import place_frozen_station
+        from lastmile_dataflow.scenes.sampling import place_frozen_station
         from dataclasses import asdict
         with tempfile.TemporaryDirectory() as directory:
             sim, robot = make_sim(directory)

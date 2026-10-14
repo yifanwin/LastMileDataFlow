@@ -11,10 +11,10 @@ import numpy as np
 
 from helpers import fixtures
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.runtime.action import InvalidAction
 from lastmile_dataflow.policies.molmobot_config import load_policy_config, upstream_defaults
-from lastmile_dataflow.stations.no_edit_config import load_no_edit_config
-from lastmile_dataflow.validation.molmobot import constraint
+from lastmile_dataflow.runtime.execution_config import load_execution_config
+from lastmile_dataflow.runtime.vla_outcomes import constraint
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -106,14 +106,14 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(values['open']['gripper_threshold'],5)
         self.assertEqual(sum(values['pick']['state_spec'].values()),22)
         self.assertEqual(values['open']['max_conditioning_points'],1)
-        sampling=load_no_edit_config(ROOT/'configs/no_edit/molmobot.json')
+        sampling=load_execution_config(ROOT/'configs/execution/molmobot.json')
         self.assertAlmostEqual(sampling.radius_m,0.7928056080178096)
         self.assertAlmostEqual(sampling.spacing_m,0.1108796040001314)
         self.assertEqual(sampling.trials_per_station,5)
         self.assertEqual(sampling.operation_base_mode,'policy_relative')
 
     def test_native_resolution_and_backend_mode_fail_closed(self):
-        config=load_no_edit_config(ROOT/'configs/no_edit/molmobot.json')
+        config=load_execution_config(ROOT/'configs/execution/molmobot.json')
         for values in ({'width':320},{'operation_base_mode':'holonomic_joint_planning'}):
             with self.assertRaises(ValueError):replace(config,**values)
 

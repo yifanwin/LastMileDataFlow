@@ -5,13 +5,13 @@ import numpy as np
 import torch
 from curobo.types import JointState
 from curobo._src.robot.kinematics.kinematics import Kinematics
-from lastmile_dataflow.config import RobotConfig,construct
-from lastmile_dataflow.io import read_json,write_json
+from lastmile_dataflow.config import RobotConfig, construct
+from lastmile_dataflow.io import read_json, write_json
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.runtime.no_edit_execution import planner_options
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig, load_no_edit_config
-from lastmile_dataflow.stations.scene_package import load_scenes
-from lastmile_dataflow.stations.no_edit_sampling import place_frozen_station
+from lastmile_dataflow.runtime.execution import planner_options
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig, load_execution_config
+from lastmile_dataflow.scenes.dataset import load_scenes
+from lastmile_dataflow.scenes.sampling import place_frozen_station
 from lastmile_dataflow.planning.curobo_v2 import V2Planner
 from lastmile_dataflow.planning.head_fov import target_camera_torch
 
@@ -22,7 +22,7 @@ def main():
     p.add_argument('--scene-id',required=True)
     p.add_argument('--station',required=True)
     p.add_argument('--assets-dir',type=Path,required=True)
-    p.add_argument('--config',type=Path,default=Path('configs/no_edit/curobo_v2.json'))
+    p.add_argument('--config',type=Path,default=Path('configs/execution/curobo_v2.json'))
     p.add_argument('--output',type=Path,required=True)
     args=p.parse_args();args.output.mkdir(parents=True,exist_ok=False)
     scene=next(row for row in load_scenes(args.dataset,[args.scene_id]))
@@ -32,7 +32,7 @@ def main():
     sim=Simulation.from_snapshot(scene['scene_path'],robot,target=task['target_body']);planner=None
     try:
         place_frozen_station(sim,station)
-        cfg=load_no_edit_config(args.config)
+        cfg=load_execution_config(args.config)
         planner=V2Planner(sim,planner_options(cfg,args.assets_dir,105880152),'left',args.output,workspace=(task['anchor_world'],cfg.radius_m))
         fk=Kinematics(planner.context['fov_robot'].kinematics,compute_spheres=False)
         q=planner.state().reorder(fk.joint_names).position.reshape(1,1,-1).repeat(2,3,1)

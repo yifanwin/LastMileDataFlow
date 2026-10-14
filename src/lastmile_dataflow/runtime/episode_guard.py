@@ -60,8 +60,6 @@ def track_recorder(recorder):
         scope.resources.append((recorder, recorder.abort_close))
 
 
-
-
 class EpisodeScope:
     def __init__(self):
         self.phase='initialize'; self.resources=[]; self.recorder=None
@@ -124,7 +122,6 @@ def isolated_episode(function):
     def wrapper(*args,**kwargs):
         return execute_isolated_episode(function,*args,**kwargs)
     return wrapper
-
 
 
 def recording_operation(function):

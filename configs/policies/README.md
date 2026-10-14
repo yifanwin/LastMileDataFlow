@@ -3,7 +3,7 @@
 VLA 策略（MolmoBot）模型配置。加载入口
 `policies/molmobot_config.py: load_policy_config(path)`，字段见同文件 `MolmoBotConfig`。
 `source_dir`、`checkpoint`、`python` 以本文件所在目录为基准解析。
-被 `no_edit/molmobot.json` 通过 `policy_config` 引用。
+被 `execution/molmobot.json` 通过 `policy_config` 引用。
 
 ## `molmobot.json`
 

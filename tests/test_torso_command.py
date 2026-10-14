@@ -6,11 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
-from lastmile_dataflow.robots.action import InvalidAction
-from lastmile_dataflow.robots.torso_command import (
-    bounded_torso_command, torso_feedback_margin, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD)
-from lastmile_dataflow.runtime.no_edit_execution import ContinuousContext, OperationFailure, navigate
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
+from lastmile_dataflow.runtime.action import InvalidAction
+from lastmile_dataflow.runtime.torso_command import bounded_torso_command, torso_feedback_margin, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
+from lastmile_dataflow.runtime.execution import ContinuousContext, OperationFailure, navigate
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
 class TorsoCommandTests(unittest.TestCase):
@@ -43,9 +42,9 @@ class TorsoCommandTests(unittest.TestCase):
         for feedback, fails in [(.739327605117437,False),(.745,False),(.80,True)]:
             with self.subTest(feedback=feedback), tempfile.TemporaryDirectory() as directory:
                 ctx=ContinuousContext.__new__(ContinuousContext)
-                ctx.config=NoEditConfig(planner_backend='curobo_v2_v080',max_attempts=5)
+                ctx.config=ExecutionConfig(planner_backend='curobo_v2_v080',max_attempts=5)
                 ctx.phase='close';ctx.deadline=lambda:None;ctx.begin=lambda:None
-                from lastmile_dataflow.validation.contacts import ContactStatistics
+                from lastmile_dataflow.runtime.contacts import ContactStatistics
                 ctx.contact_stats=ContactStatistics()
                 ctx.state=lambda:{'time_s':0.};ctx.monitor=None;ctx.collisions=[];ctx.fingers=set();ctx.target_bodies=set()
                 ctx.physics=io.BytesIO();ctx.replay=[];ctx.record_rgb=False;ctx.record_png=False
@@ -59,7 +58,7 @@ class TorsoCommandTests(unittest.TestCase):
                     return {'submitted_action':action.tolist()},None if check['valid'] else check
                 ctx.sim=SimpleNamespace(data=data,robot=robot,model=None,step=step)
                 action=np.zeros(20);action[19]=.739327605117437
-                with patch('lastmile_dataflow.runtime.no_edit_execution.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.no_edit_execution.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.no_edit_execution.contact_observations',return_value=[]):
+                with patch('lastmile_dataflow.runtime.execution.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.execution.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.execution.contact_observations',return_value=[]):
                     if fails:
                         with self.assertRaisesRegex(OperationFailure,'torso_feedback_limit'):ctx.tick(action)
                     else:ctx.tick(action)

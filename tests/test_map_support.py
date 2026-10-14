@@ -6,11 +6,11 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 import mujoco
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.navigation.astar import Grid,scene_grid,search,task_support_obstacles,distance_field
-from lastmile_dataflow.exporting.no_edit_heatmap import gaussian_map,export_heatmap
-from lastmile_dataflow.recording.analysis_video import AnalysisVideo
-from lastmile_dataflow.exporting.navigation_map import export_navigation_map
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.planning.astar import Grid, scene_grid, search, task_support_obstacles, distance_field
+from lastmile_dataflow.data.heatmap import gaussian_map, export_heatmap
+from lastmile_dataflow.data.analysis_video import AnalysisVideo
+from lastmile_dataflow.data.navigation_map import export_navigation_map
 
 
 class SupportMapTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class SupportMapTests(unittest.TestCase):
     def test_support_parameter_validation_and_custom_radius(self):
         for invalid in (0,-1,float('nan'),float('inf')):
             with self.assertRaises(ValueError):
-                NoEditConfig(smoothing_support_distance_m=invalid)
+                ExecutionConfig(smoothing_support_distance_m=invalid)
         grid=Grid(np.zeros(2),.05,np.ones((41,41),bool))
         row={'station_id':'S0016','geometry':'valid','terminal_trials':1,'successes':1,'xy':[1,1]}
         narrow,_=gaussian_map(grid,[row],.1,max_support_distance_m=.1)

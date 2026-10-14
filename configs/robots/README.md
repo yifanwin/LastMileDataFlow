@@ -19,7 +19,7 @@ attempt 的 `config.json`（SHA-256 标识）。
 
 ## 未在文件中出现、但由 `RobotConfig` 默认值生效的字段
 
-改这些字段会改变物理语义，先读 `config.py` 与 `robots/action.py`：
+改这些字段会改变物理语义，先读 `config.py` 与 `runtime/action.py`：
 
 | 字段 | 默认 | 含义 |
 |---|---|---|

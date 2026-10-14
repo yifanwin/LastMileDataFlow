@@ -12,17 +12,17 @@ import numpy as np
 
 from .episode_guard import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
 from ..io import canonical, read_json, write_json
-from ..recording.recorder import AttemptRecorder
-from ..recording.head_views import head_frame
-from ..recording.edit_views import ViewConfig
-from ..recording.analysis_video import AnalysisVideo
-from ..stations.no_edit_sampling import place_frozen_station
-from ..validation.contacts import ContactStatistics, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
-from ..validation.pick import PickMonitor
-from ..validation.no_edit import torso_tracking_error
-from ..validation.molmobot import constraint, evaluate, PROTOCOL
-from ..robots.action import InvalidAction
-from .no_edit_execution import clone_sim, navigate, OperationFailure
+from ..data.recorder import AttemptRecorder
+from ..data.head_views import head_frame
+from ..data.edit_views import ViewConfig
+from ..data.analysis_video import AnalysisVideo
+from ..scenes.sampling import place_frozen_station
+from .contacts import ContactStatistics, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
+from .pick import PickMonitor
+from .outcomes import torso_tracking_error
+from .vla_outcomes import constraint, evaluate, PROTOCOL
+from .action import InvalidAction
+from .execution import clone_sim, navigate, OperationFailure
 from types import SimpleNamespace
 
 
@@ -63,7 +63,7 @@ def run_vla_attempt(baseline, task, station, config, collection, root, attempt_i
     samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
     analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled else None
-    from ..recording.recorder import open_trace
+    from ..data.recorder import open_trace
     physics = track_resource(open_trace(recorder.path/'physics.jsonl.gz', collection.record_physics))
     actions = track_resource(open_trace(recorder.path/'policy_actions.jsonl.gz', collection.record_physics))
     requests = track_resource(open_trace(recorder.path/'policy_requests.jsonl.gz', collection.record_physics))

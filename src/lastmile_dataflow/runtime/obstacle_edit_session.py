@@ -1,4 +1,5 @@
 """Program-only structural transactions; no Agent DSL, review or case template."""
+from dataclasses import replace
 import copy
 from collections import OrderedDict
 import time
@@ -146,3 +147,14 @@ class ObstacleEditSession:
 
     def __exit__(self, *args):
         self.close()
+
+
+def matched_control(baseline, duration_s, settle_config, deadline):
+    control = clone_preparation(baseline)
+    try:
+        config = replace(settle_config, settle_s=duration_s, max_settle_s=duration_s)
+        report = settle_scene(control, config, deadline=deadline, stability_instances=set())
+        return control, report
+    except BaseException:
+        control.close()
+        raise

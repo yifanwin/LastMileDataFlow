@@ -5,13 +5,12 @@ import time
 import numpy as np
 
 from ..io import read_json, write_json
-from ..integrations.waypoints import PlanResult
+from .waypoints import PlanResult
 from ..scenes.geometry import body_pose, tcp_pose, pose7
 from .rby1m_mobile_torso import derive_urdf, robot_config, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
 from .curobo_v2_costs import manager_type, fov_optimizer_configs
-from .head_fov import (HeadFOVCost, SparseFOVValidator, camera_definition,
-                       camera_robot_config, knot_sample_indices)
+from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
 
 
 def verify_version():
@@ -41,7 +40,7 @@ class V2Planner:
         self.workspace = workspace
         center, radius = workspace
         local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
-        from ..robots.action_limits import local_yaw_bounds
+        from ..runtime.action_limits import local_yaw_bounds
         self.reference_yaw=float(sim.robot.group('base')[2])
         bounds = {'base_x': (local[0]-radius, local[0]+radius),
                   'base_y': (local[1]-radius, local[1]+radius), 'base_theta': local_yaw_bounds(sim.robot,self.reference_yaw)}

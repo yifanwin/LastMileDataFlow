@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 import numpy as np
 from lastmile_dataflow.planning.rby1m_mobile_torso import derive_urdf, joint_names, ordered_points, robot_config, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.runtime.no_edit_execution import ContinuousContext
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.runtime.execution import ContinuousContext
 
 
 class V2ModelTests(unittest.TestCase):
@@ -69,14 +69,14 @@ class V2ModelTests(unittest.TestCase):
         self.assertTrue(torch.equal(contact_spheres(original,[1,3],False),original))
 
     def test_version_and_retry_layers(self):
-        cfg = NoEditConfig(planner_backend='curobo_v2_v080', max_attempts=5)
+        cfg = ExecutionConfig(planner_backend='curobo_v2_v080', max_attempts=5)
         self.assertEqual(cfg.operation_retries+1, 2)
         self.assertEqual(cfg.trials_per_station, 5)
         self.assertEqual(cfg.max_operation_plans, 12)
         with self.assertRaises(ValueError):
-            NoEditConfig(planner_backend='curobo_v2_v080', max_attempts=3)
+            ExecutionConfig(planner_backend='curobo_v2_v080', max_attempts=3)
         with self.assertRaises(ValueError):
-            NoEditConfig(planner_backend='curobo_v2_v080', max_attempts=5, operation_retries=2)
+            ExecutionConfig(planner_backend='curobo_v2_v080', max_attempts=5, operation_retries=2)
 
     def test_11d_waypoint_maps_h_absolute_not_delta(self):
         groups = {'base':np.zeros(3), 'left_arm':np.zeros(7), 'torso':np.array([0,.3,-.6,.3,0,0])}
@@ -84,7 +84,7 @@ class V2ModelTests(unittest.TestCase):
                                 config=SimpleNamespace(max_base_delta=.1,max_yaw_delta=.2,max_arm_delta=.2,
                                                        control_hz=20,torso_limits=(0,.738)))
         ctx = ContinuousContext.__new__(ContinuousContext); ctx.sim=SimpleNamespace(robot=robot)
-        ctx.config=NoEditConfig(); ctx.monitor=None; actions=[]; ctx.tick=lambda a,**kw:actions.append(a)
+        ctx.config=ExecutionConfig(); ctx.monitor=None; actions=[]; ctx.tick=lambda a,**kw:actions.append(a)
         planner=SimpleNamespace(names=joint_names('left'),torso_active=True,base_target_world=lambda p:p[:3])
         point=np.r_[.1,0,0,np.full(7,.1),.4]
         scale=ctx.mobile_tick(planner,point,'left',-.05,0.)

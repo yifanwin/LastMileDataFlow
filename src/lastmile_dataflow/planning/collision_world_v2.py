@@ -12,7 +12,7 @@ _mesh_ids = itertools.count()
 def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False):
     """Per-geom collision mesh, never use furniture-wide AABB as exact geometry."""
     import trimesh
-    from curobo._src.geom.types import SceneCfg,Mesh
+    from curobo._src.geom.types import SceneCfg, Mesh
     m,d=sim.model,sim.data
     base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
     inv=np.linalg.inv(base)

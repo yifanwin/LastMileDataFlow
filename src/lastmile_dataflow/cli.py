@@ -27,7 +27,7 @@ def parser():
         command = commands.add_parser(name)
         command.add_argument('--dataset-dir' if name == 'collect-no-edit' else '--dataset', required=True, type=Path)
         command.add_argument('--assets-dir', required=True, type=Path)
-        command.add_argument('--config', type=Path, default=ROOT / ('configs/no_edit/curobo_v2.json' if name == 'collect-no-edit' else 'configs/lastmile_datasets/v0.json'))
+        command.add_argument('--config', type=Path, default=ROOT / ('configs/execution/curobo_v2.json' if name == 'collect-no-edit' else 'configs/lastmile_datasets/v0.json'))
         command.add_argument('--run-id', required=True)
         command.add_argument('--samples', nargs='+')
         command.add_argument('--max-trials', type=int)
@@ -83,22 +83,22 @@ def main(argv=None):
         output = build_scene_dataset(args.config, args.discovery, args.output_dir, args.dataset_id,
                                      args.gpu_ids, allow_partial_targets=args.allow_partial_targets)
     elif args.command == 'augment-obstacles':
-        from .construction.obstacle_config import load_obstacle_config
+        from .scenes.obstacle_config import load_obstacle_config
         from .workflows.obstacle_augmentation import augment_obstacles
         output = augment_obstacles(load_obstacle_config(args.config), args.output_dir, run_id=args.run_id)
     elif args.command in ('collect-no-edit', 'collect-lastmile-datasets'):
         collection = CollectionConfig(record_video=args.record_video, record_depth=args.record_depth,
                                       record_physics=args.record_physics)
-        if args.command == 'collect-lastmile-datasets':
-            from .workflows.lastmile_datasets import collect
-            output = collect(args.dataset, args.assets_dir, args.config, args.output_dir, run_id=args.run_id,
-                gpu_ids=args.gpu_ids, samples=args.samples, calibration_only=args.calibration_only,
-                calibration=args.calibration, max_trials=args.max_trials, collection=collection)
+        from .runtime.execution_config import load_execution_config
+        from .workflows.collection import evaluate_stations, collect_lastmile
+        config = load_execution_config(args.config)
+        if args.command == 'collect-lastmile-datasets' and not args.calibration_only:
+            output = collect_lastmile(args.dataset, args.assets_dir, config, collection, args.output_dir,
+                run_id=args.run_id, gpu_ids=args.gpu_ids, samples=args.samples,
+                calibration=args.calibration, max_trials=args.max_trials)
         else:
-            from .stations.no_edit_config import load_no_edit_config
-            from .workflows.no_edit import collect_scene_dataset
-            config = load_no_edit_config(args.config)
-            output = collect_scene_dataset(args.dataset_dir, args.assets_dir, config, collection, args.output_dir,
+            dataset = args.dataset if args.command == 'collect-lastmile-datasets' else args.dataset_dir
+            output = evaluate_stations(dataset, args.assets_dir, config, collection, args.output_dir,
                 run_id=args.run_id, gpu_ids=args.gpu_ids, samples=args.samples, max_trials=args.max_trials)
     elif args.command == 'build-lastmilebench':
         from .workflows.lastmilebench import build
@@ -110,7 +110,7 @@ def main(argv=None):
         from .workflows.lastmilebench import evaluate
         output = evaluate(args.benchmark, args.output, args.policy_config, gpu_ids=args.gpu_ids, log_dir=args.log_dir)
     else:
-        from .integrations.molmobot_dataset import export_molmobot
+        from .data.molmobot_dataset import export_molmobot
         output = export_molmobot(args.attempt, args.output, state_images_only=args.state_images_only,
             gripper_map=read_json(args.gripper_map) if args.gripper_map else None, seed=args.seed,
             chunk_length=args.chunk_length, conditioning_point=args.conditioning_point)

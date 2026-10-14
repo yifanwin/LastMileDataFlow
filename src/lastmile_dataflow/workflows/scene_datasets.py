@@ -11,29 +11,24 @@ import time
 
 import numpy as np
 
-from ..construction.scene_dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
+from ..scenes.dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
 from ..config import RobotConfig
-from ..construction.obstacle_config import ObstacleConfig
-from ..construction.obstacle_regions import support_regions, station_regions, approach_points
-from ..construction.scene_eligibility import pick_type, allowed_case1_support
+from ..scenes.obstacle_config import ObstacleConfig
+from ..scenes.obstacle_regions import support_regions, station_regions, approach_points
+from ..scenes.eligibility import pick_type, allowed_case1_support
 from ..io import read_json, write_json, append_row, create_run, rows
-from ..navigation.astar import task_support_obstacles
+from ..planning.astar import task_support_obstacles
 from ..runtime.obstacle_edit_session import clone_preparation
 from ..runtime.simulation import Simulation
 from ..scenes.source import SceneSource
-from ..stations.scene_package import select_stations, robot_descriptor
-from ..tasks.raw_scene import discover_tasks, robot_footprint
-from .obstacle_augmentation import augment_obstacles, evaluate_stations
+from ..scenes.dataset import select_stations, robot_descriptor
+from ..scenes.tasks import discover_tasks, robot_footprint
+from .obstacle_augmentation import augment_obstacles
+from ..scenes.sampling import sample_stations
 
 
 def now():
     return datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()
-
-
-
-
-
-
 
 
 def spatial_select(rows, count, preferred=(), min_separation_m=0.):
@@ -146,7 +141,7 @@ def discover_scene_dataset(recipe, output):
                     if task['operation'] == 'pick' and recipe.rule_version == 'scene-cases-v3' and 'Case1' in recipe.cases and not allowed_case1_support(probe, supports[0].support, recipe.case1_support_types):
                         exclusions.append({'house': house, 'task_id': task['task_id'], 'support_id': supports[0].support, 'reason': 'case1_support_not_countertop_or_table'})
                         continue
-                    rows = evaluate_stations(probe, task, geometry, static_only=True, stop_after_valid=recipe.min_prefilter_points)
+                    rows = sample_stations(probe, task, geometry, static_only=True, stop_after_valid=recipe.min_prefilter_points)
                     valid = sum(r['geometry'] == 'valid' for r in rows)
                     if valid < recipe.min_prefilter_points:
                         exclusions.append({'house': house, 'task_id': task['task_id'], 'reason': 'fewer_than_minimum_static_geometry_points', 'count': valid})
@@ -240,7 +235,7 @@ def qualify_scene_discovery(discovery, output):
                         if identity not in cache:
                             sim.target_id = sim.model.body(task['target_body']).id
                             stage = time.monotonic()
-                            stations = existing[identity]['stations'] if identity in existing else evaluate_stations(sim, task, recipe.geometry)
+                            stations = existing[identity]['stations'] if identity in existing else sample_stations(sim, task, recipe.geometry)
                             valid = sum(s['geometry'] == 'valid' for s in stations)
                             evidence = {'house': house, 'task_id': identity, 'asset_id': task['asset_id'],
                                 'valid_count': valid, 'candidate_count': len(stations), 'elapsed_s': time.monotonic()-stage,
@@ -280,8 +275,6 @@ def qualify_scene_discovery(discovery, output):
     return output
 
 
-
-
 def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=1,
                         resume=False, allow_partial_targets=False):
     if resume or workers != 1:
@@ -310,7 +303,7 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
                 robot = load_scene_robot(recipe.robot_config)
                 sim = Simulation.from_snapshot(unit['input_snapshot'], robot, target=task['target_body'])
                 try:
-                    points, _ = select_stations(evaluate_stations(sim, task, recipe.geometry),
+                    points, _ = select_stations(sample_stations(sim, task, recipe.geometry),
                         task['anchor_world'], recipe.station_selection, recipe.max_final_stations)
                     if len(points) < recipe.min_final_points:
                         append_row(root / 'scenes.jsonl', {'scene_id': scene_id, 'status': 'rejected', 'reason': 'too_few_stations'})

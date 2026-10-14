@@ -3,7 +3,7 @@ import copy
 import mujoco
 import numpy as np
 
-from ..validation.lightweight import inspect_state
+from ..runtime.health import inspect_state
 
 
 def room_triangles(sim):

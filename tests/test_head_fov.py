@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from lastmile_dataflow.planning.head_fov import HeadFOVCost, SparseFOVValidator, knot_sample_indices, camera_robot_config, target_camera_torch
 from lastmile_dataflow.planning.rby1m_mobile_torso import joint_names
-from lastmile_dataflow.integrations.waypoints import PlanResult
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
+from lastmile_dataflow.planning.waypoints import PlanResult
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
 def fixture():
@@ -127,6 +127,6 @@ class HeadFOVTests(unittest.TestCase):
         self.assertEqual(result.status,'fov_constraint_failed')
         with self.assertRaises(ValueError):PlanResult('fov_constraint_failed',(),((1.,),),{})
         for d in ({'head_fov_margin':1.},{'head_fov_weight':0.},{'head_fov_enabled':1},{'head_fov_min_depth_m':0.}):
-            with self.assertRaises(ValueError):NoEditConfig(**d)
+            with self.assertRaises(ValueError):ExecutionConfig(**d)
 
 if __name__=='__main__':unittest.main()

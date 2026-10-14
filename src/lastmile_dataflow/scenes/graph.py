@@ -9,8 +9,7 @@ from dataclasses import dataclass, field, replace
 import mujoco
 import numpy as np
 
-from .geometry import (SupportRegion, body_points, collision_geoms, descendants,
-                       extract_regions, geom_points, support_rays)
+from .geometry import SupportRegion, body_points, collision_geoms, descendants, extract_regions, geom_points, support_rays
 
 
 STATION_ID = 'station_start'

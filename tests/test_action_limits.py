@@ -1,10 +1,10 @@
 import unittest
 from types import SimpleNamespace
 import numpy as np
-from lastmile_dataflow.robots.action import InvalidAction
-from lastmile_dataflow.robots.action_limits import sanitize_action, local_yaw_bounds
-from lastmile_dataflow.runtime.no_edit_execution import ContinuousContext
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
+from lastmile_dataflow.runtime.action import InvalidAction
+from lastmile_dataflow.runtime.action_limits import sanitize_action, local_yaw_bounds
+from lastmile_dataflow.runtime.execution import ContinuousContext
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
 def robot_fixture():
@@ -43,9 +43,9 @@ class ActionLimitTests(unittest.TestCase):
         with self.assertRaises(InvalidAction):sanitize_action(r,a)
 
     def test_unsafe_yaw_wrap_not_allowed(self):
-        ctx=ContinuousContext.__new__(ContinuousContext);ctx.config=NoEditConfig(planner_backend='curobo_v2_v080',max_attempts=5)
+        ctx=ContinuousContext.__new__(ContinuousContext);ctx.config=ExecutionConfig(planner_backend='curobo_v2_v080',max_attempts=5)
         self.assertAlmostEqual(ctx.yaw_gap(3.13,-3.13),6.26)
-        ctx.config=NoEditConfig();self.assertAlmostEqual(ctx.yaw_gap(3.13,-3.13),6.26)
+        ctx.config=ExecutionConfig();self.assertAlmostEqual(ctx.yaw_gap(3.13,-3.13),6.26)
         r,v=robot_fixture();v['base'][2]=-3.13;a=np.zeros(20);a[19]=.3;a[2]=-.02
         with self.assertRaises(InvalidAction):sanitize_action(r,a)
 

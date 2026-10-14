@@ -11,14 +11,14 @@ import numpy as np
 from helpers import make_sim
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.io import create_run, append_row, read_json, rows, write_json
-from lastmile_dataflow.recording.recorder import AttemptRecorder
+from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.stations.lastmile_selection import station_calibration, recovery_choices
-from lastmile_dataflow.stations.scene_package import load_scenes
-from lastmile_dataflow.workflows.no_edit import collect_scene_dataset, collect_lastmile
-from lastmile_dataflow.integrations.molmobot_dataset import export_molmobot
-from lastmile_dataflow.construction.obstacle_config import CaseConstruction
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.data.selection import station_calibration, recovery_choices
+from lastmile_dataflow.scenes.dataset import load_scenes
+from lastmile_dataflow.workflows.collection import evaluate_stations, collect_lastmile, _recovery_trials
+from lastmile_dataflow.data.molmobot_dataset import export_molmobot
+from lastmile_dataflow.scenes.obstacle_config import CaseConstruction
 
 
 class LightDataTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class LightDataTests(unittest.TestCase):
             self.assertEqual(len(data['time_s']), 1)
 
     def test_rates_exclude_errors_and_require_complete_points(self):
-        config = NoEditConfig(trials_per_station=2, start_count=1)
+        config = ExecutionConfig(trials_per_station=2, start_count=1)
         trials = [{'station_id': s, 'trial': i, 'status': 'failure' if s == 's0' else 'success'}
                   for s in ('s0', 's1') for i in range(2)]
         binding = {'scene_id': 'one', 'task_id': 'pick-target'}
@@ -105,42 +105,80 @@ class LightDataTests(unittest.TestCase):
         def execute(baseline, scene, station, *args, **kwargs):
             return {'status': 'success', 'reason': 'mocked', 'recording_complete': True,
                     'rollout_id': 'mock-' + station['station_id'], 'executed_steps': 1}
-        with patch('lastmile_dataflow.workflows.no_edit.execute', side_effect=execute), \
-             patch('lastmile_dataflow.workflows.no_edit.export_heatmap'):
-            output = collect_scene_dataset(dataset, self.root, NoEditConfig(trials_per_station=1),
+        with patch('lastmile_dataflow.workflows.collection._execute', side_effect=execute), \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'), \
+             patch('lastmile_dataflow.workflows.collection._recovery_trials') as recovery:
+            output = evaluate_stations(dataset, self.root, ExecutionConfig(trials_per_station=1),
                 self.collection, self.root, run_id='run', gpu_ids=[0])
+        recovery.assert_not_called()
         self.assertEqual(len(rows(output / 'trials.jsonl')), 2)
         self.assertEqual({p.name for p in output.iterdir()}, {'config.json', 'trials.jsonl', 'summary.json'})
         self.assertTrue(read_json(output / 'summary.json')['scenes'][0]['calibration_complete'])
 
     def test_reused_calibration_does_not_repeat_trials(self):
         dataset = self.dataset()
-        config = NoEditConfig(trials_per_station=1)
+        config = ExecutionConfig(trials_per_station=1)
         def execute(baseline, scene, station, *args, **kwargs):
             return {'status': 'failure' if station['station_id'] == 's0' else 'success',
                     'reason': 'mocked', 'rollout_id': station['station_id'], 'recording_complete': True}
-        with patch('lastmile_dataflow.workflows.no_edit.execute', side_effect=execute), \
-             patch('lastmile_dataflow.workflows.no_edit.export_heatmap'):
-            calibration = collect_scene_dataset(dataset, self.root, config, self.collection, self.root,
+        with patch('lastmile_dataflow.workflows.collection._execute', side_effect=execute), \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'):
+            calibration = evaluate_stations(dataset, self.root, config, self.collection, self.root,
                 run_id='calibration', gpu_ids=[0])
-        with patch('lastmile_dataflow.workflows.no_edit.evaluate_stations') as station_trials, \
-             patch('lastmile_dataflow.workflows.no_edit.collect_lastmile', return_value=[]), \
-             patch('lastmile_dataflow.workflows.no_edit.export_heatmap'):
-            output = collect_scene_dataset(dataset, self.root, config, self.collection, self.root,
-                run_id='recovery', gpu_ids=[0], continuous=True, calibration=calibration)
+        with patch('lastmile_dataflow.workflows.collection._station_trials') as station_trials, \
+             patch('lastmile_dataflow.workflows.collection._recovery_trials', return_value=[]), \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'):
+            output = collect_lastmile(dataset, self.root, config, self.collection, self.root,
+                run_id='recovery', gpu_ids=[0], calibration=calibration)
         station_trials.assert_not_called()
         self.assertFalse((output / 'trials.jsonl').exists())
         with self.assertRaisesRegex(ValueError, 'calibration'):
-            collect_scene_dataset(dataset, self.root, replace(config, attempt_timeout_s=9.), self.collection,
-                self.root, run_id='mismatched', gpu_ids=[0], continuous=True, calibration=calibration)
+            collect_lastmile(dataset, self.root, replace(config, attempt_timeout_s=9.), self.collection,
+                self.root, run_id='mismatched', gpu_ids=[0], calibration=calibration)
+
+    def test_continuous_run_calibrates_once_in_the_same_directory(self):
+        dataset = self.dataset()
+        config = ExecutionConfig(trials_per_station=1)
+        with patch('lastmile_dataflow.workflows.collection._execute', return_value={
+                'status': 'failure', 'reason': 'mocked', 'recording_complete': True}) as execute, \
+             patch('lastmile_dataflow.workflows.collection._recovery_trials', return_value=[]) as recovery, \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'):
+            output = collect_lastmile(dataset, self.root, config, self.collection, self.root,
+                run_id='continuous', gpu_ids=[0])
+        self.assertEqual(execute.call_count, len(self.points))
+        recovery.assert_called_once()
+        self.assertEqual(recovery.call_args.args[-1], output)
+        self.assertEqual(len(rows(output / 'trials.jsonl')), len(self.points))
+        self.assertEqual({p.name for p in output.iterdir()}, {'config.json', 'trials.jsonl', 'summary.json'})
+
+    def test_incomplete_calibration_never_executes_recovery(self):
+        dataset = self.dataset()
+        config = ExecutionConfig(trials_per_station=2)
+        with patch('lastmile_dataflow.workflows.collection._execute', return_value={
+                'status': 'failure', 'reason': 'mocked', 'recording_complete': True}), \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'):
+            calibration = evaluate_stations(dataset, self.root, config, self.collection, self.root,
+                run_id='partial', gpu_ids=[0], max_trials=1)
+        with patch('lastmile_dataflow.workflows.collection._station_trials') as trials, \
+             patch('lastmile_dataflow.workflows.collection._execute') as execute, \
+             patch('lastmile_dataflow.workflows.collection.export_heatmap'):
+            output = collect_lastmile(dataset, self.root, config, self.collection, self.root,
+                run_id='no-recovery', gpu_ids=[0], calibration=calibration)
+        trials.assert_not_called()
+        execute.assert_not_called()
+        self.assertEqual(rows(output / 'episodes.jsonl'), [])
+        self.assertFalse(read_json(output / 'summary.json')['scenes'][0]['calibration_complete'])
 
     def test_no_path_is_a_negative_record_without_rollout(self):
-        config = NoEditConfig(trials_per_station=1, start_count=1)
+        config = ExecutionConfig(trials_per_station=1, start_count=1)
         trials = [{'station_id': 's0', 'trial': 0, 'status': 'failure'},
                   {'station_id': 's1', 'trial': 0, 'status': 'success'}]
-        with patch('lastmile_dataflow.workflows.no_edit.search', return_value=None), \
-             patch('lastmile_dataflow.workflows.no_edit.execute') as execute:
-            records = collect_lastmile(self.sim, self.scene, trials, self.root, config, self.collection, self.root)
+        binding = {'scene_id': 'one', 'task_id': 'pick-target'}
+        rates = station_calibration(self.points, trials, 1, binding, config)
+        choices = recovery_choices(self.points, rates, binding, config)
+        with patch('lastmile_dataflow.workflows.collection.search', return_value=None), \
+             patch('lastmile_dataflow.workflows.collection._execute') as execute:
+            records = _recovery_trials(self.sim, self.scene, choices, self.root, config, self.collection, self.root)
         execute.assert_not_called()
         self.assertEqual(records[0]['status'], 'path_unavailable')
         self.assertIsNone(records[0]['rollout_id'])

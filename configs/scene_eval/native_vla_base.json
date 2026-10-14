@@ -1,5 +1,4 @@
 {
-  "schema_version": "no-edit-v1",
   "operation_backend": "molmobot",
   "policy_config": "../policies/molmobot.json",
   "operation_base_mode": "policy_relative",

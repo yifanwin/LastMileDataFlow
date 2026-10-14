@@ -5,11 +5,12 @@
 
 ## 重构进度
 
-步骤一至四已执行：删除历史代码和审计体系，缩减数据格式，共用采集执行逻辑。`no_edit` 名称、薄 Shell 入口暂留；目录命名、独立环境和数据下载说明属于后续步骤。
+步骤一至五已执行：删除历史代码和审计体系，缩减数据格式，源码收敛到六个领域目录；两种采集入口统一到 `workflows/collection.py`。CLI 命令名和薄 Shell 入口暂留，独立环境及数据下载说明尚未完成。
 单元回归不代表真实 GPU 规划、策略推理或全量数据采集成功。
 
 - [实施方案](reports/2026-10-14-refactor-light-implementation-plan.md)
 - [步骤三、四执行报告](reports/2026-10-14-refactor-light-step34.md)
+- [步骤五执行报告](reports/2026-10-14-refactor-light-step5.md)
 - [数据格式](docs/datas/data-format.md)
 - [运行手册](docs/运行手册.md)
 
@@ -38,3 +39,25 @@ V2 规划需要 CUDA、`nvidia-curobo==0.8.0` 及 `planning-v080` 可选依赖�
 | 按需数据转换 | `export-molmobot` |
 
 不再提供 audit、seal、重复索引、worker 队列或旧数据兼容命令。每次新建实验目录，保留配置和种子；视频、深度和逐物理步诊断按需启用。
+
+## 代码入口
+
+源码只有六个领域目录：`scenes` 构建与采样，`runtime` 实际执行与任务判定，`planning` 包含 V2 和 A*，`policies` 接策略，`data` 记录/选点/绘图，`workflows` 编排。
+
+Python 实验可直接调用两个函数，不需要 CLI 模式开关：
+
+```python
+from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import load_execution_config
+from lastmile_dataflow.workflows.collection import evaluate_stations, collect_lastmile
+
+config = load_execution_config("configs/execution/curobo_v2.json")
+recording = CollectionConfig(record_video=False)
+calibration = evaluate_stations("<scene-dataset>", "<assets>", config, recording,
+                               "outputs", run_id="stations", gpu_ids=[0])
+collect_lastmile("<scene-dataset>", "<assets>", config, recording, "outputs",
+                 run_id="lastmile", gpu_ids=[0], calibration=calibration)
+```
+
+已有匹配标定不再执行逐点 rollout；没有标定时，在连续采集 run 内标定一次。有效试验不足时不执行正式 S0/S1 恢复。
+当前 CLI 的 `collect-no-edit` 和 `collect-lastmile-datasets` 分发到上述函数；命令改名留在步骤六。

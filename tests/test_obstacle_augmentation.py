@@ -12,19 +12,19 @@ import mujoco
 import numpy as np
 
 from helpers import fixtures
-from lastmile_dataflow.catalog.edit_assets import EditAssetCatalog
-from lastmile_dataflow.construction.obstacle_config import ObstacleConfig, load_obstacle_config
-from lastmile_dataflow.construction.obstacle_regions import rotated_placement, station_regions, augmented_grid
+from lastmile_dataflow.scenes.assets import EditAssetCatalog
+from lastmile_dataflow.scenes.obstacle_config import ObstacleConfig, load_obstacle_config
+from lastmile_dataflow.scenes.obstacle_regions import rotated_placement, station_regions, augmented_grid
 from lastmile_dataflow.io import write_json
 from lastmile_dataflow.runtime.obstacle_edit_session import ObstacleEditSession, clone_preparation
 from lastmile_dataflow.runtime.preparation import SettleConfig, settle_scene
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.validation.obstacle_augmentation import collision_pairs, load_support, matched_source_effects
-from lastmile_dataflow.workflows.obstacle_augmentation import matched_control
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.scenes.obstacle_checks import collision_pairs, load_support, matched_source_effects
+from lastmile_dataflow.runtime.obstacle_edit_session import matched_control
 from lastmile_dataflow.scenes.graph import build_scene_graph
-from lastmile_dataflow.recording.obstacle_views import render_obstacle_pair
-from lastmile_dataflow.recording.edit_views import ViewConfig
+from lastmile_dataflow.data.obstacle_views import render_obstacle_pair
+from lastmile_dataflow.data.edit_views import ViewConfig
 
 
 def config():
@@ -88,7 +88,7 @@ class GeometryTests(unittest.TestCase):
         stations = [{'station_id': 'a', 'xy': [-.2, 0.], 'grid_index': [0, 0], 'geometry': 'valid'},
                     {'station_id': 'b', 'xy': [.2, 0.], 'grid_index': [1, 0], 'geometry': 'valid'}]
         task = {'anchor_world': [0, 0, .5], 'support_obstacles': []}
-        regions = station_regions(sim, stations, task, NoEditConfig(radius_m=.6, map_resolution_m=.025), .02, .12)
+        regions = station_regions(sim, stations, task, ExecutionConfig(radius_m=.6, map_resolution_m=.025), .02, .12)
         self.assertEqual(len(regions['rejected_midpoints']), 1)
         self.assertEqual(len(regions['points']), 2)
         self.assertTrue(regions['edges'][0]['connected'])
@@ -100,7 +100,7 @@ class GeometryTests(unittest.TestCase):
         sim = SimpleNamespace(model=m, data=d)
         stations = [{'station_id': 'a', 'xy': [-.2, 0.], 'grid_index': [0, 0], 'geometry': 'valid'},
                     {'station_id': 'b', 'xy': [.2, 0.], 'grid_index': [2, 0], 'geometry': 'valid'}]
-        regions = station_regions(sim, stations, {'anchor_world': [0, 0, .5], 'support_obstacles': []}, NoEditConfig(radius_m=.6), .02, .12)
+        regions = station_regions(sim, stations, {'anchor_world': [0, 0, .5], 'support_obstacles': []}, ExecutionConfig(radius_m=.6), .02, .12)
         self.assertEqual(regions['edges'], [])
 
     def test_seat_above_chassis_still_blocks_navigation(self):
@@ -108,7 +108,7 @@ class GeometryTests(unittest.TestCase):
         d = mujoco.MjData(m)
         mujoco.mj_forward(m, d)
         sim = SimpleNamespace(model=m, data=d)
-        grid = augmented_grid(sim, {'anchor_world': [0, 0, .5], 'support_obstacles': []}, NoEditConfig(radius_m=.6), .1, ['chair'])
+        grid = augmented_grid(sim, {'anchor_world': [0, 0, .5], 'support_obstacles': []}, ExecutionConfig(radius_m=.6), .1, ['chair'])
         self.assertFalse(grid.free[grid.cell([0, 0])])
 
     def test_surface_coverage_rechecked_after_settle_not_from_flag(self):

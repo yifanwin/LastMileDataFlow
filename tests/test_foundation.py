@@ -6,11 +6,11 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.config import CollectionConfig, RobotConfig, construct
-from lastmile_dataflow.robots.action import InvalidAction, torso_joints, validate_action
-from lastmile_dataflow.integrations.waypoints import PlanResult, arm_waypoint_action, navigation_action
+from lastmile_dataflow.runtime.action import InvalidAction, torso_joints, validate_action
+from lastmile_dataflow.planning.waypoints import PlanResult, arm_waypoint_action, navigation_action
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.source import resolve_target
-from lastmile_dataflow.validation.lightweight import inspect_state
+from lastmile_dataflow.runtime.health import inspect_state
 from helpers import make_sim
 
 

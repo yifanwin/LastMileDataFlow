@@ -6,7 +6,7 @@ import mujoco
 import numpy as np
 
 from ..scenes.mjcf import load_spec
-from ..robots.rby1 import prepare_robot_spec
+from .robot import prepare_robot_spec
 from .simulation import Simulation
 
 

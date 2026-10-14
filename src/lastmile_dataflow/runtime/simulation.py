@@ -1,17 +1,8 @@
-"""独立 MuJoCo 生命周期：准备时可恢复，连续执行开始后永久禁止重置。
+"""MuJoCo stepping and snapshots shared by construction and execution.
 
-【本文件的地位】它是**唯一允许发生真实物理运动**的地方（对应 architecture.md 的
-“runtime 是唯一真实运动入口”）。构造静置、导航和操作都通过这里推进物理。
-
-【必须理解的两种阶段】
-  准备阶段（started=False）：可以加载模型、restore_snapshot、freeze、robot.initialize。
-                            机器人位姿只能在这个阶段被设置。
-  执行阶段（started=True） ：begin() 之后永久禁止上述所有操作，只能 step()。
-                            目的：杜绝“偷偷把机器人传送回起点再假装成功”。
-
-【为什么快照要存那么多东西】
-  快照不只存 qpos/qvel，还存了控制时钟余数（20Hz 控制 vs 0.004s 物理的余数）和固定头目标，
-  否则恢复后控制器的相位/头部锁定会对不上，两次运行的轨迹就无法逐字节复现。
+Preparation may initialize or restore state. After begin(), motion uses step()
+only; an independent trial requires a new Simulation. Snapshots retain clock
+remainder and fixed head targets as well as the physical state.
 """
 from dataclasses import asdict
 from pathlib import Path
@@ -20,7 +11,7 @@ import mujoco
 import numpy as np
 
 from ..io import read_json, write_json
-from ..robots.rby1 import RBY1Adapter, prepare_robot_spec
+from .robot import RBY1Adapter, prepare_robot_spec
 from ..scenes.source import instance_catalog, resolve_target
 from ..scenes.mjcf import load_spec
 
@@ -275,7 +266,7 @@ class Simulation:
             time_s, w, h, frames = self._raw_frame_cache
             if time_s == float(self.data.time) and (w, h) == (width, height):
                 return {k: v.copy() for k, v in frames.items()}
-        from ..recording.calibration import capture_sensors
+        from ..data.camera_calibration import capture_sensors
         samples = capture_sensors(self, width, height, depth=self._capture_depth_requested)
         self._sensor_result = (float(self.data.time), width, height, samples)
         return {k: sample['rgb'] for k, sample in samples.items()}
@@ -292,7 +283,7 @@ class Simulation:
 
     def enable_third_person(self,config=None):
         """Reusable optional observer, independent of the robot's fixed MJCF cameras."""
-        from ..recording.third_person import ThirdPersonCamera
+        from ..data.third_person import ThirdPersonCamera
         self.third_person_camera=ThirdPersonCamera(config)
         return self.third_person_camera
 

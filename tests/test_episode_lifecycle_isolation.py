@@ -10,13 +10,12 @@ import numpy as np
 
 from lastmile_dataflow.io import read_json, write_json
 from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.navigation.astar import Grid
-from lastmile_dataflow.stations.no_edit_config import NoEditConfig
-from lastmile_dataflow.stations.no_edit_statistics import aggregate,is_episode_terminal
-from lastmile_dataflow.runtime.episode_guard import (execute_isolated_episode,track_resource,mark_episode_phase,
-    classify_episode_exception)
-from lastmile_dataflow.policies.molmobot import MolmoBotClient,PolicyInfrastructureError,PolicyEpisodeError
-from lastmile_dataflow.recording.recorder import AttemptRecorder
+from lastmile_dataflow.planning.astar import Grid
+from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.data.statistics import aggregate, is_episode_terminal
+from lastmile_dataflow.runtime.episode_guard import execute_isolated_episode, track_resource, mark_episode_phase, classify_episode_exception
+from lastmile_dataflow.policies.molmobot import MolmoBotClient, PolicyInfrastructureError, PolicyEpisodeError
+from lastmile_dataflow.data.recorder import AttemptRecorder
 
 
 class LifecycleIsolationTests(unittest.TestCase):
@@ -69,7 +68,7 @@ class LifecycleIsolationTests(unittest.TestCase):
 
     def test_real_synthetic_mjdata_initialization_failure_closes_clone_not_baseline(self):
         from helpers import make_sim
-        from lastmile_dataflow.runtime.no_edit_execution import run_raw_attempt,clone_sim
+        from lastmile_dataflow.runtime.execution import run_curobo_attempt, clone_sim
         from lastmile_dataflow.runtime.molmobot_execution import run_vla_attempt
         baseline,robot=make_sim(self.root)
         self.addCleanup(baseline.close);before=baseline.state_vector().copy();clones=[]
@@ -77,13 +76,13 @@ class LifecycleIsolationTests(unittest.TestCase):
             probe=clone_sim(*args,**kwargs);clones.append(probe);return probe
         task={**self.task,'target_body':'target'}
         for backend in ('curobo','molmobot'):
-            module='lastmile_dataflow.runtime.'+('no_edit_execution' if backend=='curobo' else 'molmobot_execution')
+            module='lastmile_dataflow.runtime.'+('execution' if backend=='curobo' else 'molmobot_execution')
             with patch(module+'.clone_sim',side_effect=clone), \
                  patch(module+'.place_frozen_station',side_effect=ValueError('bad initial pose')):
                 if backend=='curobo':
-                    result=run_raw_attempt(baseline,task,self.station,[],self.root,NoEditConfig(),CollectionConfig(output_dir=str(self.root)),self.root,backend,seed=1)
+                    result=run_curobo_attempt(baseline,task,self.station,[],self.root,ExecutionConfig(),CollectionConfig(output_dir=str(self.root)),self.root,backend,seed=1)
                 else:
-                    result=run_vla_attempt(baseline,task,self.station,NoEditConfig(),CollectionConfig(output_dir=str(self.root)),self.root,backend,seed=1,policy=object())
+                    result=run_vla_attempt(baseline,task,self.station,ExecutionConfig(),CollectionConfig(output_dir=str(self.root)),self.root,backend,seed=1,policy=object())
             self.assertEqual(result['status'],'initialization_error')
             self.assertTrue(clones[-1].closed)
             self.assertFalse(baseline.closed)

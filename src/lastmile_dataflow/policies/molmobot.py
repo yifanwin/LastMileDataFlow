@@ -7,7 +7,7 @@ import tempfile
 import time
 from multiprocessing.connection import Client
 
-from ..robots.action import InvalidAction
+from ..runtime.action import InvalidAction
 from .molmobot_config import load_policy_config
 
 

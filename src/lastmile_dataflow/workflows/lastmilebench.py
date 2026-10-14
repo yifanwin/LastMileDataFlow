@@ -3,18 +3,18 @@ from dataclasses import asdict, replace
 import os
 from pathlib import Path
 
-from ..benchmark.episodes import select_starts, summarize
+from ..data.benchmark import select_starts, summarize
 from ..config import CollectionConfig, RobotConfig
 from ..io import append_row, create_run, read_json, rows, write_json
 from ..runtime.simulation import Simulation
 from ..runtime.benchmark_scene import native_scene
 from ..runtime.molmobot_execution import run_vla_attempt
-from ..stations.scene_package import load_scenes
-from ..stations.no_edit_config import NoEditConfig
-from ..stations.lastmile_selection import station_calibration
+from ..scenes.dataset import load_scenes
+from ..runtime.execution_config import ExecutionConfig
+from ..data.selection import station_calibration
 from ..policies.molmobot import MolmoBotClient
 from ..policies.molmobot_config import load_policy_config
-from .no_edit import profile
+from ..runtime.execution_config import execution_profile
 
 
 def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibration_dir=None,
@@ -26,7 +26,7 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
     calibrations = rows(Path(calibration_dir) / 'trials.jsonl') if calibration_dir else []
     cal_config = read_json(Path(calibration_dir) / 'config.json') if calibration_dir else None
     policy = load_policy_config(policy_path)
-    config = NoEditConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
+    config = ExecutionConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
         policy_config=str(Path(policy_path).resolve()), width=1024, height=576, radius_m=radius_m)
     root = create_run(output, {'dataset': str(source), 'policy': asdict(policy), 'seed': seed,
         'horizon': horizon, 'wall_timeout_s': wall_timeout_s, 'radius_m': radius_m,
@@ -37,7 +37,7 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
         sim = None
         try:
             sim = native_scene(parent)
-            if cal_config and cal_config['profiles'].get(scene['scene_id']) != profile(sim.robot.config, config):
+            if cal_config and cal_config['profiles'].get(scene['scene_id']) != execution_profile(sim.robot.config, config):
                 raise ValueError('benchmark calibration does not match native robot/sensor/policy configuration')
             station_rows = scene['stations']
             calibration = None
@@ -52,9 +52,9 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
                 {'scene_id': scene['scene_id'], 'task_id': scene['task']['task_id']}, limit=starts_per_sample)
             if not choices:
                 continue
-            from ..stations.no_edit_sampling import place_frozen_station, robot_contacts
-            from ..recording.head_views import head_frame
-            from ..recording.edit_views import ViewConfig
+            from ..scenes.sampling import place_frozen_station, robot_contacts
+            from ..data.head_views import head_frame
+            from ..data.edit_views import ViewConfig
             from ..scenes.initialization import floor_support
             relative = Path('scene-files') / scene['scene_id']
             sim.freeze(root / relative)
@@ -95,7 +95,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
             sim = Simulation.from_snapshot(scene, robot, target=episode['task']['target_body'])
             sim.scene_id = episode['scene_id']
             try:
-                config = NoEditConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
+                config = ExecutionConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
                     policy_config=str(policy_path), width=1024, height=576,
                     radius_m=settings['radius_m'], attempt_timeout_s=settings['wall_timeout_s'], third_person_enabled=False)
                 collection = CollectionConfig(output_dir=str(root), width=1024, height=576,

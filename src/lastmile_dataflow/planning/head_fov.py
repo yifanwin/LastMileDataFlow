@@ -125,7 +125,7 @@ class SparseFOVValidator:
 
     def project(self, point):
         import mujoco
-        from ..robots.action import torso_joints
+        from ..runtime.action import torso_joints
         data, sim = self.scratch, self.sim
         data.qpos[:] = sim.data.qpos
         if sim.model.nmocap:
