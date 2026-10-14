@@ -19,22 +19,37 @@ OUT = Path(__file__).resolve().parent.parent / "data"
 OUT.mkdir(parents=True, exist_ok=True)
 
 NOEDIT = ROOT / ".worktrees/no-edit-lastmile-val/outputs/no_edit"
-AUG = ROOT / ".worktrees/procedural-obstacle-augmentation/outputs/no_edit"
+AUG = ROOT / ".worktrees/scenes-datasets-design/outputs/no_edit"
 DIAG = ROOT / ".worktrees/no-edit-lastmile-val/outputs/diagnostics"
 
 # run_id -> (backend, case, spacing_m, source-worktree label)
+#
+# The two VLA Case2 slots were re-run on 2026-10-12/13 after the original
+# 230626 / 232238 runs died on the attempt-budget/RPC-timeout coupling bug.
+# Their `case` keys are unchanged so figures keep one row per cell; the
+# superseded run ids are listed in SUPERSEDED for the report text.
 RUNS = {
     "no-edit-v080-reach-halfbase-val103-cup30-cuda5-20261011-1707": ("curobo", "baseline", 0.2217592080002628, "no-edit-lastmile-val"),
     "molmobot-val103-cup30-20261011-194653": ("vla", "baseline", 0.2217592080002628, "no-edit-lastmile-val"),
-    "no-edit-curobo-case1-v000-20261011-222405": ("curobo", "case1", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-curobo-case2-v001-20261011-222602": ("curobo", "case2", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-molmobot-case1-v000-20261011-224025": ("vla", "case1", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-molmobot-case2-v001-20261011-230626": ("vla", "case2", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-final20-case1-v000-20261011-225943": ("curobo", "case1_final20", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-final20-case2-v001-20261011-225943": ("curobo", "case2_final20", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-molmobot-final20-case1-v000-20261011-232238": ("vla", "case1_final20", 0.1108796040001314, "procedural-obstacle-augmentation"),
-    "no-edit-molmobot-final20-case2-v001-20261011-232238": ("vla", "case2_final20", 0.1108796040001314, "procedural-obstacle-augmentation"),
+    "no-edit-curobo-case1-v000-20261011-222405": ("curobo", "case1", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-curobo-case2-v001-20261011-222602": ("curobo", "case2", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-molmobot-case1-v000-20261011-224025": ("vla", "case1", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-molmobot-case2-v001-fix2-20261012-230054": ("vla", "case2", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-final20-case1-v000-20261011-225943": ("curobo", "case1_final20", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-final20-case2-v001-20261011-225943": ("curobo", "case2_final20", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-molmobot-final20-case1-v000-20261011-232238": ("vla", "case1_final20", 0.1108796040001314, "scenes-datasets-design"),
+    "no-edit-molmobot-final20-case2-v001-fix3-20261012-232021": ("vla", "case2_final20", 0.1108796040001314, "scenes-datasets-design"),
 }
+
+SUPERSEDED = {
+    "case2": "no-edit-molmobot-case2-v001-20261011-230626",
+    "case2_final20": "no-edit-molmobot-final20-case2-v001-20261011-232238",
+}
+
+# Stopped by explicit user decision on 2026-10-13 (50/58 stations, judged enough):
+# the rate is still partial, but the run will not advance further.
+STOPPED_PARTIAL = {"no-edit-molmobot-case2-v001-fix2-20261012-230054"}
+RUNNING = set()
 
 
 def run_path(run_id: str) -> Path:
@@ -52,13 +67,18 @@ def run_rows():
         t = task_dir(run_id)
         row = {"run_id": run_id, "backend": backend, "case": case,
                "spacing_m": spacing, "worktree": wt}
-        res = json.loads((t / "result.json").read_text())
         run_summary = json.loads((run_path(run_id) / "summary.json").read_text())
         timing = json.loads((run_path(run_id) / "timing.json").read_text())
         cfg = json.loads((run_path(run_id) / "frozen_config.json").read_text())["config"]
+        # An in-flight run has no task-level result.json yet; keep the row with a
+        # partial task status rather than dropping the cell from every figure.
+        try:
+            res = json.loads((t / "result.json").read_text())
+        except FileNotFoundError:
+            res = {}
         row.update({
             "run_status": run_summary["status"],
-            "task_status": res.get("status"),
+            "task_status": res.get("status", "not_yet_written"),
             "dataset_eligible": res.get("dataset_eligible"),
             "successful_rollouts": res.get("successful_rollouts"),
             "wall_s": round(timing["elapsed_wall_s"], 1),
@@ -75,6 +95,7 @@ def run_rows():
         term = sum(s["terminal_trials"] for s in st)
         succ = sum((s["successes"] or 0) for s in st)
         valid = sum(1 for s in st if s["geometry"] == "valid")
+        timeouts = sum((s.get("timeout_trials") or 0) for s in st)
         row.update({
             "stations_total": len(st),
             "stations_valid": valid,
@@ -82,6 +103,11 @@ def run_rows():
             "stations_measured": sum(1 for s in st if s["terminal_trials"] > 0),
             "terminal_trials": term, "successes": succ,
             "success_rate": (succ / term) if term else None,
+            "timeout_trials": timeouts,
+            "success_rate_ex_timeout": (succ / (term - timeouts))
+                                      if term - timeouts > 0 else None,
+            "run_complete": run_id not in RUNNING and run_id not in STOPPED_PARTIAL,
+            "run_stopped_early": run_id in STOPPED_PARTIAL,
         })
         reasons = Counter()
         for s in st:
@@ -97,12 +123,14 @@ def run_rows():
                         "trial_success": tc.get("success", 0),
                         "trial_planning_no_solution": tc.get("planning_no_solution", 0),
                         "trial_failure": tc.get("failure", 0),
+                        "trial_timeout": tc.get("timeout", 0),
                         "trial_incomplete": tc.get("incomplete", 0)})
             steps = [x.get("executed_steps") for x in tr if x.get("executed_steps")]
             row["exec_steps_median"] = float(np.median(steps)) if steps else None
         except FileNotFoundError:
             row.update({"trials_rows": 0, "trial_success": 0,
                         "trial_planning_no_solution": 0, "trial_failure": 0,
+                        "trial_timeout": 0,
                         "trial_incomplete": 0, "exec_steps_median": None})
         try:
             prog = json.loads((t / "progress.json").read_text())

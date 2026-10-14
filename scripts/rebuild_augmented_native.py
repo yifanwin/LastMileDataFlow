@@ -46,10 +46,15 @@ from lastmile_dataflow.stations.no_edit_config import load_no_edit_config  # noq
 from lastmile_dataflow.validation.obstacle_augmentation import collision_pairs  # noqa: E402
 
 
-def placements_from_edits(path):
-    """Only the fields `ObstacleEditSession.candidate` consumes; edits.json carries more."""
+def placements_from_edits(path, allow_empty=False):
+    """Only the fields `ObstacleEditSession.candidate` consumes; edits.json carries more.
+
+    `allow_empty` is the unedited-twin case: replay nothing, i.e. freeze the plain
+    scene under the native profile so the same station set can be scored without
+    the added obstacles.
+    """
     edits = read_json(path)
-    if not isinstance(edits, list) or not edits:
+    if not isinstance(edits, list) or (not edits and not allow_empty):
         raise ValueError('edits.json must be a nonempty list')
     return [{k: entry[k] for k in ('asset_id', 'pose')} for entry in edits]
 
@@ -62,13 +67,15 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'outputs')
     parser.add_argument('--robot-model', type=Path, default=None,
                         help='defaults to <assets>/robots/rby1m/rby1_v1.2_site_control.xml')
+    parser.add_argument('--no-placements', action='store_true',
+                        help='freeze the unedited scene under the native profile (empty placement list)')
     parser.add_argument('--collision', action='store_true',
                         help='also re-run full-height collision check (needs the run NoEditConfig)')
     args = parser.parse_args()
 
     variant = args.variant.resolve()
     edits_path = variant / 'edits.json'
-    if not edits_path.is_file():
+    if not edits_path.is_file() and not args.no_placements:
         raise SystemExit('missing ' + str(edits_path))
 
     # frozen_config.json of the augmentation run records the exact baseline,
@@ -93,7 +100,7 @@ def main():
     robot = replace(RobotConfig(str(robot_model)),
                     control_profile='molmobot-native-v1', control_hz=10., physics_dt=.004)
 
-    placements = placements_from_edits(edits_path)
+    placements = [] if args.no_placements else placements_from_edits(edits_path)
     asset_ids = [p['asset_id'] for p in placements]
 
     source = SceneSource.procthor(dataset_dir, house)

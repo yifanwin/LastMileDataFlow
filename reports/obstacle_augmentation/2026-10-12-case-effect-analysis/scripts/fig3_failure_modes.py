@@ -25,8 +25,8 @@ GROUPS = [
     ("VLA 基线 37 点", ["molmobot-val103-cup30-20261011-194653"]),
     ("VLA Case1 (161→终选20)", ["no-edit-molmobot-case1-v000-20261011-224025",
                                  "no-edit-molmobot-final20-case1-v000-20261011-232238"]),
-    ("VLA Case2 (161→终选20)", ["no-edit-molmobot-case2-v001-20261011-230626",
-                                 "no-edit-molmobot-final20-case2-v001-20261011-232238"]),
+    ("VLA Case2 (161→终选20)", ["no-edit-molmobot-case2-v001-fix2-20261012-230054",
+                                 "no-edit-molmobot-final20-case2-v001-fix3-20261012-232021"]),
 ]
 
 # stack order = most actionable first; colour tracks the failure mode, not the rank
@@ -35,6 +35,7 @@ SEGMENTS = [
     ("规划无解 planning_no_solution", "planning_no_solution", viz.CAT[0]),
     ("执行期物理失败", "exec_failure", viz.CAT[1]),
     ("策略耗尽步数预算 PolicyFailure", "policy_budget", viz.CAT[2]),
+    ("墙钟预算耗尽 timeout（环境）", "timeout", "#7b6fd0"),
     ("incomplete（未跑完）", "incomplete", viz.STATUS["warning"]),
 ]
 
@@ -44,13 +45,15 @@ def decompose(rows):
     n_success = sum(int(r["successes"]) for r in rows)
     n_pns = sum(int(r["trial_planning_no_solution"]) for r in rows)
     n_incomplete = sum(int(r["trial_incomplete"]) for r in rows)
+    n_timeout = sum(int(r["trial_timeout"]) for r in rows)
     n_fail = sum(int(r["trial_failure"]) for r in rows)
     # PolicyFailure never ships a trajectory past the budget, so it is separated out
     n_policy = sum(int(r["fr_PolicyFailure"]) for r in rows)
     n_policy = min(n_policy, n_fail)
     n_exec = max(0, n_fail - n_policy)
     return {"success": n_success, "planning_no_solution": n_pns,
-            "exec_failure": n_exec, "policy_budget": n_policy, "incomplete": n_incomplete}
+            "exec_failure": n_exec, "policy_budget": n_policy,
+            "timeout": n_timeout, "incomplete": n_incomplete}
 
 
 def main():
@@ -80,7 +83,7 @@ def main():
     ax1.set_yticks(y); ax1.set_yticklabels(labels, fontsize=9)
     ax1.invert_yaxis()
     ax1.set_xlabel("已终结试验次数（各组合的 161 点 + 终选 20 点 run 合并计数）")
-    ax1.set_title("A 失败模式构成：cuRobo 卡在规划，VLA 卡在策略步数预算", loc="left")
+    ax1.set_title("A 失败模式构成：cuRobo 卡在规划；VLA 后期被墙钟 timeout 淹没", loc="left")
     viz.clean(ax1, grid_axis="x")
     ax1.legend(loc="lower right", ncol=1)
     for yi, t in zip(y, gaps):
