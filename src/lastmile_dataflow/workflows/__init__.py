@@ -1,1 +1,1 @@
-"""Phase-two workflows interfaces."""
+"""场景构造、采集与评测编排。"""

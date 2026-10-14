@@ -349,11 +349,6 @@ class PublicationTests(unittest.TestCase):
 
 
 class NavigationTests(unittest.TestCase):
-    def test_canonical_audit_cli_dispatch(self):
-        from lastmile_dataflow.cli import main
-        with patch('lastmile_dataflow.validation.canonical.audit_canonical', return_value={'valid':True}) as audit:
-            self.assertEqual(main(['audit-canonical','synthetic-attempt']),0)
-        audit.assert_called_once_with(Path('synthetic-attempt'))
 
     def test_arrival_drift_cannot_be_reported_as_success(self):
         config=NoEditConfig()

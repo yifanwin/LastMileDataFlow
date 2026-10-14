@@ -124,18 +124,16 @@ bin/lastmile-dataflow build-scene-datasets \
   --discovery outputs/diagnostics/<unique-qualified-discovery>.json \
   --dataset-id <unique-dataset-id> --gpu-ids <low-load-gpus> --workers 4
 
-bin/lastmile-dataflow audit-scene-datasets outputs/scene_datasets/<dataset-id> \
-  --physical --output outputs/diagnostics/<unique-audit>.json
 ```
 
 GPU由运行前显存/利用率选择；不在实现中硬编码固定设备。所有 worker 日志落 outputs/logs。
 qualification 对空间选择的目标执行完整独立站位初始化／可见性检查；不合格目标排除后按同一空间规则补选。保留静态 discovery 和所有 qualification 失败，不将静态几何通过视为可见性通过。
 审计重载实际冻结模型、复核碰撞/支撑/Case/源影响/媒体/摘要；不冒充新的连续任务执行。
 
-### 迁移后的普通样本物理审计
+### 本轮重构边界
 
-`audit-scene-datasets <root> --physical --audit-inputs <companion/audit_inputs> --output <outside-root.json>` 可使用与根 manifest 校验绑定的 `scene-audit-inputs-v1` 冻结增强配置。机器人描述从包内 `scene/version.json` 加载，不依赖原机器人 JSON 路径。模型与状态仍按逐级校验和检查；companion 不属于封存根目录，不修改旧根清单。
-本次 val103-Cup_30 两个普通样本已经迁移目录复查通过。含容量不足证书的未来样本重放仍依赖原构造基线和候选资产，不能声称该 companion 已支持完整容量重放迁移。
+独立 `audit-scene-datasets` CLI 已删除；构建 workflow 的内部审计、封存与原场景载荷暂时保留，等待步骤三一起改生产者和消费者。
+这不改变已有实验报告的历史结论，也不表示最小可搬动格式已验证。
 
 ### 不限目标数量（-1）
 

@@ -1,6 +1,7 @@
 """纯算法/生命周期测试使用的简化模型，不作为真实 RBY-1 物理验收证据。"""
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import numpy as np
 
 from lastmile_dataflow.config import RobotConfig
 from lastmile_dataflow.scenes.source import SceneSource
@@ -56,3 +57,24 @@ def make_sim(root):
     source,robot = fixtures(root)
     sim = Simulation.from_source(source,robot,target='target')
     return sim,robot
+
+
+def table_scene(root):
+    source, robot = fixtures(root)
+    Path(source.xml_path).write_text('''<mujoco><compiler angle="radian"/>
+    <worldbody><light pos="2 0 3" dir="0 0 -1" diffuse=".8 .8 .8"/><geom name="floor" type="plane" size="0 0 .01"/>
+    <body name="table" pos="2 0 .4"><geom name="table_top" type="box" size=".6 .5 .04" rgba=".7 .6 .4 1"/></body>
+    <body name="target" pos="2 0 .50"><freejoint name="target_free"/><geom name="target_geom" type="box" size=".04 .04 .05" rgba=".9 .1 .1 1" mass=".1"/></body>
+    <body name="neighbor" pos="2.3 .2 .50"><freejoint name="neighbor_free"/><geom name="neighbor_geom" type="box" size=".04 .04 .05" rgba=".1 .2 .9 1" mass=".1"/></body>
+    </worldbody></mujoco>''')
+    return source, robot
+
+
+def evidence():
+    initial={'base':[0,0,0],'head':[0,0],'idle_arm':[0]*7,'target':'cup','height_m':.8,'fingers':[1,2]}
+    samples=[]
+    for i in range(551):
+        samples.append({'time_s':i*.004,'phase':'hold','command_h':0.,'base':[0,0,0],'head':[0,0],'idle_arm':[0]*7,
+                        'torso':[0]*6,'target':'cup','height_m':.9,'support_contact':False,'finger_forces_n':{'1':1.,'2':1.},
+                        'relative_pose':np.eye(4).tolist(),'illegal':[],'sampler':'force-aware-v3'})
+    return initial,samples

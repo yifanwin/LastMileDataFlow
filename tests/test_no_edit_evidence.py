@@ -96,18 +96,6 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(PROTOCOL['hold_s'],2.)
         self.assertEqual(PROTOCOL['lift_m'],.05)
 
-    def test_review_rejects_writes_in_source_and_existing_output(self):
-        from lastmile_dataflow.workflows.timeout_review import review
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d)
-            with self.assertRaisesRegex(ValueError,'outside'):review(root,root/'derived')
-            with self.assertRaises(FileExistsError):review(root/'source',root)
-
-    def test_review_cli(self):
-        from lastmile_dataflow.cli import main
-        with patch('lastmile_dataflow.workflows.timeout_review.review',return_value={'status':'completed'}) as run:
-            self.assertEqual(main(['review-lastmile-timeouts','--run','fixture','--output','derived']),0)
-        run.assert_called_once_with(Path('fixture'),Path('derived'))
 
     def test_timeout_runtime_finalizer_retains_task_success_and_control(self):
         from helpers import make_sim

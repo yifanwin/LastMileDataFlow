@@ -43,23 +43,10 @@ attempts/.../<attempt_id>/
 - 当前 live-v1 **冻结频率、physics_dt 和 controller profile**；执行中更改会拒绝下发，动态配置流尚未实现。
 - MP4/分析画面及 policy processed input 显式标 derived；原始 RGB 不被拼接、覆盖或鱼眼图替代。
 
-## 2. 审计与全结果索引
+## 2. 当前重构边界
 
-从项目根执行，解释器使用本项目环境或显式指定已有依赖环境。
-
-```bash
-DATAFLOW_PYTHON=../molmospaces/.venv/bin/python bin/lastmile-dataflow \
-  audit-canonical outputs/no_edit/<new-run>/scenes/val_103/attempts/pick/<station>/<attempt>
-
-DATAFLOW_PYTHON=../molmospaces/.venv/bin/python bin/lastmile-dataflow \
-  index-canonical outputs/no_edit/<new-run>
-```
-
-`canonical_index.jsonl` 包含成功、失败、规划未执行、异常和未完成；不替换成功筛选的 `dataset_index.jsonl`。
-sealed 表示已封存，**不等于协议验收通过**。训练/发布前单独执行 audit-canonical。
-历史无 canonical 的 attempt 标 legacy_partial；加载/准备阶段没有完整模型的 attempt 不伪造 raw 状态。
-审计核对整个 attempt 与 raw/canonical 摘要、数组维度、时序、控制链、模型/相机身份、PNG/depth、mask 和基座增量。
-它检查数据自洽，不证明抓取成功、真实相机标定精度或 CUDA 规划能力。
+独立审计和索引 CLI 已删除。collector、adapter 内部仍执行现有协议检查，尚未缩到最小主记录。
+本轮不改变 raw/canonical 数据格式；内部检查与重复索引在步骤三处理。
 
 ## 3. 只导出 MolmoBot，且不改原包
 
@@ -104,9 +91,6 @@ open 必须加 `--conditioning-point X Y`（首帧原 head 图中 [0,1] 归一�
 MPLCONFIGDIR=/tmp/lastmile-mpl-cache PYTHONPATH=src:tests \
   ../molmospaces/.venv/bin/python -m unittest discover -s tests -v
 
-# 显式真实冻结资产短执行：新目录，最多10步；不调用规划器或 VLA
-MUJOCO_GL=egl PYTHONPATH=src ../molmospaces/.venv/bin/python tests/canonical_real_smoke.py \
-  --snapshot <verified-scene-directory> --output outputs/diagnostics/<new-smoke> --steps 2
 ```
 
 本次真实 ProcTHOR train_2/RBY-1 验证使用 Mesa 软件 EGL，证明短 stepping、RGB/depth/标定采集和审计链路。

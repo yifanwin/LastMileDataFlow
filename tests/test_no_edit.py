@@ -264,7 +264,7 @@ class MobileManipulationTests(unittest.TestCase):
             self.assertGreater(np.linalg.norm(a[3:10]),0.);self.assertLessEqual(np.linalg.norm(a[:2]),.01+1e-9)
             sim.close()
     def test_mobile_validator_allows_base_motion_but_fixed_protocol_still_rejects(self):
-        from test_stations import evidence
+        from helpers import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)
         for row in samples: row['base']=[.3,.2,.5]
         self.assertEqual(evaluate_pick(samples,initial)['reason'],'base_drift')
@@ -273,14 +273,14 @@ class MobileManipulationTests(unittest.TestCase):
         samples[-1]['base']=[2.1,0.,0.]
         self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'base_outside_workspace')
     def test_mobile_validator_records_collision_and_keeps_idle_arm_check(self):
-        from test_stations import evidence
+        from helpers import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)
         samples[-1]['illegal']=['robot_environment_collision']
         self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'success')
         samples[-1]['illegal']=[];samples[-1]['idle_arm'][0]=.02
         self.assertEqual(evaluate_mobile_pick(samples,initial)['reason'],'idle_arm_drift')
     def test_mobile_torso_error_is_telemetry_but_strict_protocol_unchanged(self):
-        from test_stations import evidence
+        from helpers import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)
         samples[-1]['torso'][0]=.03
         self.assertAlmostEqual(torso_tracking_error(samples[-1]),.03)
@@ -289,7 +289,7 @@ class MobileManipulationTests(unittest.TestCase):
         samples[-1]['illegal']=['robot_environment_collision']
         self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'success')
     def test_mobile_torso_nonfinite_is_still_invalid_evidence(self):
-        from test_stations import evidence
+        from helpers import evidence
         initial,samples=evidence();initial.update(workspace_center_xy=[0.,0.],workspace_radius_m=2.)
         samples[-1]['torso'][0]=float('nan')
         self.assertEqual(evaluate_mobile_pick(samples,initial)['status'],'infrastructure_error')

@@ -93,7 +93,6 @@ lastmilebench → 共用站位选择与 runtime，不需要调用连续采集
 
 **操作：**
 
-1. 开始改动前再次检查 Git 状态，保留用户新增内容，不回滚工作树。
 2. 从当前五个 workflow 顺着实际调用确认共享依赖；`no_edit` 与 `lastmile_datasets` 是待合并的现状，不是要求保留的两层架构。
 3. 留下场景加载、任务发现、障碍物放置、站位初始化、真实仿真、动作适配、任务判定、cuRobo、MolmoBot、A* 和必要记录代码。
 4. 确认当前 cuRobo v2 借用的旧模块工具，不能把 `planning/curobo.py` 当成历史文件整块删除。

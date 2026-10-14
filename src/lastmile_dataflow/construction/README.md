@@ -1,5 +1,5 @@
 # construction
 
-config.py：v2 契约；candidates.py：版本绑定候选；templates.py：四类几何构建要求。
-
-阶段二接口已实现；能力范围见 [phase2.md](../../../docs/phase2.md)。
+保留场景配方、障碍物区域与放置采样、任务资格及现有容量处理。
+旧 Agent 合约、DSL、编译器、候选冻结和四类模板已删除。
+容量认证与协议耦合将在后续步骤简化，本轮不改变构造规则。

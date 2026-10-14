@@ -96,15 +96,7 @@ LastMileBench 共用率表和低/高选择；native benchmark 仍强校验其模
 - `execution_diagnostics.json` 记录墙钟预算/耗时、仿真时长，以及规划、渲染、记录、物理仿真与证据检查的计时。`simulation_and_physics_evidence` 包含逐物理 tick 的 monitor/trace 写入；这些计时不是无遗漏的性能 profiler。recorder 封存耗时在父 trial 返回的 `execution_diagnostics.recorder_finalize_wall_s` 中记录，不改写已封存 attempt。
 - 预算仍为原配置值；本修复不扩大 timeout。代码摘要和执行语义变化必须使用新 run，不能 resume 原封存 run。
 
-旧数据只读复核入口（CPU，不运行机器人）：
-
-```bash
-bin/lastmile-dataflow review-lastmile-timeouts \
-  --run outputs/no_edit/<source-run> \
-  --output outputs/diagnostics/<new-unique-review>
-```
-
-最多 4 个 CPU worker。复核已有完整物理 trace；旧 monitor 初值仅在可由 frozen model/initial_state 可靠重建时使用，否则 unknown。物理成功候选另做 canonical audit；不合格物理候选只核验所用证据与原 attempt seal，不浪费完整相机审计。结果是独立的 posthoc evidence，不是原封存率表的标签改写，也不是连续恢复训练数据。
+独立 `review-lastmile-timeouts` 复核入口已删除。执行中的超时收尾与真实成功判定保留，不依赖二次复核 publication。
 
 修复与验收见 [TIMEOUT-FIX.md](../../reports/lastmile_datasets/TIMEOUT-FIX.md)。
 

@@ -20,7 +20,7 @@ from ..planning.curobo import body_pose,tcp_pose
 from ..scenes.geometry import descendants
 from .contacts import CONTACT_POLICY, SIMULATION_FAILURES
 
-# 冻结协议：这些阈值不可由配置覆盖（对应 phase3.md 的“不可通过配置放宽”）。
+# 任务成功阈值不可通过配置放宽。
 PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_m':.002,
           'base_yaw_rad':np.deg2rad(.2),'torso_error_rad':.002,'head_error_rad':.002,
           'idle_arm_error_rad':.002,'relative_translation_m':.01,

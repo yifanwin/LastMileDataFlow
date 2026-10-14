@@ -1,5 +1,4 @@
 # catalog
 
-index.py：静态 SQLite/JSON 索引与检索；assets.py：有限资产池资格和重新加载检查。
-
-阶段二接口已实现；能力范围见 [phase2.md](../../../docs/phase2.md)。
+`library.py` 和 `edit_assets.py` 提供程序化增强所需的 THOR 资产查找与几何测量。
+旧 SQLite 检索入口和历史有限资产池已删除；必要资产查找不等于封存 registry。

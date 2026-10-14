@@ -1,8 +1,7 @@
 """独立 MuJoCo 生命周期：准备时可恢复，连续执行开始后永久禁止重置。
 
 【本文件的地位】它是**唯一允许发生真实物理运动**的地方（对应 architecture.md 的
-“runtime 是唯一真实运动入口”）。所有阶段——阶段一短动作、阶段二构建静置、阶段三抓取——
-最终都通过这里的方法推进物理。
+“runtime 是唯一真实运动入口”）。构造静置、导航和操作都通过这里推进物理。
 
 【必须理解的两种阶段】
   准备阶段（started=False）：可以加载模型、restore_snapshot、freeze、robot.initialize。
@@ -51,31 +50,21 @@ class Simulation:
         self._capture_depth_requested = False
 
     @classmethod
-    def from_source(cls, source, robot_config, *, target=None, restoration=None):
-        """从原始 MJCF（或旧样例恢复信息）构建一个全新的准备阶段仿真。
-
-        步骤：准备 spec（含机器人挂接）→ 编译 → 建实例映射 →
-              写入机器人初态 → 可选恢复旧样例的物体位姿。
-        """
+    def from_source(cls, source, robot_config, *, target=None):
+        """从原始 MJCF 创建准备阶段仿真，并初始化机器人。"""
         spec = cls.prepare_spec(source, robot_config)
-        if restoration:
-            from ..integrations.legacy import apply_restoration_spec
-            apply_restoration_spec(spec, restoration)
         spec.option.timestep = robot_config.physics_dt
         model = spec.compile()
         catalog = instance_catalog(model, source)
         sim = cls(model, robot_config, catalog, target)
         try:
-            sim.robot.initialize(restoration["robot_initial"] if restoration else None)
+            sim.robot.initialize()
         except ValueError as exc:
             sim.close()
             raise InitializationError(str(exc)) from exc
-        if restoration:
-            from ..integrations.legacy import apply_restoration_state
-            apply_restoration_state(sim, restoration)
         sim.spec = spec
         sim.source = source
-        sim.restoration = restoration
+        sim.restoration = None
         return sim
 
     @staticmethod

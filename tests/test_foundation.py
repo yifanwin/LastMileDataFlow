@@ -1,23 +1,17 @@
-import json
-from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig, TaskConfig, construct, freeze_config
-from lastmile_dataflow.io import read_json, write_json
+from lastmile_dataflow.config import CollectionConfig, RobotConfig, TaskConfig, construct
 from lastmile_dataflow.robots.action import InvalidAction, torso_joints, validate_action
 from lastmile_dataflow.integrations.waypoints import PlanResult, arm_waypoint_action, navigation_action
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.runtime.runner import run_attempt, audit_attempt
-from lastmile_dataflow.recording.recorder import AttemptRecorder
 from lastmile_dataflow.scenes.source import resolve_target
 from lastmile_dataflow.validation.lightweight import inspect_state
-from helpers import fixtures, make_sim
+from helpers import make_sim
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -115,55 +109,6 @@ class SimulationTests(unittest.TestCase):
         self.assertFalse(inspect_state(s,c,initialization=True)['valid'])
         s.data.qvel[0]=np.nan
         self.assertIn('nonfinite_physics_state',[i['code'] for i in inspect_state(s,c)['issues']])
-
-
-class RecordingTests(unittest.TestCase):
-    def test_empty_attempt_no_video_and_no_overwrite(self):
-        with tempfile.TemporaryDirectory() as d:
-            r=RobotConfig('x');c=CollectionConfig(output_dir=d)
-            recorder=AttemptRecorder(d,freeze_config(r,TaskConfig(),c),attempt_id='one')
-            from lastmile_dataflow.validation.lightweight import independent_results
-            recorder.finish('load_error','load_error',independent_results())
-            self.assertEqual(read_json(recorder.path/'videos.json')['cameras'],{})
-            self.assertTrue(audit_attempt(recorder.path)['valid'])
-            with self.assertRaises(FileExistsError):AttemptRecorder(d,freeze_config(r,TaskConfig(),c),attempt_id='one')
-
-    def test_missing_scene_classified(self):
-        with tempfile.TemporaryDirectory() as d:
-            from lastmile_dataflow.scenes.source import SceneSource
-            path=run_attempt(SceneSource('missing',str(Path(d)/'none.xml')),RobotConfig('none'),
-                             TaskConfig(),CollectionConfig(output_dir=d),attempt_id='missing')
-            result=read_json(path/'result.json')
-            self.assertEqual(result['status'],'load_error')
-            self.assertEqual(result['executed_steps'],0)
-            self.assertEqual(result['results']['task_completion']['status'],'unknown')
-
-    def test_invalid_action_is_logged_no_execution_video(self):
-        with tempfile.TemporaryDirectory() as d:
-            source,robot=fixtures(d);c=CollectionConfig(output_dir=d,max_steps=2)
-            with patch.object(Simulation,'render',return_value={'head_camera':np.zeros((16,16,3),dtype=np.uint8)}):
-                path=run_attempt(source,robot,TaskConfig(target='target'),c,base=[0,0,0],
-                                 actions=[[0]*19],attempt_id='invalid')
-            result=read_json(path/'result.json')
-            self.assertEqual(result['status'],'invalid_control')
-            self.assertEqual(result['executed_steps'],0)
-            self.assertFalse((path/'videos').exists())
-            self.assertTrue(audit_attempt(path)['valid'])
-
-    def test_executed_trajectory_continuity_and_new_attempt_restore(self):
-        with tempfile.TemporaryDirectory() as d:
-            source,robot=fixtures(d);c=CollectionConfig(output_dir=d,max_steps=2,record_video=False)
-            with patch.object(Simulation,'render',return_value={'head_camera':np.zeros((16,16,3),dtype=np.uint8)}):
-                path=run_attempt(source,robot,TaskConfig(target='target'),c,base=[0,0,0],attempt_id='first')
-                restored=run_attempt(None,robot,TaskConfig(target='target'),c,frozen_dir=path/'scene',attempt_id='second')
-            self.assertEqual(read_json(path/'result.json')['status'],'execution_complete')
-            self.assertEqual(read_json(restored/'result.json')['status'],'execution_complete')
-            self.assertTrue(audit_attempt(path)['valid'])
-            self.assertTrue(audit_attempt(restored)['valid'])
-            self.assertEqual(read_json(path/'initial_state.json'),read_json(restored/'initial_state.json'))
-            rows=[json.loads(x) for x in (path/'trajectory.jsonl').read_text().splitlines()]
-            self.assertEqual(len(rows),2)
-            self.assertNotEqual(rows[0]['state_after']['time_s'],rows[0]['state_before']['time_s'])
 
 
 if __name__=='__main__': unittest.main()

@@ -1,1 +1,1 @@
-"""Phase-two construction interfaces."""
+"""程序化障碍物与场景数据集构造。"""

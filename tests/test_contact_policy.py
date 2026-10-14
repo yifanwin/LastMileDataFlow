@@ -64,7 +64,7 @@ class ContactPolicyTests(unittest.TestCase):
             self.assertEqual(robot_contacts(None,initialization=False),[shallow])
 
     def test_contacts_do_not_mask_task_success_or_failure_cause(self):
-        from test_stations import evidence
+        from helpers import evidence
         initial,rows=evidence()
         for row in rows:row['illegal']=['self_collision','robot_environment_collision','nonfinger_target']
         self.assertEqual(evaluate_pick(rows,initial)['status'],'success')
