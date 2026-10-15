@@ -45,8 +45,6 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    if args.gpu < 0:
-        raise ValueError('GPU index must be nonnegative')
     gpu_ids = [args.gpu]
     import os
     os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
