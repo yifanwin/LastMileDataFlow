@@ -1,3 +1,0 @@
-sample_id,case,asset_id,added_ground_count,added_surface_count,candidate_count,validated_count,station_count,construction_wall_s,capacity_shortfall,seed
-val_103-case1-f2871d23d0f128da,Case1,Cup_30,1,5,161,33,20,83.867576439,False,2217586740
-val_103-case2-0812d0f8b44be59d,Case2,Cup_30,0,10,161,60,20,96.47616087000006,False,1763178484

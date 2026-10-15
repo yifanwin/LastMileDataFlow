@@ -109,7 +109,7 @@ curl -L -o data/download_assets.py \
 只做模型 smoke，不执行机器人：
 
 ```bash
-.venv/bin/python tests/multitask_real_smoke.py \
+.venv/bin/python tests/smoke/multitask.py \
   --checkpoint data/models/MolmoBot-RBY1Multitask \
   --tokenizer data/models/Qwen3-tokenizer --gpu "$GPU" \
   --output outputs/diagnostics/multitask-smoke

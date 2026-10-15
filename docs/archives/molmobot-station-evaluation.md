@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../README.md)。
+
 # MolmoBot 工作空间操作评测
 
 新增独立 VLA 后端，不调用 cuRobo/IK，不进入 A* 示教收集。
@@ -24,7 +26,7 @@ VLA 使用 `rby1-multitask-molmobot-native-v1`。20D布局不变，但夹爪为�
 这是旧规则接口记录，不是“接入即抓取成功”。现改为 `runtime-record-only-v1`：
 **删除执行期穿透深度/接触终止条件**，仍保留真实碰撞，不添加 contact exclude，
 不改变模型动作、原生 motor、求解器或转换为位置伺服。旧 run 保留，新规则单独新 run。
-详细证据见[接入记录](../reports/no_edit/molmobot-integration-20261011.md)。
+详细证据见接入记录。
 
 状态为22D：base3 + left7 + gripper1 + right7 + gripper1 + torso3；
 torso取实测六关节的 `[1,2,3]`。预测16步、执行8步后重新推理；默认400策略动作。

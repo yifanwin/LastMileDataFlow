@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../../README.md)。
+
 # pick 规划失败的代码追溯与对照诊断
 
 日期：2026-10-10，Asia/Shanghai。分支：`feat/no-edit-lastmile-val`；基础提交：`9280253`。
@@ -10,19 +12,19 @@
 
 本次执行了源码追溯、结果快照读取、独立姿态检查和真实 GPU 规划对照。**没有修改运行源码、旧产物、物理阈值或正在运行的队列；没有执行新的闭爪、抬起或完整连续轨迹。** 规划成功不等于抓取成功，也不能宣称已修好全部 243/164 次。
 
-- [最小对照证据及校验和](data/ik-root-cause-ablation-20261010.json)
-- [源码注释目录](annotated-src/README.md)：五份仅加注释的镜像，AST 与运行源码一致。
+- 最小对照证据及校验和
+- 源码注释目录：五份仅加注释的镜像，AST 与运行源码一致。
 - [前一份失败统计](2026-10-10-failure-causes-comparison.md)：本报告是进一步机制诊断，不覆盖其历史快照。
 
 ## 1. 当前流程确实是手工分段，不是 grasp planning
 
-实际调用入口是 [`NativePlanner.plan`](../../src/lastmile_dataflow/planning/curobo.py)，原始行 214–226：
+实际调用入口是 `NativePlanner.plan`，原始行 214–226：
 
 ```python
 result = self.motion.plan_single(state, goal_pose, self.options)
 ```
 
-[`manipulate`](../../src/lastmile_dataflow/runtime/no_edit_execution.py)，原始行 269–298，逐段规划并执行：
+`manipulate`，原始行 269–298，逐段规划并执行：
 
 | 阶段 | 当前实现 | 是否由 `plan_grasp` 统一返回 |
 |---|---|---|
@@ -37,7 +39,7 @@ result = self.motion.plan_single(state, goal_pose, self.options)
 
 ### 示例版本与真正导入版本不同，但旧版也有该 API
 
-用户引用的本地 [`motion_planning.py`](../../../../../curobo/curobo/examples/getting_started/motion_planning.py)，行 275–301，使用现代接口 `MotionPlanner.plan_grasp(current_state=..., grasp_poses=GoalToolPose(...))`。其实现是 `curobo/curobo/_src/motion/motion_planner.py:420`。
+用户引用的本地 `motion_planning.py`，行 275–301，使用现代接口 `MotionPlanner.plan_grasp(current_state=..., grasp_poses=GoalToolPose(...))`。其实现是 `curobo/curobo/_src/motion/motion_planner.py:420`。
 
 真正运行的 cuRobo 来自：
 
@@ -87,7 +89,7 @@ for index, candidate in enumerate(pool):
 
 这确认了**该样本漏搜了有运动学解的高度**，不能解释全部 243 次，也没有证明替代高度有无碰撞轨迹及真实抓取成功。`h` 是联动关节参数，不是机器人世界高度。
 
-复现脚本：[torso_ik_sweep.py](diagnostics/torso_ik_sweep.py)。完整输出：`outputs/diagnostics/potato17-torso-20261010/sweep.json`。参数：原失败 attempt、`--gpu 2`、新的 `--out`；所有姿态改变均在独立诊断仿真的 begin 之前。
+复现脚本：torso_ik_sweep.py。完整输出：`outputs/diagnostics/potato17-torso-20261010/sweep.json`。参数：原失败 attempt、`--gpu 2`、新的 `--out`；所有姿态改变均在独立诊断仿真的 begin 之前。
 
 ## 3. free IK 为真却 MotionGen 失败：确认了额外 link 目标残留
 
@@ -123,7 +125,7 @@ for index, candidate in enumerate(pool):
 
 不能简单从 `link_names` 删除 head：诊断中这样做会触发锁定关节相关的 `KeyError: head_0`。修复应保留完整 FK/关节锁定，正确管理辅助目标缓存，不去改外部 cuRobo 安装源码，也不取消避碰。
 
-复现脚本：[motiongen_stage_probe.py](diagnostics/motiongen_stage_probe.py)；额外碰撞开关矩阵：[ik_collision_matrix.py](diagnostics/ik_collision_matrix.py)。关键输出：`outputs/diagnostics/cup-s0042-motiongen-20261010-r5/probe.json`，GPU 2。对照先使用原设置，再只改变 warmup 的辅助 pose 传递。完整轨迹文件仅是诊断规划输出，不进入最终数据集。
+复现脚本：motiongen_stage_probe.py；额外碰撞开关矩阵：ik_collision_matrix.py。关键输出：`outputs/diagnostics/cup-s0042-motiongen-20261010-r5/probe.json`，GPU 2。对照先使用原设置，再只改变 warmup 的辅助 pose 传递。完整轨迹文件仅是诊断规划输出，不进入最终数据集。
 
 ## 4. 45 次候选碰撞：低目标规则把机器人改成碰撞姿态
 
@@ -144,11 +146,11 @@ AlarmClock_12 中心 z=**0.796774m**，因此所有候选都被强制使用 `h=.
 | .369 | 2/16 | 6 |
 | .738 | **9/16** | **20** |
 
-9 个站位每个重复 5 次，得到 45 次。S0068 包括床体与 `robot_0/link_torso_1/2`、窗体与右臂 `link_right_arm_2/3/4` 等穿透；原始 body/geom 名和距离见 [完整姿态证据](data/dry-pose-collision-sweep-20261010.json)。
+9 个站位每个重复 5 次，得到 45 次。S0068 包括床体与 `robot_0/link_torso_1/2`、窗体与右臂 `link_right_arm_2/3/4` 等穿透；原始 body/geom 名和距离见 完整姿态证据。
 
 **这不是最初站位过滤漏掉同一姿态的碰撞**：初筛是 `h=0`，候选诊断后变成 `.738`。也不是已经实际撞击：检测发生在新建、未 begin 的 dry 仿真中。它证明策略不合理，不证明 `h=0` 一定能抓到闹钟。
 
-复现脚本：[pose_collision_sweep.py](diagnostics/pose_collision_sweep.py)。输入是原四视角 run 的 frozen 配置及合法站位，不使用 GPU、不执行动作、不改资产。
+复现脚本：pose_collision_sweep.py。输入是原四视角 run 的 frozen 配置及合法站位，不使用 GPU、不执行动作、不改资产。
 
 ## 5. Cup_30 最近结果与“经常停在预抓取”的对应关系
 
@@ -161,7 +163,7 @@ AlarmClock_12 中心 z=**0.796774m**，因此所有候选都被强制使用 `h=.
 
 旧 Cup 的 17 次规划无解、v2 的 40 次规划无解，最终 free IK 均为真。v2 的 `record_only` 躯干策略不是本次修改。它不能自行清除规划器的辅助目标，也不能修复只筛预抓取的问题。
 
-来源：[逐 attempt 快照](data/cup30-code-trace-audit-20261010.json)。这个杯子确实已有独立真实抓取成功，因此不能一概归因于“物体不可抓”；它同时存在规划链断裂，S0042 是其中已做严格原因对照的一例。
+来源：逐 attempt 快照。这个杯子确实已有独立真实抓取成功，因此不能一概归因于“物体不可抓”；它同时存在规划链断裂，S0042 是其中已做严格原因对照的一例。
 
 ## 6. 修复顺序、仍未验证的内容
 

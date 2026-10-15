@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../README.md)。
+
 # A* 导航视频测试
 
 ## 过程与结果
@@ -12,10 +14,10 @@
 
 ## 视频
 
-[视频浏览页](../../outputs/diagnostics/astar-navigation-video-val103-20261010-3def3fdf/index.html)
+视频浏览页
 
-- [真实场景 + 同步导航小图](../../outputs/diagnostics/astar-navigation-video-val103-20261010-3def3fdf/attempts/navigation-only/videos/third_person_camera.mp4)：真实执行时同步渲染，棕色为支撑物、灰色为规划路线、蓝色为实走轨迹。
-- [放大 A* 导航图](../../outputs/diagnostics/astar-navigation-video-val103-20261010-3def3fdf/astar_navigation_map.mp4)：按同一次记录的真实底盘状态逐帧回放，无轨迹插值，不是新增物理执行。
+- 真实场景 + 同步导航小图：真实执行时同步渲染，棕色为支撑物、灰色为规划路线、蓝色为实走轨迹。
+- 放大 A* 导航图：按同一次记录的真实底盘状态逐帧回放，无轨迹插值，不是新增物理执行。
 
 ## 证据与限制
 
@@ -30,7 +32,7 @@
 
 两段视频均完整解码为 351 帧、20 fps、17.55 s（其中连续物理状态覆盖 17.5 s）。已检查初始/中间/末帧，支撑物在起步前显示，实走轨迹随实际状态累计；浏览页所有视频与 poster 链接均可解析。校验摘要见诊断目录 `video_checks.json`。
 
-![实测回放末帧](../../outputs/diagnostics/astar-navigation-video-val103-20261010-3def3fdf/map_final_decoded.png)
+实测回放末帧
 
 图：同一次实际仿真记录的末帧，蓝线到达 S1，棕色支撑物与膨胀障碍不参与可行路径；不含抓取验收结论。
 
@@ -40,9 +42,9 @@
 
 - 生产静态导航图使用物理投影显示，`navigation_display.json` 明确记录显示与规划分离；三人称导航小图取消文字。
 - 使用同一次 351 个实测状态重绘导航视频，完整解码核验为 351 帧、20 fps、17.55 s；没有新增物理仿真或覆盖旧视频。
-- [新版导航视频浏览页](../../outputs/diagnostics/astar-physical-footprint-video-val103-20261010/index.html) · [新版 MP4](../../outputs/diagnostics/astar-physical-footprint-video-val103-20261010/astar_navigation_map.mp4)。
+- 新版导航视频浏览页 · 新版 MP4。
 - 定向回归验证显示改变不会修改规划 `free` 网格，并检查取消文字与显示模式元数据。
 
-![实际轮廓显示末帧](../../outputs/diagnostics/astar-physical-footprint-video-val103-20261010/map_final_decoded.png)
+实际轮廓显示末帧
 
 图：同一条实走路线，底图只显示实际几何范围；白色不代表机器人中心能进入所有位置，路径仍来自保留安全膨胀的原 A* 网格。

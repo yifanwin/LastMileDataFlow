@@ -1,58 +1,41 @@
 # LastMileDataFlow
 
-面向快速实验的机器人数据代码：场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测。
-规划仅支持 **cuRobo V2（0.8.0）**，策略当前为 MolmoBot，导航为 A*。没有旧五阶段、旧 planner 或审计发布体系。
+面向快速实验的机器人数据代码：**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
+规划使用 cuRobo V2（0.8.0），策略使用 MolmoBot，导航使用 A*。当前只有五个命令，不恢复旧五阶段管线。
 
-## 安装与数据准备
+## 从这里开始
 
-从当前仓库根目录运行：
+1. [安装与数据准备](docs/setup.md)：一个 `.venv`，显式配置资产和权重位置。
+2. [运行手册](docs/运行手册.md)：五个命令、控制模式、标定复用和负结果。
+3. [代码结构](docs/architecture.md)：从 workflow 找到算法与实际执行。
+4. [数据格式](docs/data-format.md)：场景、trial、episode 和轨迹。
+5. [测试说明](tests/README.md)：离线回归与显式真实验证。
 
 ```bash
 scripts/install.sh
 .venv/bin/lastmile-dataflow --help
 ```
 
-默认一次安装研究工具、cuRobo V2 和 MolmoBot 策略依赖。完整环境、前置数据来源、授权与摆放方式见 [setup.md](docs/setup.md)。数据、测试、cuRobo V2 和最小 multitask 策略共用本仓库的 `.venv`，不借相邻工作树环境。
-**当前机器人专用 XML/规划描述是否随公开资产提供尚未验证。** 基础安装成功不代表模型、资产和真实采集已可复现。
+真实运行需要先完成数据准备；基础安装成功不代表资产、CUDA 规划或模型推理可用。
 
 ## 五个命令
 
 | 命令 | 用途 |
 |---|---|
-| `build-scenes` | 内部依次发现、资格检查、增强/保存场景库 |
-| `evaluate-stations` | 场景库逐点 cuRobo / MolmoBot rollout 与热图 |
-| `collect-lastmile` | 匹配标定 → S0→S1→操作；无标定则在当前 run 标定一次 |
-| `build-bench` | 从完整标定构建最小困难 S0 benchmark |
+| `build-scenes` | 发现任务、资格筛选、场景增强与站位采样，保存场景库 |
+| `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot，保存实测率与热图 |
+| `collect-lastmile` | 复用匹配标定，或在当前 run 标定一次，再执行 S0→S1→操作 |
+| `build-bench` | 根据完整匹配标定构建困难 S0 benchmark |
 | `evaluate-bench` | 独立 MolmoBot 评测与覆盖率汇总 |
 
-每次新建 run，保存有效配置和 seed。图像默认保留，视频、深度和逐物理步日志按需。
-显式用 `--gpu <index>` 选择单卡；没有自动队列、旧命令别名或 Shell 启动包装。
+每次新建 run，保存有效配置与 seed。图像默认保留，视频、深度和逐物理步日志按需。
+用 `--gpu <index>` 显式选择一张空闲卡；不提供自动队列、续跑或旧命令别名。
 
-```bash
-.venv/bin/lastmile-dataflow build-scenes \
-  --config configs/scene_datasets/val103_cup30_minimal_v3.json --run-id small --gpu <index>
-.venv/bin/lastmile-dataflow evaluate-stations \
-  --dataset outputs/scene_datasets/small --assets-dir data/assets --run-id stations --gpu <index>
-.venv/bin/lastmile-dataflow collect-lastmile \
-  --dataset outputs/scene_datasets/small --assets-dir data/assets \
-  --calibration outputs/stations --run-id lastmile --gpu <index>
-```
+## 当前边界
 
-这些命令需先按 setup 完成输入准备；没有合格困难配对时保存负结果，不伪造成功。
+- 连续采集仅支持 cuRobo；MolmoBot 的 native motor 控制不能与 position 控制混用。
+- 已有有限真实实验包含导航成功、规划无解与策略超时，**尚未验证成功操作示教和真实困难 S0 评测闭环**。
+- 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
+- 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
 
-## 代码入口
-
-六个领域目录：`scenes / runtime / planning / policies / data / workflows`。
-Python 实验直接调用 `workflows.collection.evaluate_stations()` / `collect_lastmile()`；模型格式转换使用 `data.export.molmobot_dataset.export_molmobot()`，不另建索引。
-
-- [代码调用关系](docs/architecture.md)
-- [第二轮精简实施结果](reports/第二轮精简/实施结果.md)
-- [最小数据格式](docs/datas/data-format.md)
-- [运行手册](docs/运行手册.md)
-- [测试说明](tests/README.md)
-- [实施方案](reports/第一轮精简/2026-10-14-refactor-light-implementation-plan.md)
-- [步骤六、七执行报告](reports/第一轮精简/2026-10-14-refactor-light-step67.md)
-
-步骤一至五已执行；本轮步骤六、七的安装与验证范围见执行报告。真实 GPU rollout、VLA 推理和完整主链验收属于步骤八，不能用软件回归代替。
-
-最小 multitask 推理迁移与单环境验证见 [实施记录](reports/第一轮精简/2026-10-14-molmobot-multitask-implementation.md)。
+当前验证状态见 [reports](reports/README.md)。旧方案、过程报告与旧操作说明只留在各自的 `archives/`，不作为使用入口。

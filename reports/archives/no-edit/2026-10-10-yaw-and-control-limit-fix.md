@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../README.md)。
+
 # yaw / 全命令限位与单次警告修复
 
 ## 执行过程与结果
@@ -18,7 +20,7 @@
 - **CUDA1原S0044、种子432661044真实重测 success / mobile_pick：390步、92.818秒。** 目标yaw范围[-3.1211603572950186,-2.3561944901923444]，未越界；本次未触发小幅裁剪。真实结果：`outputs/diagnostics/v080-yaw-fix-S0044-seed432661044/summary.json`，时间见同目录timing.json。
 - 四视频保存于该目录 `attempts/v080-S0044-432661044/videos/`；第三人称ffprobe核验1280×720、391帧。
 
-[真实第三人称视频](../../outputs/diagnostics/v080-yaw-fix-S0044-seed432661044/attempts/v080-S0044-432661044/videos/third_person_camera.mp4)
+真实第三人称视频
 
 ## 范围与限制
 

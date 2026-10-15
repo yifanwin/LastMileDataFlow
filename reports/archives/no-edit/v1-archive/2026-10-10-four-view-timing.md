@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../../README.md)。
+
 # 四路分析视频与整体计时交付报告
 
 ## 结论
@@ -17,13 +19,13 @@
 
 原始 val_103 / Cup_30 的独立站位抓取执行321步，真实移动底盘联合规划，最终 `mobile_pick` 成功。四路均解码322帧，20fps；三个机器人视角320×240，第四路1280×720；无记录错误。初始第三人称实际可见机器人1251像素、目标44像素。该限制为一次试验的 probe 总耗时80.356秒，**不是1000场景总生成时间**。
 
-![实际抓取中段四路中的分析画面](data/four-view-native-mid.png)
+实际抓取中段四路中的分析画面
 
 另一次真实连续 smoke 使用 S0023→S0032，0.45m A* 路径，导航123步成功；到站操作及一次重试规划无解，整段143步，四路均144帧。第四路路径/阶段实际查看通过。此 S1 是明确的导航可行调试点，不是未完成站位统计中的“最高成功率”声明；该失败片段不进入最终数据集。
 
-![实际连续导航中段分析画面](data/four-view-continuous-mid.png)
+实际连续导航中段分析画面
 
-[抓取与计时核验](data/four-view-native-verification.json) · [连续执行核验](data/four-view-continuous-verification.json)。
+抓取与计时核验 · 连续执行核验。
 
 完整回归：192项，184通过，8跳过；`git diff --check` 通过。单元 fixture 不代替真实成功连续操作或 open 验收。
 
@@ -31,7 +33,7 @@
 
 历史 mobile-full 因新增视频/计时需求停止，证据保留。新身份 `no-edit-val-four-view-full-20261010` 于 **2026-10-10 10:26:53（上海时间）** 启动；1000个原始 val 场景、workers=4，初始根据空闲情况派发物理GPU5/2/7/1。后续仍动态检查GPU0–7。
 
-[启动状态快照](data/four-view-full-start.json)。完整运行目录：`outputs/no_edit/no-edit-val-four-view-full-20261010/`；查看 `summary.json` 和 `timing.json`。主进程PID1501437，日志 `outputs/no-edit-four-view-full-launch.log`。运行中的 ended_at_utc 为 null，最终结束时才有实际总生成时间。
+启动状态快照。完整运行目录：`outputs/no_edit/no-edit-val-four-view-full-20261010/`；查看 `summary.json` 和 `timing.json`。主进程PID1501437，日志 `outputs/no-edit-four-view-full-launch.log`。运行中的 ended_at_utc 为 null，最终结束时才有实际总生成时间。
 
 ## 剩余边界
 

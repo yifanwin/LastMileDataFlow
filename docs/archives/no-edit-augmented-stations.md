@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../README.md)。
+
 # 增强场景的最终站位接入 no_edit
 
 `NoEditConfig.augmented_variant` 指向增强 run 的 `variants/vNNN`，路径相对配置目录。

@@ -23,7 +23,7 @@ cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；�
 
 `config.py`、`io.py` 和 `cli.py` 是包根的共用配置、读写和薄入口。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
 
-## 第二轮后的执行入口
+## 实际执行与记录入口
 
 - cuRobo：`runtime.execution.curobo.run_curobo_attempt()`。
 - MolmoBot：`runtime.execution.molmobot.run_vla_attempt()`。

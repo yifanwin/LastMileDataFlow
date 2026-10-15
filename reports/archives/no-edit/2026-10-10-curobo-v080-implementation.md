@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../README.md)。
+
 # cuRoboV2 v0.8.0 实施与真实验收
 
 **Cup_30 / S0042 已完成真实抓取；S0032→S0042 连续导航＋抓取也成功，四视角视频可直接查看。** val103/Cup_30 完整各点采样已在 CUDA 1 启动，尚未完成；不能把这些 smoke 当成整个 val 的成功率。
@@ -15,7 +17,7 @@
 - IK32、trajectory4、抓法4、pick 查询12、300秒不增加；原生每次 plan_pose 默认5次；S1外层最多1次重试。
 - no-edit CLI 默认新版配置；旧配置/后端与场景编辑入口保留。A*、Gaussian 图、1–3 段入集、失败视频及整体计时沿用现有流程。
 
-![原生三段中的连续 h](figures/v080-S0042/native-torso.png)
+原生三段中的连续 h
 
 图 1：S0042 左右臂原生返回的**规划轨迹**，不是物理执行曲线。h 在不同段连续变化，没有绑定候选索引。来源：`outputs/diagnostics/v080-pilot/mesh-fit-S0042-cuda1-152709/{left,right}/grasp_result.json`。
 
@@ -33,7 +35,7 @@
 
 连续 smoke 的 S0 是接口验收起点，**不是新版完整采样选出的低成功率点**，因此未作为最终数据集记录。S1 首次即成功，故本次没有实际触发外层重试；重试上限由配置回归验证，故障续接还需真实失败样例。
 
-![同一仿真中的导航后稳定夹持](figures/v080-S0042/continuous-hold.png)
+同一仿真中的导航后稳定夹持
 
 图 2：连续视频 22秒真实帧。目标抬高10cm、承力2/2、无支撑、碰撞记录0；画面同时显示机器人、目标附近场景和夹爪近景。截图已实际检查，非渲染 fixture。
 
@@ -41,10 +43,10 @@
 
 目录：`outputs/diagnostics/v080-pilot/continuous-S0032-S0042-cuda1-153517/attempts/v080-S0032-20261010/videos/`
 
-- [分析型第三人称](../../outputs/diagnostics/v080-pilot/continuous-S0032-S0042-cuda1-153517/attempts/v080-S0032-20261010/videos/third_person_camera.mp4)
-- [head](../../outputs/diagnostics/v080-pilot/continuous-S0032-S0042-cuda1-153517/attempts/v080-S0032-20261010/videos/head_camera.mp4)
-- [左夹爪](../../outputs/diagnostics/v080-pilot/continuous-S0032-S0042-cuda1-153517/attempts/v080-S0032-20261010/videos/wrist_camera_l.mp4)
-- [右夹爪](../../outputs/diagnostics/v080-pilot/continuous-S0032-S0042-cuda1-153517/attempts/v080-S0032-20261010/videos/wrist_camera_r.mp4)
+- 分析型第三人称
+- head
+- 左夹爪
+- 右夹爪
 
 ffprobe 已核验全部可读；连续视频每个478帧、20FPS。独立站位视频每个285帧、20FPS；分析视频1280×720。审计：`outputs/diagnostics/v080-pilot/video_audit.json`。
 
@@ -77,4 +79,4 @@ ffprobe 已核验全部可读；连续视频每个478帧、20FPS。独立站位�
 - 原配置已有的球模型/自碰撞忽略对不在本轮删除；floor 仍沿用“规划不加入、物理检查正常支撑例外”的既有处理，不能称为新增了精确地板规划。
 - 大样本成功率、正式低/高成功率选点、S0失败操作证据与完整 val 尚待新构建完成。已有 smoke 成功不替代这些统计。
 
-运行入口见 [v0.8.0 运行手册](../../docs/cuRoboV2-v0.8.0-运行手册.md)。
+运行入口见 v0.8.0 运行手册。

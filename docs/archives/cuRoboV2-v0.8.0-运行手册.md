@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../README.md)。
+
 # cuRoboV2 v0.8.0 无编辑采集运行手册
 
 本后端用于原始 ProcTHOR val；旧场景编辑后端和 `configs/no_edit/val.json` 保留。**不要用旧 run-id 跨版本续跑。**

@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../../README.md)。
+
 > 更新：原 mobile-full 队列已因新增第四路分析视频与整体计时停止；新全量运行为 `no-edit-val-four-view-full-20261010`。历史结果保留，见 [最新报告](2026-10-10-four-view-timing.md)。
 
 # 无编辑构建：自由底盘与失败视频增量交付
@@ -6,7 +8,7 @@
 
 ## 修改过程
 
-1. 核对旧队列：已自动因两个资产的空 grasp 数组 `(0,)` 停止，没有存活 worker，不需要误停其他进程。旧结果/视频/日志保留，[旧队列终态](data/locked-base-final-state.json)不混入新统计。
+1. 核对旧队列：已自动因两个资产的空 grasp 数组 `(0,)` 停止，没有存活 worker，不需要误停其他进程。旧结果/视频/日志保留，旧队列终态不混入新统计。
 2. 为 NativePlanner 新增显式 mobile-base 模式：active joint 顺序为 `base_x/base_y/base_theta + 7 个单臂关节`；原流水线默认仍只规划机械臂。
 3. 保持固定的规划参考坐标系，正确转换实际移动后的底盘、世界目标和碰撞网格；在输出目录生成有工作空间限位的派生 URDF，不改外部资产。
 4. 通过现有 20D `[0:3]` 和对应机械臂分量同步执行，所有操作和重试取消固定底盘。只取消不适用的“固定肩点不可达”提前拒绝。
@@ -35,9 +37,9 @@
 | 连续 S0023→S0032 smoke | A* 约 0.45 m，导航真实成功；S1 cuRobo 规划失败，一次重试也失败，三路视频与证据保留 | 成功的最终连续示教；该 smoke 未入最终索引 |
 | 软件回归 | **188 项：180 项通过、8 项跳过**；`git diff --check` 通过 | 单元 fixture 等于真实全链路成功 |
 
-可复查的紧凑数据见 [真实 mobile probe](data/mobile-probe-summary.json)。回归日志为 `outputs/no-edit-mobile-regression-final.log`；真实运行位于 `outputs/no_edit/no-edit-val-mobile-probe-20261010/`。
+可复查的紧凑数据见 真实 mobile probe。回归日志为 `outputs/no-edit-mobile-regression-final.log`；真实运行位于 `outputs/no_edit/no-edit-val-mobile-probe-20261010/`。
 
-![真实抓取成功试验的左腕相机末帧](../../outputs/no_edit/no-edit-val-mobile-probe-20261010/wrist_camera_l-station-last.png)
+真实抓取成功试验的左腕相机末帧
 
 图：真实三相机 MP4 中解码的左腕末帧，已打开检查；成功判定来自逐物理步受力/抬升/保持证据，而不是这张截图。head 保持现有协议的固定关节指令，因此操作中底盘转向后目标可能出画；保证的是初始化 head 可见，非全程 head 跟踪。
 
@@ -49,7 +51,7 @@
 - 新运行 ID：**`no-edit-val-mobile-full-20261010`**；独立后台进程 PID **1354573**。
 - 1000 个原始场景，实际已派发 GPU **1/5/2/7 → val_0/1/2/3**。启动快照为 4 个活动场景、996 个待派发、0 个完成、0 个最终成功段。
 - 默认采样半径/间距、每点 5 次、<5% 丢弃和 1–3 段保留规则不变；热图含义改为“该初始站位出发、允许操作时移动底盘”的成功率。
-- 新配置身份冻结，不能拿旧固定底盘输出续跑。详见 [新队列启动快照](data/mobile-full-startup.json)和[操作文档](../../docs/no-edit-collection.md)。
+- 新配置身份冻结，不能拿旧固定底盘输出续跑。详见 新队列启动快照和操作文档。
 
 ```bash
 DATAFLOW_PYTHON=/home/wenyifan/wenyifan/MoMaTrajGen/molmospaces/.venv/bin/python \

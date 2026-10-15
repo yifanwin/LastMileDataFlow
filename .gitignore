@@ -3,7 +3,7 @@ __pycache__/
 .venv/
 .venv-policy/
 .venv-download/
-data/
+/data/
 outputs/
 .pytest_cache/
 reports/logs/

@@ -1,3 +1,5 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../../README.md)。
+
 # 新例子测试：val0 喷雾瓶近目标导航
 
 ## 执行与结果
@@ -19,9 +21,9 @@
 
 ## 视频与核验
 
-[视频浏览页](../../outputs/diagnostics/astar-near-target-val0-video-20261010/index.html) 包含真实场景 + 同步导航小图、放大导航图（同一次记录回放）。两段均完整解码为 296 帧、20 fps、14.8 s，检查初/中/末帧及所有页面链接。
+视频浏览页 包含真实场景 + 同步导航小图、放大导航图（同一次记录回放）。两段均完整解码为 296 帧、20 fps、14.8 s，检查初/中/末帧及所有页面链接。
 
-![近目标导航末帧](../../outputs/diagnostics/astar-near-target-val0-video-20261010/map_final_decoded.png)
+近目标导航末帧
 
 图：S1 比 S0 更接近目标；标记是底盘中心，不是夹爪。图中路径是同一次真实执行状态，不证明抓取成功。
 
@@ -40,6 +42,6 @@
 - 从本场景 `robot_geometry.json` 读取底盘及车轮几何绕底盘原点的外接圆，半径 **0.443518416 m**、直径 **0.887036832 m**。不包含规划安全余量，也不使用热力图的 0.35 m 半径。
 - S0/S1 的圆心保持原站位，圆圈以地图米/像素比例绘制；目标仍为点标记。生产视频同步从当前模型 `robot_footprint(sim)` 读取半径，后续采集自动应用。
 - 复用上述真实执行的 296 个记录状态，20 fps、14.8 s；仅重绘，不新增物理执行，不改变 A* 网格、路径或障碍物。
-- 新产物：[视频预览](../../outputs/diagnostics/astar-val0-base-footprints-video-20261010/index.html)、[MP4](../../outputs/diagnostics/astar-val0-base-footprints-video-20261010/astar_navigation_map.mp4)。已解码并检查首、中、末帧；半径缩放及非法半径测试通过。
+- 新产物：视频预览、MP4。已解码并检查首、中、末帧；半径缩放及非法半径测试通过。
 
-![实际底盘半径的 S0/S1 圆圈](../../outputs/diagnostics/astar-val0-base-footprints-video-20261010/map_final_decoded.png)
+实际底盘半径的 S0/S1 圆圈

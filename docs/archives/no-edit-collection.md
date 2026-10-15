@@ -1,11 +1,13 @@
+> 历史归档：不作为当前运行说明或能力承诺。旧生成附件已清理，失效的本地链接已转为纯文本。当前入口见 [仓库 README](../../README.md)。
+
 # 原始 ProcTHOR val 场景无编辑构建
 
-直接操作请看[运行手册](无场景编辑数据构造运行手册.md)。
+直接操作请看运行手册。
 
 新 run 默认增设实时 raw/canonical 证据，保留旧 20D 动作与成功筛选索引。
 旧 `record_png=false` 不关闭完整状态和新的原始相机采集；`canonical_index.jsonl` 另行涵盖全部结果。
 Adapter 仅实现 MolmoBot，position 夹爪动作转 motor 必须提供显式标定映射。
-使用与限制见 [Raw-first 实施说明](raw-first-implementation.md)；不迁移或覆盖历史 run。
+使用与限制见 Raw-first 实施说明；不迁移或覆盖历史 run。
 
 复用 **RBY1M + 20D 全向底盘协议**。每次采样点评测及 S1 操作都由 cuRobo **联合规划 base_x/base_y/base_theta 与单臂，共 10D**；不是机械臂规划加零底盘命令。不进入场景编辑、Agent/人工审批或旧成功标签链路。
 默认半径 **2 m**，间距为实际底盘/轮子外接圆直径的一半；每个有效点 **5 次**独立评测。
