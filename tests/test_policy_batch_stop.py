@@ -1,4 +1,5 @@
 """A real shared RPC failure must not be followed by another trial on that stream."""
+from itertools import count
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ class PolicyBatchStopTests(unittest.TestCase):
                   'reason': 'model response timeout', 'executed_steps': 0}
         with tempfile.TemporaryDirectory() as tmp, patch(
                 'lastmile_dataflow.workflows.collection._execute', return_value=result) as execute:
-            trials = _station_trials(None, scene, None, config, None, Path(tmp))
+            trials = _station_trials(None, scene, None, config, None, Path(tmp), attempt_ids=count())
             self.assertEqual(len(trials), 1)
             self.assertEqual(len(rows(Path(tmp) / 'trials.jsonl')), 1)
             execute.assert_called_once()

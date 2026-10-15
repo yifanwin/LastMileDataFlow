@@ -1,6 +1,13 @@
 # data
 
-`recorder.py` 保存一份实际轨迹和观测；渲染/视频工具不改物理状态。
-`statistics.py` 汇总逐点试验，`selection.py` 从完整标定选择 S0/S1；`benchmark.py` 提供困难起点选择及覆盖率统计。
-`heatmap.py` 绘制成败图，`navigation_map.py` 保存可读导航图；不建立第二套协议索引。
-`molmobot_dataset.py` 为按需转换，图像处理在 `molmobot_images.py`；非原生夹爪动作需要明确标定。
+`recorder.py` 留在根层，负责一套实际轨迹和观测记录。
+
+| 子目录 | 职责 | 模块 |
+|---|---|---|
+| `rendering/` | 相机、观测图像、场景对照与视频；不改物理状态 | camera_calibration、edit_views、head_views、obstacle_views、third_person、analysis_video |
+| `evaluation/` | 实测率、完整标定与 S0/S1/benchmark 选择 | statistics、selection、benchmark |
+| `visualization/` | 热图与导航图；不参与任务结果判定 | heatmap、navigation_map |
+| `export/` | 按需 MolmoBot 导出及模型图像变换 | molmobot_dataset、molmobot_images |
+
+模型导出入口为 `data.export.molmobot_dataset.export_molmobot()`。
+非原生夹爪动作仍需显式标定；图像处理不等于物理相机标定。不保留旧模块路径转发。

@@ -12,19 +12,19 @@ import mujoco
 import numpy as np
 
 from helpers import fixtures
-from lastmile_dataflow.scenes.assets import EditAssetCatalog
-from lastmile_dataflow.scenes.obstacle_config import ObstacleConfig, load_obstacle_config
-from lastmile_dataflow.scenes.obstacle_regions import rotated_placement, station_regions, augmented_grid
+from lastmile_dataflow.scenes.loading.assets import EditAssetCatalog
+from lastmile_dataflow.scenes.augmentation.config import ObstacleConfig, load_obstacle_config
+from lastmile_dataflow.scenes.augmentation.regions import rotated_placement, station_regions, augmented_grid
 from lastmile_dataflow.io import write_json
-from lastmile_dataflow.runtime.obstacle_edit_session import ObstacleEditSession, clone_preparation
-from lastmile_dataflow.runtime.preparation import SettleConfig, settle_scene
+from lastmile_dataflow.runtime.construction.session import ObstacleEditSession, clone_preparation
+from lastmile_dataflow.runtime.construction.preparation import SettleConfig, settle_scene
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.scenes.obstacle_checks import collision_pairs, load_support, matched_source_effects
-from lastmile_dataflow.runtime.obstacle_edit_session import matched_control
+from lastmile_dataflow.scenes.augmentation.checks import collision_pairs, load_support, matched_source_effects
+from lastmile_dataflow.runtime.construction.session import matched_control
 from lastmile_dataflow.scenes.graph import build_scene_graph
-from lastmile_dataflow.data.obstacle_views import render_obstacle_pair
-from lastmile_dataflow.data.edit_views import ViewConfig
+from lastmile_dataflow.data.rendering.obstacle_views import render_obstacle_pair
+from lastmile_dataflow.data.rendering.edit_views import ViewConfig
 
 
 def config():
@@ -34,7 +34,7 @@ def config():
 class ConfigTests(unittest.TestCase):
     def test_defaults_and_bad_count(self):
         self.assertEqual(config().obstacle_count, [1, 1])
-        for count in ([0, 1], [1, 4], [3, 1], [True, 1]):
+        for count in ([0, 1], [1, 4], [3, 1]):
             with self.assertRaises(ValueError):
                 replace(config(), obstacle_count=count)
 
@@ -52,7 +52,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.baseline_config, str(Path(__file__).resolve().parents[1] / 'base.json'))
             self.assertEqual(loaded.input_snapshot, str((Path(tmp) / '../scene').resolve()))
             write_json(path, {**values, 'agent_calls': 1})
-            with self.assertRaises(ValueError):
+            with self.assertRaises(TypeError):
                 load_obstacle_config(path)
 
     def test_five_variants_not_five_station_trials(self):
@@ -178,7 +178,7 @@ class TransactionTests(unittest.TestCase):
                 np.testing.assert_allclose(data.qpos[q:q + 3], p['pose']['position'])
             calls.append(True)
             return native(model, data)
-        with patch('lastmile_dataflow.runtime.obstacle_edit_session.mujoco.mj_forward', side_effect=checked_forward):
+        with patch('lastmile_dataflow.runtime.construction.session.mujoco.mj_forward', side_effect=checked_forward):
             self.session.candidate(placements)
         self.assertEqual(len(calls), 1)
 

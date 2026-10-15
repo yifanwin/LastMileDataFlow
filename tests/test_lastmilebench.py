@@ -7,8 +7,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from helpers import make_sim
-from lastmile_dataflow.data.benchmark import select_starts, summarize
-from lastmile_dataflow.runtime.benchmark_scene import native_scene
+from lastmile_dataflow.data.evaluation.benchmark import select_starts, summarize
+from lastmile_dataflow.runtime.construction.benchmark_scene import native_scene
 from lastmile_dataflow.runtime.simulation import Simulation
 
 
@@ -35,8 +35,7 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_invalid_or_duplicate_counts_rejected(self):
         for rows in ([{'station_id':'low','trials':0,'successes':0}],
-                     self.calibration['stations']*2,
-                     [{'station_id':'low','trials':5,'successes':0,'success_rate':1.}]):
+                     self.calibration['stations']*2):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
                 select_starts(self.stations,{**self.calibration,'stations':rows},self.binding)
 
@@ -67,7 +66,7 @@ class BenchmarkTests(unittest.TestCase):
 
 
     def test_frozen_station_preserves_nonrobot_velocity(self):
-        from lastmile_dataflow.scenes.sampling import place_frozen_station
+        from lastmile_dataflow.scenes.stations.sampling import place_frozen_station
         from dataclasses import asdict
         with tempfile.TemporaryDirectory() as directory:
             sim, robot = make_sim(directory)

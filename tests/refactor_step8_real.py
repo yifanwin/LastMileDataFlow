@@ -12,9 +12,9 @@ from lastmile_dataflow.config import CollectionConfig, RobotConfig, read_config
 from lastmile_dataflow.io import create_run, read_json, write_json, rows, append_row
 from lastmile_dataflow.scenes.dataset import load_scenes, select_stations
 from lastmile_dataflow.scenes.dataset_config import SceneStationConfig, load_scene_robot
-from lastmile_dataflow.scenes.sampling import sample_stations
+from lastmile_dataflow.scenes.stations.sampling import sample_stations
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.runtime.benchmark_scene import native_scene
+from lastmile_dataflow.runtime.construction.benchmark_scene import native_scene
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.workflows.collection import evaluate_stations, collect_lastmile
 from lastmile_dataflow.workflows.lastmilebench import build, evaluate
@@ -110,13 +110,9 @@ def main():
     if calibration and not rows(root / "lastmile" / "episodes.jsonl"):
 
         def continuity_probe():
-            from lastmile_dataflow.planning.astar import (
-                scene_grid,
-                search,
-                task_support_obstacles,
-            )
-            from lastmile_dataflow.scenes.tasks import robot_footprint, grasp_candidates
-            from lastmile_dataflow.runtime.execution import run_curobo_attempt
+            from lastmile_dataflow.planning.astar import scene_grid, search, task_support_obstacles
+            from lastmile_dataflow.scenes.tasks.discovery import robot_footprint, grasp_candidates
+            from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 
             scene = scenes[0]
             robot = RobotConfig(
@@ -170,8 +166,7 @@ def main():
                         args.assets_dir,
                         config,
                         recording,
-                        out,
-                        "continuity",
+                        root=out, attempt_id="continuity",
                         seed=config.seed,
                         path=path,
                         goal=b,

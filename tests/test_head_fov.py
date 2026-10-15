@@ -126,7 +126,7 @@ class HeadFOVTests(unittest.TestCase):
         result=PlanResult('fov_constraint_failed',(),(),{})
         self.assertEqual(result.status,'fov_constraint_failed')
         with self.assertRaises(ValueError):PlanResult('fov_constraint_failed',(),((1.,),),{})
-        for d in ({'head_fov_margin':1.},{'head_fov_weight':0.},{'head_fov_enabled':1},{'head_fov_min_depth_m':0.}):
+        for d in ({'head_fov_margin':1.},{'head_fov_weight':0.},{'head_fov_min_depth_m':0.}):
             with self.assertRaises(ValueError):ExecutionConfig(**d)
 
 if __name__=='__main__':unittest.main()

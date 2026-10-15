@@ -1,8 +1,7 @@
 """最小场景记录读取与覆盖选点。"""
-from dataclasses import asdict
 from pathlib import Path
-from ..io import read_json, rows
-from .obstacle_selection import coverage_select
+from ..io import rows
+from .augmentation.selection import coverage_select
 
 
 def select_stations(stations, anchor, method='coverage', limit=20):
@@ -12,10 +11,6 @@ def select_stations(stations, anchor, method='coverage', limit=20):
         raise ValueError('unknown station selection')
     selected = [s for s in stations if s['geometry'] == 'valid']
     return selected, {'method': method, 'selected_ids': [s['station_id'] for s in selected]}
-
-
-def robot_descriptor(robot):
-    return asdict(robot)
 
 
 def load_scenes(dataset, samples=None):

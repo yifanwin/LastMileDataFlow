@@ -3,7 +3,6 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import mujoco
@@ -11,10 +10,10 @@ import numpy as np
 
 from helpers import fixtures
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.runtime.action import InvalidAction
+from lastmile_dataflow.runtime.control.action import InvalidAction
 from lastmile_dataflow.policies.molmobot_config import load_policy_config
 from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.runtime.vla_outcomes import constraint
+from lastmile_dataflow.runtime.outcomes.vla import constraint
 
 ROOT=Path(__file__).resolve().parents[1]
 

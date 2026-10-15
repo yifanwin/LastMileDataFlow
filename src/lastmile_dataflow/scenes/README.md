@@ -1,6 +1,10 @@
 # scenes
 
-从 `source.py` / `mjcf.py` 加载场景；`tasks.py` 发现任务与抓取候选；`dataset.py` 读取主场景记录。
-`sampling.py` 生成采样点、初始化与可见性检查；它不执行 rollout。
-`augmentation.py` 为有界障碍物放置，配合 obstacle_sampling/regions/checks 和 runtime 编辑 session。
-`assets.py` / `asset_library.py` 负责必要的资产定位和测量。没有封存或额外检索索引。
+- `loading/`：场景来源、MJCF、实例映射、资产定位与测量。
+- `tasks/`：任务发现、pick/open 候选和资格规则。
+- `stations/`：站位采样、机器人初始化、支撑与可见性筛选；不执行 rollout。
+- `augmentation/`：障碍物配置、候选采样、区域、物理检查和覆盖选点。
+- `dataset.py` / `dataset_config.py`：场景库记录与实验配方。
+- `geometry.py` / `graph.py`：共用几何和场景观测图。
+
+构建流程在 `workflows.scene_datasets`，构建期真实编辑在 `runtime.construction`。

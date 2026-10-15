@@ -1,7 +1,7 @@
 """Local multitask checkpoint, independent interpreter and gripper override."""
 from dataclasses import dataclass
 
-from ..config import construct, read_config
+from ..config import read_config
 
 
 @dataclass(frozen=True)
@@ -29,4 +29,4 @@ class MolmoBotConfig:
 
 
 def load_policy_config(path):
-    return construct(MolmoBotConfig, read_config(path, data_fields=('checkpoint', 'tokenizer_path'), repo_fields=('python',)))
+    return MolmoBotConfig(**read_config(path, data_fields=('checkpoint', 'tokenizer_path'), repo_fields=('python',)))

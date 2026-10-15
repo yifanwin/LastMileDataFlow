@@ -22,17 +22,14 @@ def verify_version():
 
 
 class V2Planner:
-    mobile_base = True
-    torso_active = True
-
-    def __init__(self, sim, config, side, path, *, mobile_base=True, workspace=None):
+    def __init__(self, sim, config, side, path, *, workspace):
         import yaml
         import torch
         from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
         from curobo.types import DeviceCfg
         from curobo._src.geom.collision.collision_scene import SceneCollision, SceneCollisionCfg
-        if not torch.cuda.is_available() or not mobile_base or workspace is None:
-            raise RuntimeError('V2 requires CUDA and an explicit mobile workspace')
+        if not torch.cuda.is_available():
+            raise RuntimeError('V2 requires CUDA')
         self.identity = verify_version()
         self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
         self.names = joint_names(side)
@@ -41,7 +38,7 @@ class V2Planner:
         self.workspace = workspace
         center, radius = workspace
         local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
-        from ..runtime.action_limits import local_yaw_bounds
+        from ..runtime.control.action_limits import local_yaw_bounds
         self.reference_yaw=float(sim.robot.group('base')[2])
         bounds = {'base_x': (local[0]-radius, local[0]+radius),
                   'base_y': (local[1]-radius, local[1]+radius), 'base_theta': local_yaw_bounds(sim.robot,self.reference_yaw)}
@@ -386,6 +383,3 @@ class V2Planner:
                                 'constrained_planning_failure' if not points and self.config.head_fov_enabled else None),
              'head_fov': list(self.fov_log), 'queries': list(self.query_log),
              'finite_budget_not_impossibility': True, 'constrained_planning': self.config.head_fov_enabled})
-
-    def free_ik_diagnostic(self, goal):
-        return {'scope': 'V2 full collision solve failed; no global unreachability claim'}

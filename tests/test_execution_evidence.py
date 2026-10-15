@@ -1,5 +1,4 @@
 """Synthetic evidence/dispatch regressions, NOT real robotic success evidence."""
-import copy
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -8,8 +7,8 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_checks import hold_pick, resolve_timeout, timed, checkpoint_pick_success, PickEvidenceComplete
-from lastmile_dataflow.runtime.pick import PROTOCOL
+from lastmile_dataflow.runtime.execution.checks import hold_pick, resolve_timeout, timed, checkpoint_pick_success, PickEvidenceComplete
+from lastmile_dataflow.runtime.outcomes.pick import PROTOCOL
 
 
 def context(duration=2.08, *, support=False, gap=False, slip=False):
@@ -75,8 +74,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(resolve_timeout(ctx,{'operation':'open'},'deadline')[1]['status'],'unknown')
 
     def test_timers_account_exception(self):
-        ctx=SimpleNamespace()
-        with patch('lastmile_dataflow.runtime.execution_checks.time.monotonic',side_effect=[1.,4.]),self.assertRaises(ValueError):
+        ctx=SimpleNamespace(timings={})
+        with patch('lastmile_dataflow.runtime.execution.checks.time.monotonic',side_effect=[1.,4.]),self.assertRaises(ValueError):
             with timed(ctx,'planning'):
                 raise ValueError('fixture')
         self.assertEqual(ctx.timings['planning'],{'wall_s':3.,'calls':1})
@@ -99,10 +98,9 @@ class EvidenceTests(unittest.TestCase):
 
     def test_timeout_runtime_finalizer_retains_task_success_and_control(self):
         from helpers import make_sim
-        from lastmile_dataflow.runtime.execution import run_curobo_attempt
+        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
         from lastmile_dataflow.runtime.execution_config import ExecutionConfig
         from lastmile_dataflow.config import CollectionConfig
-        from lastmile_dataflow.io import write_json, read_json
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);baseline,_=make_sim(root)
             self.addCleanup(baseline.close)
@@ -111,11 +109,11 @@ class EvidenceTests(unittest.TestCase):
                 ctx.phase='hold';ctx.active_control={'arm':'right','grasp_row':1,'grasp_source':'fixture'}
                 ctx.sim.begin()
                 raise TimeoutError('attempt_wall_clock_budget')
-            with patch('lastmile_dataflow.runtime.execution.place_frozen_station'), \
-                 patch('lastmile_dataflow.runtime.execution.manipulate',side_effect=manipulation):
+            with patch('lastmile_dataflow.runtime.execution.curobo.place_frozen_station'), \
+                 patch('lastmile_dataflow.runtime.execution.curobo.manipulate',side_effect=manipulation):
                 result=run_curobo_attempt(baseline,{'target_body':'target','operation':'pick'},
                     {'station_id':'s','base':[0.,0.,0.]},[],root,ExecutionConfig(third_person_enabled=False),
-                    CollectionConfig(output_dir=d,record_video=False,record_images=False),root,'fixture-timeout',seed=1)
+                    CollectionConfig(output_dir=d,record_video=False,record_images=False),root=root, attempt_id='fixture-timeout',seed=1)
             self.assertEqual(result['status'],'success')
             self.assertEqual(result['execution_termination']['status'],'timeout')
             self.assertEqual(result['task_outcome']['status'],'success')

@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from lastmile_dataflow.config import RobotConfig
-from lastmile_dataflow.scenes.source import SceneSource
+from lastmile_dataflow.scenes.loading.source import SceneSource
 from lastmile_dataflow.runtime.simulation import Simulation
 
 

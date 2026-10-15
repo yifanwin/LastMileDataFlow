@@ -1,17 +1,9 @@
 """Robot/config parameters and explicit repository/data path loading."""
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 import math
-import re
 import json
 import os
 from pathlib import Path
-
-
-def construct(cls, value):
-    unknown = set(value) - {f.name for f in fields(cls)}
-    if unknown:
-        raise ValueError(f"{cls.__name__} unknown keys: {sorted(unknown)}")
-    return cls(**value)
 
 
 @dataclass(frozen=True)
@@ -43,8 +35,6 @@ class RobotConfig:
             raise ValueError('unknown robot control profile')
         if self.name != "rby1m" or self.namespace != "robot_0/":
             raise ValueError("v1 only supports rby1m / robot_0/")
-        if not isinstance(self.gravity_compensation, bool) or not isinstance(self.initial, dict):
-            raise ValueError("invalid gravity compensation or initial configuration type")
         for key in ("control_hz", "physics_dt", "max_base_delta", "max_yaw_delta",
                     "max_arm_delta", "gripper_kp", "gripper_kv"):
             if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
@@ -61,8 +51,6 @@ class RobotConfig:
                 raise ValueError(f"limits exceed RBY1 {name} protocol")
         if not self.cameras or len(set(self.cameras)) != len(self.cameras):
             raise ValueError("cameras must be nonempty and unique")
-        if not all(isinstance(c, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", c) for c in self.cameras):
-            raise ValueError("invalid camera alias")
 
 
 @dataclass(frozen=True)
@@ -83,15 +71,12 @@ class CollectionConfig:
     feedback_warning_rad: float = 0.05
 
     def __post_init__(self):
-        for key in ('record_video', 'record_images', 'record_physics', 'record_depth'):
-            if not isinstance(getattr(self, key), bool):
-                raise ValueError(key + " must be boolean")
         for key in ("max_steps", "max_initialization_trials", "width", "height"):
             v = getattr(self, key)
-            if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
+            if not isinstance(v, int) or v <= 0:
                 raise ValueError(f"{key} must be positive integer")
-        if not isinstance(self.seed, int) or isinstance(self.seed, bool) or self.seed < 0:
-            raise ValueError("seed must be a nonnegative integer")
+        if self.seed < 0:
+            raise ValueError("seed must be nonnegative")
         if self.width % 2 or self.height % 2:
             raise ValueError("video dimensions must be even")
         for key in ("penetration_ratio", "penetration_floor_m", "penetration_ceiling_m",
@@ -132,4 +117,4 @@ def read_config(path, *, data_fields=(), repo_fields=()):
 
 def load_config(cls, path):
     data_fields = ('model_path',) if cls is RobotConfig else ('output_dir',)
-    return construct(cls, read_config(path, data_fields=data_fields))
+    return cls(**read_config(path, data_fields=data_fields))

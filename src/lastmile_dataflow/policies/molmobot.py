@@ -7,7 +7,7 @@ import tempfile
 import time
 from multiprocessing.connection import Client
 
-from ..runtime.action import InvalidAction
+from ..runtime.control.action import InvalidAction
 from .molmobot_config import load_policy_config
 
 
@@ -63,7 +63,7 @@ class MolmoBotClient:
         if 'error' in response:
             if response.get('invalid_action'): raise InvalidAction(response['error'])
             message=response['type']+':'+response['error']
-            from ..runtime.episode_guard import classify_episode_exception
+            from ..runtime.execution.lifecycle import classify_episode_exception
             if response['type'] not in ('MemoryError','OutOfMemoryError') and classify_episode_exception(RuntimeError(message))['failure_scope']=='episode':
                 raise PolicyEpisodeError(message)
             raise PolicyInfrastructureError(message)

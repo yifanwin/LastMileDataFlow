@@ -8,10 +8,8 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.io import read_json, write_json
-from lastmile_dataflow.runtime.execution import OperationFailure
-from lastmile_dataflow.runtime.curobo_execution import manipulate_v2
+from lastmile_dataflow.runtime.execution.context import OperationFailure
+from lastmile_dataflow.runtime.execution.manipulation import manipulate_v2
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
@@ -23,7 +21,7 @@ class FakeRobotConfig:
 class RetryDirectoryTests(unittest.TestCase):
     def context(self, path):
         return SimpleNamespace(
-            recorder=SimpleNamespace(path=path), config=ExecutionConfig(),
+            timings={}, recorder=SimpleNamespace(path=path), config=ExecutionConfig(),
             sim=SimpleNamespace(model=Mock(), robot=Mock()),
             plan_count=0, plan_serial=0, max_plans=10, plans=[], deadline=Mock(),
             begin=Mock(), follow_points=Mock(), follow=Mock(), arm_tick=Mock(),
@@ -38,9 +36,9 @@ class RetryDirectoryTests(unittest.TestCase):
                 return (False, 0, {}, {'reason':'no_solution'})
             planner.grasp.side_effect=grasp
             candidate={'body':'target','pose_local':np.eye(4),'row':0,'source':'fixture'}
-            with patch('lastmile_dataflow.runtime.curobo_execution.candidate_pool',return_value=[candidate]), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.body_pose',return_value=np.eye(4)), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.V2Planner',return_value=planner):
+            with patch('lastmile_dataflow.runtime.execution.manipulation.candidate_pool',return_value=[candidate]), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.body_pose',return_value=np.eye(4)), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.V2Planner',return_value=planner):
                 for _ in range(2):
                     ctx.plan_count=0
                     with self.assertRaisesRegex(OperationFailure,'planning_no_solution'):
@@ -61,10 +59,10 @@ class RetryDirectoryTests(unittest.TestCase):
             candidate={'body':'target','pose_local':np.eye(4),'row':0,'source':'fixture'}
             ctx.sim.robot.group.return_value=np.zeros(7)
             monitor=SimpleNamespace(fingers=[], initial={})
-            with patch('lastmile_dataflow.runtime.curobo_execution.candidate_pool',return_value=[candidate]), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.body_pose',return_value=np.eye(4)), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.PickMonitor',return_value=monitor), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.V2Planner',side_effect=[planner,RuntimeError('reached closed planner')]) as factory:
+            with patch('lastmile_dataflow.runtime.execution.manipulation.candidate_pool',return_value=[candidate]), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.body_pose',return_value=np.eye(4)), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.PickMonitor',return_value=monitor), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.V2Planner',side_effect=[planner,RuntimeError('reached closed planner')]) as factory:
                 with self.assertRaisesRegex(RuntimeError,'reached closed planner'):
                     manipulate_v2(ctx,{'operation':'pick','anchor_world':[0,0,0]},[],d,0,
                                   forced={'arm':'left'})
@@ -92,12 +90,12 @@ class RetryDirectoryTests(unittest.TestCase):
             monitor=SimpleNamespace(fingers=[], initial={})
             task={'operation':'open','anchor_world':[0,0,0],'joint_name':'door',
                   'joint_kind':'slide','joint_initial':0.,'joint_goal':.1}
-            with patch('lastmile_dataflow.runtime.curobo_execution.candidate_pool',return_value=[candidate]), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.body_pose',return_value=np.eye(4)), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.PickMonitor',return_value=monitor), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.tcp_pose',return_value=np.eye(4)), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.evaluate_open',return_value={'status':'success','reason':'open'}), \
-                 patch('lastmile_dataflow.runtime.curobo_execution.V2Planner',side_effect=[planner,Mock()]):
+            with patch('lastmile_dataflow.runtime.execution.manipulation.candidate_pool',return_value=[candidate]), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.body_pose',return_value=np.eye(4)), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.PickMonitor',return_value=monitor), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.tcp_pose',return_value=np.eye(4)), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.evaluate_open',return_value={'status':'success','reason':'open'}), \
+                 patch('lastmile_dataflow.runtime.execution.manipulation.V2Planner',side_effect=[planner,Mock()]):
                 verdict,control=manipulate_v2(ctx,task,[],d,0,forced={'arm':'left'})
             self.assertEqual(verdict['status'],'success')
             self.assertTrue(marker.exists())

@@ -5,12 +5,12 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig, construct
-from lastmile_dataflow.runtime.action import InvalidAction, torso_joints, validate_action
+from lastmile_dataflow.config import CollectionConfig, RobotConfig
+from lastmile_dataflow.runtime.control.action import InvalidAction, torso_joints, validate_action
 from lastmile_dataflow.planning.waypoints import PlanResult, arm_waypoint_action, navigation_action
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.source import resolve_target
-from lastmile_dataflow.runtime.health import inspect_state
+from lastmile_dataflow.scenes.loading.source import resolve_target
+from lastmile_dataflow.runtime.outcomes.health import inspect_state
 from helpers import make_sim
 
 
@@ -18,7 +18,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_reject_unknown_and_invalid_config(self):
         for args in ({'typo':1}, {'max_steps':0}, {'width':321}, {'penetration_ratio':float('nan')}):
             with self.assertRaises((ValueError,TypeError)):
-                construct(CollectionConfig,args)
+                CollectionConfig(**args)
         with self.assertRaises(ValueError):
             RobotConfig('x',torso_limits=[0,2])
 

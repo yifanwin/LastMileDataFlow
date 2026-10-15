@@ -49,11 +49,7 @@ class InferenceClosureTests(unittest.TestCase):
 @unittest.skipUnless(HAS_POLICY, "install the policy extra to test model preprocessing")
 class MultitaskPolicyTests(unittest.TestCase):
     def make_policy(self, operation):
-        from lastmile_dataflow.policies.multitask.policy import (
-            MolmoBotRBY1MultitaskPolicy,
-            MolmoBotRBY1PickPnPPolicyConfig,
-            MolmoBotRBY1DoorPlusOpenPolicyConfig,
-        )
+        from lastmile_dataflow.policies.multitask.policy import MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig, MolmoBotRBY1DoorPlusOpenPolicyConfig
 
         config_cls = (
             MolmoBotRBY1PickPnPPolicyConfig

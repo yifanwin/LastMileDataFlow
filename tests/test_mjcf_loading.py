@@ -6,7 +6,7 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.scenes.mjcf import load_spec
+from lastmile_dataflow.scenes.loading.mjcf import load_spec
 
 
 class LoadingTests(unittest.TestCase):

@@ -6,9 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
-from lastmile_dataflow.runtime.action import InvalidAction
-from lastmile_dataflow.runtime.torso_command import bounded_torso_command, torso_feedback_margin, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
-from lastmile_dataflow.runtime.execution import ContinuousContext, OperationFailure, navigate
+from lastmile_dataflow.runtime.control.action import InvalidAction
+from lastmile_dataflow.runtime.control.torso_command import bounded_torso_command, torso_feedback_margin, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
+from lastmile_dataflow.runtime.execution.context import ContinuousContext, OperationFailure
+from lastmile_dataflow.runtime.execution.navigation import navigate
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
@@ -44,27 +45,26 @@ class TorsoCommandTests(unittest.TestCase):
                 ctx=ContinuousContext.__new__(ContinuousContext)
                 ctx.config=ExecutionConfig(planner_backend='curobo_v2_v080',max_attempts=5)
                 ctx.phase='close';ctx.deadline=lambda:None;ctx.begin=lambda:None
-                from lastmile_dataflow.runtime.contacts import ContactStatistics
+                from lastmile_dataflow.runtime.outcomes.contacts import ContactStatistics
                 ctx.contact_stats=ContactStatistics()
                 ctx.state=lambda:{'time_s':0.};ctx.monitor=None;ctx.collisions=[];ctx.fingers=set();ctx.target_bodies=set()
-                ctx.physics=io.BytesIO();ctx.replay=[];ctx.record_rgb=False;ctx.record_png=False
-                saved=[]
-                ctx.recorder=SimpleNamespace(path=Path(directory),steps=0,record_step=lambda **kw:saved.append(kw))
+                ctx.physics=io.BytesIO();ctx.record_video=False;ctx.timings={}
+                ctx.recorder=SimpleNamespace(path=Path(directory),steps=0)
                 data=SimpleNamespace(time=0.,qpos=np.array([feedback]),qvel=np.zeros(1),qacc=np.zeros(1),ctrl=np.zeros(1),warning=[])
                 robot=SimpleNamespace(config=SimpleNamespace(torso_limits=(0,.738)),group=lambda _:np.array([0,feedback]))
                 submitted=[]
                 def step(action,**kw):
-                    submitted.append(action.copy());check=kw['substep_check']()
+                    submitted.append((action.copy(), kw['command_raw'].copy()));check=kw['substep_check']()
                     return {'submitted_action':action.tolist()},None if check['valid'] else check
                 ctx.sim=SimpleNamespace(data=data,robot=robot,model=None,step=step)
                 action=np.zeros(20);action[19]=.739327605117437
-                with patch('lastmile_dataflow.runtime.execution.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.execution.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.execution.contact_observations',return_value=[]):
+                with patch('lastmile_dataflow.runtime.execution.context.sanitize_action',side_effect=lambda robot,a,**kw:(a,[])), patch('lastmile_dataflow.runtime.execution.context.mujoco.mj_forward'),patch('lastmile_dataflow.runtime.execution.context.contact_observations',return_value=[]):
                     if fails:
                         with self.assertRaisesRegex(OperationFailure,'torso_feedback_limit'):ctx.tick(action)
                     else:ctx.tick(action)
-                self.assertEqual(submitted[0][19],.738)
+                self.assertEqual(submitted[0][0][19],.738)
                 self.assertEqual(action[19],.739327605117437)
-                self.assertEqual(saved[0]['raw_action'][19],action[19])
+                self.assertEqual(submitted[0][1][19],action[19])
                 self.assertEqual(ctx.last_legal_torso_target,.738)
                 event=json.loads((Path(directory)/'torso_command_adjustments.jsonl').read_text())
                 self.assertEqual(event['submitted_h'],.738)
@@ -107,12 +107,6 @@ class NavigateTorsoLoopTests(unittest.TestCase):
         # the closed-loop hold, not leave the open-loop value.
         self.assertTrue(all(a[19]==.4717424850553562 for a in ticks),[a[19] for a in ticks])
 
-    def test_navigate_still_works_without_a_hold_hook(self):
-        ctx,ticks=self.fake_ctx(0.)
-        del ctx.hold_torso_target
-        result=navigate(ctx,{'xy':[[1.,0.],[2.,0.]]},{'base':[2.,0.,0.]})
-        self.assertEqual(result['status'],'success')
-        self.assertTrue(all(a[19]==0. for a in ticks))
 
 
 if __name__=='__main__':unittest.main()

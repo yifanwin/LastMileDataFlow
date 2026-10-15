@@ -1,29 +1,21 @@
 """Software regression only; synthetic observations are not real task evidence."""
-from dataclasses import replace
-import json
 from pathlib import Path
 import tempfile
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
 import numpy as np
 
 from helpers import make_sim
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.scenes.sampling import disk_samples, place_frozen_station
-from lastmile_dataflow.data.statistics import aggregate
-from lastmile_dataflow.planning.astar import Grid, search, distance_field
-from lastmile_dataflow.data.heatmap import gaussian_map, export_heatmap
-from lastmile_dataflow.runtime.outcomes import attribute, evaluate_open
-from lastmile_dataflow.runtime.outcomes import mobile_constraint_failure, evaluate_mobile_pick, torso_tracking_error
-from lastmile_dataflow.runtime.pick import constraint_failure, evaluate_pick
-from lastmile_dataflow.scenes.tasks import discover_tasks, grasp_candidates
-from lastmile_dataflow.io import write_json
-from lastmile_dataflow.runtime.execution import clone_sim, run_curobo_attempt, OperationFailure
-from lastmile_dataflow.runtime.execution import ContinuousContext
-from lastmile_dataflow.data.third_person import ThirdPersonCamera
-from lastmile_dataflow.data.analysis_video import AnalysisVideo
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.scenes.stations.sampling import disk_samples, place_frozen_station
+from lastmile_dataflow.data.evaluation.statistics import aggregate
+from lastmile_dataflow.planning.astar import Grid, search
+from lastmile_dataflow.data.visualization.heatmap import gaussian_map, export_heatmap
+from lastmile_dataflow.runtime.outcomes.evaluation import attribute, evaluate_open
+from lastmile_dataflow.runtime.outcomes.evaluation import evaluate_mobile_pick, torso_tracking_error
+from lastmile_dataflow.runtime.outcomes.pick import evaluate_pick
+from lastmile_dataflow.scenes.tasks.discovery import discover_tasks, grasp_candidates
+from lastmile_dataflow.runtime.execution.context import clone_sim
+from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 
 
 def station(name,xy,geometry='valid'):

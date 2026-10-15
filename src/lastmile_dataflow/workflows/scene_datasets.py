@@ -14,18 +14,18 @@ import numpy as np
 from ..config import read_config
 from ..scenes.dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
 from ..config import RobotConfig
-from ..scenes.obstacle_config import ObstacleConfig
-from ..scenes.obstacle_regions import support_regions, station_regions, approach_points
-from ..scenes.eligibility import pick_type, allowed_case1_support
+from ..scenes.augmentation.config import ObstacleConfig
+from ..scenes.augmentation.regions import support_regions, station_regions, approach_points
+from ..scenes.tasks.eligibility import pick_type, allowed_case1_support
 from ..io import read_json, write_json, append_row, create_run, rows
 from ..planning.astar import task_support_obstacles
-from ..runtime.obstacle_edit_session import clone_preparation
+from ..runtime.construction.session import clone_preparation
 from ..runtime.simulation import Simulation
-from ..scenes.source import SceneSource
-from ..scenes.dataset import select_stations, robot_descriptor
-from ..scenes.tasks import discover_tasks, robot_footprint
+from ..scenes.loading.source import SceneSource
+from ..scenes.dataset import select_stations
+from ..scenes.tasks.discovery import discover_tasks, robot_footprint
 from .obstacle_augmentation import augment_obstacles
-from ..scenes.sampling import sample_stations
+from ..scenes.stations.sampling import sample_stations
 
 
 def now():
@@ -105,7 +105,7 @@ def discover_scene_dataset(recipe, output):
         if cached:
             version = read_config(Path(cached) / 'config.json')
             cached_robot = RobotConfig(**version['robot'])
-            if version['source'] != source.to_dict() or robot_descriptor(cached_robot) != robot_descriptor(robot):
+            if version['source'] != source.to_dict() or asdict(cached_robot) != asdict(robot):
                 raise ValueError('cached original baseline source/robot mismatch')
             sim = Simulation.from_snapshot(cached, cached_robot)
             sim.robot.config = robot  # identical physical config; normalize only locator/tuple representation
@@ -178,7 +178,7 @@ def discover_scene_dataset(recipe, output):
 
 def _binding(robot, geometry):
     keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m')
-    return {'robot': robot_descriptor(robot), 'station_geometry': {k: getattr(geometry, k) for k in keys},
+    return {'robot': asdict(robot), 'station_geometry': {k: getattr(geometry, k) for k in keys},
         'initialization_method': 'target_facing_actual_head_optical_axis_v1',
         'eligibility': 'physical_initialization_and_head_visibility_no_planner_or_policy'}
 
@@ -195,6 +195,7 @@ def qualify_scene_discovery(discovery, output):
     plan = read_config(discovery)
     recipe = SceneDatasetRecipe(**plan['recipe'])
     robot = load_scene_robot(recipe.robot_config)
+    geometry = recipe.geometry
     start = time.monotonic(); selected = []; qualifications = []
     existing = {r['task_id']: r for r in plan.get('qualification', [])}
     for house in recipe.houses:
@@ -206,7 +207,7 @@ def qualify_scene_discovery(discovery, output):
         source = SceneSource.procthor(recipe.dataset_dir, house)
         sim = Simulation.from_snapshot(seed['input_snapshot'], robot)
         try:
-            tasks, _ = discover_tasks(sim, read_json(source.metadata_path), recipe.geometry)
+            tasks, _ = discover_tasks(sim, read_json(source.metadata_path), geometry)
             eligible_ids = {r['task']['task_id'] for r in plan['selected'] if r['house'] == house}
             eligible_ids.update(r['task_id'] for r in plan['exclusions'] if r.get('house') == house
                 and r.get('reason') == 'eligible_not_selected_by_spatial_coverage')
@@ -236,13 +237,13 @@ def qualify_scene_discovery(discovery, output):
                         if identity not in cache:
                             sim.target_id = sim.model.body(task['target_body']).id
                             stage = time.monotonic()
-                            stations = existing[identity]['stations'] if identity in existing else sample_stations(sim, task, recipe.geometry)
+                            stations = existing[identity]['stations'] if identity in existing else sample_stations(sim, task, geometry)
                             valid = sum(s['geometry'] == 'valid' for s in stations)
                             evidence = {'house': house, 'task_id': identity, 'asset_id': task['asset_id'],
                                 'valid_count': valid, 'candidate_count': len(stations), 'elapsed_s': time.monotonic()-stage,
                                 'stations': stations, 'valid': valid >= recipe.min_final_points}
                             if evidence['valid'] and operation == 'pick' and 'Case1' in recipe.cases:
-                                regions = station_regions(sim, stations, task, recipe.geometry, robot_footprint(sim)['radius_m'], .12)
+                                regions = station_regions(sim, stations, task, geometry, robot_footprint(sim)['radius_m'], .12)
                                 approach_points(sim, stations, task, regions)
                                 points = [p for p in regions['points'] if np.linalg.norm(np.asarray(p['xy'])-task['anchor_world'][:2]) <= .85]
                                 evidence['case1_near_ground_candidate_count'] = len(points)
@@ -276,11 +277,11 @@ def qualify_scene_discovery(discovery, output):
     return output
 
 
-def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, workers=1,
-                        resume=False, allow_partial_targets=False):
-    if resume or workers != 1:
-        raise ValueError('minimal scene construction uses a fresh run and one worker')
+def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
+                        allow_partial_targets=False):
     recipe = load_scene_recipe(recipe_path)
+    robot = load_scene_robot(recipe.robot_config)
+    geometry = recipe.geometry
     plan = read_config(discovery)
     if plan['recipe'] != asdict(recipe):
         raise ValueError('discovery recipe mismatch')
@@ -291,8 +292,8 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
             if requested and count > 0 and available < count and not allow_partial_targets:
                 raise ValueError(f'not enough {operation} targets in house {house}')
     root = create_run(Path(output_dir) / 'scene_datasets' / dataset_id,
-                      {'recipe': asdict(recipe), 'robot': asdict(load_scene_robot(recipe.robot_config)),
-                       'geometry': asdict(recipe.geometry), 'seed': recipe.seed})
+                      {'recipe': asdict(recipe), 'robot': asdict(robot),
+                       'geometry': asdict(geometry), 'seed': recipe.seed})
     os.environ['MUJOCO_EGL_DEVICE_ID'] = str(gpu_ids[0])
     for unit_index, unit in enumerate(plan['selected']):
         task = unit['task']
@@ -301,10 +302,9 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
                 continue
             scene_id = f'val{unit["house"]}-{task["task_id"]}-{case}'
             if case == 'Case3':
-                robot = load_scene_robot(recipe.robot_config)
                 sim = Simulation.from_snapshot(unit['input_snapshot'], robot, target=task['target_body'])
                 try:
-                    points, _ = select_stations(sample_stations(sim, task, recipe.geometry),
+                    points, _ = select_stations(sample_stations(sim, task, geometry),
                         task['anchor_world'], recipe.station_selection, recipe.max_final_stations)
                     if len(points) < recipe.min_final_points:
                         append_row(root / 'scenes.jsonl', {'scene_id': scene_id, 'status': 'rejected', 'reason': 'too_few_stations'})
@@ -333,8 +333,8 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
                     'station_selection': recipe.station_selection, 'max_final_stations': recipe.max_final_stations,
                     'min_substantial': recipe.min_substantial, 'case1_support_types': recipe.case1_support_types})
             # Write into this dataset, not a child publication/diagnostics run.
-            augment_obstacles(config, output_dir, run_id=scene_id, geometry_config=recipe.geometry,
-                robot_config=load_scene_robot(recipe.robot_config), dataset_root=root, id_prefix=scene_id)
+            augment_obstacles(config, output_dir, run_id=scene_id, geometry_config=geometry,
+                robot_config=robot, dataset_root=root, id_prefix=scene_id)
     records = rows(root / 'scenes.jsonl')
     write_json(root / 'summary.json', {'status': 'completed', 'accepted': sum(r['status'] == 'accepted' for r in records),
                                      'rejected': sum(r['status'] != 'accepted' for r in records)})

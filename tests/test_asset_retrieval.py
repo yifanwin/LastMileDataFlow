@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from lastmile_dataflow.io import write_json
-from lastmile_dataflow.scenes.asset_library import ThorLibrary
+from lastmile_dataflow.scenes.loading.asset_library import ThorLibrary
 
 
 class AssetRetrievalTests(unittest.TestCase):

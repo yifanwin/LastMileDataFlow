@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass, field
 import math
 
-from ..config import construct, read_config
+from ..config import read_config
 from ..policies.molmobot_config import load_policy_config
 
 
@@ -66,11 +66,9 @@ class ExecutionConfig:
             raise ValueError('unknown operation backend')
         if self.operation_backend == 'molmobot' and not self.policy_config:
             raise ValueError('MolmoBot requires a policy config')
-        if type(self.head_fov_enabled) is not bool:
-            raise ValueError('invalid head FOV flag')
-        if type(self.head_fov_margin) not in (int, float) or not 0 < self.head_fov_margin < 1 or not math.isfinite(self.head_fov_margin):
+        if not 0 < self.head_fov_margin < 1:
             raise ValueError('invalid head FOV margin')
-        if type(self.head_fov_weight) not in (int, float) or not math.isfinite(self.head_fov_weight) or self.head_fov_weight <= 0:
+        if not math.isfinite(self.head_fov_weight) or self.head_fov_weight <= 0:
             raise ValueError('invalid head FOV weight')
         if self.planner_backend != 'curobo_v2_v080':
             raise ValueError('unknown planner backend')
@@ -85,8 +83,6 @@ class ExecutionConfig:
             raise ValueError('MolmoBot evaluation requires 1024x576')
         if self.torso_error_policy != 'record_only':
             raise ValueError('V2 torso error policy must be record_only')
-        if type(self.third_person_enabled) is not bool:
-            raise ValueError('invalid third person flag')
         for key in ('trials_per_station', 'start_count', 'min_target_pixels',
                     'max_navigation_steps', 'max_operation_plans', 'max_open_plans', 'max_grasp_candidates',
                     'num_ik_seeds', 'num_trajopt_seeds', 'max_attempts', 'width', 'height'):
@@ -95,16 +91,21 @@ class ExecutionConfig:
         for key in ('seed', 'operation_retries', 'max_s1_candidates'):
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError('invalid ' + key)
-        for key, value in self.__dict__.items():
-            if key.endswith(('_m', '_s', '_rad', '_m_s', '_rad_s', '_gb')) and value is not None:
-                if type(value) not in (int, float) or not math.isfinite(value):
-                    raise ValueError('invalid ' + key)
-                minimum_ok = value >= 0 if key in ('approach_offset_m', 'navigation_margin_m') else value > 0
-                if not minimum_ok:
-                    raise ValueError('invalid ' + key)
+        for key in ('lastmile_nearby_m', 'head_fov_min_depth_m', 'radius_m', 'map_resolution_m',
+                    'smoothing_support_distance_m', 'navigation_speed_m_s', 'navigation_yaw_speed_rad_s',
+                    'arrival_tolerance_m', 'arrival_tolerance_rad', 'attempt_timeout_s', 'gripper_width_m',
+                    'open_hinge_rad', 'open_slide_m', 'open_hold_s', 'open_waypoint_step_rad', 'open_waypoint_step_m'):
+            value = getattr(self, key)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError('invalid ' + key)
+        for value in (self.spacing_m, self.smoothing_sigma_m):
+            if value is not None and (not math.isfinite(value) or value <= 0):
+                raise ValueError('spacing and smoothing must be positive')
+        if not math.isfinite(self.navigation_margin_m) or self.navigation_margin_m < 0:
+            raise ValueError('invalid navigation margin')
         for key in ('time_dilation', 'open_fraction'):
             value = getattr(self, key)
-            if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 1:
+            if not 0 < value <= 1:
                 raise ValueError('invalid ' + key)
         if not 0 <= self.approach_offset_m <= .02:
             raise ValueError('invalid approach offset')
@@ -112,13 +113,12 @@ class ExecutionConfig:
             raise ValueError('image dimensions must be even')
         if not self.operations or set(self.operations) - {'pick', 'open'}:
             raise ValueError('unsupported operation')
-        if not self.torso_heights or any(type(h) not in (int, float) or not math.isfinite(h)
-                                        or not 0 <= h <= .738 for h in self.torso_heights):
+        if not self.torso_heights or any(not 0 <= h <= .738 for h in self.torso_heights):
             raise ValueError('invalid torso heights')
 
 
 def load_execution_config(path):
-    return construct(ExecutionConfig, read_config(path, repo_fields=('policy_config',)))
+    return ExecutionConfig(**read_config(path, repo_fields=('policy_config',)))
 
 
 def execution_profile(robot, config):

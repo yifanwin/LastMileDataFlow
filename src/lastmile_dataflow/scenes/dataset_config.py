@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 import math
 import re
 
-from ..config import RobotConfig, construct, read_config
-from .eligibility import PICK_TYPES, SUPPORT_TYPES
+from ..config import RobotConfig, read_config
+from .tasks.eligibility import PICK_TYPES, SUPPORT_TYPES
 
 
 def house_number(value):
@@ -37,7 +37,7 @@ class SceneStationConfig:
         for key in ('radius_m', 'spacing_m', 'map_resolution_m', 'gripper_width_m',
                     'open_fraction', 'open_hinge_rad', 'open_slide_m'):
             value = getattr(self, key)
-            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            if not math.isfinite(value) or value <= 0:
                 raise ValueError('invalid station geometry: ' + key)
         if not 0 < self.open_fraction <= 1:
             raise ValueError('invalid open_fraction')
@@ -48,7 +48,7 @@ class SceneStationConfig:
                 raise ValueError('positive integer required: ' + key)
         if not self.operations or set(self.operations) - {'pick', 'open'}:
             raise ValueError('unsupported operations')
-        if type(self.seed) is not int or self.seed < 0:
+        if self.seed < 0:
             raise ValueError('invalid seed')
 
 
@@ -116,33 +116,26 @@ class SceneDatasetRecipe:
             raise ValueError('final station limit below minimum count')
         for name, bounds in (('case1_added_surface_count', (5, 8)), ('case2_added_surface_count', (10, 20))):
             values = getattr(self, name)
-            if not isinstance(values, list) or len(values) != 2 or any(type(v) is not int for v in values) or not bounds[0] <= values[0] <= values[1] <= bounds[1]:
+            if len(values) != 2 or not bounds[0] <= values[0] <= values[1] <= bounds[1]:
                 raise ValueError('invalid ' + name)
-        if not isinstance(self.targets, dict) or any(not isinstance(v, list) or any(not isinstance(t, str) for t in v) for v in self.targets.values()):
-            raise ValueError('targets must map house identities to explicit selector lists')
         if any(house_number(k) not in normalized for k in self.targets):
             raise ValueError('target selectors reference unrequested house')
-        if type(self.seed) is not int or self.seed < 0 or not math.isfinite(self.variant_timeout_s) or self.variant_timeout_s <= 0:
+        if self.seed < 0 or not math.isfinite(self.variant_timeout_s) or self.variant_timeout_s <= 0:
             raise ValueError('invalid seed/time budget')
         if not math.isfinite(self.min_target_separation_m) or self.min_target_separation_m <= 0:
             raise ValueError('invalid target separation')
-        for name in ('categories', 'pick_target_types', 'case1_support_types', 'case1_surface_categories', 'case2_surface_categories'):
-            values = getattr(self, name)
-            if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values) or len(set(values)) != len(values):
-                raise ValueError('invalid ' + name)
-        self.geometry
 
     @property
     def geometry(self):
-        return construct(SceneStationConfig, {**self.station_config, 'seed': self.seed})
+        return SceneStationConfig(**{**self.station_config, 'seed': self.seed})
 
     def selectors(self, house):
         return [t for h, values in self.targets.items() if house_number(h) == house for t in values]
 
 
 def load_scene_recipe(path):
-    return construct(SceneDatasetRecipe, read_config(path, data_fields=('dataset_dir', 'asset_library', 'input_snapshots'), repo_fields=('robot_config',)))
+    return SceneDatasetRecipe(**read_config(path, data_fields=('dataset_dir', 'asset_library', 'input_snapshots'), repo_fields=('robot_config',)))
 
 
 def load_scene_robot(path):
-    return construct(RobotConfig, read_config(path, data_fields=('model_path',)))
+    return RobotConfig(**read_config(path, data_fields=('model_path',)))

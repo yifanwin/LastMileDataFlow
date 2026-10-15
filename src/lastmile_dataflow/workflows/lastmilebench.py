@@ -1,18 +1,19 @@
 """最小困难 S0 定义与串行策略评测。"""
 from dataclasses import asdict, replace
 import os
+from itertools import count
 from pathlib import Path
 
 from ..config import read_config
-from ..data.benchmark import select_starts, summarize
+from ..data.evaluation.benchmark import select_starts, summarize
 from ..config import CollectionConfig, RobotConfig
 from ..io import append_row, create_run, rows, write_json
 from ..runtime.simulation import Simulation
-from ..runtime.benchmark_scene import native_scene
-from ..runtime.molmobot_execution import run_vla_attempt
+from ..runtime.construction.benchmark_scene import native_scene
+from ..runtime.execution.molmobot import run_vla_attempt
 from ..scenes.dataset import load_scenes
 from ..runtime.execution_config import ExecutionConfig
-from ..data.selection import station_calibration
+from ..data.evaluation.selection import station_calibration
 from ..policies.molmobot import MolmoBotClient
 from ..policies.molmobot_config import load_policy_config
 from ..runtime.execution_config import execution_profile
@@ -32,6 +33,7 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
     root = create_run(output, {'dataset': str(source), 'policy': asdict(policy), 'seed': seed,
         'horizon': horizon, 'wall_timeout_s': wall_timeout_s, 'radius_m': radius_m,
         'calibration': str(Path(calibration_dir).resolve()) if calibration_dir else None})
+    episode_ids = count()
     for scene in load_scenes(source):
         robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
         parent = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
@@ -53,10 +55,10 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
                 {'scene_id': scene['scene_id'], 'task_id': scene['task']['task_id']}, limit=starts_per_sample)
             if not choices:
                 continue
-            from ..scenes.sampling import place_frozen_station, robot_contacts
-            from ..data.head_views import head_frame
-            from ..data.edit_views import ViewConfig
-            from ..scenes.initialization import floor_support
+            from ..scenes.stations.sampling import place_frozen_station, robot_contacts
+            from ..data.rendering.head_views import head_frame
+            from ..data.rendering.edit_views import ViewConfig
+            from ..scenes.stations.initialization import floor_support
             relative = Path('scene-files') / scene['scene_id']
             sim.freeze(root / relative)
             for station, evidence in choices:
@@ -64,7 +66,7 @@ def build(dataset, output, policy_path, *, gpu_ids, starts_per_sample=1, calibra
                 _, _, visibility = head_frame(sim, scene['task']['target_body'], ViewConfig(width=1024, height=576))
                 if robot_contacts(sim) or not floor_support(sim, station['xy']) or visibility['visible_pixels'] < 24:
                     raise ValueError('native benchmark station initialization failed')
-                episode_id = f'e{len(rows(root / "episodes.jsonl")):06d}'
+                episode_id = f'e{next(episode_ids):06d}'
                 append_row(root / 'episodes.jsonl', {'episode_id': episode_id, 'scene_id': scene['scene_id'],
                     'scene': str(relative), 'task': scene['task'], 'station': station, 'seed': seed,
                     'difficulty': evidence['status']})
@@ -102,7 +104,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
                 collection = CollectionConfig(output_dir=str(root), width=1024, height=576,
                     seed=episode['seed'], max_steps=settings['horizon'], record_video=False)
                 result = run_vla_attempt(sim, episode['task'], episode['station'], config, collection,
-                    root, episode['episode_id'], seed=episode['seed'], policy=policy)
+                    root=root, attempt_id=episode['episode_id'], seed=episode['seed'], policy=policy)
                 record = {key: result.get(key) for key in ('status', 'reason', 'executed_steps', 'recording_complete', 'rollout_id', 'execution_termination', 'task_outcome')}
                 record['episode_id'] = episode['episode_id']
                 append_row(root / 'results.jsonl', record)

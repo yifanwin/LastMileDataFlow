@@ -6,9 +6,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 from helpers import table_scene
-from lastmile_dataflow.runtime.preparation import prepare_scene, settle_scene
+from lastmile_dataflow.runtime.construction.preparation import prepare_scene, settle_scene
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.graph import SceneGraph, build_scene_graph
 
 
 class GraphTests(unittest.TestCase):

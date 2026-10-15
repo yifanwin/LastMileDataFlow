@@ -8,9 +8,9 @@ import numpy as np
 import mujoco
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.planning.astar import Grid, scene_grid, search, task_support_obstacles, distance_field
-from lastmile_dataflow.data.heatmap import gaussian_map, export_heatmap
-from lastmile_dataflow.data.analysis_video import AnalysisVideo
-from lastmile_dataflow.data.navigation_map import export_navigation_map
+from lastmile_dataflow.data.visualization.heatmap import gaussian_map, export_heatmap
+from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
+from lastmile_dataflow.data.visualization.navigation_map import export_navigation_map
 
 
 class SupportMapTests(unittest.TestCase):
@@ -70,7 +70,7 @@ class SupportMapTests(unittest.TestCase):
         sim=self.scene();task={'instance_id':'cup','target_body':'cup','operation':'pick','anchor_world':[0,0,.9]}
         obstacles=task_support_obstacles(sim,task)
         self.assertEqual(obstacles[0]['body'],'table')
-        with patch('lastmile_dataflow.scenes.initialization.room_triangles',return_value=[]):
+        with patch('lastmile_dataflow.scenes.stations.initialization.room_triangles',return_value=[]):
             heat=scene_grid(sim,[0,0],2.,.05,0.,0.,support_obstacles=obstacles)
             nav=scene_grid(sim,[0,0],2.,.05,.2,.02,support_obstacles=obstacles)
         self.assertFalse(heat.free[heat.cell([0,0])])

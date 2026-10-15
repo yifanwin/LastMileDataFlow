@@ -2,7 +2,7 @@
 
 日期：2026-10-15  
 范围：`src/lastmile_dataflow`，以及受影响的测试、配置和当前使用文档。  
-状态：**方案，尚未实施；本文不代表代码回归或真实仿真已经通过。**
+状态：**实施前方案；实际改动与验证范围见 [实施结果](实施结果.md)。**
 
 ## 1. 结论与执行顺序
 
@@ -79,11 +79,11 @@ CLI 命令、主要参数和主数据格式默认保持。内部函数签名、�
 
 ## 5. 第一批：可以明确下手的局部精简
 
-本节行号对应本次阅读的源码，实施后会变化。文件链接指向当前源码，不代表已经修改。
+本节路径标签与行号对应方案编制时的源码；链接已指向迁移后的文件。实际修改见实施结果。
 
 ### 5.1 去掉已初始化属性的存在性兜底
 
-涉及 [runtime/execution_checks.py](../../src/lastmile_dataflow/runtime/execution_checks.py) L18–42、[runtime/execution.py](../../src/lastmile_dataflow/runtime/execution.py) L46–64、L84–89。
+涉及 [runtime/execution_checks.py](../../src/lastmile_dataflow/runtime/execution/checks.py) L18–42、[runtime/execution.py](../../src/lastmile_dataflow/runtime/execution/) L46–64、L84–89。
 
 - `ContinuousContext.__init__()` 已设置 `timings={}` 和 `pick_initial=None`。
 - `timed()` 仍检查 `hasattr(ctx, 'timings')`，`pick_verdict()` 和 `could_have_success()` 仍用 `getattr`。
@@ -105,7 +105,7 @@ initial = ctx.pick_initial
 
 ### 5.2 固定 planner 接口，不假装支持不存在的后端
 
-涉及 [runtime/execution.py](../../src/lastmile_dataflow/runtime/execution.py) L187–212、[planning/curobo_v2.py](../../src/lastmile_dataflow/planning/curobo_v2.py) L26、L51。
+涉及 [runtime/execution.py](../../src/lastmile_dataflow/runtime/execution/) L187–212、[planning/curobo_v2.py](../../src/lastmile_dataflow/planning/curobo_v2.py) L26、L51。
 
 当前 `mobile_tick()` 为 `planner.torso_active` 提供 `False` 默认值，为 `h_step_limit` 提供 `.00125` 默认值；当前 V2 planner 明确定义了这两个值。
 
@@ -123,13 +123,13 @@ initial = ctx.pick_initial
 
 ### 5.4 删除重复的数组复制
 
-涉及 [runtime/action_limits.py](../../src/lastmile_dataflow/runtime/action_limits.py) 的 `sanitize_action()`。
+涉及 [runtime/action_limits.py](../../src/lastmile_dataflow/runtime/control/action_limits.py) 的 `sanitize_action()`。
 
 `vector()` 已返回独立副本，`vector(value, 20).copy()` 再复制一次没有必要。先去掉这一处确定的重复，再沿实际动作调用链检查其他复制；用于保留原始动作或隔离可变数据的复制必须保留。
 
 ### 5.5 未初始化变量改成显式局部状态
 
-涉及 [runtime/execution.py](../../src/lastmile_dataflow/runtime/execution.py) L421–432、[runtime/molmobot_execution.py](../../src/lastmile_dataflow/runtime/molmobot_execution.py) L251 附近。
+涉及 [runtime/execution.py](../../src/lastmile_dataflow/runtime/execution/) L421–432、[runtime/molmobot_execution.py](../../src/lastmile_dataflow/runtime/execution/molmobot.py) L251 附近。
 
 当前通过 `locals().get('verdict')`、`locals().get('exception_detail')` 判断变量是否曾创建。
 
@@ -185,7 +185,7 @@ initial = ctx.pick_initial
 
 ### 6.5 配置检查只保留清楚、必要的一次
 
-重点文件：[config.py](../../src/lastmile_dataflow/config.py)、[scenes/dataset_config.py](../../src/lastmile_dataflow/scenes/dataset_config.py)、[scenes/obstacle_config.py](../../src/lastmile_dataflow/scenes/obstacle_config.py)、[runtime/execution_config.py](../../src/lastmile_dataflow/runtime/execution_config.py)。
+重点文件：[config.py](../../src/lastmile_dataflow/config.py)、[scenes/dataset_config.py](../../src/lastmile_dataflow/scenes/dataset_config.py)、[scenes/obstacle_config.py](../../src/lastmile_dataflow/scenes/augmentation/config.py)、[runtime/execution_config.py](../../src/lastmile_dataflow/runtime/execution_config.py)。
 
 计划减少字段逐项类型穷举、对 bool/int 的层层区分、摄像头别名字符规则、对内部生成列表反复验证元素类型等代码。优先保留直接影响执行的条件：正步数/时间预算、阈值区间、合法动作范围、后端/profile 匹配、需要的策略路径。
 
@@ -195,7 +195,7 @@ initial = ctx.pick_initial
 
 ### 6.6 标定计算信任自己的输出，但继续检查外部标定
 
-涉及 [data/selection.py](../../src/lastmile_dataflow/data/selection.py)、[data/benchmark.py](../../src/lastmile_dataflow/data/benchmark.py)。
+涉及 [data/selection.py](../../src/lastmile_dataflow/data/evaluation/selection.py)、[data/benchmark.py](../../src/lastmile_dataflow/data/evaluation/benchmark.py)。
 
 当前 `station_calibration()` 生成站位计数，`select_starts()` 又逐项检查计数类型及一致性，`recovery_choices()` 还会再次计算 rate。
 
@@ -207,7 +207,7 @@ initial = ctx.pick_initial
 
 ## 7. 第三批：异常和资源管理只留明确的责任
 
-涉及 [runtime/episode_guard.py](../../src/lastmile_dataflow/runtime/episode_guard.py)、两个执行器、recorder 和 MolmoBot 客户端。
+涉及 [runtime/episode_guard.py](../../src/lastmile_dataflow/runtime/execution/lifecycle.py)、两个执行器、recorder 和 MolmoBot 客户端。
 
 ### 7.1 先去掉反射与重复包装，不先删失败隔离
 

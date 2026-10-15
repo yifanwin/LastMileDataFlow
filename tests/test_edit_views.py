@@ -1,6 +1,6 @@
 """核心增强视图复用的相机几何。"""
 import unittest
-from lastmile_dataflow.data.edit_views import CameraRig, ViewConfig
+from lastmile_dataflow.data.rendering.edit_views import CameraRig, ViewConfig
 
 
 class ViewTests(unittest.TestCase):

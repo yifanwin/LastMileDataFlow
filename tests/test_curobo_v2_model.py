@@ -5,9 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 import numpy as np
-from lastmile_dataflow.planning.rby1m_mobile_torso import derive_urdf, joint_names, ordered_points, robot_config, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
+from lastmile_dataflow.planning.rby1m_mobile_torso import derive_urdf, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.execution import ContinuousContext
+from lastmile_dataflow.runtime.execution.context import ContinuousContext
 
 
 class V2ModelTests(unittest.TestCase):
@@ -85,9 +85,9 @@ class V2ModelTests(unittest.TestCase):
                                                        control_hz=20,torso_limits=(0,.738)))
         ctx = ContinuousContext.__new__(ContinuousContext); ctx.sim=SimpleNamespace(robot=robot)
         ctx.config=ExecutionConfig(); ctx.monitor=None; actions=[]; ctx.tick=lambda a,**kw:actions.append(a)
-        planner=SimpleNamespace(names=joint_names('left'),torso_active=True,base_target_world=lambda p:p[:3])
+        planner=SimpleNamespace(names=joint_names('left'),h_step_limit=.00125,base_target_world=lambda p:p[:3])
         point=np.r_[.1,0,0,np.full(7,.1),.4]
-        scale=ctx.mobile_tick(planner,point,'left',-.05,0.)
+        scale=ctx.mobile_tick(planner, point, 'left', -.05)
         self.assertAlmostEqual(scale,80)
         self.assertAlmostEqual(actions[-1][19],.30125)
         self.assertAlmostEqual(actions[-1][0],.00125)

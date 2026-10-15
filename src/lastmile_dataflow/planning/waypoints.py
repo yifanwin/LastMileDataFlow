@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import numpy as np
 
-from ..runtime.action import InvalidAction, validate_action, vector
+from ..runtime.control.action import InvalidAction, validate_action, vector
 
 
 @dataclass(frozen=True)

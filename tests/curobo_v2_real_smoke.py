@@ -5,12 +5,12 @@ from pathlib import Path
 
 from lastmile_dataflow.config import CollectionConfig, RobotConfig
 from lastmile_dataflow.config import read_config
-from lastmile_dataflow.io import create_run, read_json, write_json
-from lastmile_dataflow.runtime.execution import run_curobo_attempt
+from lastmile_dataflow.io import create_run, write_json
+from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.scenes.dataset import load_scenes
-from lastmile_dataflow.scenes.tasks import grasp_candidates
+from lastmile_dataflow.scenes.tasks.discovery import grasp_candidates
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
     sim.scene_id = scene['scene_id']
     try:
         result = run_curobo_attempt(sim, scene['task'], station, grasp_candidates(scene['task'], args.assets_dir),
-            args.assets_dir, config, collection, root, 'smoke', seed=config.seed)
+            args.assets_dir, config, collection, root=root, attempt_id='smoke', seed=config.seed)
         write_json(root / 'result.json', result)
         print(result['status'])
     finally:

@@ -1,5 +1,6 @@
 """轻量协议回归。真实 stepping 使用简化模型，任务/策略结果的 mock 不代表真实成功。"""
 from dataclasses import asdict, replace
+from itertools import count
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,15 +11,15 @@ import numpy as np
 
 from helpers import make_sim
 from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.io import create_run, append_row, read_json, rows, write_json
+from lastmile_dataflow.io import create_run, append_row, read_json, rows
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.data.selection import station_calibration, recovery_choices
+from lastmile_dataflow.data.evaluation.selection import station_calibration, recovery_choices
 from lastmile_dataflow.scenes.dataset import load_scenes
 from lastmile_dataflow.workflows.collection import evaluate_stations, collect_lastmile, _recovery_trials
-from lastmile_dataflow.data.molmobot_dataset import export_molmobot
-from lastmile_dataflow.scenes.obstacle_config import CaseConstruction
+from lastmile_dataflow.data.export.molmobot_dataset import export_molmobot
+from lastmile_dataflow.scenes.augmentation.config import CaseConstruction
 
 
 class LightDataTests(unittest.TestCase):
@@ -67,7 +68,7 @@ class LightDataTests(unittest.TestCase):
         self.sim.begin()
         for _ in range(2):
             self.sim.step(self.sim.robot.neutral_action())
-        recorder.finish('failure', 'fixture', {})
+        recorder.finish('failure', 'fixture')
         with np.load(recorder.path / 'trajectory.npz') as data:
             self.assertEqual(data['qpos'].shape[0], 3)
             self.assertEqual(data['actions'].shape, (2, 20))
@@ -84,7 +85,7 @@ class LightDataTests(unittest.TestCase):
         self.sim.begin()
         with self.assertRaises(ValueError):
             self.sim.step([0.] * 19)
-        recorder.finish('failure', 'invalid_action', {})
+        recorder.finish('failure', 'invalid_action')
         with np.load(recorder.path / 'trajectory.npz') as data:
             self.assertEqual(data['actions'].shape, (0, 20))
             self.assertEqual(len(data['time_s']), 1)
@@ -178,7 +179,7 @@ class LightDataTests(unittest.TestCase):
         choices = recovery_choices(self.points, rates, binding, config)
         with patch('lastmile_dataflow.workflows.collection.search', return_value=None), \
              patch('lastmile_dataflow.workflows.collection._execute') as execute:
-            records = _recovery_trials(self.sim, self.scene, choices, self.root, config, self.collection, self.root)
+            records = _recovery_trials(self.sim, self.scene, choices, self.root, config, self.collection, self.root, attempt_ids=count())
         execute.assert_not_called()
         self.assertEqual(records[0]['status'], 'path_unavailable')
         self.assertIsNone(records[0]['rollout_id'])
@@ -189,7 +190,7 @@ class LightDataTests(unittest.TestCase):
         recorder.bind_simulation(self.sim)
         self.sim.begin()
         self.sim.step(self.sim.robot.neutral_action())
-        recorder.finish('failure', 'fixture', {})
+        recorder.finish('failure', 'fixture')
         with self.assertRaisesRegex(ValueError, 'motor map'):
             export_molmobot(recorder.path, self.root / 'bad')
         output = export_molmobot(recorder.path, self.root / 'state', state_images_only=True)

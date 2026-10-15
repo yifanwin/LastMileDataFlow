@@ -6,8 +6,8 @@ from unittest.mock import patch
 import mujoco
 
 from helpers import table_scene
-from lastmile_dataflow.scenes.asset_library import ThorLibrary
-from lastmile_dataflow.runtime.preparation import prepare_scene, settle_scene, SettleConfig
+from lastmile_dataflow.scenes.loading.asset_library import ThorLibrary
+from lastmile_dataflow.runtime.construction.preparation import prepare_scene, settle_scene, SettleConfig
 from lastmile_dataflow.runtime.simulation import InitializationError
 
 

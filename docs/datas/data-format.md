@@ -21,6 +21,7 @@ MJB 是实际载入来源，需使用生成时的 MuJoCo 版本。XML 不是跨�
 ## 实际执行轨迹
 
 `rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl/state22` 为 N+1 个边界状态，`actions/requested_actions/phases` 为 N 个实际控制间隔。没有真实物理步就不伪造轨迹行。
+`phases` 在下发动作前设置，标明该实际间隔的执行阶段；MolmoBot 使用 `navigation/arrival/vla_operation`，不再用记录器的隐式 `operation` 默认值。
 `recording.json` 记录是否完整、步数和错误；事件用于诊断。RGB 图片默认保留，视频、深度、逐物理步日志按需选择。
 没有 canonical/raw 双份记录，也不保存独立 replay、final-state、outcome 或物理日志派生索引。
 

@@ -43,15 +43,16 @@ scripts/install.sh
 ## 代码入口
 
 六个领域目录：`scenes / runtime / planning / policies / data / workflows`。
-Python 实验直接调用 `workflows.collection.evaluate_stations()` / `collect_lastmile()`；模型格式转换使用 `data.molmobot_dataset.export_molmobot()`，不另建索引。
+Python 实验直接调用 `workflows.collection.evaluate_stations()` / `collect_lastmile()`；模型格式转换使用 `data.export.molmobot_dataset.export_molmobot()`，不另建索引。
 
 - [代码调用关系](docs/architecture.md)
+- [第二轮精简实施结果](reports/第二轮精简/实施结果.md)
 - [最小数据格式](docs/datas/data-format.md)
 - [运行手册](docs/运行手册.md)
 - [测试说明](tests/README.md)
-- [实施方案](reports/2026-10-14-refactor-light-implementation-plan.md)
-- [步骤六、七执行报告](reports/2026-10-14-refactor-light-step67.md)
+- [实施方案](reports/第一轮精简/2026-10-14-refactor-light-implementation-plan.md)
+- [步骤六、七执行报告](reports/第一轮精简/2026-10-14-refactor-light-step67.md)
 
 步骤一至五已执行；本轮步骤六、七的安装与验证范围见执行报告。真实 GPU rollout、VLA 推理和完整主链验收属于步骤八，不能用软件回归代替。
 
-最小 multitask 推理迁移与单环境验证见 [实施记录](reports/2026-10-14-molmobot-multitask-implementation.md)。
+最小 multitask 推理迁移与单环境验证见 [实施记录](reports/第一轮精简/2026-10-14-molmobot-multitask-implementation.md)。

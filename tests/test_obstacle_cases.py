@@ -6,17 +6,16 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 
-from lastmile_dataflow.scenes.obstacle_config import ObstacleConfig, load_obstacle_config
-from lastmile_dataflow.scenes.obstacle_sampling import case_assets, substantial_asset, sample_surface_point
-from lastmile_dataflow.scenes.obstacle_selection import coverage_select
-from lastmile_dataflow.scenes.sampling import sample_stations
-from lastmile_dataflow.workflows.obstacle_augmentation import augment_obstacles
-from lastmile_dataflow.scenes.obstacle_regions import support_regions
+from lastmile_dataflow.scenes.augmentation.config import load_obstacle_config
+from lastmile_dataflow.scenes.augmentation.sampling import case_assets, substantial_asset, sample_surface_point
+from lastmile_dataflow.scenes.augmentation.selection import coverage_select
+from lastmile_dataflow.scenes.stations.sampling import sample_stations
+from lastmile_dataflow.scenes.augmentation.regions import support_regions
 import mujoco
 import itertools
 from lastmile_dataflow.scenes.geometry import SupportRegion
-from lastmile_dataflow.data.obstacle_views import visibility_pass, render_obstacle_pair
-from lastmile_dataflow.data.edit_views import ViewConfig
+from lastmile_dataflow.data.rendering.obstacle_views import visibility_pass, render_obstacle_pair
+from lastmile_dataflow.data.rendering.edit_views import ViewConfig
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +45,7 @@ class CaseTests(unittest.TestCase):
                 visibility['before/' + view] = {'target': 100 if visible else 0}
                 visibility['after/' + view] = {'target': 100 if visible else 0, 'a': 100 if visible else 0}
             return {'visible_pixels_by_instance': visibility, 'images': []}
-        with tempfile.TemporaryDirectory() as tmp, patch('lastmile_dataflow.data.obstacle_views.render_edit_pair', side_effect=fake_render):
+        with tempfile.TemporaryDirectory() as tmp, patch('lastmile_dataflow.data.rendering.obstacle_views.render_edit_pair', side_effect=fake_render):
             packet = render_obstacle_pair(None, None, None, None, {'a'}, 'target', set(), Path(tmp) / 'rgb',
                                          sample_id='fixture', config=ViewConfig(), coverage_union=True)
         self.assertEqual(len(calls), 1)
@@ -61,7 +60,7 @@ class CaseTests(unittest.TestCase):
             self.assertEqual(c.case_policy.min_prefilter_points, 5)
             with self.assertRaises(ValueError):
                 replace(c, construction={'case': 'Case9'})
-            with self.assertRaises(ValueError):
+            with self.assertRaises(TypeError):
                 replace(c, construction={'case': c.case_policy.case, 'typo': 1})
 
     def test_case1_exact_one_chair_and_surface_remainder(self):
@@ -134,9 +133,9 @@ class CaseTests(unittest.TestCase):
             return probe
         task = {'anchor_world': [0, 0, 1]}
         config = SimpleNamespace(radius_m=.3, spacing_m=.1)
-        with patch('lastmile_dataflow.scenes.sampling.clone_preparation', side_effect=clone), \
-             patch('lastmile_dataflow.scenes.sampling.initialize_station', side_effect=lambda sim, station, *a, **kw: {**station, 'geometry': 'valid'}) as init, \
-             patch('lastmile_dataflow.scenes.sampling.mujoco.Renderer') as renderer:
+        with patch('lastmile_dataflow.scenes.stations.sampling.clone_preparation', side_effect=clone), \
+             patch('lastmile_dataflow.scenes.stations.sampling.initialize_station', side_effect=lambda sim, station, *a, **kw: {**station, 'geometry': 'valid'}) as init, \
+             patch('lastmile_dataflow.scenes.stations.sampling.mujoco.Renderer') as renderer:
             rows = sample_stations(None, task, config, static_only=True)
         self.assertEqual(init.call_count, len(rows))
         self.assertEqual(len(set(id(c) for c in clones)), len(rows))
@@ -150,8 +149,8 @@ class CaseTests(unittest.TestCase):
         def initialize(sim, station, *args, **kwargs):
             sim.data.warning[0].number += 1
             return {**station, 'geometry': 'valid'}
-        with patch('lastmile_dataflow.scenes.sampling.clone_preparation', side_effect=clone), \
-             patch('lastmile_dataflow.scenes.sampling.initialize_station', side_effect=initialize):
+        with patch('lastmile_dataflow.scenes.stations.sampling.clone_preparation', side_effect=clone), \
+             patch('lastmile_dataflow.scenes.stations.sampling.initialize_station', side_effect=initialize):
             rows = sample_stations(None, {'anchor_world': [0, 0, 1]}, SimpleNamespace(radius_m=.1, spacing_m=.1), static_only=True)
         self.assertTrue(all(s['geometry'] == 'geometry_filtered' and s['reason'] == 'robot_initialization_solver_warning' for s in rows))
 

@@ -1,6 +1,5 @@
 from dataclasses import asdict
 """Small physics/interface regressions; not real RBY-1 task-success evidence."""
-from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,16 +9,15 @@ import numpy as np
 
 from helpers import make_sim
 from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.io import read_json
 from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.runtime.execution import ContinuousContext
+from lastmile_dataflow.runtime.execution.context import ContinuousContext
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.scenes.sampling import robot_contacts
-from lastmile_dataflow.data.statistics import aggregate
-from lastmile_dataflow.runtime.contacts import ContactStatistics, simulation_failure
-from lastmile_dataflow.runtime.health import inspect_state
-from lastmile_dataflow.runtime.outcomes import attribute
-from lastmile_dataflow.runtime.pick import constraint_failure, evaluate_pick
+from lastmile_dataflow.scenes.stations.sampling import robot_contacts
+from lastmile_dataflow.data.evaluation.statistics import aggregate
+from lastmile_dataflow.runtime.outcomes.contacts import ContactStatistics, simulation_failure
+from lastmile_dataflow.runtime.outcomes.health import inspect_state
+from lastmile_dataflow.runtime.outcomes.evaluation import attribute
+from lastmile_dataflow.runtime.outcomes.pick import constraint_failure, evaluate_pick
 
 CONTACT={'body_names':['robot_0/left_arm_3_link','table'], 'geom_names':['arm','table'],
          'distance_m':-.02, 'position_world':[0,0,0], 'normal_force_n':1000.,
@@ -60,7 +58,7 @@ class ContactPolicyTests(unittest.TestCase):
 
     def test_runtime_observer_does_not_apply_initialization_depth_filter(self):
         shallow=dict(CONTACT,distance_m=-.0001)
-        with patch('lastmile_dataflow.runtime.contacts.contact_observations',return_value=[shallow]):
+        with patch('lastmile_dataflow.runtime.outcomes.contacts.contact_observations',return_value=[shallow]):
             self.assertEqual(robot_contacts(None),[])
             self.assertEqual(robot_contacts(None,initialization=False),[shallow])
 
@@ -76,7 +74,7 @@ class ContactPolicyTests(unittest.TestCase):
         self.assertEqual(evaluate_pick(rows,initial)['status'],'simulation_failure')
 
     def test_open_contact_flags_do_not_fail_and_health_does(self):
-        from lastmile_dataflow.runtime.outcomes import evaluate_open
+        from lastmile_dataflow.runtime.outcomes.evaluation import evaluate_open
         task={'joint_goal':1.,'joint_initial':0.}
         rows=[{'time_s':t,'joint_value':1.,'finger_forces_n':{'1':1.,'2':1.},
                'illegal':['self_collision']} for t in (0.,1.)]
@@ -96,14 +94,14 @@ class ContactPolicyTests(unittest.TestCase):
             sim.freeze(Path(d)/'scene')
             recorder=AttemptRecorder(d,{'robot':asdict(robot), 'collection':asdict(collection)},attempt_id='contact')
             recorder.bind_simulation(sim)
-            ctx=ContinuousContext(sim,recorder,ExecutionConfig(),record_rgb=False,record_png=False)
+            ctx=ContinuousContext(sim,recorder,ExecutionConfig())
             a=sim.robot.neutral_action()
-            with patch('lastmile_dataflow.runtime.execution.contact_observations',return_value=[CONTACT]) as contacts:
+            with patch('lastmile_dataflow.runtime.execution.context.contact_observations',return_value=[CONTACT]) as contacts:
                 ctx.tick(a);ctx.tick(a)
             self.assertEqual(recorder.steps,2)
             self.assertGreater(ctx.contact_stats.forbidden_contact_count,1)
             self.assertIn('fingers',contacts.call_args.kwargs)
-            ctx.finish();recorder.finish('execution_complete','test',{});sim.close()
+            ctx.finish();recorder.finish('execution_complete', 'test');sim.close()
 
 
 if __name__=='__main__':unittest.main()

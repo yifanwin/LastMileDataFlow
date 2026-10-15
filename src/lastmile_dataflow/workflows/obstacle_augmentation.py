@@ -5,21 +5,21 @@ from pathlib import Path
 import numpy as np
 
 from ..config import read_config
-from ..scenes.asset_library import ThorLibrary
+from ..scenes.loading.asset_library import ThorLibrary
 from ..config import RobotConfig
-from ..scenes.obstacle_sampling import environment_pool, asset_geometry, surface_points
-from ..scenes.eligibility import pick_type
-from ..scenes.obstacle_regions import station_regions, support_regions, approach_points
+from ..scenes.augmentation.sampling import environment_pool, asset_geometry, surface_points
+from ..scenes.tasks.eligibility import pick_type
+from ..scenes.augmentation.regions import station_regions, support_regions, approach_points
 from ..io import read_json, write_json, append_row, create_run, rows
 from ..planning.astar import task_support_obstacles
-from ..runtime.obstacle_edit_session import ObstacleEditSession
-from ..runtime.preparation import SettleConfig, settle_scene
+from ..runtime.construction.session import ObstacleEditSession
+from ..runtime.construction.preparation import SettleConfig, settle_scene
 from ..runtime.simulation import Simulation
-from ..scenes.source import SceneSource
+from ..scenes.loading.source import SceneSource
 from ..runtime.execution_config import load_execution_config
-from ..scenes.sampling import park_robot, sample_stations
-from ..scenes.tasks import discover_tasks, robot_footprint
-from ..scenes.augmentation import build_variant
+from ..scenes.stations.sampling import park_robot, sample_stations
+from ..scenes.tasks.discovery import discover_tasks, robot_footprint
+from ..scenes.augmentation.builder import build_variant
 
 
 def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot_config=None,

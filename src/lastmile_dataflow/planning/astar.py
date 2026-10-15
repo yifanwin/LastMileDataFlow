@@ -79,7 +79,7 @@ def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, sup
     """Conservative PER-GEOM chassis-height raster; physical whole-body checks follow."""
     import mujoco
     from ..scenes.geometry import geom_points
-    from ..scenes.initialization import room_triangles, inside_triangles
+    from ..scenes.stations.initialization import room_triangles, inside_triangles
     size = int(math.ceil(2*radius/resolution))+1
     origin = np.asarray(anchor[:2])-radius
     yy,xx = np.indices((size,size)); xy = origin+np.stack((xx,yy),axis=-1)*resolution
