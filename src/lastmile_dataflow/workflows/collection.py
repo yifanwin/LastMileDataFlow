@@ -49,6 +49,8 @@ def _station_trials(baseline, scene, assets_dir, config, collection, root, polic
             record = _trial_record(result, scene, station, trial, seed)
             append_row(root / 'trials.jsonl', record)
             trials.append(record)
+            if result.get('failure_scope') == 'shared' or record['status'] == 'infrastructure_error':
+                return trials
     return trials
 
 

@@ -22,7 +22,7 @@ dependencies = [
     "PyYAML>=6",
     "cuda-core[cu12]>=0.7,<2",
     "nvidia-cuda-runtime-cu12<13",
-    "warp-lang>=1.11,<2",
+    "warp-lang==1.11.1",
     "nvidia-curobo[cu12] @ git+https://github.com/NVlabs/curobo.git@v0.8.0",
 ]
 

@@ -12,7 +12,7 @@ scripts/install.sh
 .venv/bin/lastmile-dataflow --help
 ```
 
-基础固定 MuJoCo 3.5.0，因为 MJB 载荷要求匹配生成版本。规划依赖声明在 `pyproject.toml`，不检查逐文件源码，不使用旧 cuRobo。
+规划固定 Warp 1.11.1（cuRobo V2 使用的公开 torch 互操作接口在较新版本已移除）。基础固定 MuJoCo 3.5.0，因为 MJB 载荷要求匹配生成版本。规划依赖声明在 `pyproject.toml`，不检查逐文件源码，不使用旧 cuRobo。
 V2 需要 NVIDIA GPU 与足够新的驱动；按官方说明检查驱动和 CUDA 支持。安装包成功不代表内核或规划成功。[官方 V2 安装说明](https://github.com/NVlabs/curobo/blob/v0.8.0/docs/getting-started/installation.rst)、[v0.8.0 依赖](https://github.com/NVlabs/curobo/blob/v0.8.0/pyproject.toml)。
 
 不使用 uv 时，完整安装等价于：

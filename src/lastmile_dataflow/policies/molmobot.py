@@ -53,6 +53,7 @@ class MolmoBotClient:
     def receive(self, timeout):
         try:
             if not self.connection.poll(timeout):
+                self.close()
                 raise PolicyInfrastructureError('model response timeout')
             response = self.connection.recv()
         except (EOFError, OSError) as exc:
@@ -87,8 +88,6 @@ class MolmoBotClient:
 
     def close(self):
         if self.connection is not None:
-            try: self.connection.send({'close':True})
-            except (OSError, EOFError): pass
             self.connection.close(); self.connection = None
         if getattr(self, 'process', None) is not None:
             try: self.process.wait(timeout=5)

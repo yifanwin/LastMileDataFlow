@@ -48,6 +48,8 @@ def main(argv=None):
     if args.gpu < 0:
         raise ValueError('GPU index must be nonnegative')
     gpu_ids = [args.gpu]
+    import os
+    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
     if args.command == 'build-scenes':
         from .workflows.scene_datasets import build_scenes
         output = build_scenes(args.config, args.output_dir, args.run_id, gpu_ids=gpu_ids,

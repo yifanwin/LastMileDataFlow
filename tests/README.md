@@ -15,3 +15,9 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 `test_multitask.py` 检查 pick/open 的真实差异、22D state、动作缓冲和推理模块独立性。
 `multitask_real_smoke.py` 是显式真实权重测试，需要本地 checkpoint/tokenizer 和指定 GPU；用合成观测检查 pick/open 与 service/client，不执行机器人。命令见 [setup](../docs/setup.md)。
+
+## val103 / Cup_30 主链复现
+
+`refactor_step8_real.py` 接收已接受的场景数据集、显式资产路径和 GPU，执行有限逐点标定、连续采集、独立 native 策略标定及 bench。它不会补造成功率或困难配对，不随单测自动运行。实际负结果、连续导航和复现命令见 [步骤八报告](../reports/2026-10-14-refactor-light-step8-val103-cup30.md)。
+
+`test_asset_retrieval.py` 检查注册资产检索不扫描整个 Prefabs；`test_policy_batch_stop.py` 与生命周期测试检查真实 RPC 超时后的关闭和停批行为。

@@ -1,6 +1,7 @@
 """Bounded THOR category retrieval and derived rigid adapters, no approval whitelist."""
 from pathlib import Path
 import math
+import os
 import time
 import xml.etree.ElementTree as ET
 import mujoco
@@ -43,11 +44,14 @@ class ThorLibrary:
             for category in request['categories']:
                 candidates = []
                 for directory in self.directories.get(category, []):
-                    # Select the canonical asset XML, not *_mesh/prim/old variants.
-                    for asset in sorted(directory.iterdir()):
-                        if asset.is_dir() and (asset/(asset.name + '.xml')).is_file():
-                            if not registered_only or asset_types.get(asset.name) == category:
-                                candidates.append(asset/(asset.name + '.xml'))
+                    # Known THOR names avoid thousands of remote stat calls.
+                    # Only sampled models are opened below; unreadable inputs are skipped there.
+                    if registered_only:
+                        names = sorted(name for name, kind in asset_types.items() if kind == category)
+                    else:
+                        with os.scandir(directory) as entries:
+                            names = sorted(entry.name for entry in entries if entry.is_dir())
+                    candidates.extend(directory / name / (name + '.xml') for name in names)
                 accepted = 0
                 for index in rng.permutation(len(candidates))[:max(limit*4, limit)]:
                     if deadline is not None and time.monotonic() >= deadline:

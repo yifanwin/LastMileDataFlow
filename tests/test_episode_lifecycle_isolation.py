@@ -47,7 +47,7 @@ class LifecycleIsolationTests(unittest.TestCase):
             self.assertEqual(classify_episode_exception(exc)['failure_scope'],'shared')
 
     def test_model_reply_consumed_data_error_local_connection_error_shared(self):
-        client=MolmoBotClient.__new__(MolmoBotClient);client.connection=Mock()
+        client=MolmoBotClient.__new__(MolmoBotClient);client.connection=Mock();client.close=Mock()
         client.connection.poll.return_value=True
         for kind in ['ValueError','RuntimeError','KeyError']:
             client.connection.recv.return_value={'error':'bad observation','type':kind}
@@ -56,6 +56,7 @@ class LifecycleIsolationTests(unittest.TestCase):
         with self.assertRaises(PolicyInfrastructureError):client.receive(1)
         client.connection.poll.return_value=False
         with self.assertRaises(PolicyInfrastructureError):client.receive(1)
+        client.close.assert_called_once()
 
 
 

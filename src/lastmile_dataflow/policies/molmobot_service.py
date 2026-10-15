@@ -6,7 +6,6 @@ import signal
 import time
 import traceback
 from multiprocessing.connection import Listener
-from pathlib import Path
 
 import numpy as np
 
@@ -31,7 +30,10 @@ class TraceAgent:
         self.prompt = kwargs['task_description']
         if self.require_point and '<points coords=' not in self.prompt:
             raise ValueError('open_conditioning_point_outside_fisheye_crop')
+        started = time.monotonic()
+        logging.info('Generating model action chunk')
         self.raw = self.agent.get_action_chunk(**kwargs)
+        logging.info('Generated model chunk in %.2f s', time.monotonic() - started)
         if self.raw.shape != (16,20) or not np.isfinite(self.raw).all():
             raise ValueError('invalid_model_action_chunk')
         self.calls += 1
@@ -75,7 +77,6 @@ def main():
         active = None
         while True:
             request = connection.recv()
-            if request.get('close'): break
             try:
                 operation = request['operation']; attempt = request['attempt']
                 if active != attempt:
@@ -104,7 +105,7 @@ def main():
                     logging.error('Rejected original model chunk: %r', trace.raw)
                 connection.send({'error':str(exc), 'type':type(exc).__name__, 'traceback':traceback.format_exc(),
                                  'invalid_action':str(exc)=='invalid_model_action_chunk'})
-    except EOFError:
+    except (EOFError, BrokenPipeError, ConnectionResetError):
         pass
     finally:
         connection.close(); listener.close()
