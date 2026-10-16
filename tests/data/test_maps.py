@@ -20,6 +20,7 @@ from lastmile_dataflow.planning.astar import (
     task_support_obstacles,
 )
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.utils.io import read_json
 
 
 class SupportMapTests(unittest.TestCase):
@@ -123,9 +124,8 @@ class SupportMapTests(unittest.TestCase):
                 self.assertTrue(np.isnan(z["success_rate"][~heat.free]).all())
             self.assertNotIn("support / obstacle", Path(d, "navigation_grid.svg").read_text())
             self.assertIn("physical_footprints", Path(d, "navigation_display.json").read_text())
-            self.assertIn("support / obstacle", Path(d, "success_heatmap.svg").read_text())
+            self.assertIn("support / obstacle", Path(d, "success_heatmap_stations.svg").read_text())
             self.assertFalse(Path(d, "index.html").exists())
-            self.assertTrue(Path(d, "success_heatmap_stations.png").is_file())
             self.assertTrue(Path(d, "success_heatmap_stations.svg").is_file())
             self.assertIn("S0016", Path(d, "success_heatmap_stations.svg").read_text())
 
@@ -187,14 +187,15 @@ class HeatmapTests(unittest.TestCase):
         self.assertTrue(np.isnan(values[3, 5]))
         self.assertTrue(np.isnan(values[:, 3]).all())
 
-    def test_heatmap_generates_labeled_png_svg_without_html(self):
+    def test_heatmap_generates_only_labeled_svg_and_numeric_metadata(self):
         with tempfile.TemporaryDirectory() as d:
             grid = Grid(np.zeros(2), 0.5, np.ones((7, 7), bool))
             path = export_heatmap(
                 d, grid, [rate_row("a", [1, 1], 3)], [1, 1, 1], 0.5, title="synthetic fixture only"
             )
             self.assertGreater(path.stat().st_size, 1000)
-            self.assertFalse(Path(d, "index.html").exists())
-            self.assertTrue(Path(d, "success_heatmap_stations.png").is_file())
-            self.assertTrue(Path(d, "success_heatmap_stations.svg").is_file())
-            self.assertTrue(Path(d, "success_heatmap.svg").is_file())
+            self.assertEqual(path.name, 'success_heatmap_stations.svg')
+            self.assertEqual({file.name for file in Path(d).iterdir()},
+                             {'success_heatmap_stations.svg', 'success_heatmap.npz', 'heatmap.json'})
+            self.assertIn('<!-- a -->', path.read_text())
+            self.assertEqual(read_json(Path(d, 'heatmap.json'))['svg'], path.name)

@@ -1,4 +1,4 @@
-"""Actual measured rates → ground-plane geodesic Gaussian heatmaps, PNG/SVG/NPZ."""
+"""实测率的测地高斯热图：仅导出带站位号 SVG，并保留数值与说明。"""
 from pathlib import Path
 import numpy as np
 
@@ -66,12 +66,10 @@ def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='',
     ax.set_aspect('equal'); fig.colorbar(im,ax=ax,label='Success rate (0–1)')
     ax.text(.01,.01,'dots: measured trials; field: Gaussian smoothing\ngray ×: filtered; white: unobserved; dark: obstacle / outside floor',
             transform=ax.transAxes,fontsize=8,bbox={'facecolor':'white','alpha':.85,'edgecolor':'none'})
-    fig.savefig(path/'success_heatmap.png',dpi=150); fig.savefig(path/'success_heatmap.svg')
     for row in rows:
         if 'station_id' not in row: continue
         ax.annotate(row['station_id'], row['xy'], xytext=(3,4), textcoords='offset points',
                     fontsize=6, zorder=8, bbox={'facecolor':'white','alpha':.7,'edgecolor':'none','pad':.4})
-    fig.savefig(path/'success_heatmap_stations.png',dpi=200)
     fig.savefig(path/'success_heatmap_stations.svg')
     plt.close(fig)
     write_json(path/'heatmap.json',{'sigma_m':sigma,'configured_support_distance_m':max_support_distance_m,
@@ -81,6 +79,5 @@ def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='',
                'obstacle_mask':'mask blocked cells after interpolation; not navigation reachability',
                'rate':'weighted successes / weighted terminal trials','observation_unit':'station trial',
                'unknown_is_not_zero':True,'physical_navigation_validation':'separate from conservative raster',
-               'map':'success_heatmap.npz','png':'success_heatmap.png','svg':'success_heatmap.svg',
-               'station_labels_png':'success_heatmap_stations.png','station_labels_svg':'success_heatmap_stations.svg'})
-    return path/'success_heatmap.png'
+               'map':'success_heatmap.npz','svg':'success_heatmap_stations.svg'})
+    return path/'success_heatmap_stations.svg'
