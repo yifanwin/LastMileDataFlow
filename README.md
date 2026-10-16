@@ -39,3 +39,9 @@ scripts/install.sh
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
 
 当前验证状态见 [reports](reports/README.md)。
+
+## 报告与研究文档
+
+`reports/` 按主题组织：主题内的需求放 `requirement/`，方案与计划放 `plan/`，结果与交付放 `delivery/`，分析放 `analyze/`。暂未明确分类的文档放在所属主题根目录，例如 `reports/build-lastmile-datasets/`。
+
+完整目录约定与当前验证状态见 [报告说明](reports/README.md)。
