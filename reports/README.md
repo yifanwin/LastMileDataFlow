@@ -8,6 +8,7 @@
 - 第一轮有限真实实验已生成并重载增强场景，执行过 cuRobo V2 逐点规划和连续导航；没有得到成功操作示教。MolmoBot 逐点与单例 bench smoke 也未成功，不能视为困难评测完成。见 [真实实验记录](archives/第一轮精简/2026-10-14-refactor-light-step8-val103-cup30.md)。
 - 第二轮在迁移后的源码上完成软件回归与真实快照 CPU stepping；没有重新验收 GPU rollout、模型推理和五命令端到端。见 [第二轮结果](archives/第二轮精简/实施结果.md)。
 - 本轮整理与实际验证结果见 [整理报告](REPORT.md)。测试入口与验证类型见 [tests](../tests/README.md)。
+- lastmile-datasets 的全组合、两类示教索引和独立物化已完成软件实现，验证见[交付报告](build-lastmile-datasets/delivery/01-implementation.md)；合成数据搬迁读取不代表真实机器人成功采集。
 
 历史事实只描述对应版本，不能作为当前代码已通过真实验收的依据。公开机器人配套资产是否齐全仍是复现限制。
 

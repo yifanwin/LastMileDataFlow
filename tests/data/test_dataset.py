@@ -8,7 +8,8 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.data.evaluation.selection import (
-    recovery_choices,
+    eligible_stations,
+    generate_pairs,
     station_calibration,
 )
 from lastmile_dataflow.data.evaluation.statistics import aggregate
@@ -45,7 +46,7 @@ class DatasetTests(DatasetTestCase):
         ]
         binding = {"scene_id": "one", "task_id": "pick-target"}
         rates = station_calibration(self.points, trials, 2, binding, config)
-        self.assertEqual(len(recovery_choices(self.points, rates, binding, config)), 1)
+        self.assertEqual(len(generate_pairs(*eligible_stations(self.points, rates, config))), 1)
         incomplete = station_calibration(
             self.points,
             trials[:-1] + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
@@ -54,7 +55,7 @@ class DatasetTests(DatasetTestCase):
             config,
         )
         self.assertFalse(incomplete["complete"])
-        self.assertEqual(recovery_choices(self.points, incomplete, binding, config), [])
+        self.assertEqual(generate_pairs(*eligible_stations(self.points, incomplete, config)), [])
 
     def test_model_export_keeps_source_and_requires_motor_calibration(self):
         recorder = AttemptRecorder(

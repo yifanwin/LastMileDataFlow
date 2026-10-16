@@ -11,7 +11,7 @@
 1. [安装与数据准备](docs/setup.md)：一个 `.venv`，显式配置资产和权重位置。
 2. [运行手册](docs/运行手册.md)：五个命令、控制模式、标定复用和负结果。
 3. [代码结构](docs/architecture.md)：从 workflow 找到算法与实际执行。
-4. [数据格式](docs/data-format.md)：场景、trial、episode 和轨迹。
+4. [数据格式](docs/data-format.md)：场景、trial、配对、训练索引和轨迹。
 5. [测试说明](tests/README.md)：离线回归与显式真实验证。
 
 ```bash
@@ -27,13 +27,13 @@ scripts/install.sh
 |---|---|
 | `build-scenes` | 发现任务、资格筛选、场景增强与站位采样，保存场景库 |
 | `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot，保存实测率与热图 |
-| `collect-lastmile` | 复用匹配标定，或在当前 run 标定一次，再执行 S0→S1→操作 |
+| `collect-lastmile` | 复用成功标定示教，执行 S0×S1 全组合；支持独立物化为自包含训练数据集 |
 | `build-bench` | 根据完整匹配标定构建困难 S0 benchmark |
 | `evaluate-bench` | 独立 MolmoBot 评测与覆盖率汇总 |
 
 ## 当前边界
 
-- 连续采集仅支持 cuRobo。
+- 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
 - 已有有限真实实验包含导航成功、规划无解与策略超时，**尚未验证成功操作示教和真实困难 S0 评测闭环**。
 - 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。

@@ -5,7 +5,6 @@
   "radius_m": 0.7928056080178096,
   "spacing_m": 0.1108796040001314,
   "trials_per_station": 5,
-  "start_count": 3,
   "operation_retries": 1,
   "operations": [
     "pick",

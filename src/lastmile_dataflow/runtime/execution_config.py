@@ -36,7 +36,7 @@ class ExecutionConfig:
     arrival_tolerance_m: float = .015
     arrival_tolerance_rad: float = .025
     max_navigation_steps: int = 2400
-    max_s1_candidates: int = 0  # 0 = all observed-success stations
+    max_s1_candidates: int = 0  # 不参与 lastmile-datasets 全组合配对
     attempt_timeout_s: float = 300.
     max_operation_plans: int = 12
     max_open_plans: int = 128
@@ -124,3 +124,10 @@ def load_execution_config(path):
 def execution_profile(robot, config):
     return {'robot': asdict(robot), 'width': config.width, 'height': config.height,
             'backend': config.operation_backend, 'policy': asdict(load_policy_config(config.policy_config)) if config.policy_config else None}
+
+
+def calibration_execution(config):
+    """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
+    selection = {'lastmile_low', 'lastmile_high', 'lastmile_nearby_m', 'start_count',
+                 'max_s1_candidates', 'smoothing_sigma_m', 'smoothing_support_distance_m'}
+    return {key: value for key, value in config.items() if key not in selection}

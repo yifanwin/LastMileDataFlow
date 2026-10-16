@@ -45,7 +45,7 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
     mark_episode_phase('execution')
     status='infrastructure_error'; reason='unfinished'; control=None
     if task['operation']=='open': ctx.max_plans=config.max_open_plans
-    navigation={'status':'not_requested'}; attribution=None; retries=[]
+    navigation={'status':'running' if path else 'not_requested'}; attribution=None; retries=[]
     execution_termination=None; task_outcome=None; verdict=None; exception_detail=None
     try:
         if path: navigation=navigate(ctx,path,goal)
@@ -100,6 +100,10 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
         recorder.event('exception',phase=ctx.phase,error_type=type(exc).__name__,message=str(exc))
     finally:
         mark_episode_phase('finalize')
+        if path:
+            navigation['steps'] = sum(phase == 'navigation' for phase in recorder.phases)
+            if navigation['status'] == 'running':
+                navigation.update(status='unknown', reason=reason)
         with timed(ctx, 'context_finalize'):
             ctx.finish()
         if execution_termination is None:

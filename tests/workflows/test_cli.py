@@ -52,6 +52,16 @@ class CliTests(unittest.TestCase):
             {"build-scenes", "evaluate-stations", "collect-lastmile", "build-bench", "evaluate-bench"},
         )
 
+    def test_materialization_dispatch_needs_neither_gpu_nor_assets(self):
+        with (
+            patch('lastmile_dataflow.data.export.lastmile_dataset.materialize_lastmile', return_value=Path('out/one')) as materialize,
+            patch('lastmile_dataflow.workflows.collection.collect_lastmile') as collect,
+            patch('builtins.print'),
+        ):
+            main(['collect-lastmile', '--materialize-from', 'reference', '--output-dir', 'out', '--run-id', 'one'])
+        materialize.assert_called_once_with(Path('reference'), Path('out/one'))
+        collect.assert_not_called()
+
     def test_build_scenes_dispatch(self):
         with patch(
             "lastmile_dataflow.workflows.scene_datasets.build_scenes", return_value=Path("out")

@@ -9,15 +9,16 @@ import time
 
 from ..config import read_config
 from ..config import RobotConfig
-from ..utils.io import append_row, create_run, rows, write_json
+from ..utils.io import append_row, create_run, rows, write_json, write_rows
 from ..utils.logging_config import Progress, trial_logging
 from ..runtime.simulation import Simulation
 from ..runtime.execution.curobo import run_curobo_attempt
 from ..runtime.execution.molmobot import run_vla_attempt
 from ..scenes.dataset import load_scenes
-from ..runtime.execution_config import execution_profile
-from ..data.evaluation.selection import station_calibration, recovery_choices, evaluable
+from ..runtime.execution_config import execution_profile, calibration_execution
+from ..data.evaluation.selection import station_calibration, eligible_stations, generate_pairs, evaluable
 from ..data.evaluation.statistics import aggregate
+from ..data.export.lastmile_dataset import successful, training_record
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
 from ..planning.astar import scene_grid, search, task_support_obstacles
 from ..data.visualization.heatmap import export_heatmap
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 def _trial_record(result, scene, station, trial, seed):
     """提取执行结果，补齐场景、站位、试验序号和随机种子。"""
     record = {key: result.get(key) for key in ('status', 'reason', 'execution_termination',
-        'task_outcome', 'recording_complete', 'executed_steps', 'navigation', 'error')}
+        'task_outcome', 'recording_complete', 'executed_steps', 'navigation', 'error', 'failure_scope')}
     record.update(scene_id=scene['scene_id'], station_id=station['station_id'], trial=trial, seed=seed,
                   rollout_id=result.get('rollout_id'), task_id=scene['task']['task_id'])
     return record
@@ -108,49 +109,80 @@ def _station_trials(baseline, scene, assets_dir, config, collection, root, polic
     return trials
 
 
-def _recovery_trials(baseline, scene, choices, assets_dir, config, collection, root, *, attempt_ids):
-    """从困难起点 S0 导航至候选站位 S1，再执行操作并记录结果。"""
-    if not choices:
-        logger.info('scene=%s 无合格 S0/S1 配对，不生成连续执行轨迹', scene['scene_id'])
+def _shared_failure(record):
+    return record.get('failure_scope') == 'shared' or record.get('status') == 'infrastructure_error'
+
+
+def _plan_collection(scenes, trials, config, root, source):
+    """先落盘全部 pair 和已有成功示教，再启动任何连续执行。"""
+    pairs, training, seen = [], [], set()
+    for scene in scenes:
+        current = [row for row in trials if row['scene_id'] == scene['scene_id']]
+        binding = {'scene_id': scene['scene_id'], 'task_id': scene['task']['task_id']}
+        if any(row['task_id'] != binding['task_id'] for row in current):
+            raise ValueError('calibration task mismatch')
+        rates = station_calibration(scene['stations'], current, config.trials_per_station, binding, config)
+        for start, goal in generate_pairs(*eligible_stations(scene['stations'], rates, config)):
+            distance = sum((a - b) ** 2 for a, b in zip(start['xy'], goal['xy'])) ** .5
+            pairs.append({**binding, 'pair_id': f'p{len(pairs):06d}',
+                          's0': start['station_id'], 's1': goal['station_id'],
+                          's0_success_rate': start['success_rate'], 's1_success_rate': goal['success_rate'],
+                          'seed': config.seed + len(pairs), 'status': 'not_executed', 'reason': 'pending',
+                          'euclidean_distance_m': distance, 'astar_path_length_m': None,
+                          'navigation_steps': 0, 'rollout_id': None})
+        for row in current:
+            if successful(row) and row['rollout_id'] not in seen:
+                training.append(training_record(row, source, 's1_direct_operation'))
+                seen.add(row['rollout_id'])
+    write_rows(root / 'pair_index.jsonl', pairs)
+    write_rows(root / 'train_index.jsonl', training)
+    return pairs
+
+
+def _recovery_trials(baseline, scene, pairs, assets_dir, config, collection, root, *, attempt_ids):
+    """执行当前场景的全部 pair；完整计划始终保留在 pair_index。"""
+    current = [pair for pair in pairs if pair['scene_id'] == scene['scene_id']]
+    if not current:
         return []
-    # 无配对时直接返回；有配对才构建包含机器人尺寸和导航余量的栅格。
     grid = scene_grid(baseline, scene['task']['anchor_world'], config.radius_m, config.map_resolution_m,
                       robot_footprint(baseline)['radius_m'], config.navigation_margin_m,
                       support_obstacles=task_support_obstacles(baseline, scene['task']))
-    episodes = []
-    planned = sum(len(goals[:config.max_s1_candidates or 5]) for _, goals, _ in choices)
+    stations = {station['station_id']: station for station in scene['stations']}
     progress = Progress(logger)
-    started = time.monotonic()
-    outcomes = Counter()
-    logger.info('连续采集 scene=%s 计划配对=%s', scene['scene_id'], planned, extra={'progress': True})
+    processed = []
     try:
-        for start, goals, _ in choices:
-            for goal in goals[:config.max_s1_candidates or 5]:
-                label = f"scene={scene['scene_id']} S0={start['station_id']} S1={goal['station_id']}"
-                with trial_logging(label, progress):
-                    path = search(grid, start['xy'], goal['xy'])
-                    # 无路径只记录负结果，不调用执行器或生成虚假的轨迹。
-                    if not path:
-                        logger.debug('scene=%s S0=%s S1=%s 无 A* 路径',
-                                    scene['scene_id'], start['station_id'], goal['station_id'])
-                        record = {'scene_id': scene['scene_id'], 's0': start['station_id'], 's1': goal['station_id'],
-                                  'status': 'path_unavailable', 'reason': 'astar_no_path', 'rollout_id': None}
-                    else:
-                        result = _execute(baseline, scene, start, assets_dir, config, collection, root,
-                                         config.seed + len(episodes), path=path, goal=goal, attempt_ids=attempt_ids)
-                        record = _trial_record(result, scene, start, None, config.seed + len(episodes))
-                        record.update(s0=start['station_id'], s1=goal['station_id'])
-                append_row(root / 'episodes.jsonl', record)
-                episodes.append(record)
-                outcomes[record['status']] += 1
-                progress.update('连续采集 scene=%s 已记录配对=%s/%s 无路径=%s 当前S0=%s S1=%s 耗时=%.1fs',
-                                scene['scene_id'], len(episodes), planned, outcomes['path_unavailable'],
-                                start['station_id'], goal['station_id'], time.monotonic() - started)
+        for pair in current:
+            start, goal = stations[pair['s0']], stations[pair['s1']]
+            label = f"scene={scene['scene_id']} S0={pair['s0']} S1={pair['s1']}"
+            with trial_logging(label, progress):
+                path = search(grid, start['xy'], goal['xy'])
+                if not path:
+                    pair.update(status='path_unavailable', reason='astar_no_path')
+                else:
+                    # 使用实际发送给跟踪器的折线，包括站位到栅格中心的连接段。
+                    pair['astar_path_length_m'] = sum(
+                        sum((a - b) ** 2 for a, b in zip(left, right)) ** .5
+                        for left, right in zip(path['xy'], path['xy'][1:]))
+                    pair.update(status='running', reason='attempt_started', navigation_steps=None)
+                    result = _execute(baseline, scene, start, assets_dir, config, collection, root,
+                                      pair['seed'], path=path, goal=goal, attempt_ids=attempt_ids)
+                    pair.update(_trial_record(result, scene, start, None, pair['seed']))
+                    pair['navigation_steps'] = (result.get('navigation') or {}).get(
+                        'steps', 0 if result.get('executed_steps') == 0 else None)
+                    if successful(pair, continuous=True):
+                        append_row(root / 'train_index.jsonl', training_record(pair, '.', 's0_to_s1_continuous'))
+            processed.append(pair)
+            write_rows(root / 'pair_index.jsonl', pairs)
+            progress.update('连续采集 scene=%s 已处理=%s/%s 当前pair=%s status=%s',
+                            scene['scene_id'], len(processed), len(current), pair['pair_id'], pair['status'])
+            if _shared_failure(pair):
+                break
     finally:
-        progress.update('连续采集收尾 scene=%s 已记录配对=%s/%s 无路径=%s 结果=%s 耗时=%.1fs',
-                        scene['scene_id'], len(episodes), planned, outcomes['path_unavailable'],
-                        dict(outcomes), time.monotonic() - started, force=True)
-    return episodes
+        for pair in current:
+            if pair['status'] == 'running':
+                pair.update(status='unknown', reason='attempt_interrupted')
+        write_rows(root / 'pair_index.jsonl', pairs)
+    return processed
 
 
 def _station_summary(sim, scene, trials, config, root):
@@ -166,31 +198,30 @@ def _station_summary(sim, scene, trials, config, root):
     export_heatmap(root / 'figures' / scene['scene_id'], grid,
         aggregate(scene['stations'], display, config.trials_per_station), scene['task']['anchor_world'],
         config.smoothing_sigma_m or config.spacing_m or .1, title=scene['scene_id'])
-    choices = recovery_choices(scene['stations'], rates, binding, config)
+    starts, goals = eligible_stations(scene['stations'], rates, config)
+    pair_count = len(starts) * len(goals)
     logger.info('scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s',
-                scene['scene_id'], len(trials), rates['complete'], len(choices), root / 'figures' / scene['scene_id'])
+                scene['scene_id'], len(trials), rates['complete'], pair_count, root / 'figures' / scene['scene_id'])
     summary = {'scene_id': scene['scene_id'], 'calibration_complete': rates['complete'],
-               'eligible_pairs': len(choices), 'successes': 0}
-    return summary, choices
+               'eligible_pairs': pair_count, 'successes': 0}
+    return summary
 
 
 def _evaluate_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids):
     """完成单个场景的站位标定和汇总，不执行连续采集。"""
     trials = _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials, attempt_ids=attempt_ids)
-    summary, _ = _station_summary(sim, scene, trials, config, root)
+    summary = _station_summary(sim, scene, trials, config, root)
+    summary['shared_failure'] = any(_shared_failure(row) for row in trials)
     return summary
 
 
-def _collect_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids):
-    # 复用标定时只读取当前场景的试验，不重复执行站位标定。
-    """复用或执行场景标定，再连续采集并统计成功次数。"""
-    trials = [row for row in prior if row['scene_id'] == scene['scene_id']] if prior is not None else _station_trials(
-        sim, scene, assets_dir, config, collection, root, policy, max_trials, attempt_ids=attempt_ids)
-    summary, choices = _station_summary(sim, scene, trials, config, root)
-    episodes = _recovery_trials(sim, scene, choices, assets_dir, config, collection, root, attempt_ids=attempt_ids)
-    # 连续采集成功要求操作成功、导航成功且记录完整。
-    summary['successes'] = sum(row['status'] == 'success' and row.get('navigation', {}).get('status') == 'success'
-                               and row.get('recording_complete', False) for row in episodes)
+def _collect_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids, pairs):
+    """标定已在规划前完成；当前场景只展示率表并执行全组合。"""
+    trials = [row for row in prior if row['scene_id'] == scene['scene_id']]
+    summary = _station_summary(sim, scene, trials, config, root)
+    episodes = _recovery_trials(sim, scene, pairs, assets_dir, config, collection, root, attempt_ids=attempt_ids)
+    summary['successes'] = sum(successful(row, continuous=True) for row in episodes)
+    summary['shared_failure'] = any(_shared_failure(row) for row in episodes)
     return summary
 
 
@@ -218,7 +249,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     if calibration:
         logger.info('复用已有标定=%s，不重复 rollout', calibration)
         saved = read_config(Path(calibration) / 'config.json')
-        if saved['profiles'] != profiles or saved['config'] != asdict(config):
+        if saved['profiles'] != profiles or calibration_execution(saved['config']) != calibration_execution(asdict(config)):
             raise ValueError('calibration scene/backend/robot/sensor/policy configuration mismatch')
         prior = rows(Path(calibration) / 'trials.jsonl')
     # 保存本次运行实际使用的配置及输入引用。
@@ -242,14 +273,37 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     summaries = []
     attempt_ids = count()
     policy = None
+    collecting = process_scene is _collect_scene
+    pairs = []
+    stopped = False
     try:
         if config.operation_backend == 'molmobot':
             from ..policies.molmobot import MolmoBotClient
             logs = Path(output_dir) / 'logs'
             logs.mkdir(parents=True, exist_ok=True)
             policy = MolmoBotClient(config.policy_config, logs / f'{run_id}-policy.log')
+        # 无外部标定时，先完成全部场景的标定，再生成全量计划。
+        if collecting:
+            if prior is None:
+                prior = []
+                for scene in scenes:
+                    sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
+                    sim.scene_id = scene['scene_id']
+                    try:
+                        current = _station_trials(sim, scene, assets_dir, config, collection, root,
+                                                  budget=max_trials, attempt_ids=attempt_ids)
+                        prior.extend(current)
+                    finally:
+                        sim.close()
+                    if any(_shared_failure(row) for row in current):
+                        stopped = True
+                        break
+            pairs = _plan_collection(scenes, prior, config, root,
+                                     os.path.relpath(Path(calibration).resolve(), root.resolve()) if calibration else '.')
         # 策略客户端跨场景复用，仿真实例逐场景创建并关闭。
         for index, scene in enumerate(scenes, 1):
+            if stopped:
+                break
             logger.info('场景 %s/%s 开始 scene=%s target=%s station数=%s',
                         index, len(scenes), scene['scene_id'], scene['task'].get('asset_id', scene['task']['task_id']),
                         len(scene['stations']), extra={'progress': True})
@@ -257,7 +311,10 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             sim = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
             sim.scene_id = scene['scene_id']
             try:
-                summaries.append(process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, attempt_ids=attempt_ids))
+                summary = process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials,
+                                        attempt_ids=attempt_ids, **({'pairs': pairs} if collecting else {}))
+                summaries.append(summary)
+                stopped = summary.get('shared_failure', False)
                 logger.info('场景结束 %s', scene['scene_id'], extra={'progress': True})
             finally:
                 sim.close()
@@ -265,11 +322,23 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
         # 异常退出也关闭策略服务并保存已完成场景；运行完整不等于任务成功。
         if policy:
             policy.close()
-        write_json(root / 'summary.json', {'status': 'completed' if len(summaries) == len(scenes) else 'incomplete',
-            'scenes': summaries, 'elapsed_s': time.monotonic() - started})
+        if collecting:
+            for pair in pairs:
+                if pair['status'] == 'not_executed':
+                    pair['reason'] = 'shared_failure' if stopped else 'run_interrupted'
+            write_rows(root / 'pair_index.jsonl', pairs)
+        training = rows(root / 'train_index.jsonl')
+        executed_pairs = sum((pair.get('executed_steps') or 0) > 0 for pair in pairs)
+        write_json(root / 'summary.json', {
+            'status': 'completed' if len(summaries) == len(scenes) and not stopped else 'incomplete',
+            'scenes': summaries, 'elapsed_s': time.monotonic() - started,
+            **({'planned_pairs': len(pairs), 'processed_pairs': sum(p['status'] != 'not_executed' for p in pairs),
+                'executed_pairs': executed_pairs, 'execution_coverage': executed_pairs / len(pairs) if pairs else 0.,
+                'pair_status_counts': dict(Counter(p['status'] for p in pairs)),
+                'train_source_counts': dict(Counter(row['source_type'] for row in training))} if collecting else {})})
         logger.info('运行收尾 输出=%s 已处理场景=%s/%s 耗时=%.1fs',
                     root, len(summaries), len(scenes), time.monotonic() - started)
-        if len(summaries) != len(scenes):
+        if len(summaries) != len(scenes) or stopped:
             logger.warning('运行未完整结束：已处理场景=%s/%s', len(summaries), len(scenes))
     return root
 

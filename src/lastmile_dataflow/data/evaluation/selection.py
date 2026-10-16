@@ -1,5 +1,4 @@
 """从主 trial 记录计算实测率；平滑图不参与选择。"""
-from .benchmark import select_starts
 
 
 def evaluable(row):
@@ -23,12 +22,17 @@ def station_calibration(stations, trials, expected, binding, config):
             'complete': all(row['trials'] == expected for row in rates)}
 
 
-def recovery_choices(stations, calibration, binding, config):
+def eligible_stations(stations, calibration, config):
+    """资格仅由完整标定和含等号阈值决定，不使用距离或数量上限。"""
     if not calibration['complete']:
-        return []
-    lookup = {station['station_id']: station for station in stations}
+        return [], []
     rates = {row['station_id']: row['successes'] / row['trials'] for row in calibration['stations']}
-    choices = select_starts(stations, calibration, binding, limit=config.start_count,
-                           low=config.lastmile_low, high=config.lastmile_high, nearby_m=config.lastmile_nearby_m)
-    return [(station, [lookup[sid] for sid in sorted(evidence['s_plus'], key=lambda sid: -rates[sid])], evidence)
-            for station, evidence in choices]
+    observed = [{**station, 'success_rate': rates[station['station_id']]}
+                for station in stations if station['geometry'] == 'valid']
+    return ([station for station in observed if station['success_rate'] <= config.lastmile_low],
+            [station for station in observed if station['success_rate'] >= config.lastmile_high])
+
+
+def generate_pairs(starts, goals):
+    """同一场景任务的全组合；无路径和远距离不在这里过滤。"""
+    return [(start, goal) for start in starts for goal in goals]

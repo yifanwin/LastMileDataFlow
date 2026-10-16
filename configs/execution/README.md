@@ -35,7 +35,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 | `radius_m` | 局部地图/分析范围半径（米）；该配置作为构造 baseline_config 时也供站位采样使用 |
 | `spacing_m` | 站位采样间距（米；构造引用时）；评测不改变已有站位；也作为热图平滑宽度的后备值 |
 | `trials_per_station` | 每站位独立 rollout 数，当前 5；不是同一 episode 内的重试次数 |
-| `start_count` | 连续采集最多选择的困难 S0 数，当前 3；逐点标定不使用 |
+| `start_count` | 不参与 lastmile-datasets 全组合；逐点标定不使用 |
 | `operation_retries` | cuRobo 导航后的操作外层重试次数，0 或 1；逐点无导航时不做该外层重试 |
 | `operations` | 任务类型列表：pick / open；构造引用时用于任务发现，当前 collection 遍历已存场景时不据此过滤，评测子集用 CLI `--samples` |
 | `min_target_pixels` | 目标可见性像素门槛，当前 24；用于任务发现/站位检查，不是任务成功阈值 |
@@ -47,7 +47,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 | `seed` | trial 随机种子基础值 |
 | `max_attempts` | cuRobo V2 原生 plan_pose 参数，当前必须为 5；不是 trial 数 |
 
-连续采集额外字段 `lastmile_low/high`、`lastmile_nearby_m`、`max_s1_candidates` 见 [lastmile_datasets](../lastmile_datasets/README.md)。未填写字段取 ExecutionConfig 默认值，不从另一个 JSON 继承。
+连续采集阈值 `lastmile_low/high` 与不参与配对的保留字段 见 [lastmile_datasets](../lastmile_datasets/README.md)。未填写字段取 ExecutionConfig 默认值，不从另一个 JSON 继承。
 
 ## 常用可选项（现有 JSON 未填写）
 

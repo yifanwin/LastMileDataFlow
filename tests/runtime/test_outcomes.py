@@ -142,6 +142,39 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("recorder_finalize_wall_s", result["execution_diagnostics"])
             self.assertFalse(baseline.closed)
 
+    def test_failed_navigation_counts_only_executed_navigation_intervals(self):
+        from lastmile_dataflow.config import CollectionConfig
+        from lastmile_dataflow.runtime.execution.context import OperationFailure
+        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline, _ = make_sim(root)
+            self.addCleanup(baseline.close)
+
+            def navigation(ctx, path, goal):
+                ctx.phase = 'navigation'
+                for _ in range(3):
+                    ctx.tick(ctx.sim.robot.neutral_action())
+                ctx.phase = 'arrival'
+                ctx.tick(ctx.sim.robot.neutral_action())
+                raise OperationFailure('arrival_tracking_error')
+
+            with (
+                patch('lastmile_dataflow.runtime.execution.curobo.place_frozen_station'),
+                patch('lastmile_dataflow.runtime.execution.curobo.navigate', side_effect=navigation),
+            ):
+                result = run_curobo_attempt(
+                    baseline, {'target_body': 'target', 'operation': 'pick'},
+                    {'station_id': 's', 'base': [0., 0., 0.]}, [], root,
+                    ExecutionConfig(third_person_enabled=False),
+                    CollectionConfig(record_video=False, record_images=False),
+                    root=root, attempt_id='navigation-fixture', seed=1,
+                    path={'xy': [[0., 0.], [.1, 0.]]}, goal={'base': [.1, 0., 0.]})
+            self.assertEqual(result['navigation']['status'], 'failure')
+            self.assertEqual(result['navigation']['steps'], 3)
+            self.assertEqual(result['executed_steps'], 4)
+
 
 class MobileManipulationTests(unittest.TestCase):
     def test_mobile_validator_allows_base_motion_but_fixed_protocol_still_rejects(self):

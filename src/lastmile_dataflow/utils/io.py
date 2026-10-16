@@ -51,7 +51,9 @@ def append_row(path, value):
 def write_rows(path, values):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b''.join(canonical(v) + b"\n" for v in values))
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_bytes(b''.join(canonical(v) + b"\n" for v in values))
+    temporary.replace(path)
 
 
 def create_run(path, config):

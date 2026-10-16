@@ -65,14 +65,14 @@ src/lastmile_dataflow/
     ├── evaluation/               # 原始 trial 统计、S0/S1 选择、评测汇总
     ├── rendering/                # 图像与视频
     ├── visualization/            # 成败热图与导航图
-    └── export/                   # MolmoBot 数据导出
+    └── export/                   # lastmile_dataset 物化/batch 读取、MolmoBot 导出
 ```
 
 ## 四个 workflow
 
 - `scene_datasets`：发现/资格检查，调用 `scenes.stations.sampling.sample_stations`，pick 构建调用增强器，open 保存场景。
 - `obstacle_augmentation`：准备资产和基线，调用 `scenes.augmentation.builder.build_variant`。真实放置算法不再塞在 workflow。
-- `collection`：`evaluate_stations()` 单独跑逐点 rollout 与热图；`collect_lastmile()` 用匹配标定或在当前 run 标定一次，再执行 S0→S1→操作。两个入口共享 run 准备、场景循环和真实执行器，没有 continuous/calibration_only Python 模式开关。
+- `collection`：`evaluate_stations()` 单独跑逐点 rollout 与热图；`collect_lastmile()` 用匹配标定或在当前 run 标定一次，先落盘全量 S0×S1 计划和已有成功标定示教，再执行连续导航与操作。两个入口共享 run 准备、场景循环和真实执行器，没有 continuous/calibration_only Python 模式开关。
 - `lastmilebench`：由完整标定选择困难 S0，保存 native 场景并独立执行策略。设备/profile 工具来自 `runtime.execution_config`，不依赖采集 workflow。
 
 `sample_stations` 只检查候选点的初始化与可见性；`evaluate_stations` 才执行规划/策略 rollout，两者不混用。
@@ -104,7 +104,7 @@ flowchart TD
     CLI -->|collect-lastmile| COLLECT["collection.collect_lastmile<br/>仅 cuRobo"]
     DATASET -.-> COLLECT
     CAL -.->|可复用的匹配标定| COLLECT
-    COLLECT --> EPISODES["S0→S1→操作<br/>episodes.jsonl 与实际执行记录"]
+    COLLECT --> EPISODES["S0→S1→操作<br/>pair_index / train_index 与实际执行记录"]
 
     CLI -->|build-bench| BENCH["lastmilebench.build"]
     DATASET -.-> BENCH
@@ -142,7 +142,7 @@ flowchart TD
     ARRIVE -->|否| FAILED["保留导航失败或执行异常"]
     OP --> OUT["汇总任务判定、执行终止与记录完整性"]
     FAILED --> OUT
-    OUT --> WRITE["episodes.jsonl 与 attempt 记录"]
+    OUT --> WRITE["pair_index / train_index 与 attempt 记录"]
     NAV -.-> RECORD["Simulation.begin 与实际执行回调<br/>驱动 data.recorder 记录状态、轨迹与按配置启用的图像"]
     OP -.-> RECORD
 ```
@@ -159,3 +159,7 @@ flowchart TD
 
 实际轨迹、初始状态与 PNG 由 `Simulation.begin()` / 实际执行回调触发 recorder；执行器在下发前设置 phase，不再组装一份 recorder 不使用的 before/after 状态。
 场景采样仍可用构建期 runtime 能力，但不依赖 workflow；目录分组没有引入新的协议层或注册中心。
+
+## 独立物化
+
+`collect-lastmile --materialize-from` 直接调用 `data.export.lastmile_dataset.materialize_lastmile`，不载入仿真、资产或 GPU 后端。它按 train_index 复制唯一成功轨迹和必要观测，保留 pair 全集及来源，以内部相对路径交付。`load_training_batch` 读取原始 20D 动作窗口；不替代模型专用格式转换。

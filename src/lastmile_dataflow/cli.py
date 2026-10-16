@@ -24,8 +24,13 @@ def parser():
     build.add_argument('--allow-partial-targets', action='store_true')
     for name in ('evaluate-stations', 'collect-lastmile'):
         command = commands.add_parser(name)
-        command.add_argument('--dataset', required=True, type=Path)
-        command.add_argument('--assets-dir', required=local.assets_dir is None, type=Path,
+        if name == 'collect-lastmile':
+            source = command.add_mutually_exclusive_group(required=True)
+            source.add_argument('--dataset', type=Path)
+            source.add_argument('--materialize-from', type=Path, help='仅物化已有引用型数据集；无需 GPU 或资产')
+        else:
+            command.add_argument('--dataset', required=True, type=Path)
+        command.add_argument('--assets-dir', required=name == 'evaluate-stations' and local.assets_dir is None, type=Path,
                              default=local.assets_dir, help='资产目录；默认读取 configs/local.json')
         command.add_argument('--config', type=Path, default=Path('configs/execution/curobo_v2.json'))
         command.add_argument('--samples', nargs='+')
@@ -53,8 +58,8 @@ def parser():
         command.add_argument('--output-dir', type=Path, default=local.output_dir,
                              help='输出根目录；默认读取 configs/local.json，否则为 outputs')
         command.add_argument('--run-id', required=command is not build)
-    for command in commands.choices.values():
-        command.add_argument('--gpu', required=True, type=int)
+    for name, command in commands.choices.items():
+        command.add_argument('--gpu', required=name != 'collect-lastmile', type=int)
     return cli
 
 
@@ -63,12 +68,19 @@ def main(argv=None):
     args = cli.parse_args(argv)
     if args.command == 'build-scenes' and args.config and not args.run_id:
         cli.error('build-scenes --config requires --run-id')
+    materializing = args.command == 'collect-lastmile' and args.materialize_from is not None
+    if args.command == 'collect-lastmile' and not materializing and (args.gpu is None or args.assets_dir is None):
+        cli.error('collect-lastmile --dataset requires --gpu and --assets-dir (or local assets_dir)')
     setup_logging()
-    logger.info('开始命令=%s GPU=%s', args.command, args.gpu)
+    logger.info('开始命令=%s GPU=%s', args.command, 'CPU' if materializing else args.gpu)
     gpu_ids = [args.gpu]
     import os
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
-    if args.command == 'build-scenes' and args.preview_dataset:
+    if not materializing:
+        os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
+    if materializing:
+        from .data.export.lastmile_dataset import materialize_lastmile
+        output = materialize_lastmile(args.materialize_from, args.output_dir / args.run_id)
+    elif args.command == 'build-scenes' and args.preview_dataset:
         from .data.visualization.scene_preview import export_scene_previews
         output = export_scene_previews(args.preview_dataset)
     elif args.command == 'build-scenes':

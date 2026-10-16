@@ -21,7 +21,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 | `runtime/` | 动作与限位、仿真生命周期、构建事务、native 控制、任务判定与失败隔离 |
 | `planning/` | cuRobo 模型与轨迹适配、A*、FOV 及梯度 |
 | `policies/` | multitask 输入、22D state、pick/open 夹爪差异与动作缓冲 |
-| `data/` | 场景/轨迹读写、标定分母、导出、热图与渲染逻辑 |
+| `data/` | 场景/轨迹读写、标定分母、物化去重与搬迁 batch 读取、导出与图像逻辑 |
 | `workflows/` | CLI、配置路径、标定复用、连续采集、停批和 benchmark 汇总 |
 | `smoke/` | 手动运行的真实资产/权重/GPU 检查，不随单测执行 |
 
