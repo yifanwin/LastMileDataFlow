@@ -4,10 +4,18 @@
 
 ## 首次运行需要手动配置
 
-1. 在场景、机器人和策略配置中填写 `data_root`，确认场景、对象、机器人 XML、权重和 tokenizer 已准备好。
-2. 在场景配方中修改 `houses`、`targets`、`cases` 和目标数/变体数，避免直接启动大规模构造。
-3. 选择 cuRobo 或 MolmoBot 执行配置；MolmoBot 还要配置权重、tokenizer 和本仓库解释器。
-4. 运行时显式传数据集、资产目录、输出目录、唯一 `--run-id` 和 `--gpu`。先查看 GPU 0–7 的利用率和空闲显存，不固定卡号。
+1. 复制 `configs/local.example.json` 为 `configs/local.json`，填写本机 `assets_dir` 和 `output_dir`。该文件已被 Git 忽略；CLI 显式参数优先。
+2. 在场景、机器人和策略配置中填写 `data_root`，确认场景、对象、机器人 XML、权重和 tokenizer 已准备好。
+3. 在场景配方中修改 `houses`、`targets`、`cases` 和目标数/变体数，避免直接启动大规模构造。
+4. 选择 cuRobo 或 MolmoBot 执行配置；MolmoBot 还要配置权重、tokenizer 和本仓库解释器。
+5. 运行时显式传数据集、唯一 `--run-id` 和 `--gpu`。先查看 GPU 0–7 的利用率和空闲显存，不固定卡号。
+
+`local.json` 只支持 `assets_dir` 和 `output_dir`，路径相对仓库根目录，也可用绝对路径；不改变其他配置的 `data_root`。
+文件不存在时默认输出到 `outputs`，标定和连续采集需显式传 `--assets-dir`。
+`output_dir` 设置构建、标定、连续采集的默认输出根目录及 benchmark 评测日志根目录；benchmark 产物仍显式传 `--output`。
+详见 [运行手册](../docs/运行手册.md#0-配置本机公共路径)。
+
+当前配置与代码的默认基础 `seed` 统一为 `42`；trial、变体和重试仍按现有逻辑派生不同 seed。显式传入其他 seed 时仍使用指定值；已有采集结果和标定不改写。
 
 ## 配置入口
 

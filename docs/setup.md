@@ -101,6 +101,8 @@ curl -L -o data/download_assets.py \
 
 ## 5. 单卡小样本入口
 
+先复制 `configs/local.example.json` 为 `configs/local.json`，填写本机 `assets_dir` 和 `output_dir`（见 [运行手册](运行手册.md#0-配置本机公共路径)）。以下示例使用默认输出根目录 `outputs`。
+
 从仓库根目录运行：
 
 ```bash
@@ -108,10 +110,10 @@ GPU=<chosen-index>
 .venv/bin/lastmile-dataflow build-scenes \
   --config configs/scene_datasets/val103_cup30_minimal_v3.json --run-id small --gpu "$GPU"
 .venv/bin/lastmile-dataflow evaluate-stations \
-  --dataset outputs/scene_datasets/small --assets-dir data/assets \
+  --dataset outputs/scene_datasets/small \
   --run-id stations --gpu "$GPU"
 .venv/bin/lastmile-dataflow collect-lastmile \
-  --dataset outputs/scene_datasets/small --assets-dir data/assets \
+  --dataset outputs/scene_datasets/small \
   --calibration outputs/stations --run-id lastmile --gpu "$GPU"
 ```
 

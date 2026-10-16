@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import mujoco
 import numpy as np
 
-from ...io import read_json
+from ...utils.io import read_json
 from ..geometry import body_points, descendants, extract_regions
 from .mjcf import load_spec
 

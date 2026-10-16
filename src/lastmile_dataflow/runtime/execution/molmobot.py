@@ -9,7 +9,8 @@ import mujoco
 import numpy as np
 
 from .lifecycle import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
-from ...io import canonical, write_json
+from ...utils.logging_config import trial_progress
+from ...utils.io import canonical, write_json
 from ...data.recorder import AttemptRecorder
 from ...data.rendering.head_views import head_frame
 from ...data.rendering.edit_views import ViewConfig
@@ -201,6 +202,8 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
             # Only actual movement gets execution video. Initial frame + actual current frame.
             if step==0 and path is None: recorder.video_frame(initial_video)
             frames=sim.render(1024,576); recorder.video_frame(video(frames))
+            trial_progress('MolmoBot rollout 已执行策略步=%s/%s 耗时=%.1fs',
+                           step + 1, policy.config.task_horizon, time.monotonic() - started)
             if stop:
                 reason=failures[0]
                 status='simulation_failure' if reason in SIMULATION_FAILURES else 'failure'

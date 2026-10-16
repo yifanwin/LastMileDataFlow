@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from lastmile_dataflow.config import CollectionConfig, RobotConfig
-from lastmile_dataflow.io import append_row, create_run
+from lastmile_dataflow.utils.io import append_row, create_run
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.loading.source import SceneSource
 

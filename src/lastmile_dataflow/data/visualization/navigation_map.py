@@ -29,6 +29,6 @@ def export_navigation_map(path, grid, anchor, *, display_grid=None):
     for ext in ('png','svg'):fig.savefig(path/('navigation_grid.'+ext),dpi=150)
     plt.close(fig)
 
-    from ...io import write_json
+    from ...utils.io import write_json
     write_json(path/'navigation_display.json',{'display':'physical_footprints' if display_grid is not None else 'planning_clearance',
                'planner_grid_unchanged':True,'footprint_labels':False})

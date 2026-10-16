@@ -1,6 +1,6 @@
 {
   "output_dir": "../outputs",
-  "seed": 20261002,
+  "seed": 42,
   "max_steps": 6,
   "max_initialization_trials": 80,
   "width": 320,

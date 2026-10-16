@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from lastmile_dataflow.config import RobotConfig
-from lastmile_dataflow.io import read_json, rows
+from lastmile_dataflow.utils.io import read_json, rows
 from lastmile_dataflow.scenes.augmentation.config import ObstacleConfig
 from lastmile_dataflow.scenes.dataset_config import SceneStationConfig
 from lastmile_dataflow.workflows import obstacle_augmentation as workflow
@@ -63,10 +63,21 @@ class ObstacleWorkflowTests(unittest.TestCase):
 
     def test_standalone_counts_results_and_releases_each_variant(self):
         workflow.build_variant.side_effect = [{"scene_id": "fixture-v000", "status": "accepted"}, TimeoutError("budget")]
-        root = self.run_augmentation()
+        with self.assertLogs(workflow.logger, level="INFO") as logs, patch(
+            "lastmile_dataflow.data.visualization.scene_preview.export_scene_previews"
+        ) as preview:
+            root = self.run_augmentation()
+        self.assertFalse(any("变体 1/2" in message for message in logs.output))
+        self.assertTrue(any(record.progress and "已处理变体=2/2 接受=1 拒绝=1" in record.message
+                            for record in logs.records if hasattr(record, "progress")))
+        self.assertTrue(any("fixture-v001: rejected budget" in message for message in logs.output))
+        self.assertTrue(any(record.levelname == "WARNING" and "rejected budget" in record.message
+                            for record in logs.records))
         records = rows(root / "scenes.jsonl")
         self.assertEqual([row["status"] for row in records], ["accepted", "rejected"])
         self.assertEqual(records[0]["scene"], "scene-files/fixture-v000/scene")
+        self.assertEqual(records[0]["before_scene"], "scene-files/fixture-v000/before-scene")
+        preview.assert_called_once_with(root)
         self.assertEqual(records[1]["reason"], "budget")
         self.assertEqual(read_json(root / "summary.json"), {"status": "completed", "accepted": 1})
         self.assertEqual(self.session.reject.call_count, 2)
@@ -93,7 +104,9 @@ class ObstacleWorkflowTests(unittest.TestCase):
 
     def test_invalid_baseline_stops_before_asset_loading(self):
         workflow.sample_stations.return_value = []
-        root = self.run_augmentation()
+        with self.assertLogs(workflow.logger, level="WARNING") as logs:
+            root = self.run_augmentation()
+        self.assertIn("invalid_baseline", logs.output[0])
         self.assertEqual(rows(root / "scenes.jsonl"), [
             {"scene_id": "fixture", "status": "rejected", "reason": "invalid_baseline"}
         ])

@@ -18,5 +18,5 @@
   "attempt_timeout_s": 300.0,
   "width": 1024,
   "height": 576,
-  "seed": 20261011
+  "seed": 42
 }

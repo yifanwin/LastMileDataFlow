@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from lastmile_dataflow.config import CollectionConfig, RobotConfig, read_config
-from lastmile_dataflow.io import create_run, write_json
+from lastmile_dataflow.utils.io import create_run, write_json
 from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.simulation import Simulation

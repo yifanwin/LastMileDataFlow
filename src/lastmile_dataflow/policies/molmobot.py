@@ -1,4 +1,5 @@
 """One model subprocess per scene worker, exclusively owned and explicitly closed."""
+import logging
 import os
 from pathlib import Path
 import secrets
@@ -9,6 +10,8 @@ from multiprocessing.connection import Client
 
 from ..runtime.control.action import InvalidAction
 from .molmobot_config import load_policy_config
+
+logger = logging.getLogger(__name__)
 
 
 class PolicyInfrastructureError(RuntimeError):
@@ -22,6 +25,7 @@ class PolicyEpisodeError(RuntimeError):
 
 class MolmoBotClient:
     def __init__(self, path, log_path):
+        logger.info('启动 MolmoBot 配置=%s 子进程日志=%s', path, log_path, extra={'progress': True})
         self.config = load_policy_config(path)
         self.directory = tempfile.TemporaryDirectory(prefix='lm-vla-')
         socket = str(Path(self.directory.name)/'policy.sock')
@@ -47,6 +51,7 @@ class MolmoBotClient:
             self.connection = Client(socket, family='AF_UNIX', authkey=bytes.fromhex(token))
             self.metadata = self.receive(max(.1, deadline-time.monotonic()))
             if not self.metadata.get('ready'): raise PolicyInfrastructureError('model not ready')
+            logger.info('MolmoBot 已就绪 metadata=%s', self.metadata)
         except BaseException:
             self.close(); raise
 

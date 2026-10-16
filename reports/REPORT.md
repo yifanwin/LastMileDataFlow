@@ -81,3 +81,21 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 已有真实实验的成功与失败边界见 [当前状态](README.md)，不因测试整理而升级结论。
 
 `AGENTS.md` 按只读约定未改动，其中旧目录和命令说明仍需所有者同步；当前操作说明以 README 链接的四份文档为入口。
+
+
+## 场景库组合预览（2026-10-15）
+
+- 核对构建记录与快照生命周期后，在 accepted 增强场景保存实际无新增物体的同步静置对照，
+  用相同候选网格、可见性检查与选点规则保存 `before_stations`；原始记录不覆盖。
+- 新建 `data/visualization/scene_preview.py`。每行仅两个子图：俯视站位分布、目标局部侧视；
+  有编辑时两行四图，无编辑时一行两图。前后相机固定；标出目标、新增物体、站位编号及朝向。
+- 构建后自动生成 `index.html` 与 `previews/<scene_id>.png`；
+  `build-scenes --preview-dataset <dataset> --gpu <index>` 只补生成派生预览。
+- 已对 `outputs/scene_datasets/small` 的真实 accepted 快照补生成组合图并检查图像；
+  历史编辑前快照缺失，明确留空。使用独立合成快照验证了完整前后四子图的实际渲染，
+  不将合成图当作真实增强或机器人任务证据。浏览器通过临时本机 HTTP 成功读取页面和组合图，
+  浏览器截图未完成；PNG 已直接检查。
+- 最终软件回归 200 项：199 项通过、1 项可选测试跳过；`git diff --check` 通过。
+- GPU 6 曾显示空闲，但本次 GPU 渲染在 NVIDIA 内核锁中阻塞；已向该验证进程发送终止信号，
+  未触碰其他任务。交付图由 Mesa 软件 EGL 真实渲染；不宣称 NVIDIA GPU 渲染验收通过。
+- 未重跑大型场景增强或机器人 rollout；新构建的真实增强前后闭环仍需独立运行验证。

@@ -54,7 +54,7 @@ class ObstacleConfig:
     house: int = 103
     schema_version: str = 'procedural-obstacles-v1'
     variant_count: int = 5
-    seed: int = 20261011
+    seed: int = 42
     obstacle_count: list = field(default_factory=lambda: [1, 1])
     mandatory_categories: list = field(default_factory=lambda: ['Chair'])
     ground_categories: list = field(default_factory=lambda: ['Chair'])

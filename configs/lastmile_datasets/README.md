@@ -26,7 +26,7 @@
 | `third_person_enabled` | true；第三人称观察/分析视频 |
 | `attempt_timeout_s` | 300 秒；每 episode 执行预算 |
 | `operations` | pick / open 类型约定；当前 collection 不按此列表过滤已有场景，子集用 CLI `--samples` |
-| `seed` | 20261012；随机种子基础值 |
+| `seed` | 42；随机种子基础值 |
 
 未填写字段用类默认值，**不继承 execution/curobo_v2.json**。例如本文件默认 `radius_m=2.0`、`spacing_m=null`、width/height 为 320×240。若数据集 geometry 提供同名项，则覆盖相应默认值（如半径、间距、分辨率），详见 [execution](../execution/README.md#数据集参数优先级)。共用参数解释见 [execution](../execution/README.md)。
 

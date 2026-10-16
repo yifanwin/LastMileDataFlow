@@ -2,6 +2,7 @@
 import time
 
 import numpy as np
+from ...utils.logging_config import trial_progress
 
 from .sampling import sample_placement, case_assets, surface_occupied_bounds, sample_surface_point
 from ...data.rendering.edit_views import ViewConfig
@@ -9,7 +10,7 @@ from ...data.rendering.obstacle_views import render_obstacle_pair
 from ...runtime.construction.session import matched_control
 from ..graph import build_scene_graph
 from ..stations.sampling import sample_stations
-from .selection import coverage_select
+from ..dataset import select_stations
 from .checks import collision_pairs, validate_augmented_scene
 
 
@@ -32,6 +33,9 @@ def build_variant(session, baseline, task, config, geometry_config, pool, geomet
     placements = []
     physical_trials = 0
     for candidate_index in range(config.max_candidates):
+        trial_progress('放置进度 当前提案物体=%s/%s 当前候选尝试=%s/%s 已做物理试验=%s/%s',
+                       len(placements), count, candidate_index + 1, config.max_candidates,
+                       physical_trials, config.max_physical_trials)
         if time.monotonic() > deadline:
             return {**result, 'reason': 'variant_timeout'}
         asset = assets[len(placements)]
@@ -70,15 +74,22 @@ def build_variant(session, baseline, task, config, geometry_config, pool, geomet
                     return {**result, 'reason': 'physical_trial_budget_exhausted'}
                 continue
             stations = sample_stations(sim, task, geometry_config, frozen_stations=baseline_stations)
-            selected, _ = coverage_select(stations, task['anchor_world'], policy.max_final_stations if policy else 20)
-            if policy and policy.station_selection == 'all_valid':
-                selected = [point for point in stations if point['geometry'] == 'valid']
+            method = policy.station_selection if policy else 'coverage'
+            limit = policy.max_final_stations if policy else 20
+            selected, _ = select_stations(stations, task['anchor_world'], method, limit)
             if len(selected) < (policy.min_final_points if policy else 1):
                 return {**result, 'reason': 'too_few_stations'}
             for i, proposal in enumerate(placements):
                 body = sim.model.body(f'procedural_obstacle_{i}').id
                 proposal['settled_pose'] = {'position': sim.data.xpos[body].tolist(), 'quaternion_wxyz': sim.data.xquat[body].tolist()}
             sim.freeze(path / 'scene')
+            # Save the actual no-addition control before its lifetime ends. Sampling
+            # uses the same lattice and final selection policy as the edited scene.
+            before_stations, _ = select_stations(
+                sample_stations(control, task, geometry_config, frozen_stations=baseline_stations),
+                task['anchor_world'], method, limit,
+            )
+            control.freeze(path / 'before-scene')
             if config.record_views:
                 before_graph = build_scene_graph(control, config=session.config.graph_config())
                 after_graph = build_scene_graph(sim, stage='settled', config=session.config.graph_config())
@@ -87,7 +98,7 @@ def build_variant(session, baseline, task, config, geometry_config, pool, geomet
                     {task['target_body']}, path / 'images', sample_id=variant_id,
                     config=ViewConfig(**config.views), min_pixels=geometry_config.min_target_pixels)
             return {**result, 'status': 'accepted', 'task': task, 'stations': selected,
-                    'placements': placements, 'case': policy.case if policy else 'procedural',
+                    'placements': placements, 'before_stations': before_stations, 'case': policy.case if policy else 'procedural',
                     'actual_count': len(placements)}
         finally:
             control.close()

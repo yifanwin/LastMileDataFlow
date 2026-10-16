@@ -48,7 +48,7 @@ class ExecutionConfig:
     approach_offset_m: float = .01
     torso_heights: list = field(default_factory=lambda: [0., .369, .738])
     operations: list = field(default_factory=lambda: ['pick', 'open'])
-    seed: int = 20261009
+    seed: int = 42
     width: int = 320
     height: int = 240
     gripper_width_m: float = .10  # RBY1M model jaw travel; measured geometry saved per scene

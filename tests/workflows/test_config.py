@@ -5,13 +5,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig, read_config
-from lastmile_dataflow.io import create_run, read_json, write_json
+from lastmile_dataflow.config import CollectionConfig, LocalConfig, RobotConfig, load_local_config, read_config
+from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.policies.molmobot_config import load_policy_config
 from lastmile_dataflow.scenes.dataset_config import load_scene_robot
 
 
 class PathTests(unittest.TestCase):
+    def test_local_config_is_optional_and_paths_use_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch('lastmile_dataflow.config.REPO_ROOT', root):
+                self.assertEqual(load_local_config(), LocalConfig())
+                write_json(root / 'configs/local.json', {
+                    'assets_dir': '/shared/assets', 'output_dir': 'runs',
+                })
+                self.assertEqual(load_local_config(), LocalConfig(Path('/shared/assets'), root / 'runs'))
+                write_json(root / 'configs/local.json', {'assets_dir': 'data/assets'})
+                self.assertEqual(load_local_config().assets_dir, root / 'data/assets')
+
     def test_data_paths_use_explicit_data_root_not_config_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

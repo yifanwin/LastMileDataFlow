@@ -20,7 +20,9 @@
 src/lastmile_dataflow/
 ├── cli.py                         # 五个命令的参数与分发
 ├── config.py                      # 共用配置
-├── io.py                          # 共用读写与 run 创建
+├── utils/                         # 共用基础工具
+│   ├── io.py                      # 读写与 run 创建
+│   └── logging_config.py          # 统一日志格式与终端颜色
 ├── workflows/                     # 短编排，不放核心算法
 │   ├── scene_datasets.py          # build_scenes：发现、资格检查、构建
 │   ├── obstacle_augmentation.py   # 增强准备，由 scene_datasets 调用
@@ -76,7 +78,7 @@ src/lastmile_dataflow/
 `sample_stations` 只检查候选点的初始化与可见性；`evaluate_stations` 才执行规划/策略 rollout，两者不混用。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
-`config.py`、`io.py` 和 `cli.py` 是包根的共用配置、读写和薄入口。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
+`config.py` 和 `cli.py` 是包根的共用配置和薄入口；`utils/io.py` 管理读写，`utils/logging_config.py` 统一日志配置。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
 
 ## 总流程：五个命令如何连接四个 workflow
 

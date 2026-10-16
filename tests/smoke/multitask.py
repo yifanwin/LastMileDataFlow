@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.io import create_run, write_json
+from lastmile_dataflow.utils.io import create_run, write_json
 from lastmile_dataflow.policies.molmobot import MolmoBotClient
 
 
@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--tokenizer", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
     os.environ["HF_HUB_OFFLINE"] = "1"

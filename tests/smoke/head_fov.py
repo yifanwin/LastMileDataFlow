@@ -10,7 +10,7 @@ from curobo._src.robot.kinematics.kinematics import Kinematics
 from curobo.types import JointState
 
 from lastmile_dataflow.config import RobotConfig, read_config
-from lastmile_dataflow.io import write_json
+from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.planning.curobo_v2 import V2Planner
 from lastmile_dataflow.planning.head_fov import target_camera_torch
 from lastmile_dataflow.runtime.execution.context import planner_options

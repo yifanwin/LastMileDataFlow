@@ -7,7 +7,7 @@ import time
 import mujoco
 import numpy as np
 from .lifecycle import track_resource
-from ...io import canonical, write_json
+from ...utils.io import canonical, write_json
 from ...scenes.geometry import tcp_pose
 from ..control.action_limits import sanitize_action
 from ..control.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD

@@ -1,7 +1,7 @@
 """Native grasp planning and real 20D execution; no scene edits or state resets."""
 import copy
 import numpy as np
-from ...io import write_json
+from ...utils.io import write_json
 from ...scenes.geometry import body_pose, tcp_pose
 from ...planning.curobo_v2 import V2Planner
 from ..outcomes.pick import PickMonitor

@@ -5,7 +5,7 @@ from dataclasses import asdict
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from lastmile_dataflow.io import read_json, rows, write_json
+from lastmile_dataflow.utils.io import read_json, rows, write_json
 from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
 from lastmile_dataflow.workflows import scene_datasets as workflow
 from tests.helpers import DatasetTestCase

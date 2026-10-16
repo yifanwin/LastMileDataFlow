@@ -4,7 +4,8 @@ from pathlib import Path
 import time
 import numpy as np
 
-from ..io import read_json, write_json
+from ..utils.io import write_json
+from ..utils.logging_config import trial_progress
 
 from .waypoints import PlanResult
 from ..scenes.geometry import body_pose, tcp_pose, pose7
@@ -23,6 +24,8 @@ def verify_version():
 
 class V2Planner:
     def __init__(self, sim, config, side, path, *, workspace):
+        setup_started = time.monotonic()
+        self.progress_ready = False
         import yaml
         import torch
         from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
@@ -75,12 +78,15 @@ class V2Planner:
         class NativeGraspPlanner(MotionPlanner):
             def plan_pose(self, goal_tool_poses, current_state, *args, **kwargs):
                 phase = next(owner.phases) if owner.phases is not None else owner.single_phase
+                owner.progress_phase = phase
                 if owner.on_query is not None:
                     owner.on_query(phase)
                 owner.context['contact_allowed'] = phase in ('goalset', 'grasp', 'approach_contact')
                 if phase == 'lift':
                     owner.attach_target_geometry(current_state)
                 started = time.monotonic()
+                if owner.progress_ready:
+                    trial_progress('Planning phase=%s', phase)
                 result = super().plan_pose(goal_tool_poses, current_state, *args, **kwargs)
                 if (owner.config.head_fov_enabled and result is not None
                         and bool(result.success.any().item())):
@@ -151,6 +157,7 @@ class V2Planner:
             if not sim.started and (camera_translation_error > .001 or camera_angle_error > .001):
                 raise ValueError('cuRobo/MuJoCo head optical FK mismatch')
         self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
+        self.progress_ready = True
         self.query_log.clear()
         self.fov_log.clear()
         self.solver_log = []
@@ -166,7 +173,14 @@ class V2Planner:
                     # IK has no one-tick duration; trajectory optimization and
                     # real control retain all velocity/acceleration limits.
                     kwargs['current_state'] = static_ik_state(kwargs['current_state'])
+                started = time.monotonic()
+                if _kind == 'trajopt':
+                    trial_progress('Optimizing trajectory phase=%s', self.progress_phase)
                 result = _original(*args, **kwargs)
+                elapsed = time.monotonic() - started
+                if elapsed >= 2.0:
+                    trial_progress('Solver finished solver=%s phase=%s elapsed=%.1fs',
+                                      _kind, self.progress_phase, elapsed)
                 row = {'solver': _kind, 'success': result.success.detach().cpu().tolist()}
                 for field in ('position_error', 'rotation_error', 'feasible'):
                     value = getattr(result, field, None)
@@ -207,6 +221,7 @@ class V2Planner:
             'disabled_collision_links': [], 'target_contact_links': self.context['contact_links']})
         write_json(self.path/'mobile_base.json', {'reference_world': self.base.tolist(),
             'joint_bounds_local': bounds, 'workspace_center_world': list(center[:2]), 'workspace_radius_m': radius})
+        trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
 
     def validate_fov_result(self, result, phase):
         trajectory = result.get_interpolated_plan()

@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ...io import read_json
+from ...utils.io import read_json
 
 
 @dataclass(frozen=True)

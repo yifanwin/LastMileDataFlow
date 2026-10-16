@@ -87,7 +87,7 @@ class _BufferedPolicy:
         obs = model_input[0] if isinstance(model_input, list) else model_input
         if obs.get("reset", False):
             self.reset()
-            logger.info("Policy reset via obs flag")
+            logger.debug("Policy reset via obs flag")
         if self.buffer_index >= self.execute_horizon or not self.action_buffer:
             self._populate_action_buffer(model_input)
         action = self.action_buffer[self.buffer_index]
@@ -168,11 +168,11 @@ class MolmoBotRBY1MultitaskPolicy(_BufferedPolicy):
         obs = observation[0] if isinstance(observation, list) else observation
         if obs.get("reset", False):
             self.reset()
-            logger.info("Policy reset via obs flag")
+            logger.debug("Policy reset via obs flag")
         if not self._logged_obs_keys:
-            logger.info(f"Observation keys: {list(obs.keys())}")
+            logger.debug(f"Observation keys: {list(obs.keys())}")
             if "qpos" in obs:
-                logger.info(f"  qpos keys: {list(obs['qpos'].keys())}")
+                logger.debug(f"  qpos keys: {list(obs['qpos'].keys())}")
             self._logged_obs_keys = True
         images = []
         for cam_name in self.camera_names:
@@ -190,13 +190,13 @@ class MolmoBotRBY1MultitaskPolicy(_BufferedPolicy):
         if self.use_conditioning_image and self._conditioning_image is None:
             cam_idx = self.camera_names.index(self.point_prompt_camera)
             self._conditioning_image = images[cam_idx].copy()
-            logger.info("Captured conditioning image from first observation")
+            logger.debug("Captured conditioning image from first observation")
         if self.use_conditioning_image and self._conditioning_image is not None:
             images.append(self._conditioning_image)
         if self.use_point_prompts and self._conditioning_points is None:
             if "object_image_points" in obs:
                 self._conditioning_points = obs["object_image_points"]
-                logger.info("Captured conditioning points from first observation")
+                logger.debug("Captured conditioning points from first observation")
         qpos = obs.get("qpos", {})
         qpos_parts = []
         for group_name in self.action_move_group_names:

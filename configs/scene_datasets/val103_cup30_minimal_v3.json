@@ -20,7 +20,7 @@
   "min_final_points": 5,
   "station_selection": "coverage",
   "max_final_stations": 20,
-  "seed": 20261012,
+  "seed": 42,
   "max_candidates": 2400,
   "max_physical_trials": 12,
   "variant_timeout_s": 1800.0,

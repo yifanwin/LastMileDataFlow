@@ -4,7 +4,7 @@ import math
 import shutil
 
 from .edit_views import render_edit_pair, RenderError
-from ...io import write_json
+from ...utils.io import write_json
 
 
 def visibility_pass(visibility, obstacle_names, target, min_pixels, coverage_union):

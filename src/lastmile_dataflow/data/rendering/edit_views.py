@@ -9,7 +9,7 @@ import imageio.v2 as imageio
 import mujoco
 import numpy as np
 
-from ...io import write_json
+from ...utils.io import write_json
 from ...scenes.geometry import descendants, geom_points
 from ...runtime.construction.preparation import preparation_guard
 

@@ -4,6 +4,7 @@ __pycache__/
 .venv-policy/
 .venv-download/
 /data/
+/configs/local.json
 outputs/
 .pytest_cache/
 reports/logs/

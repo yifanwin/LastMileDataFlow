@@ -1,10 +1,11 @@
 """One cuRobo attempt: preparation, navigation, operation and result."""
+import logging
 from dataclasses import asdict
 import time
 import traceback
 import numpy as np
 from .lifecycle import isolated_episode, mark_episode_phase, classify_episode_exception, episode_phase
-from ...io import read_json, write_json
+from ...utils.io import read_json, write_json
 from ..control.action import InvalidAction
 from ...data.recorder import AttemptRecorder
 from ...scenes.stations.sampling import place_frozen_station
@@ -15,6 +16,8 @@ from .checks import EXECUTION_SEMANTICS, PickEvidenceComplete, resolve_timeout, 
 from .context import ContinuousContext, clone_sim, OperationFailure
 from .navigation import navigate
 from .manipulation import manipulate_v2 as manipulate
+
+logger = logging.getLogger(__name__)
 
 @isolated_episode
 def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None):
@@ -78,7 +81,7 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
         status='failure'; reason='control_limit:'+str(exc)
         attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions)
         recorder.event('control_limit_warning',phase=ctx.phase,error_type='InvalidAction',message=str(exc))
-        print(f'WARNING {attempt_id}: {reason}; skipping this attempt, continuing sampling',flush=True)
+        logger.warning('%s: %s；跳过当前试验，继续采样', attempt_id, reason)
         if ctx.phase in ('navigation','arrival'): navigation={'status':'failure','reason':reason}
     except PickEvidenceComplete as exc:
         task_outcome=exc.verdict

@@ -8,7 +8,7 @@ import mujoco
 import numpy as np
 
 from .assets import EditAssetCatalog
-from ...io import write_json, read_json
+from ...utils.io import write_json, read_json
 
 from .mjcf import load_spec
 

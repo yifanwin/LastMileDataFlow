@@ -12,9 +12,10 @@ from lastmile_dataflow.data.evaluation.selection import (
     recovery_choices,
     station_calibration,
 )
-from lastmile_dataflow.io import read_json, rows
+from lastmile_dataflow.utils.io import read_json, rows
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.workflows.collection import (
+    _execute,
     _recovery_trials,
     _station_trials,
     collect_lastmile,
@@ -216,6 +217,40 @@ class AttemptCounterTests(DatasetTestCase):
 
 
 class PolicyBatchStopTests(unittest.TestCase):
+    def test_partial_budget_progress_does_not_inflate_completed_points(self):
+        scene = {"scene_id": "one", "task": {"task_id": "pick"},
+                 "stations": [{"station_id": "S0"}, {"station_id": "S1"}]}
+        results = [{"status": status, "reason": status} for status in
+                   ("success", "episode_error", "planning_no_solution")]
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("lastmile_dataflow.workflows.collection._execute", side_effect=results),
+            self.assertLogs("lastmile_dataflow.workflows.collection", level="INFO") as logs,
+        ):
+            trials = _station_trials(None, scene, None, SimpleNamespace(seed=17, trials_per_station=2),
+                                     None, Path(tmp), budget=3, attempt_ids=count())
+            self.assertEqual(len(rows(Path(tmp) / "trials.jsonl")), 3)
+        self.assertEqual([row["status"] for row in trials], [row["status"] for row in results])
+        final = logs.records[-1]
+        self.assertTrue(final.progress)
+        self.assertIn("已处理站位=1/2 有效完成站位=0/2", final.message)
+        self.assertIn("trial=3/3 完整计划=4 有效=2 成功=1 异常或未知=1", final.message)
+
+    def test_trial_result_log_levels(self):
+        scene = {"scene_id": "one", "task": {"task_id": "pick"}}
+        config = SimpleNamespace(operation_backend="molmobot")
+        for status, level in [("planning_no_solution", "DEBUG"), ("timeout", "WARNING"),
+                              ("recording_error", "ERROR"), ("infrastructure_error", "ERROR")]:
+            with (
+                self.subTest(status=status),
+                patch("lastmile_dataflow.workflows.collection.run_vla_attempt", return_value={"status": status}),
+                self.assertLogs("lastmile_dataflow.workflows.collection", level="DEBUG") as logs,
+            ):
+                result = _execute(None, scene, {"station_id": "S0"}, None, config, None,
+                                  Path("unused"), 17, attempt_ids=count())
+            self.assertEqual(result["status"], status)
+            self.assertEqual(logs.records[-1].levelname, level)
+
     def test_shared_failure_preserves_one_unknown_trial_and_stops(self):
         scene = {
             "scene_id": "one",

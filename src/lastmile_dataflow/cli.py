@@ -1,18 +1,32 @@
 """Five experiment commands; configuration and workflows own the real work."""
+import logging
 import argparse
 from pathlib import Path
+
+from .config import load_local_config
+from .utils.logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def parser():
     cli = argparse.ArgumentParser(prog='lastmile-dataflow')
+    try:
+        local = load_local_config()
+    except (OSError, ValueError, TypeError) as error:
+        cli.error(f'configs/local.json: {error}')
+    cli.set_defaults(log_dir=local.output_dir / 'logs')
     commands = cli.add_subparsers(dest='command', required=True)
     build = commands.add_parser('build-scenes')
-    build.add_argument('--config', required=True, type=Path)
+    source = build.add_mutually_exclusive_group(required=True)
+    source.add_argument('--config', type=Path)
+    source.add_argument('--preview-dataset', type=Path, help='只补生成已有场景库的组合图和浏览页')
     build.add_argument('--allow-partial-targets', action='store_true')
     for name in ('evaluate-stations', 'collect-lastmile'):
         command = commands.add_parser(name)
         command.add_argument('--dataset', required=True, type=Path)
-        command.add_argument('--assets-dir', required=True, type=Path)
+        command.add_argument('--assets-dir', required=local.assets_dir is None, type=Path,
+                             default=local.assets_dir, help='资产目录；默认读取 configs/local.json')
         command.add_argument('--config', type=Path, default=Path('configs/execution/curobo_v2.json'))
         command.add_argument('--samples', nargs='+')
         command.add_argument('--max-trials', type=int)
@@ -26,7 +40,7 @@ def parser():
     bench.add_argument('--calibration', type=Path)
     bench.add_argument('--allow-uncalibrated-smoke', action='store_true')
     bench.add_argument('--starts-per-sample', type=int, default=1)
-    bench.add_argument('--seed', type=int, default=0)
+    bench.add_argument('--seed', type=int, default=42)
     bench.add_argument('--horizon', type=int, default=400)
     bench.add_argument('--wall-timeout-s', type=float, default=600.)
     bench.add_argument('--radius-m', type=float, default=1.5)
@@ -36,19 +50,28 @@ def parser():
         command.add_argument('--output', required=True, type=Path)
         command.add_argument('--policy-config', required=True, type=Path)
     for command in (build, commands.choices['evaluate-stations'], commands.choices['collect-lastmile']):
-        command.add_argument('--output-dir', type=Path, default=Path('outputs'))
-        command.add_argument('--run-id', required=True)
+        command.add_argument('--output-dir', type=Path, default=local.output_dir,
+                             help='输出根目录；默认读取 configs/local.json，否则为 outputs')
+        command.add_argument('--run-id', required=command is not build)
     for command in commands.choices.values():
         command.add_argument('--gpu', required=True, type=int)
     return cli
 
 
 def main(argv=None):
-    args = parser().parse_args(argv)
+    cli = parser()
+    args = cli.parse_args(argv)
+    if args.command == 'build-scenes' and args.config and not args.run_id:
+        cli.error('build-scenes --config requires --run-id')
+    setup_logging()
+    logger.info('开始命令=%s GPU=%s', args.command, args.gpu)
     gpu_ids = [args.gpu]
     import os
     os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
-    if args.command == 'build-scenes':
+    if args.command == 'build-scenes' and args.preview_dataset:
+        from .data.visualization.scene_preview import export_scene_previews
+        output = export_scene_previews(args.preview_dataset)
+    elif args.command == 'build-scenes':
         from .workflows.scene_datasets import build_scenes
         output = build_scenes(args.config, args.output_dir, args.run_id, gpu_ids=gpu_ids,
                               allow_partial_targets=args.allow_partial_targets)
@@ -74,7 +97,9 @@ def main(argv=None):
     else:
         from .workflows.lastmilebench import evaluate
         output = evaluate(args.benchmark, args.output, args.policy_config, gpu_ids=gpu_ids,
-                          log_dir=Path('outputs/logs'))
+                          log_dir=args.log_dir)
+    logger.info('命令结束=%s 输出=%s（任务结果以主记录为准）', args.command, output)
+    # stdout 只保留结果目录，进度日志写 stderr。
     print(output)
     return 0
 

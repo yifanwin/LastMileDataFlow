@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.io import create_run, rows, write_json
+from lastmile_dataflow.utils.io import create_run, rows, write_json
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.workflows.collection import collect_lastmile, evaluate_stations
 from lastmile_dataflow.workflows.lastmilebench import build, evaluate

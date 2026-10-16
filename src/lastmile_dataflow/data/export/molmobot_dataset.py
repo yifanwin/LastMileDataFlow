@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 
-from ...io import create_run, read_json
+from ...utils.io import create_run, read_json
 
 
 class UnsupportedMolmoBotData(ValueError):
@@ -19,7 +19,7 @@ def state22(groups):
 
 
 def export_molmobot(attempt, output, *, state_images_only=False, gripper_map=None,
-                   seed=0, chunk_length=16, conditioning_point=None):
+                   seed=42, chunk_length=16, conditioning_point=None):
     source = Path(attempt).resolve()
     recording = read_json(source / 'recording.json')
     if not recording['complete']:

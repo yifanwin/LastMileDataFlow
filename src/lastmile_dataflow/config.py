@@ -56,7 +56,7 @@ class RobotConfig:
 @dataclass(frozen=True)
 class CollectionConfig:
     output_dir: str = "outputs"
-    seed: int = 0
+    seed: int = 42
     max_steps: int = 10
     max_initialization_trials: int = 80
     width: int = 320
@@ -93,6 +93,21 @@ REPO_ROOT = Path(__file__).absolute().parents[2]
 def repo_path(value):
     # Do not dereference the virtual-environment Python symlink.
     return os.path.abspath(REPO_ROOT / Path(value).expanduser())
+
+
+@dataclass(frozen=True)
+class LocalConfig:
+    assets_dir: Path | None = None
+    output_dir: Path = Path('outputs')
+
+
+def load_local_config():
+    """Optional machine defaults; configured paths are relative to the repository."""
+    path = REPO_ROOT / 'configs/local.json'
+    if not path.exists():
+        return LocalConfig()
+    values = json.loads(path.read_text())
+    return LocalConfig(**{key: Path(repo_path(value)) for key, value in values.items()})
 
 
 def read_config(path, *, data_fields=(), repo_fields=()):

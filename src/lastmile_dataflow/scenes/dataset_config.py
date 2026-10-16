@@ -26,7 +26,7 @@ class SceneStationConfig:
     min_target_pixels: int = 24
     map_resolution_m: float = .05
     navigation_margin_m: float = .02
-    seed: int = 20261012
+    seed: int = 42
     operations: list = field(default_factory=lambda: ['pick', 'open'])
     gripper_width_m: float = .10
     open_fraction: float = .3
@@ -75,7 +75,7 @@ class SceneDatasetRecipe:
     max_final_stations: int = 20
     station_selection: str = 'coverage'
     station_config: dict = field(default_factory=dict)
-    seed: int = 20261012
+    seed: int = 42
     assets_per_category: int = 6
     max_candidates: int = 2400
     max_physical_trials: int = 12

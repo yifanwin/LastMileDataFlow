@@ -8,7 +8,7 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.io import write_json
+from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.scenes.loading.asset_library import ThorLibrary
 from lastmile_dataflow.scenes.loading.mjcf import load_spec
 from tests.helpers import table_scene

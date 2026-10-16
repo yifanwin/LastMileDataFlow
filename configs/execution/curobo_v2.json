@@ -18,7 +18,7 @@
   "attempt_timeout_s": 300.0,
   "width": 320,
   "height": 240,
-  "seed": 20261009,
+  "seed": 42,
   "planner_backend": "curobo_v2_v080",
   "max_attempts": 5
 }

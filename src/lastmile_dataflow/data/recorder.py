@@ -5,7 +5,7 @@ import uuid
 import imageio.v2 as imageio
 import numpy as np
 
-from ..io import append_row, write_json
+from ..utils.io import append_row, write_json
 from ..runtime.execution.lifecycle import recording_operation, track_recorder
 
 

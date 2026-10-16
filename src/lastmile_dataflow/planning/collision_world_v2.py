@@ -2,7 +2,7 @@
 import itertools
 import numpy as np
 import mujoco
-from ..io import write_json
+from ..utils.io import write_json
 from ..scenes.geometry import descendants
 from ..scenes.geometry import body_pose
 

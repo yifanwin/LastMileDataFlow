@@ -11,7 +11,7 @@ import mujoco
 import numpy as np
 
 from ..config import read_config
-from ..io import write_json
+from ..utils.io import write_json
 from .control.robot import RBY1Adapter, prepare_robot_spec
 from ..scenes.loading.source import instance_catalog, resolve_target
 from ..scenes.loading.mjcf import load_spec
@@ -283,5 +283,5 @@ class Simulation:
 def read_json_value(value):
     """Normalize tuple/list differences before comparing saved robot configs."""
     import json
-    from ..io import canonical
+    from ..utils.io import canonical
     return json.loads(canonical(value))

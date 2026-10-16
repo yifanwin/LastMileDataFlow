@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.io import write_json
+from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.runtime.construction.preparation import (
     SettleConfig,
     settle_scene,

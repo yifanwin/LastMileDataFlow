@@ -2,7 +2,7 @@
 from pathlib import Path
 import numpy as np
 
-from ...io import write_json
+from ...utils.io import write_json
 from ...planning.astar import distance_field
 
 

@@ -7,11 +7,44 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lastmile_dataflow.cli import main, parser
-from lastmile_dataflow.io import write_json
+from lastmile_dataflow.config import LocalConfig
+from lastmile_dataflow.utils.io import write_json
 from tests.helpers import ROOT
 
 
 class CliTests(unittest.TestCase):
+    def setUp(self):
+        # Tests must not depend on this machine's ignored local.json.
+        local = patch('lastmile_dataflow.cli.load_local_config', return_value=LocalConfig())
+        self.local = local.start()
+        self.addCleanup(local.stop)
+
+    def test_local_defaults_and_cli_overrides(self):
+        self.local.return_value = LocalConfig(Path('/shared/assets'), Path('/shared/output'))
+        for command in ('evaluate-stations', 'collect-lastmile'):
+            with self.subTest(command=command):
+                argv = [command, '--dataset', 'dataset', '--run-id', 'one', '--gpu', '6']
+                args = parser().parse_args(argv)
+                self.assertEqual(args.assets_dir, Path('/shared/assets'))
+                self.assertEqual(args.output_dir, Path('/shared/output'))
+                args = parser().parse_args(argv + ['--assets-dir', 'assets', '--output-dir', 'out'])
+                self.assertEqual(args.assets_dir, Path('assets'))
+                self.assertEqual(args.output_dir, Path('out'))
+        args = parser().parse_args(['build-scenes', '--config', 'recipe.json', '--gpu', '6'])
+        self.assertEqual(args.output_dir, Path('/shared/output'))
+        args = parser().parse_args(['evaluate-bench', '--benchmark', 'bench', '--output', 'result',
+                                    '--policy-config', 'policy.json', '--gpu', '6'])
+        self.assertEqual(args.log_dir, Path('/shared/output/logs'))
+        self.assertEqual(args.output, Path('result'))
+
+    def test_assets_and_gpu_still_required_without_defaults(self):
+        argv = ['evaluate-stations', '--dataset', 'dataset', '--run-id', 'one']
+        with patch('sys.stderr'), self.assertRaises(SystemExit):
+            parser().parse_args(argv + ['--gpu', '6'])
+        self.local.return_value = LocalConfig(assets_dir=Path('/shared/assets'))
+        with patch('sys.stderr'), self.assertRaises(SystemExit):
+            parser().parse_args(argv)
+
     def test_core_commands_only(self):
         commands = next(action for action in parser()._actions if action.dest == "command")
         self.assertEqual(
@@ -22,11 +55,22 @@ class CliTests(unittest.TestCase):
     def test_build_scenes_dispatch(self):
         with patch(
             "lastmile_dataflow.workflows.scene_datasets.build_scenes", return_value=Path("out")
-        ) as build:
+        ) as build, self.assertLogs("lastmile_dataflow", level="INFO") as logs, patch("builtins.print") as output:
             main(["build-scenes", "--config", "recipe.json", "--run-id", "one", "--gpu", "6"])
+        self.assertIn("开始命令=build-scenes GPU=6", logs.output[0])
+        self.assertIn("命令结束=build-scenes 输出=out", logs.output[-1])
+        output.assert_called_once_with(Path("out"))
         build.assert_called_once_with(
             Path("recipe.json"), Path("outputs"), "one", gpu_ids=[6], allow_partial_targets=False
         )
+
+    def test_preview_dataset_dispatch_without_new_run(self):
+        with patch(
+            "lastmile_dataflow.data.visualization.scene_preview.export_scene_previews",
+            return_value=Path("dataset/index.html"),
+        ) as preview, patch("builtins.print"):
+            main(["build-scenes", "--preview-dataset", "dataset", "--gpu", "0"])
+        preview.assert_called_once_with(Path("dataset"))
 
     def test_collection_commands_use_the_two_public_functions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -91,6 +135,7 @@ class CliTests(unittest.TestCase):
             discover.assert_called_once()
             qualify.assert_called_once()
             build.assert_called_once()
+            self.assertRegex(discover.call_args.args[1].parent.name, r"^scene-build-\d{8}-\d{6}$")
             self.assertEqual(qualify.call_args.args[0], discover.call_args.args[1])
             self.assertEqual(build.call_args.args[1], qualify.call_args.args[1])
             self.assertEqual(result, root / "result")

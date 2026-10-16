@@ -8,7 +8,7 @@ import mujoco
 import numpy as np
 
 from ...config import CollectionConfig
-from ...io import write_json
+from ...utils.io import write_json
 from ...scenes.geometry import quat_angle
 from ...scenes.graph import build_scene_graph, GraphConfig
 from ...scenes.stations.initialization import initialize_robot

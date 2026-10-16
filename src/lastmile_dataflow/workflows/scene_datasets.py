@@ -3,31 +3,37 @@
 本模块只编排构建流程，不加载规划器或策略，也不执行机器人任务。
 发现阶段用少量静态站位快速筛选；资格阶段检查完整候选站位，不能把两者混为实测成功率。
 """
+import logging
 
 import os
-import tempfile
 import time
 from contextlib import closing
 from dataclasses import asdict
+from datetime import datetime
 from itertools import combinations
 from pathlib import Path
+from shutil import rmtree
 
 import numpy as np
 
 from ..config import RobotConfig, read_config
-from ..io import append_row, create_run, read_json, rows, write_json
+from ..utils.logging_config import Progress
+from ..utils.io import append_row, create_run, read_json, rows, write_json
 from ..planning.astar import task_support_obstacles
 from ..runtime.construction.session import clone_preparation
 from ..runtime.simulation import Simulation
 from ..scenes.augmentation.config import ObstacleConfig
 from ..scenes.augmentation.regions import approach_points, station_regions, support_regions
 from ..scenes.dataset import select_stations
+from ..data.visualization.scene_preview import export_scene_previews
 from ..scenes.dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
 from ..scenes.loading.source import SceneSource
 from ..scenes.stations.sampling import sample_stations
 from ..scenes.tasks.discovery import discover_tasks, robot_footprint
 from ..scenes.tasks.eligibility import allowed_case1_support, pick_type
 from .obstacle_augmentation import augment_obstacles
+
+logger = logging.getLogger(__name__)
 
 
 def _target_limits(recipe):
@@ -117,31 +123,28 @@ def spatial_select(rows, count, preferred=(), min_separation_m=0.0):
     return chosen
 
 
-def print_scene_counts(recipe, houses, stage):
-    """打印按目标与变体数推算的数量，不把预估数当作已验收场景数。"""
+def log_scene_counts(recipe, houses, stage):
+    """记录按目标与变体数推算的数量，不把预估数当作已验收场景数。"""
     totals = {"Case1": 0, "Case2": 0, "Case3": 0}
-    print(f"\n[{stage}] 数量汇总（预计构造数，不是已验收样本数）", flush=True)
+    logger.debug(f"[{stage}] 数量汇总（预计构造数，不是已验收样本数）")
     for house in houses:
         identity = house["house"]
         picks, opening = house["selected_pick"], house["selected_open"]
         counts = dict.fromkeys(totals, 0)
         for case in recipe.cases:
             counts[case] = opening if case == "Case3" else picks * recipe.variants_per_case
-        print(
+        logger.debug(
             f"val_{identity}: 原始任务={house.get('discovered_task_count', '未记录')}; "
             f"静态条件通过 pick={house.get('eligible_pick', '未记录')} open={house.get('eligible_open', '未记录')}; "
             f"本阶段选中 pick={picks} open={opening}; "
             f"预计 Case1={counts['Case1']} Case2={counts['Case2']} Case3={counts['Case3']}",
-            flush=True,
         )
         for case in totals:
             totals[case] += counts[case]
-    print(
-        f"总计: Case1={totals['Case1']}, Case2={totals['Case2']}, "
-        f"Case3={totals['Case3']}, 全部={sum(totals.values())}",
-        flush=True,
-    )
-    print("发现阶段仅为静态预估；资格检查后可能减少，最终以实际构造与物理检查为准。", flush=True)
+    logger.info('[%s收尾] 预计构造 Case1=%s Case2=%s Case3=%s 总计=%s（不是已验收样本）',
+                stage, totals['Case1'], totals['Case2'], totals['Case3'], sum(totals.values()),
+                extra={'progress': True})
+    logger.debug("发现阶段仅为静态预估；资格检查后可能减少，最终以实际构造与物理检查为准。")
     return totals
 
 
@@ -165,7 +168,7 @@ def _filter_tasks(tasks, recipe, house, exclusions):
     for task in tasks:
         if task["operation"] not in limits:
             continue
-        print(f"val_{house}: 检查 {task['operation']} {task['asset_id']} {task['task_id']}", flush=True)
+        logger.debug(f"val_{house}: 检查 {task['operation']} {task['asset_id']} {task['task_id']}")
         if recipe.categories and task["category"] not in recipe.categories:
             continue
         if (
@@ -238,15 +241,18 @@ def _discover_house(recipe, robot, geometry, house, baseline):
     """完成一个房屋的基线冻结、静态筛选和空间选优。"""
     started = time.monotonic()
     source = SceneSource.procthor(recipe.dataset_dir, house)
-    print(f"val_{house}: 加载原始基线", flush=True)
+    logger.debug(f"val_{house}: 加载原始基线")
+    progress = Progress(logger)
     eligible = {"pick": [], "open": []}
     with closing(_load_original_baseline(source, robot, recipe.input_snapshots.get(str(house)))) as sim:
         sim.freeze(baseline)
-        print(f"val_{house}: 基线已冻结，开始发现任务", flush=True)
+        logger.debug(f"val_{house}: 基线已冻结，开始发现任务")
         tasks, skipped = discover_tasks(sim, read_json(source.metadata_path), geometry)
         exclusions = [{"house": house, **row} for row in skipped]
-        for task in _filter_tasks(tasks, recipe, house, exclusions):
+        for index, task in enumerate(_filter_tasks(tasks, recipe, house, exclusions), 1):
             candidate, rejection = _probe_target(sim, task, recipe, geometry)
+            progress.update('发现 val_%s 已探测候选=%s 原始任务=%s 当前目标=%s 耗时=%.1fs',
+                            house, index, len(tasks), task['asset_id'], time.monotonic() - started)
             if rejection is not None:
                 exclusions.append({"house": house, "task_id": task["task_id"], **rejection})
                 continue
@@ -284,11 +290,9 @@ def _discover_house(recipe, robot, geometry, house, baseline):
         "selection_method": "room_support_diversity_then_max_min_world_distance",
         "elapsed_s": time.monotonic() - started,
     }
-    print(
-        f"val_{house}: 原始任务={len(tasks)}; pick={[r['task']['asset_id'] for r in picks]}; "
-        f"open={[r['task']['asset_id'] for r in opening]}",
-        flush=True,
-    )
+    progress.update('房屋发现收尾 val_%s 原始任务=%s 静态合格 pick=%s open=%s 选中 pick=%s open=%s 耗时=%.1fs',
+                    house, len(tasks), len(eligible['pick']), len(eligible['open']), len(picks), len(opening),
+                    time.monotonic() - started, force=True)
     return chosen, exclusions, summary
 
 
@@ -308,7 +312,7 @@ def discover_scene_dataset(recipe, output):
         selected.extend(chosen)
         exclusions.extend(rejected)
         houses.append(summary)
-    print_scene_counts(recipe, houses, "发现")
+    log_scene_counts(recipe, houses, "发现")
     write_json(
         output,
         {
@@ -354,7 +358,7 @@ def _qualify_target(sim, row, recipe, geometry, existing):
         "stations": stations,
         "valid": valid >= recipe.min_final_points,
     }
-    print(f"val_{row['house']} {task['asset_id']}: 可见站位={valid}", flush=True)
+    logger.debug(f"val_{row['house']} {task['asset_id']}: 可见站位={valid}")
     if not evidence["valid"] or task["operation"] != "pick" or "Case1" not in recipe.cases:
         return evidence
     # Case1 还必须有实测近地面放置点，不能仅靠可见站位数量通过。
@@ -373,6 +377,7 @@ def _qualify_target(sim, row, recipe, geometry, existing):
 def _select_qualified(sim, candidates, recipe, geometry, existing):
     """空间选优后检查资格；失败只剔除失败目标，再从合格池补选。"""
     selected, cache = [], {}
+    progress = Progress(logger)
     for operation, count in _target_limits(recipe).items():
         pool = [row for row in candidates if row["task"]["operation"] == operation]
         separation = recipe.min_target_separation_m if operation == "pick" else 0.0
@@ -384,6 +389,12 @@ def _select_qualified(sim, candidates, recipe, geometry, existing):
                 # 补选时复用已检查目标，避免重复渲染和采样。
                 if identity not in cache:
                     cache[identity] = _qualify_target(sim, row, recipe, geometry, existing)
+                    evidence = cache[identity]
+                    if not evidence['valid']:
+                        logger.warning('资格未通过 house=%s task=%s reason=%s', row['house'], identity,
+                                       evidence.get('reason', 'fewer_than_minimum_baseline_visible_points'))
+                    progress.update('资格检查 已检查候选=%s/%s 当前目标=%s',
+                                    len(cache), len(candidates), identity)
                 evidence = cache[identity]
                 if evidence["valid"]:
                     row["baseline_visible_count"] = evidence["valid_count"]
@@ -393,6 +404,8 @@ def _select_qualified(sim, candidates, recipe, geometry, existing):
                 selected.extend(choices)
                 break
             pool = [row for row in pool if row["task"]["task_id"] not in rejected]
+    progress.update('资格检查收尾 已检查候选=%s/%s 选中=%s 未通过=%s', len(cache), len(candidates),
+                    len(selected), sum(not row['valid'] for row in cache.values()), force=True)
     return selected, list(cache.values())
 
 
@@ -443,7 +456,7 @@ def qualify_scene_discovery(discovery, output):
         qualification=qualifications,
         elapsed_s=plan["elapsed_s"] + elapsed,
     )
-    print_scene_counts(recipe, plan["houses"], "资格检查")
+    log_scene_counts(recipe, plan["houses"], "资格检查")
     write_json(output, plan)
     return output
 
@@ -537,15 +550,23 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
         {"recipe": asdict(recipe), "robot": asdict(robot), "geometry": asdict(geometry), "seed": recipe.seed},
     )
     os.environ["MUJOCO_EGL_DEVICE_ID"] = str(gpu_ids[0])
+    progress = Progress(logger)
     for unit_index, unit in enumerate(plan["selected"]):
         for case in recipe.cases:
             if (case == "Case3") != (unit["task"]["operation"] == "open"):
                 continue
             scene_id = f"val{unit['house']}-{unit['task']['task_id']}-{case}"
+            logger.debug(
+                f"[构建 {unit_index + 1}/{len(plan['selected'])}] "
+                f"val_{unit['house']} {unit['task']['asset_id']} {case}: 开始",
+            )
             if case == "Case3":
-                append_row(
-                    root / "scenes.jsonl", _save_open_scene(unit, scene_id, root, recipe, robot, geometry)
-                )
+                result = _save_open_scene(unit, scene_id, root, recipe, robot, geometry)
+                append_row(root / "scenes.jsonl", result)
+                if result['status'] == 'accepted':
+                    logger.debug('%s: accepted', scene_id)
+                else:
+                    logger.warning('%s: %s %s', scene_id, result['status'], result.get('reason', ''))
                 continue
             config = _obstacle_config(recipe, recipe_path, unit, case, recipe.seed + unit_index)
             # 增强器直接写父场景库，不创建第二套子 run 或发布记录。
@@ -557,15 +578,18 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
                 robot_config=robot,
                 dataset_root=root,
             )
+        progress.update('场景构建 已处理目标=%s/%s 当前目标=%s',
+                        unit_index + 1, len(plan['selected']), unit['task']['asset_id'])
     records = rows(root / "scenes.jsonl")
-    write_json(
-        root / "summary.json",
-        {
-            "status": "completed",
-            "accepted": sum(row["status"] == "accepted" for row in records),
-            "rejected": sum(row["status"] != "accepted" for row in records),
-        },
-    )
+    summary = {
+        "status": "completed",
+        "accepted": sum(row["status"] == "accepted" for row in records),
+        "rejected": sum(row["status"] != "accepted" for row in records),
+    }
+    write_json(root / "summary.json", summary)
+    export_scene_previews(root)
+    progress.update('[构建完成] 目标=%s/%s 接受=%s 拒绝=%s 输出=%s',
+                    len(plan['selected']), len(plan['selected']), summary['accepted'], summary['rejected'], root, force=True)
     return root
 
 
@@ -574,9 +598,18 @@ def build_scenes(config, output_dir, run_id, *, gpu_ids, allow_partial_targets=F
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     os.environ.update(MUJOCO_GL="egl", MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
-    with tempfile.TemporaryDirectory(prefix="scene-build-", dir=output_dir) as temporary:
-        discovery = discover_scene_dataset(config, Path(temporary) / "discovery.json")
-        qualified = qualify_scene_discovery(discovery, Path(temporary) / "qualified.json")
+    # 中间目录用服务器本地时间命名，退出时清理。
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    temporary = output_dir / f"scene-build-{timestamp}"
+    temporary.mkdir()
+    try:
+        logger.info('场景构建：开始发现目标', extra={'progress': True})
+        discovery = discover_scene_dataset(config, temporary / "discovery.json")
+        logger.info('场景构建：开始资格检查', extra={'progress': True})
+        qualified = qualify_scene_discovery(discovery, temporary / "qualified.json")
+        logger.info('场景构建：开始增强与保存', extra={'progress': True})
         return build_scene_dataset(
             config, qualified, output_dir, run_id, gpu_ids, allow_partial_targets=allow_partial_targets
         )
+    finally:
+        rmtree(temporary)

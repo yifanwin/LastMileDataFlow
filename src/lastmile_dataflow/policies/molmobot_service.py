@@ -9,7 +9,11 @@ from multiprocessing.connection import Listener
 
 import numpy as np
 
+from ..utils.logging_config import setup_logging
 from .molmobot_config import load_policy_config
+
+
+logger = logging.getLogger(__name__)
 
 
 class TraceAgent:
@@ -31,9 +35,9 @@ class TraceAgent:
         if self.require_point and '<points coords=' not in self.prompt:
             raise ValueError('open_conditioning_point_outside_fisheye_crop')
         started = time.monotonic()
-        logging.info('Generating model action chunk')
+        logger.debug('Generating model action chunk')
         self.raw = self.agent.get_action_chunk(**kwargs)
-        logging.info('Generated model chunk in %.2f s', time.monotonic() - started)
+        logger.debug('Generated model chunk in %.2f s', time.monotonic() - started)
         if self.raw.shape != (16,20) or not np.isfinite(self.raw).all():
             raise ValueError('invalid_model_action_chunk')
         self.calls += 1
@@ -41,7 +45,7 @@ class TraceAgent:
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
     parser.add_argument('--socket', required=True)
@@ -61,7 +65,7 @@ def main():
     connection = listener.accept()
     try:
         started = time.monotonic()
-        logging.info('Loading selected checkpoint %s', config.checkpoint)
+        logger.info('Loading selected checkpoint %s', config.checkpoint, extra={'progress': True})
         trace = TraceAgent(SynthManipMolmoInferenceWrapper(checkpoint_path=config.checkpoint, tokenizer_path=config.tokenizer_path))
         policies = {}
         for operation, cls in [('pick',MolmoBotRBY1PickPnPPolicyConfig),('open',MolmoBotRBY1DoorPlusOpenPolicyConfig)]:
@@ -73,7 +77,7 @@ def main():
             policies[operation].agent = trace
         connection.send({'ready':True, 'load_s':time.monotonic()-started,
                          'device':torch.cuda.get_device_name(), 'cuda_peak_bytes':torch.cuda.max_memory_allocated()})
-        logging.info('Model ready, allocated %.1f MiB', torch.cuda.memory_allocated()/1024**2)
+        logger.info('Model ready, allocated %.1f MiB', torch.cuda.memory_allocated()/1024**2)
         active = None
         while True:
             request = connection.recv()
@@ -100,9 +104,9 @@ def main():
                     'model_chunk_state':trace.state.copy(), 'model_prompt':trace.prompt,
                     'cuda_peak_bytes':torch.cuda.max_memory_allocated()})
             except Exception as exc:
-                logging.exception('Policy request failed for %s', request.get('attempt'))
+                logger.exception('Policy request failed for %s', request.get('attempt'))
                 if str(exc)=='invalid_model_action_chunk':
-                    logging.error('Rejected original model chunk: %r', trace.raw)
+                    logger.error('Rejected original model chunk: %r', trace.raw)
                 connection.send({'error':str(exc), 'type':type(exc).__name__, 'traceback':traceback.format_exc(),
                                  'invalid_action':str(exc)=='invalid_model_action_chunk'})
     except (EOFError, BrokenPipeError, ConnectionResetError):
