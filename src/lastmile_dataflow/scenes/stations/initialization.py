@@ -89,7 +89,7 @@ def initialize_robot(sim, collection, *, base=None):
             candidates.append(np.r_[xy, rng.uniform(-3.0, 3.0)])
     trials = []
     for candidate in candidates:
-        initial["base"] = candidate.tolist()
+        initial[sim.robot.initial_base_field] = candidate.tolist()
         try:
             sim.robot.initialize(initial)
         except ValueError as exc:

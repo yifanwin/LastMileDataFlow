@@ -153,7 +153,8 @@ def _load_original_baseline(source, robot, snapshot):
     if not snapshot:
         return Simulation.from_source(source, robot)
     saved = read_config(Path(snapshot) / "config.json")
-    cached_robot = RobotConfig(**saved["robot"])
+    from ..config import robot_config
+    cached_robot = robot_config(saved["robot"])
     if saved["source"] != source.to_dict() or asdict(cached_robot) != asdict(robot):
         raise ValueError("cached original baseline source/robot mismatch")
     sim = Simulation.from_snapshot(snapshot, cached_robot)

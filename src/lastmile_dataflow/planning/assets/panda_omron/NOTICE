@@ -9,3 +9,6 @@ exported robot assets.
 
 This version adds the two movable finger branches and gripper collision spheres.
 TCP and collision alignment must be validated against the factory-composed model.
+
+The mobile integration replaces chassis/support sphere coverage using the actual
+factory MuJoCo geometry, including the rear chassis and fixed/lift columns.

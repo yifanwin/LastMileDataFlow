@@ -6,6 +6,7 @@ remainder and fixed head targets as well as the physical state.
 """
 from dataclasses import asdict
 from pathlib import Path
+import json
 
 import mujoco
 import numpy as np
@@ -107,7 +108,7 @@ class Simulation:
     def save_snapshot(self, path):
         with Path(path).open('xb') as stream:
             np.savez_compressed(stream, state=self.state_vector(), state_spec=int(self.state_spec),
-                                fixed_head=self.robot.fixed_head, clock_remainder=self._clock_remainder)
+                                control_json=json.dumps(self.robot.snapshot_control()), clock_remainder=self._clock_remainder)
 
     def restore_snapshot(self, path):
         if self.started or self.closed:
@@ -117,7 +118,10 @@ class Simulation:
             if state.shape != self.state_vector().shape or not np.isfinite(state).all():
                 raise ValueError('snapshot state does not match this model')
             mujoco.mj_setState(self.model, self.data, state, self.state_spec)
-            self.robot.fixed_head = saved['fixed_head'].copy()
+            if 'control_json' in saved:
+                self.robot.restore_control(json.loads(str(saved['control_json'])))
+            else:
+                self.robot.restore_control({"fixed_head": saved['fixed_head'].tolist()})
             self._clock_remainder = float(saved['clock_remainder'])
         mujoco.mj_forward(self.model, self.data)
 
@@ -178,7 +182,19 @@ class Simulation:
     def _submit(self, action, *, fixed_base=False, command_raw=None):
         command = self.robot.apply(action, fixed_base=fixed_base)
         if self.evidence_recorder:
-            self.evidence_recorder.requested_action = np.asarray(action if command_raw is None else command_raw).copy()
+            raw = action if command_raw is None else command_raw
+            from .control.interface import RobotCommand
+            if isinstance(raw, RobotCommand):
+                from dataclasses import asdict
+                if not isinstance(command['submitted_action'], dict):
+                    raw = self.robot.execution_action(raw)
+                else:
+                    raw = asdict(raw)
+                # Missing fields denote held targets, recorded as submitted absolute targets.
+                if isinstance(raw, dict):
+                    held = command['submitted_action']
+                    raw = {k: held[k] if v is None else ({**held[k], **v} if isinstance(v, dict) else v) for k,v in raw.items()}
+            self.evidence_recorder.requested_action = self.robot.record_action(raw)
         return command
 
     def _advance(self, command, tick_groups, substep_check):

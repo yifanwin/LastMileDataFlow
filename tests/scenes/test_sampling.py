@@ -70,7 +70,7 @@ class StationSelectionTests(unittest.TestCase):
             return probe
 
         task = {"anchor_world": [0, 0, 1]}
-        config = SimpleNamespace(radius_m=0.3, spacing_m=0.1)
+        config = SimpleNamespace(radius_m=0.3, spacing_m=0.1, navigation_whole_body=False)
         with (
             patch("lastmile_dataflow.scenes.stations.sampling.clone_preparation", side_effect=clone),
             patch(
@@ -104,7 +104,7 @@ class StationSelectionTests(unittest.TestCase):
             rows = sample_stations(
                 None,
                 {"anchor_world": [0, 0, 1]},
-                SimpleNamespace(radius_m=0.1, spacing_m=0.1),
+                SimpleNamespace(radius_m=0.1, spacing_m=0.1, navigation_whole_body=False),
                 static_only=True,
             )
         self.assertTrue(

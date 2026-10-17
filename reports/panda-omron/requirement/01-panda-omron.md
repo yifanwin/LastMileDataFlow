@@ -3,9 +3,9 @@
 状态：active  
 日期：2026-10-17  
 替代：无（原需求文档迁入统一目录）  
-关联：[首期实施方案](../plan/01-panda-omron-phase01.md)
+关联：[首期实施方案](../plan/01-panda-omron-phase01.md)、[首期结果](../delivery/phase_01/2026-10-17-panda-omron-implementation.md)、[全流程接入需求](02-panda-omron-full-flow.md)
 
-首期以固定场景、固定站位的一次真实 pick 闭环为终点。尚未实施迁移。
+首期以固定场景、固定站位的一次真实 pick 闭环为终点，现已完成并复验。下文保留迁移前探查与首期需求背景；当时的限制不代表当前实现状态。后续导航、站位、联合规划与数据链需求见[全流程接入需求](02-panda-omron-full-flow.md)。
 
 ## 1. 结论
 

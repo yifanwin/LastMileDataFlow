@@ -58,3 +58,7 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=<chosen-index> CASE_EDIT_RENDER_TESTS=1 \
 pipeline 默认每站位两次试验，仍会遍历所选场景的全部站位；应先准备少量站位的输入。任务失败或没有合格配对都是有效负结果。
 若提供 `--native-calibration`，benchmark 使用整个输入数据集及该匹配标定；小规模检查应传单场景数据集。
 详细任务结果读取 run 主记录，不能用脚本退出码或目录存在代替成功判定。
+
+## PandaOmron
+
+`smoke/panda_omron.py` 保留 factory、控制、固定 pick 与对齐；`smoke/panda_omron_flow.py` 提供真实站位输入准备、整机绕障导航和移动参考系对齐。标定、连续采集与物化直接调用现有生产 CLI。命令与数据说明见 [Panda 运行指南](../reports/panda-omron/docs/panda-omron.md)。这些实际 GPU smoke 不随 unittest 自动执行。

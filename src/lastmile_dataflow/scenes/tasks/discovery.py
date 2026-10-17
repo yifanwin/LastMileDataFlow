@@ -22,25 +22,28 @@ def local_bounds(sim, body):
     return local.min(axis=0), local.max(axis=0)
 
 
-def robot_footprint(sim):
+def robot_footprint(sim, *, whole_body=False):
     """Actual base and wheel geometry projected into the base frame."""
     from ..geometry import geom_points
-    base = body_pose(sim, sim.model.body('robot_0/base').id)
+    base = body_pose(sim, sim.model.body(sim.robot.config.namespace+sim.robot.base_body).id)
+    base[:2, 3] = sim.robot.base_pose()[:2]
     points = []
     for g in range(sim.model.ngeom):
         name = sim.model.body(int(sim.model.geom_bodyid[g])).name
-        if name == 'robot_0/base' or name.startswith('robot_0/') and 'wheel' in name.lower():
+        if (whole_body and name.startswith(sim.robot.config.namespace) and (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g])
+                or not whole_body and (name == sim.robot.config.namespace+sim.robot.base_body or name.startswith(sim.robot.config.namespace) and 'wheel' in name.lower())):
             points.append((geom_points(sim, g) - base[:3, 3]) @ base[:3, :3])
     if not points:
         raise ValueError('missing chassis geometry')
     points = np.concatenate(points)
     return {'radius_m': float(np.linalg.norm(points[:, :2], axis=1).max()),
             'min': points.min(axis=0).tolist(), 'max': points.max(axis=0).tolist(),
-            'method': 'base_origin_enclosing_circle_of_base_and_wheel_geoms'}
+            'method': 'held_whole_body_enclosing_circle' if whole_body else 'base_origin_enclosing_circle_of_base_and_wheel_geoms'}
 
 
 def discover_tasks(sim, metadata, config):
     tasks, skipped = [], []
+    size_limit = getattr(config, 'max_pick_object_size_m', None) or config.gripper_width_m
     for instance in sim.catalog:
         name, asset, category = instance['instance_id'], instance.get('asset_id'), instance.get('category')
         if not asset or name.startswith('robot_0/'):
@@ -63,13 +66,13 @@ def discover_tasks(sim, metadata, config):
         free = any(sim.model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE
                    for j in range(int(sim.model.body_jntadr[b]),
                                   int(sim.model.body_jntadr[b] + sim.model.body_jntnum[b])))
-        if 'pick' in config.operations and min(hi-lo) <= config.gripper_width_m + 1e-9 and free:
+        if 'pick' in config.operations and min(hi-lo) <= size_limit + 1e-9 and free:
             task = {**common, 'operation': 'pick', 'target_body': name,
                     'instruction': f'拿起{qualifier}的{label}。', 'anchor_world': center.tolist(),
                     'local_bounds': [lo.tolist(), hi.tolist()]}
             task['task_id'] = f'pick-{b:04d}'
             tasks.append(task)
-        elif 'pick' in config.operations and min(hi-lo) <= config.gripper_width_m:
+        elif 'pick' in config.operations and min(hi-lo) <= size_limit:
             skipped.append({'instance': name, 'operation': 'pick', 'reason': 'not_free_moving_instance'})
         if 'open' not in config.operations or category not in OPEN_TYPES:
             continue

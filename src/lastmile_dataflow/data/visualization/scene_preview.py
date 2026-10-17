@@ -146,7 +146,8 @@ def render_scene_preview(root, record, destination):
     with ExitStack() as stack:
         def load(location):
             path = root / location
-            robot = RobotConfig(**read_json(path / 'config.json')['robot'])
+            from ...config import robot_config
+            robot = robot_config(read_json(path / 'config.json')['robot'])
             return stack.enter_context(closing(Simulation.from_snapshot(path, robot, target=task['target_body'])))
 
         after = load(record['scene'])

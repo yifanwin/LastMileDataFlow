@@ -1,0 +1,24 @@
+{
+  "data_root": "data",
+  "name": "panda_omron",
+  "model_path": "assets/robots/panda_omron/model.xml",
+  "cameras": [
+    "front_camera",
+    "robot0_eye_in_hand"
+  ],
+  "observation_camera": "front_camera",
+  "observation_position": [
+    0.1,
+    -0.3,
+    1.4
+  ],
+  "observation_xyaxes": [
+    0.0,
+    -1.0,
+    0.0,
+    0.70710678,
+    0.0,
+    0.70710678
+  ],
+  "observation_fovy": 90.0
+}

@@ -9,6 +9,7 @@ import numpy as np
 from .lifecycle import track_resource
 from ...utils.io import canonical, write_json
 from ...scenes.geometry import tcp_pose
+from ..control.interface import RobotCommand
 from ..control.action_limits import sanitize_action
 from ..control.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
 from ...scenes.geometry import descendants
@@ -29,7 +30,7 @@ def clone_sim(sim, *, target=None):
     result=Simulation(sim.model,sim.robot.config,copy.deepcopy(sim.catalog),target=target)
     track_resource(result)
     mujoco.mj_setState(result.model,result.data,sim.state_vector(),sim.state_spec)
-    result.robot.fixed_head=sim.robot.fixed_head.copy(); result._clock_remainder=sim._clock_remainder
+    result.robot.copy_control_from(sim.robot); result._clock_remainder=sim._clock_remainder
     result.source=sim.source; result.restoration=None; result.spec=None
     mujoco.mj_forward(result.model,result.data)
     return result
@@ -87,26 +88,31 @@ class ContinuousContext:
         """Keep the last submitted target, not a physically overshooting qpos."""
         target = self.last_legal_torso_target
         if target is None:
-            target = bounded_torso_command(self.sim.robot.group('torso')[1], self.sim.robot.config.torso_limits)
+            target = self.sim.robot.control_height()
         return target
 
     def tick(self,action,*,fixed_base=False):
-        raw_action=np.asarray(action, dtype=float).copy()
+        if isinstance(action, RobotCommand):
+            action = self.sim.robot.execution_action(action)
+        semantic = isinstance(action, RobotCommand)
+        raw_action = copy.deepcopy(action) if semantic else np.asarray(action, dtype=float).copy()
         self.recorder.phase = self.phase
-        action=raw_action.copy()
-        action[19]=bounded_torso_command(action[19],self.sim.robot.config.torso_limits)
-        if action[19] != raw_action[19]:
-            # Append evidence before stepping; never rewrite qpos or loosen model limits.
-            event={'phase':self.phase,'time_s':float(self.sim.data.time),
-                   'input_h':float(raw_action[19]),'submitted_h':float(action[19]),
-                   'command_tolerance_rad':COMMAND_TOLERANCE_RAD}
-            with (self.recorder.path/'torso_command_adjustments.jsonl').open('ab') as stream:
-                stream.write(canonical(event)+b'\n')
-        action,adjustments=sanitize_action(self.sim.robot,action,fixed_base=fixed_base)
-        for adjustment in adjustments:
-            adjustment.update(phase=self.phase,time_s=float(self.sim.data.time))
-            with (self.recorder.path/'command_limit_adjustments.jsonl').open('ab') as stream:
-                stream.write(canonical(adjustment)+b'\n')
+        action = raw_action
+        if not semantic:
+            action=raw_action.copy()
+            action[19]=bounded_torso_command(action[19],self.sim.robot.config.torso_limits)
+            if action[19] != raw_action[19]:
+                # Append evidence before stepping; never rewrite qpos or loosen model limits.
+                event={'phase':self.phase,'time_s':float(self.sim.data.time),
+                       'input_h':float(raw_action[19]),'submitted_h':float(action[19]),
+                       'command_tolerance_rad':COMMAND_TOLERANCE_RAD}
+                with (self.recorder.path/'torso_command_adjustments.jsonl').open('ab') as stream:
+                    stream.write(canonical(event)+b'\n')
+            action,adjustments=sanitize_action(self.sim.robot,action,fixed_base=fixed_base)
+            for adjustment in adjustments:
+                adjustment.update(phase=self.phase,time_s=float(self.sim.data.time))
+                with (self.recorder.path/'command_limit_adjustments.jsonl').open('ab') as stream:
+                    stream.write(canonical(adjustment)+b'\n')
         self.deadline()
         self.begin()
         failures=[]
@@ -122,17 +128,19 @@ class ContinuousContext:
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
             # `record_only` protocol: a torso feedback excursion is telemetry, not a
             # stop condition. Only a gross violation (real loss of control) stops.
-            h_actual=float(self.sim.robot.group('torso')[1])
-            margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
-            row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
-                       torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
-            if margin > TORSO_SEVERE_FEEDBACK_RAD:
-                failures.append('torso_feedback_limit')
+            if not semantic:
+                h_actual=float(self.sim.robot.group('torso')[1])
+                margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
+                row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
+                           torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
+                if margin > TORSO_SEVERE_FEEDBACK_RAD:
+                    failures.append('torso_feedback_limit')
             if self.monitor:
-                self.monitor.phase=self.phase; self.monitor.command_h=float(action[19])
+                self.monitor.phase=self.phase; self.monitor.command_h=self.sim.robot.control_height()
                 facts=self.monitor.sample()
-                facts.update(torso_tracking_error_rad=torso_tracking_error(facts),
-                             torso_error_policy=self.config.torso_error_policy)
+                if 'torso' in facts:
+                    facts.update(torso_tracking_error_rad=torso_tracking_error(facts),
+                                 torso_error_policy=self.config.torso_error_policy)
                 row.update(facts); self.samples.append(facts)
                 fail=mobile_constraint_failure(facts,self.monitor.initial)
                 if fail: failures.append(fail)
@@ -142,7 +150,7 @@ class ContinuousContext:
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
         with timed(self, 'simulation_and_physics_evidence'):
             command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
-        self.last_legal_torso_target=float(action[19])
+        self.last_legal_torso_target=self.sim.robot.control_height() if semantic else float(action[19])
         self.physics.flush()
         after=float(self.sim.data.time)
         if self.record_video:
@@ -159,7 +167,7 @@ class ContinuousContext:
         result=dict(frames)
         facts=self.samples[-1] if self.monitor is not None and self.samples else None
         result['third_person_camera']=self.analysis.frame(frames,phase=self.phase,time_s=time_s,
-            base_xy=self.sim.robot.group('base')[:2],target_height=float(self.sim.data.xpos[self.sim.target_id,2]),
+            base_xy=self.sim.robot.base_pose()[:2],target_height=float(self.sim.data.xpos[self.sim.target_id,2]),
             initial_height=self.initial_target_height,facts=facts,
             side=self.monitor.side if self.monitor is not None else None,collisions=self.contact_stats.forbidden_contact_count)
         return result
@@ -167,42 +175,35 @@ class ContinuousContext:
     def yaw_gap(self, target, current):
         return float(target-current)
 
-    def arm_tick(self,side,q,grip,h):
-        a=self.sim.robot.neutral_action(); offset=3 if side=='left' else 11
-        a[offset:offset+7]=np.asarray(q)-self.sim.robot.group(side+'_arm'); a[10 if side=='left' else 18]=grip; a[19]=h
-        if self.monitor:
-            idle='right' if side=='left' else 'left'; i=11 if side=='left' else 3
-            a[i:i+7]=np.asarray(self.monitor.initial['idle_arm'])-self.sim.robot.group(idle+'_arm')
-        if self.manip_base_target is not None:
-            delta=self.manip_base_target-self.sim.robot.group('base')
-            delta[2]=self.yaw_gap(self.manip_base_target[2],self.sim.robot.group('base')[2])
-            limit=min(self.sim.robot.config.max_base_delta,self.config.navigation_speed_m_s/self.sim.robot.config.control_hz)
-            yaw_limit=min(self.sim.robot.config.max_yaw_delta,self.config.navigation_yaw_speed_rad_s/self.sim.robot.config.control_hz)
-            scale=max(1.,np.linalg.norm(delta[:2])/limit,abs(delta[2])/yaw_limit)
-            a[:3]=delta/scale
-        self.tick(a,fixed_base=False)
+    def arm_tick(self, side, q, grip, h):
+        base = self.manip_base_target
+        command = self.sim.robot.manipulation_command(side, q, grip, h, base)
+        self.tick(command)
 
-    def mobile_tick(self,planner,point,side,grip):
-        """One synchronized base+arm waypoint increment; never writes qpos."""
-        point=np.asarray(point)
-        target=planner.base_target_world(point)
-        base_gap=target-self.sim.robot.group('base'); base_gap[2]=self.yaw_gap(target[2],self.sim.robot.group('base')[2])
-        arm_gap=point[3:10]-self.sim.robot.group(side+'_arm')
-        measured_h=float(self.sim.robot.group('torso')[1])
-        h_gap=float(point[10])-measured_h
-        limit=min(self.sim.robot.config.max_base_delta,self.config.navigation_speed_m_s/self.sim.robot.config.control_hz)
-        yaw_limit=min(self.sim.robot.config.max_yaw_delta,self.config.navigation_yaw_speed_rad_s/self.sim.robot.config.control_hz)
-        scale=max(1.,np.linalg.norm(base_gap[:2])/limit,abs(base_gap[2])/yaw_limit,
-                  np.max(np.abs(arm_gap))/(self.sim.robot.config.max_arm_delta*.9),
-                  abs(h_gap)/planner.h_step_limit)
-        a=self.sim.robot.neutral_action(); a[:3]=base_gap/scale
-        offset=3 if side=='left' else 11; a[offset:offset+7]=arm_gap/scale
-        a[10 if side=='left' else 18]=grip; a[19]=float(np.clip(measured_h+h_gap/scale,*self.sim.robot.config.torso_limits))
-        if self.monitor:
-            idle='right' if side=='left' else 'left'; i=11 if side=='left' else 3
-            a[i:i+7]=np.asarray(self.monitor.initial['idle_arm'])-self.sim.robot.group(idle+'_arm')
-        self.manip_base_target=target
-        self.tick(a,fixed_base=False)
+    def mobile_tick(self, planner, point, side, grip):
+        """Synchronized semantic targets from the model's named trajectory layout."""
+        point = np.asarray(point)
+        robot = self.sim.robot
+        target = planner.base_target_world(point)
+        base = robot.base_pose()
+        base_gap = target-base
+        base_gap[2] = self.yaw_gap(target[2], base[2])
+        q = planner.model.arm_target(point)
+        arm = robot.arm_positions(side)
+        arm_gap = q-arm
+        height = planner.model.height_target(point)
+        measured_h = robot.control_height()
+        h_gap = height-measured_h
+        limit = min(robot.config.max_base_delta, self.config.navigation_speed_m_s/robot.config.control_hz)
+        yaw_limit = min(robot.config.max_yaw_delta, self.config.navigation_yaw_speed_rad_s/robot.config.control_hz)
+        scale = max(1., np.linalg.norm(base_gap[:2])/limit, abs(base_gap[2])/yaw_limit,
+                    np.max(np.abs(arm_gap))/(robot.config.max_arm_delta*.9))
+        if planner.h_step_limit:
+            scale = max(scale, abs(h_gap)/planner.h_step_limit)
+        command = robot.manipulation_command(side, arm+arm_gap/scale, grip,
+                                             measured_h+h_gap/scale, base+base_gap/scale)
+        self.manip_base_target = target
+        self.tick(command)
         return scale
 
     def plan(self,planner,goal):
@@ -226,9 +227,8 @@ class ContinuousContext:
 
     def follow_points(self,planner,positions,side,grip,goal=None):
         if not positions: raise OperationFailure('empty_trajectory')
-        expected = ('base_x', 'base_y', 'base_theta', *(f'{side}_arm_{i}' for i in range(7)), 'torso_1')
-        if tuple(planner.names) != expected or np.asarray(positions).shape[1:] != (11,):
-            raise ValueError('mobile planner joint ordering mismatch')
+        if np.asarray(positions).shape[1:] != (len(planner.names),):
+            raise ValueError('planner joint ordering mismatch')
         for point in positions:
             for _ in range(120):
                 if self.mobile_tick(planner, point, side, grip) <= 1.: break
@@ -237,7 +237,7 @@ class ContinuousContext:
         for _ in range(100):
             base_gap=planner.base_target_world(goal_q)-self.sim.robot.group('base')
             base_gap[2]=self.yaw_gap(planner.base_target_world(goal_q)[2],self.sim.robot.group('base')[2])
-            if (np.max(np.abs(self.sim.robot.group(side+'_arm')-goal_q[3:10])) < .01
+            if (np.max(np.abs(self.sim.robot.arm_positions(side)-planner.model.arm_target(goal_q))) < .01
                 and np.linalg.norm(base_gap[:2]) < self.config.arrival_tolerance_m
                 and abs(base_gap[2]) < self.config.arrival_tolerance_rad): break
             self.mobile_tick(planner, goal_q, side, grip)

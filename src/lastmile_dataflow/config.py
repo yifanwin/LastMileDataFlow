@@ -56,6 +56,13 @@ class RobotConfig:
 @dataclass(frozen=True)
 class PandaOmronConfig:
     model_path: str
+    max_base_delta: float = .10
+    max_yaw_delta: float = .20
+    max_arm_delta: float = .20
+    observation_camera: str = "overview"
+    observation_position: tuple = (.1, 0., 1.65)
+    observation_xyaxes: tuple = (0., -1., 0., .2425356, 0., .9701425)
+    observation_fovy: float = 75.
     name: str = "panda_omron"
     namespace: str = "robot_0/"
     control_profile: str = "position-v1"

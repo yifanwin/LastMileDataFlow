@@ -49,6 +49,6 @@ def migrate_state(old, new, *, forward=True):
     for a,b in zip(d0.warning,d1.warning): b.number=a.number; b.lastinfo=a.lastinfo
     if d1.userdata.shape != d0.userdata.shape: raise ValueError('userdata migration unsupported')
     d1.userdata[:]=d0.userdata; d1.time=d0.time
-    new.robot.fixed_head=old.robot.fixed_head.copy(); new._clock_remainder=old._clock_remainder
+    new.robot.copy_control_from(old.robot); new._clock_remainder=old._clock_remainder
     if forward:
         mujoco.mj_forward(m1,d1)

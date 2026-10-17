@@ -11,7 +11,7 @@
 
 ## 数据集参数优先级
 
-`workflows/collection.py` 会用数据集 config.json 的 geometry 覆盖 `radius_m`、`spacing_m`、`width`、`height`、`min_target_pixels`、`map_resolution_m`、`navigation_margin_m`（仅覆盖已存在的键）。因此只改执行 JSON 不一定生效；最终以运行保存的有效配置为准。MolmoBot 必须使用 native 控制且几何分辨率匹配的数据集，不能直接对 position/320×240 数据集套用此预设。
+`workflows/collection.py` 会用数据集 config.json 的 geometry 覆盖 `radius_m`、`spacing_m`、`width`、`height`、`min_target_pixels`、`map_resolution_m`、`navigation_margin_m`、`navigation_whole_body`（仅覆盖已存在的键）。因此只改执行 JSON 不一定生效；最终以运行保存的有效配置为准。MolmoBot 必须使用 native 控制且几何分辨率匹配的数据集，不能直接对 position/320×240 数据集套用此预设。
 
 ## 两个预设的区别
 
@@ -57,3 +57,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 - 其他规划和打开动作参数直接见 `ExecutionConfig`；改变物理/成功判定参数时需要重新验证，不为凑通过率修改。
 
 成功率读取实际 trial，平滑热图只展示结果。`--max-trials` 截断可导致标定不完整，不能用于正式困难 S0 选择。
+
+## PandaOmron cuRobo
+
+`panda_omron_curobo.json` 使用相同生产入口，默认局部底盘—机械臂联合规划、固定 lift、闭爪后固定底盘抬升。`navigation_whole_body=true` 使用保持姿态整机包络及高度建立导航栅格；`local_base_radius_m` 在当前局部 XY 两轴各约束 ±该值。`grasp_candidate_order=tcp_distance`、`grasp_roll_rad` 和 `approach_offset_m` 是显式候选参数，当前预设针对 Cup 杯沿案例。`initial_settle_s` 仅在独立站位操作开始时通过真实 stepping 静置；连续采集不会到站重置。切换 `operation_base_mode=fixed` 可做 Panda 固定底盘对照，须重新标定。`head_fov_enabled=false` 不启用 RBY 头部 FOV 约束；站位仍检查真实相机可见性。详见 [Panda 指南](../../reports/panda-omron/docs/panda-omron.md)。

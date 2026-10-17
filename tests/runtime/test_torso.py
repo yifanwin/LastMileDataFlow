@@ -45,7 +45,7 @@ class TorsoCommandTests(unittest.TestCase):
         ctx = ContinuousContext.__new__(ContinuousContext)
         ctx.sim = SimpleNamespace(
             robot=SimpleNamespace(
-                group=lambda _: [0, 0.739327605117437], config=SimpleNamespace(torso_limits=(0, 0.738))
+                control_height=lambda: .738, group=lambda _: [0, 0.739327605117437], config=SimpleNamespace(torso_limits=(0, 0.738))
             )
         )
         ctx.last_legal_torso_target = 0.737261950969696
@@ -150,6 +150,9 @@ class NavigateTorsoLoopTests(unittest.TestCase):
             return np.zeros(7)
 
         robot.group = group
+        robot.arms = ('left','right')
+        robot.arm_positions = lambda arm: group(arm+'_arm')
+        robot.base_pose = lambda: group('base')
         ctx = SimpleNamespace(
             sim=SimpleNamespace(robot=robot),
             config=config,
@@ -159,8 +162,11 @@ class NavigateTorsoLoopTests(unittest.TestCase):
         )
 
         def tick(a, **kw):
-            ticks.append(a.copy())
-            state["base"] = state["base"] + a[:3]
+            action = np.zeros(20)
+            action[:3] = np.asarray(a.base_xyyaw)-state['base']
+            action[19] = hold_value
+            ticks.append(action)
+            state["base"] = np.asarray(a.base_xyyaw).copy()
 
         ctx.tick = tick
         return ctx, ticks

@@ -78,6 +78,9 @@ def _servo(act, kp, kv, limits, *, force_limits=None):
 
 def prepare_spec(spec, config):
     ns = config.namespace
+    if "front_camera" in config.cameras:
+        spec.body(ns+"mobilebase0_base").add_camera(name=ns+"front_camera",
+            pos=config.observation_position, xyaxes=config.observation_xyaxes, fovy=config.observation_fovy)
     for i, suffix in enumerate(("forward", "side", "yaw")):
         _servo(spec.actuator(ns + "mobilebase0_actuator_mobile_" + suffix),
                config.base_kp[i], config.base_kv[i], [-1.e6, 1.e6])
@@ -118,6 +121,7 @@ class PandaOmronAdapter:
             "lift": ["mobilebase0_actuator_torso_height"],
             "arm": [f"robot0_torq_j{i}" for i in range(1, 8)],
             "gripper": [f"gripper0_right_gripper_finger_joint{i}" for i in (1, 2)]}
+        self.joints = {n: model.joint(config.namespace+n).id for names in self.groups.values() for n in names}
         self.addresses = {n: int(model.jnt_qposadr[model.joint(config.namespace+n).id])
                           for names in self.groups.values() for n in names}
         self.act_ids = {n: model.actuator(config.namespace+n).id
@@ -127,6 +131,65 @@ class PandaOmronAdapter:
             model.camera(name)
         self.targets = None
         self.lift_target = None
+
+    def aim_station(self, initial, anchor):
+        self.initialize(initial)
+        cid = self.model.camera(self.camera_names[self.observation_camera]).id
+        for _ in range(3):
+            forward = -self.data.cam_xmat[cid].reshape(3,3)[:,2]
+            delta = np.asarray(anchor[:2])-self.data.cam_xpos[cid,:2]
+            error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
+            initial[self.initial_base_field][2] += float(np.arctan2(np.sin(error), np.cos(error)))
+            self.initialize(initial)
+        return []
+
+    @property
+    def observation_camera(self):
+        return self.config.observation_camera
+    base_body = "mobilebase0_base"
+    initial_base_field = "base_xyyaw"
+    open_grip = .08
+    semantic_control = True
+    plan_lift_before_close = False
+    lock_base_after_close = True
+
+    def copy_control_from(self, other):
+        self.targets = deepcopy(other.targets)
+        self.lift_target = other.lift_target
+
+    def snapshot_control(self):
+        return {"targets": self.state_targets()}
+
+    def restore_control(self, saved):
+        self.targets = RobotCommand(**saved["targets"])
+        self.lift_target = self.targets.lift
+
+    def control_height(self):
+        return self.lift_target
+
+    def manipulation_command(self, side, q, grip, height, base=None):
+        return RobotCommand(base_xyyaw=base, arm_q={side: q}, gripper_width={side: grip})
+
+    def execution_action(self, command):
+        return command
+
+    def record_layout(self):
+        fields = ["base_x_m", "base_y_m", "base_yaw_rad", "lift_m",
+                  *[f"panda_joint{i}_rad" for i in range(1, 8)], "gripper_width_m"]
+        return {"robot": self.config.name, "state_key": "state", "state_fields": fields,
+                "action_fields": fields, "state_layout": "panda-semantic-v1",
+                "action_layout": "panda-absolute-targets-v1", "action_convention": "absolute world base / joint targets; m,rad",
+                "time_alignment": "state[t], action[t], state[t+1]"}
+
+    @staticmethod
+    def flatten_command(command):
+        return np.r_[command["base_xyyaw"], command["lift"], command["arm_q"]["right"], command["gripper_width"]["right"]]
+
+    def record_state(self):
+        return self.flatten_command(self.state())
+
+    def record_action(self, command):
+        return self.flatten_command(command)
 
     def planning_model(self, *args):
         from ...planning.panda_omron import PlanningModel

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import math
 import re
 
-from ..config import RobotConfig, read_config
+from ..config import load_robot_config, read_config
 from .tasks.eligibility import PICK_TYPES, SUPPORT_TYPES
 
 
@@ -26,6 +26,8 @@ class SceneStationConfig:
     min_target_pixels: int = 24
     map_resolution_m: float = .05
     navigation_margin_m: float = .02
+    navigation_whole_body: bool = False
+    max_pick_object_size_m: float | None = None
     seed: int = 42
     operations: list = field(default_factory=lambda: ['pick', 'open'])
     gripper_width_m: float = .10
@@ -138,4 +140,4 @@ def load_scene_recipe(path):
 
 
 def load_scene_robot(path):
-    return RobotConfig(**read_config(path, data_fields=('model_path',)))
+    return load_robot_config(path)

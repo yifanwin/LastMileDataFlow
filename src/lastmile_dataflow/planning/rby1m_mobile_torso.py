@@ -138,6 +138,8 @@ class PlanningModel:
         import yaml
         from ..scenes.geometry import body_pose
         from ..runtime.control.action_limits import local_yaw_bounds
+        if config.operation_base_mode == 'fixed':
+            raise ValueError('RBY-1 V2 uses holonomic_joint_planning')
         self.sim, self.side = sim, side
         self.fk_check_required = not sim.started
         self.names = joint_names(side)
@@ -157,6 +159,12 @@ class PlanningModel:
         self.h_step_limit = self.coupling['h_velocity_limit'] * config.time_dilation * .9 / sim.robot.config.control_hz
         self.cfg = robot_config(yaml.safe_load((root/'rby1m_holobase.yml').read_text()), sim, side, root, urdf)
         self.cfg['kinematics']['collision_spheres'] = yaml.safe_load((root/'rby1m_holobase_spheres.yml').read_text())['collision_spheres']
+
+    def arm_target(self, point):
+        return np.asarray(point)[3:10]
+
+    def height_target(self, point):
+        return float(point[10])
 
     def current_joints(self):
         from ..scenes.geometry import body_pose

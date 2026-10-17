@@ -48,13 +48,15 @@ MJB 是实际载入来源，需使用生成时的 MuJoCo 版本。XML 不是跨�
 
 ## 实际执行轨迹
 
-`rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl/state22` 为 N+1 个边界状态，`actions/requested_actions/phases` 为 N 个实际控制间隔。没有真实物理步就不伪造轨迹行。
+`rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl` 和本体状态数组为 N+1 个边界状态（RBY-1 为 `state22`，PandaOmron 为 `state`），`actions/requested_actions/phases` 为 N 个实际控制间隔。没有真实物理步就不伪造轨迹行。
 `phases` 在下发动作前设置，标明该实际间隔的执行阶段；MolmoBot 使用 `navigation/arrival/vla_operation`，不再用记录器的隐式 `operation` 默认值。
 `recording.json` 记录是否完整、步数和错误；事件用于诊断。RGB 图片默认保留，视频、深度、逐物理步日志按需选择。
 没有 canonical/raw 双份记录，也不保存独立 replay、final-state、outcome 或物理日志派生索引。
 
-机器人 20D 动作：底盘 `[0:3]`、左臂 `[3:10]`、左夹爪 `[10]`、右臂 `[11:18]`、右夹爪 `[18]`、躯干 `[19]`。
+RBY-1 的 20D 动作：底盘 `[0:3]`、左臂 `[3:10]`、左夹爪 `[10]`、右臂 `[11:18]`、右夹爪 `[18]`、躯干 `[19]`。
 底盘/手臂是增量，夹爪/躯干是绝对目标；机器人配置决定控制模式和合法范围。
+
+PandaOmron 使用语义 `base_xyyaw / lift / arm_q / gripper_width`，在记录边界按明确字段顺序展平为绝对目标；位置与开口单位 m，角度 rad，base 使用世界参考系。`recording.json` 的 `layout` 保存 state/action 字段、布局与 `state[t], action[t], state[t+1]` 时间约定；物化后的 `metadata.json` 同样保留。Panda 不填充左臂或头部，也不写 `state22`。不同本体布局分别读取 batch，运行步骤见 [Panda 指南](../reports/panda-omron/docs/panda-omron.md)。
 
 ## 结果含义
 

@@ -1,4 +1,4 @@
-"""成功示教视图、独立物化和原始 20D 动作训练 batch 读取。"""
+"""成功示教视图、按本体布局独立物化与真实控制窗口读取。"""
 from collections import Counter
 from pathlib import Path
 import shutil
@@ -40,7 +40,11 @@ def _copy_rollout(source, target, config, record):
         raise ValueError(f'incomplete or empty recording: {source}')
     with np.load(source / 'trajectory.npz', allow_pickle=False) as trace:
         n = recording['steps']
-        if (trace['actions'].shape != (n, 20) or trace['state22'].shape != (n + 1, 22)
+        layout = recording.get('layout') or {'state_key':'state22', 'action_size':20, 'state_size':22}
+        state_key = layout['state_key']
+        action_size = layout.get('action_size', len(layout.get('action_fields', [])))
+        state_size = layout.get('state_size', len(layout.get('state_fields', [])))
+        if (trace['actions'].shape != (n, action_size) or trace[state_key].shape != (n + 1, state_size)
                 or len(trace['phases']) != n or len(trace['time_s']) != n + 1):
             raise ValueError(f'trajectory boundaries do not match recording: {source}')
     target.mkdir(parents=True)
@@ -61,7 +65,8 @@ def _copy_rollout(source, target, config, record):
     write_json(target / 'metadata.json', {'cameras': cameras, 'record_depth': collection['record_depth'],
                'execution': config['config'], 'collection': collection,
                'profile': config['profiles'][record['scene_id']],
-               'action_layout': 'rby1-20d', 'state_layout': 'state22'})
+               'action_layout': layout.get('action_layout', 'rby1-20d'), 'state_layout': layout.get('state_layout', 'state22'),
+               'state_key': state_key, 'layout': layout})
 
 
 def materialize_lastmile(dataset, output):
@@ -78,7 +83,7 @@ def materialize_lastmile(dataset, output):
     if output.is_relative_to(dataset):
         raise ValueError('materialization output must be outside the input dataset')
     root = create_run(output, {'kind': 'materialized_lastmile', 'source': str(dataset),
-                               'action_layout': 'rby1-20d', 'source_config': source_config})
+                               'action_layout': 'per_rollout', 'source_config': source_config})
     copied, views, configs = {}, [], {}
     complete = False
     try:
@@ -138,12 +143,12 @@ def load_training_batch(dataset, indices, *, start=0, steps=16):
         if not rollout.resolve().is_relative_to(root):
             raise ValueError('training path escapes materialized dataset')
         metadata = read_json(rollout / 'metadata.json')
-        camera_sets.append((tuple(metadata['cameras']), metadata['record_depth']))
+        camera_sets.append((tuple(metadata['cameras']), metadata['record_depth'], metadata.get('state_layout', 'state22'), metadata.get('action_layout', 'rby1-20d')))
         with np.load(rollout / 'trajectory.npz', allow_pickle=False) as trace:
             if start + steps > len(trace['actions']):
                 raise ValueError('requested window exceeds actual executed actions')
             arrays.append({key: trace[key][start:start + steps].copy()
-                           for key in ('state22', 'actions', 'phases', 'time_s')})
+                           for key in (metadata.get('state_key', 'state22'), 'actions', 'phases', 'time_s')})
         for camera in metadata['cameras']:
             directory = rollout / 'images' / camera
             images.setdefault(camera, []).append(np.stack([
@@ -155,7 +160,7 @@ def load_training_batch(dataset, indices, *, start=0, steps=16):
         tasks.append(read_json(rollout / 'recording.json')['task'])
         sources.append(record['source_type'])
     if len(set(camera_sets)) != 1:
-        raise ValueError('batch observations have different camera/depth profiles')
+        raise ValueError('batch observations have different camera/depth or robot layouts')
     return {**{key: np.stack([item[key] for item in arrays]) for key in arrays[0]},
             'images': {key: np.stack(value) for key, value in images.items()},
             'depth': {key: np.stack(value) for key, value in depths.items()},

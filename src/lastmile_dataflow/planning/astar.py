@@ -75,7 +75,7 @@ def distance_field(grid, source_xy, limit):
     return distances
 
 
-def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=()):
+def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=.40):
     """Conservative PER-GEOM chassis-height raster; physical whole-body checks follow."""
     import mujoco
     from ..scenes.geometry import geom_points
@@ -98,7 +98,7 @@ def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, sup
         if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE:
             continue
         points = geom_points(sim,g); lo,hi = points.min(axis=0),points.max(axis=0)
-        if hi[2] <= .005 or lo[2] >= .40:
+        if hi[2] <= .005 or lo[2] >= robot_height:
             continue
         dx = np.maximum(np.maximum(lo[0]-xy[:,:,0],xy[:,:,0]-hi[0]),0.)
         dy = np.maximum(np.maximum(lo[1]-xy[:,:,1],xy[:,:,1]-hi[1]),0.)

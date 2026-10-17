@@ -47,38 +47,8 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     original = sim.data.qpos.copy()
     initial = copy.deepcopy(sim.robot.config.initial)
     xy = np.asarray(station['xy'])
-    initial['base'] = [*xy, float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))]
-    yaw_adjustments=[]
-    def legal_initial_yaw(value):
-        from ...runtime.control.action_limits import project, yaw_interval, ANGULAR_TOLERANCE_RAD
-        return project(value,yaw_interval(sim.robot),ANGULAR_TOLERANCE_RAD,'base_theta',yaw_adjustments)
-    initial['base'][2]=legal_initial_yaw(initial['base'][2])
-    initial['head'] = [0., .6]
-    sim.robot.initialize(initial)
-    cid = sim.model.camera(sim.robot.camera_names['head_camera']).id
-    # Camera -Z is forward; mounting offset is not assumed equal to base +X.
-    for _ in range(3):
-        forward = -sim.data.cam_xmat[cid].reshape(3,3)[:,2]
-        delta = np.asarray(anchor[:2])-sim.data.cam_xpos[cid,:2]
-        error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
-        initial['base'][2] = legal_initial_yaw(float((initial['base'][2]+error+np.pi)%(2*np.pi)-np.pi))
-        sim.robot.initialize(initial)
-    joint = sim.robot.joints['head_1']
-    low,high = sim.model.jnt_range[joint]
-    # Solve pitch from the ACTUAL optical axis, avoiding an expensive 25-pose scan
-    # per lattice point. The short numerical derivative also handles mount sign.
-    for _ in range(2):
-        forward=-sim.data.cam_xmat[cid].reshape(3,3)[:,2]
-        inclination=float(np.arctan2(forward[2],np.linalg.norm(forward[:2])))
-        delta=np.asarray(anchor)-sim.data.cam_xpos[cid]
-        desired=float(np.arctan2(delta[2],np.linalg.norm(delta[:2])))
-        pitch=initial['head'][1]; probe=min(high,pitch+.001)
-        if probe == pitch: probe=max(low,pitch-.001)
-        initial['head'][1]=float(probe); sim.robot.initialize(initial)
-        axis=-sim.data.cam_xmat[cid].reshape(3,3)[:,2]
-        slope=(float(np.arctan2(axis[2],np.linalg.norm(axis[:2])))-inclination)/(probe-pitch)
-        corrected=pitch+(desired-inclination)/slope if abs(slope)>.1 else pitch
-        initial['head'][1]=float(np.clip(corrected,low,high)); sim.robot.initialize(initial)
+    initial[sim.robot.initial_base_field] = [*xy, float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))]
+    yaw_adjustments = sim.robot.aim_station(initial, anchor)
     robot_q = set(sim.robot.addresses.values())
     mask = [i for i in range(sim.model.nq) if i not in robot_q]
     if not np.array_equal(original[mask],sim.data.qpos[mask]):
@@ -87,7 +57,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     ground = floor_support(sim,xy)
     finite = bool(np.isfinite(sim.data.qpos).all() and np.isfinite(sim.data.qvel).all())
     row = {**station, 'base': sim.robot.group('base').tolist(),
-           'head': sim.robot.group('head').tolist(), 'initial': initial,
+           'observation_camera': sim.robot.observation_camera, 'initial': initial,
            'geometry': 'valid' if ground and finite and not collisions else 'geometry_filtered',
            'ground': ground, 'collisions': collisions, 'non_robot_qpos_unchanged': True,
            'visibility': None, 'initial_yaw_adjustments':yaw_adjustments}
@@ -145,10 +115,10 @@ def park_robot(sim, anchor, config):
         if np.linalg.norm(xy - anchor[:2]) < config.radius_m + 1.25:
             continue
         initial = copy.deepcopy(sim.robot.config.initial)
-        initial['base'] = [*xy, float(rng.uniform(-3., 3.))]
+        initial[sim.robot.initial_base_field] = [*xy, float(rng.uniform(-3., 3.))]
         sim.robot.initialize(initial)
         valid = bool(floor_support(sim, xy) and not robot_contacts(sim))
-        trials.append({'base': initial['base'], 'valid': valid})
+        trials.append({'base': initial[sim.robot.initial_base_field], 'valid': valid})
         if valid:
             if not np.array_equal(source[source_mask], sim.data.qpos[source_mask]):
                 raise RuntimeError('parking changed source object state')
@@ -162,6 +132,14 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
     if frozen_stations is not None:
         stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
+    navigation_grid = None
+    if config.navigation_whole_body:
+        from ...planning.astar import scene_grid, task_support_obstacles
+        from ..tasks.discovery import robot_footprint
+        footprint = robot_footprint(sim, whole_body=True)
+        navigation_grid = scene_grid(sim, task['anchor_world'], config.radius_m, config.map_resolution_m,
+            footprint['radius_m'], config.navigation_margin_m, robot_height=footprint['max'][2],
+            support_obstacles=task_support_obstacles(sim, task))
     rows = []
     if stop_after_valid is not None and (not static_only or type(stop_after_valid) is not int or stop_after_valid <= 0):
         raise ValueError('early-stop is only for positive-budget static discovery')
@@ -176,6 +154,10 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
                                 for i, w in enumerate(probe.data.warning) if w.number > warning_before[i]]
                 row.update(independent_simulation=True, check_scope='static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
                            initialization_attempt_id=station['station_id'], new_solver_warnings=new_warnings)
+                if navigation_grid is not None and row['geometry'] == 'valid':
+                    cell = navigation_grid.cell(row['xy'])
+                    if cell is None or not navigation_grid.free[cell]:
+                        row.update(geometry='geometry_filtered', reason='conservative_navigation_clearance')
                 if new_warnings:
                     row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
                 if row['geometry'] != 'valid':

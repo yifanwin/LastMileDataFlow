@@ -203,6 +203,91 @@ class RBY1Adapter:
         return a
 
 
+    def aim_station(self, initial, anchor):
+        yaw_adjustments=[]
+        def legal_initial_yaw(value):
+            from .action_limits import project, yaw_interval, ANGULAR_TOLERANCE_RAD
+            return project(value,yaw_interval(self),ANGULAR_TOLERANCE_RAD,'base_theta',yaw_adjustments)
+        initial[self.initial_base_field][2]=legal_initial_yaw(initial[self.initial_base_field][2])
+        initial['head'] = [0., .6]
+        self.initialize(initial)
+        cid = self.model.camera(self.camera_names['head_camera']).id
+        # Camera -Z is forward; mounting offset is not assumed equal to base +X.
+        for _ in range(3):
+            forward = -self.data.cam_xmat[cid].reshape(3,3)[:,2]
+            delta = np.asarray(anchor[:2])-self.data.cam_xpos[cid,:2]
+            error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
+            initial[self.initial_base_field][2] = legal_initial_yaw(float((initial[self.initial_base_field][2]+error+np.pi)%(2*np.pi)-np.pi))
+            self.initialize(initial)
+        joint = self.joints['head_1']
+        low,high = self.model.jnt_range[joint]
+        # Solve pitch from the ACTUAL optical axis, avoiding an expensive 25-pose scan
+        # per lattice point. The short numerical derivative also handles mount sign.
+        for _ in range(2):
+            forward=-self.data.cam_xmat[cid].reshape(3,3)[:,2]
+            inclination=float(np.arctan2(forward[2],np.linalg.norm(forward[:2])))
+            delta=np.asarray(anchor)-self.data.cam_xpos[cid]
+            desired=float(np.arctan2(delta[2],np.linalg.norm(delta[:2])))
+            pitch=initial['head'][1]; probe=min(high,pitch+.001)
+            if probe == pitch: probe=max(low,pitch-.001)
+            initial['head'][1]=float(probe); self.initialize(initial)
+            axis=-self.data.cam_xmat[cid].reshape(3,3)[:,2]
+            slope=(float(np.arctan2(axis[2],np.linalg.norm(axis[:2])))-inclination)/(probe-pitch)
+            corrected=pitch+(desired-inclination)/slope if abs(slope)>.1 else pitch
+            initial['head'][1]=float(np.clip(corrected,low,high)); self.initialize(initial)
+        return yaw_adjustments
+
+    observation_camera = "head_camera"
+    base_body = "base"
+    initial_base_field = "base"
+    open_grip = -.05
+    semantic_control = False
+    plan_lift_before_close = True
+    lock_base_after_close = False
+
+    def copy_control_from(self, other):
+        from copy import deepcopy
+        self.fixed_head = other.fixed_head.copy()
+        self._hold_targets = deepcopy(getattr(other, "_hold_targets", None))
+
+    def snapshot_control(self):
+        return {"fixed_head": self.fixed_head.tolist()}
+
+    def restore_control(self, saved):
+        self.fixed_head = np.asarray(saved["fixed_head"])
+
+    def control_height(self):
+        from .torso_command import bounded_torso_command
+        return bounded_torso_command(float(self.neutral_action()[19]), self.config.torso_limits)
+
+    def execution_action(self, command):
+        return self._semantic_action(command)
+
+    def manipulation_command(self, side, q, grip, height, base=None):
+        a = self.neutral_action()
+        offset = {"left": 3, "right": 11}[side]
+        a[offset:offset+7] = np.asarray(q)-self.arm_positions(side)
+        a[{"left": 10, "right": 18}[side]] = grip
+        a[19] = height
+        for idle in self.arms:
+            if idle != side:
+                start = {'left': 3, 'right': 11}[idle]
+                a[start:start+7] = self._hold_targets[idle+'_arm']-self.arm_positions(idle)
+        if base is not None:
+            a[:3] = np.asarray(base)-self.base_pose()
+        return a
+
+    def record_layout(self):
+        return {"robot": self.config.name, "state_key": "state22", "state_layout": "state22",
+                "action_layout": "rby1-20d", "action_size": 20, "state_size": 22}
+
+    def record_state(self):
+        from ...data.export.molmobot_dataset import state22
+        return state22({g: {"position": self.group(g)} for g in self.groups})
+
+    def record_action(self, command):
+        return np.asarray(command, float)
+
     def planning_model(self, *args):
         from ...planning.rby1m_mobile_torso import PlanningModel
         return PlanningModel(*args)
