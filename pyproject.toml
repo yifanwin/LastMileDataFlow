@@ -26,6 +26,9 @@ dependencies = [
     "nvidia-curobo[cu12] @ git+https://github.com/NVlabs/curobo.git@v0.8.0",
 ]
 
+[project.optional-dependencies]
+panda-factory = ["scipy>=1.15", "numba>=0.61", "qpsolvers[quadprog]>=4", "opencv-python-headless>=4.11", "termcolor>=3", "tqdm>=4"]
+
 [project.scripts]
 lastmile-dataflow = "lastmile_dataflow.cli:main"
 
@@ -33,4 +36,5 @@ lastmile-dataflow = "lastmile_dataflow.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"lastmile_dataflow.planning" = ["assets/panda_omron/*"]
 "lastmile_dataflow.policies.multitask" = ["LICENSE", "NOTICE"]

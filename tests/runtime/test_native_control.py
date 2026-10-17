@@ -54,6 +54,8 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(s.data.ctrl[index], 100)
         np.testing.assert_allclose(result["joint_targets"]["torso"], [0, 0.4, -0.8, 0.4, 0, 0])
         before = s.data.ctrl.copy()
+        s.robot.hold()
+        np.testing.assert_array_equal(s.data.ctrl, before)
         a[2] = float("nan")
         with self.assertRaises(InvalidAction):
             s.robot.apply(a)

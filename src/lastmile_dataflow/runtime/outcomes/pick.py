@@ -22,7 +22,7 @@ from .contacts import CONTACT_POLICY, SIMULATION_FAILURES
 
 # 任务成功阈值不可通过配置放宽。
 PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_m':.002,
-          'base_yaw_rad':np.deg2rad(.2),'torso_error_rad':.002,'head_error_rad':.002,
+          'base_yaw_rad':np.deg2rad(.2),'lift_hold_error_m':.002,'torso_error_rad':.002,'head_error_rad':.002,
           'idle_arm_error_rad':.002,'relative_translation_m':.01,
           'relative_rotation_rad':np.deg2rad(5),'max_sample_gap_s':.0041,
           'finger_force_min_n':1e-6, 'contact_policy':CONTACT_POLICY}
@@ -41,14 +41,17 @@ class PickMonitor:
     def __init__(self,sim,side, *, allowed_target_fingers=()):
         self.sim,self.side=sim,side
         # 机器人自身 body 集合 vs 目标（含其子部件）集合，用来区分“指-目标接触”和“环境接触”。
-        self.robot_bodies={b for b in range(sim.model.nbody) if sim.model.body(b).name.startswith('robot_0/')}
+        self.robot_bodies={b for b in range(sim.model.nbody) if sim.model.body(b).name.startswith(sim.robot.config.namespace)}
         self.target_bodies=descendants(sim.model,sim.target_id)
-        self.fingers={sim.model.body(f'robot_0/ee_finger_{side[0]}{i}').id for i in (1,2)}
-        self.allowed_target_fingers = self.fingers | set(allowed_target_fingers)
-        idle='right' if side=='left' else 'left'
-        self.initial={'base':sim.robot.group('base').tolist(),'head':sim.robot.group('head').tolist(),
-                      'idle_arm':sim.robot.group(idle+'_arm').tolist(),'target':sim.model.body(sim.target_id).name,
-                      'height_m':float(sim.data.xpos[sim.target_id,2]),'fingers':sorted(self.fingers)}
+        groups = sim.robot.finger_bodies(side)
+        self.fingers = {min(group) for group in groups}
+        self.finger_index = {body: min(group) for group in groups for body in group}
+        self.allowed_target_fingers = set(self.finger_index) | set(allowed_target_fingers)
+        self.initial = {"base": sim.robot.base_pose().tolist(),
+                        **sim.robot.holding_state(side),
+                        "target": sim.model.body(sim.target_id).name,
+                        "height_m": float(sim.data.xpos[sim.target_id, 2]),
+                        "fingers": sorted(self.fingers)}
         self.phase='torso_adjust'; self.command_h=0.
 
     def sample(self):
@@ -66,7 +69,9 @@ class PickMonitor:
             if ta!=tb:
                 # 目标 vs 其它：可能是指尖抓握、桌面支撑、或手指以外的机器人部位非法压目标
                 other=b if ta else a
-                if other in self.fingers and bearing: forces[other]=forces.get(other,0.)+float(f[0])
+                if other in self.finger_index and bearing:
+                    finger = self.finger_index[other]
+                    forces[finger] = forces.get(finger, 0.) + float(f[0])
                 elif other not in self.robot_bodies and bearing: support=True      # 目标仍被桌面支撑
                 elif other in self.robot_bodies and other not in self.allowed_target_fingers: contact_flags.append('nonfinger_target')
             elif ra and rb: contact_flags.append('self_collision')
@@ -76,12 +81,11 @@ class PickMonitor:
                 floor='floor' in m.geom(other_g).name.lower()
                 base='base' in m.body(rbod).name or 'wheel' in m.body(rbod).name
                 if not (floor and base): contact_flags.append('robot_environment_collision')
-        idle='right' if self.side=='left' else 'left'
         target=body_pose(sim,sim.target_id); tcp=tcp_pose(sim,self.side)
         # relative_pose = TCP^-1 · 目标，即“目标相对手爪”的位姿；滑移检测就看它是否稳定。
-        return {'time_s':float(d.time),'phase':self.phase,'command_h':float(self.command_h),
-                'base':sim.robot.group('base').tolist(),'torso':sim.robot.group('torso').tolist(),
-                'head':sim.robot.group('head').tolist(),'idle_arm':sim.robot.group(idle+'_arm').tolist(),
+        extra = {'command_h': float(self.command_h)} if 'torso' in self.initial else {}
+        return {'time_s':float(d.time),'phase':self.phase, **extra,
+                'base':sim.robot.base_pose().tolist(), **sim.robot.holding_state(self.side),
                 'target':m.body(sim.target_id).name,'height_m':float(d.xpos[sim.target_id,2]),
                 'support_contact':support,'finger_forces_n':{str(k):v for k,v in forces.items()},
                 'relative_pose':np.linalg.solve(tcp,target).tolist(),'illegal':sorted(set(illegal)),
@@ -100,10 +104,13 @@ def constraint_failure(row,initial, *, check_base=True,check_torso=True,check_id
     base=np.array(row['base']); delta=base-np.array(initial['base'])
     if check_base and (np.linalg.norm(delta[:2])>PROTOCOL['base_translation_m'] or abs(np.arctan2(np.sin(delta[2]),np.cos(delta[2])))>PROTOCOL['base_yaw_rad']): return 'base_drift'
     for key,tol in (('head','head_error_rad'),('idle_arm','idle_arm_error_rad')):
-        if key == 'idle_arm' and not check_idle: continue
+        if key not in initial or key == 'idle_arm' and not check_idle: continue
         if np.max(np.abs(np.array(row[key])-initial[key]))>PROTOCOL[tol]: return key+'_drift'
-    torso=np.array(row['torso']); h=torso[1] if row['phase']=='torso_adjust' else row['command_h']
-    if check_torso and np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
+    if check_torso and 'torso' in row:
+        torso=np.array(row['torso']); h=torso[1] if row['phase']=='torso_adjust' else row['command_h']
+        if np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
+    if 'lift' in initial and abs(row['lift']-initial['lift'])>PROTOCOL['lift_hold_error_m']:
+        return 'lift_drift'
     # Legacy contact labels remain readable, but no longer determine task failure.
     for issue in row['illegal']:
         if issue not in ('nonfinger_target','self_collision','robot_environment_collision',
@@ -119,7 +126,8 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     判定成功需要**同时满足**：两个指尖都承力、目标抬升 ≥ 5cm、目标已不靠桌面支撑，
     且上述状态连续保持 ≥ 2s（允许期间因滑移重开计时窗口）。
     """
-    required={'time_s','phase','command_h','base','torso','head','idle_arm','target','height_m','support_contact','finger_forces_n','relative_pose','illegal','sampler'}
+    required={'time_s','phase','base','target','height_m','support_contact','finger_forces_n','relative_pose','illegal','sampler'}
+    required |= {'lift'} if 'lift' in initial else {'command_h','torso','head','idle_arm'}
     # 先做“证据完整性”检查：字段缺失或采样器版本不对 → 这是设施问题，不是抓取失败。
     if not samples or any(not required<=set(r) or r['sampler']!='force-aware-v3' for r in samples):
         return {'status':'infrastructure_error','reason':'missing_physics_evidence'}
@@ -130,7 +138,7 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     start=None; reference=None; best=0.; max_lift=0.
     try:
         for r in samples:
-            numeric=np.r_[r['base'],r['torso'],r['head'],r['idle_arm'],r['height_m'],r['command_h']]
+            numeric=np.concatenate([np.atleast_1d(r[key]) for key in ('base','torso','head','idle_arm','lift','height_m','command_h') if key in r])
             pose=np.asarray(r['relative_pose']); forces={int(k):float(v) for k,v in r['finger_forces_n'].items()}
             # 数值合法性：四元数/旋转矩阵/力的非有限值或非法值都算证据无效。
             if (not np.isfinite(numeric).all() or pose.shape!=(4,4) or not np.isfinite(pose).all() or

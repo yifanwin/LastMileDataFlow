@@ -127,3 +127,47 @@ def minimum_mesh_query_dimension(max_radius, activation_distance=.01):
     if not np.isfinite(max_radius) or max_radius <= 0:
         raise ValueError('invalid collision radius')
     return 2*(max_radius + activation_distance + .01)
+
+
+class PlanningModel:
+    """Existing mobile torso model behind the common V2 description boundary."""
+    movable_base = True
+    fk_limits = (.001, .001)
+
+    def __init__(self, sim, config, side, path, workspace):
+        import yaml
+        from ..scenes.geometry import body_pose
+        from ..runtime.control.action_limits import local_yaw_bounds
+        self.sim, self.side = sim, side
+        self.fk_check_required = not sim.started
+        self.names = joint_names(side)
+        self.tcp_link = f'ee_{side}_tcp'
+        self.attached_link = 'attached_object_' + side
+        self.contact_links = [f'ee_finger_{side[0]}1', f'ee_finger_{side[0]}2']
+        self.base = body_pose(sim, sim.model.body(sim.robot.config.namespace+'base').id)
+        self.reference_yaw = float(sim.robot.group('base')[2])
+        center, radius = workspace
+        local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
+        self.bounds = {'base_x': (local[0]-radius, local[0]+radius),
+                       'base_y': (local[1]-radius, local[1]+radius),
+                       'base_theta': local_yaw_bounds(sim.robot, self.reference_yaw)}
+        root = Path(config.robot_planner_dir)
+        urdf = Path(path) / 'mobile_torso_mimic.urdf'
+        self.coupling = derive_urdf(root/'urdf/model_holobase.urdf', urdf, self.bounds, sim.robot.config.torso_limits)
+        self.h_step_limit = self.coupling['h_velocity_limit'] * config.time_dilation * .9 / sim.robot.config.control_hz
+        self.cfg = robot_config(yaml.safe_load((root/'rby1m_holobase.yml').read_text()), sim, side, root, urdf)
+        self.cfg['kinematics']['collision_spheres'] = yaml.safe_load((root/'rby1m_holobase_spheres.yml').read_text())['collision_spheres']
+
+    def current_joints(self):
+        from ..scenes.geometry import body_pose
+        relative = np.linalg.solve(self.base, body_pose(self.sim, self.sim.model.body(self.sim.robot.config.namespace+'base').id))
+        return np.r_[relative[:2, 3], float(self.sim.robot.group('base')[2])-self.reference_yaw,
+                     self.sim.robot.group(self.side+'_arm'), self.sim.robot.group('torso')[1]]
+
+    def base_target_world(self, point):
+        x, y, yaw = point[:3]
+        local = np.eye(4)
+        local[:2, 3] = [x, y]
+        local[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+        world = self.base @ local
+        return np.r_[world[:2, 3], self.reference_yaw+yaw]

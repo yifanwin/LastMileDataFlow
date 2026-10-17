@@ -9,7 +9,7 @@ import numpy as np
 from .action import InvalidAction, torso_joints, validate_action, vector
 
 
-def prepare_robot_spec(spec, config):
+def _prepare_rby1_spec(spec, config):
     """Adapt the in-memory robot spec; native grippers retain motor units."""
     native = config.control_profile == 'molmobot-native-v1'
     for side in ("left", "right"):
@@ -127,6 +127,7 @@ class RBY1Adapter:
             self.data.qpos[self.addresses[name]] = value
         self.data.qvel[:] = 0
         self.fixed_head = self.group("head")
+        self._hold_targets = None
         self.hold()
         mujoco.mj_forward(self.model, self.data)
 
@@ -145,18 +146,25 @@ class RBY1Adapter:
 
     def hold(self):
         """把当前实测关节值设为控制目标（原地保持，不产生新运动）。"""
-        targets = {g: self.group(g) for g in self.groups}
-        for side in ("left", "right"):
-            targets[side + "_gripper"] = targets[side + "_gripper"][:1]
-        self.data.ctrl[:] = self._controls(targets)
+        if getattr(self, "_hold_targets", None) is None:
+            self._hold_targets = {g: self.group(g) for g in self.groups}
+            for side in ("left", "right"):
+                self._hold_targets[side + "_gripper"] = self._hold_targets[side + "_gripper"][:1]
+        self.data.ctrl[:] = self._controls(self._hold_targets)
 
     def apply(self, value, *, fixed_base=False):
         """Map one validated action to joint targets, then atomically write ctrl.
         
         Fixed-base mode latches the first measured base target."""
+        from .interface import RobotCommand
+        if isinstance(value, RobotCommand):
+            value = self._semantic_action(value)
         if self.config.control_profile == 'molmobot-native-v1':
             from .native_actions import apply_native
-            return apply_native(self, value, fixed_base=fixed_base)
+            command = apply_native(self, value, fixed_base=fixed_base)
+            self._hold_targets = {g: np.asarray(q).copy() for g, q in
+                                  (command["joint_targets"] | command["motor_targets"]).items()}
+            return command
         a = validate_action(value, self.config, fixed_base=fixed_base)
         if fixed_base:
             if self._fixed_base_target is None:
@@ -175,6 +183,7 @@ class RBY1Adapter:
                 self._check_joint(name, q)
         ctrl = self._controls(targets)  # 全部验证完才原子下发，绝不部分修改或静默裁剪
         self.data.ctrl[:] = ctrl
+        self._hold_targets = {g: qs.copy() for g, qs in targets.items()}
         return {"submitted_action": a.tolist(),
                 "joint_targets": {k: v.tolist() for k, v in targets.items()},
                 "actuator_names": [self.model.actuator(i).name for i in range(self.model.nu)],
@@ -192,3 +201,63 @@ class RBY1Adapter:
         a[18] = self.data.ctrl[self.act_ids["right_finger_act"]]
         a[19] = self.data.ctrl[self.act_ids["link2_act"]]
         return a
+
+
+    def planning_model(self, *args):
+        from ...planning.rby1m_mobile_torso import PlanningModel
+        return PlanningModel(*args)
+
+    arms = ("left", "right")
+
+    def base_pose(self):
+        return self.group("base")
+
+    def arm_positions(self, arm):
+        return self.group(arm + "_arm")
+
+    def gripper_width(self, arm):
+        a, b = self.group(arm + "_gripper")
+        return float(b - a)
+
+    def tcp_site(self, arm):
+        return self.model.site(self.config.namespace + "ee_site_" + arm[0]).id
+
+    def finger_bodies(self, arm):
+        from ...scenes.geometry import descendants
+        return tuple(descendants(self.model, self.model.body(self.config.namespace +
+                     f"ee_finger_{arm[0]}{i}").id) for i in (1, 2))
+
+    def holding_state(self, arm):
+        idle = "right" if arm == "left" else "left"
+        return {"head": self.group("head").tolist(),
+                "idle_arm": self.group(idle+"_arm").tolist(),
+                "torso": self.group("torso").tolist()}
+
+    def _semantic_action(self, command):
+        if command.lift is not None:
+            raise InvalidAction("RBY-1 torso coupling is not a lift position")
+        action = self.neutral_action()
+        if command.base_xyyaw is not None:
+            action[:3] = np.asarray(command.base_xyyaw) - self.base_pose()
+        for arm, q in command.arm_q.items():
+            start = {"left": 3, "right": 11}[arm]
+            action[start:start+7] = np.asarray(q) - self.arm_positions(arm)
+        for arm, width in command.gripper_width.items():
+            if self.config.control_profile == "molmobot-native-v1":
+                raise InvalidAction("native motor command requires its original units")
+            action[{"left": 10, "right": 18}[arm]] = -float(width)/2
+        return action
+
+
+def adapter_class(config):
+    from .panda_omron import PandaOmronAdapter
+    return {"rby1m": RBY1Adapter, "panda_omron": PandaOmronAdapter}[config.name]
+
+
+def make_robot_adapter(model, data, config):
+    return adapter_class(config)(model, data, config)
+
+
+def prepare_robot_spec(spec, config):
+    from .panda_omron import prepare_spec
+    {"rby1m": _prepare_rby1_spec, "panda_omron": prepare_spec}[config.name](spec, config)

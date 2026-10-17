@@ -258,3 +258,40 @@ def planner_options(config,assets_dir,seed):
                            'max_candidates':config.max_grasp_candidates,
                            'robot_planner_dir':str(Path(assets_dir)/'robots/rby1m/curobo_config')})
 
+
+
+def semantic_tick(sim, command, *, sample=None, fixed_base=False):
+    """Shared physical stepping for semantic commands, independent of recorder."""
+    if not sim.started:
+        sim.begin()
+    def check():
+        failure = simulation_failure(sim)
+        if failure:
+            return {'valid': False, 'issues': [{'severity': 'error', 'code': failure}]}
+        if sample is not None:
+            mujoco.mj_forward(sim.model, sim.data)
+            sample()
+        return {'valid': True}
+    result, stop = sim.step(command, fixed_base=fixed_base, substep_check=check)
+    if stop:
+        raise OperationFailure(stop['issues'][0]['code'])
+    return result
+
+
+def follow_arm_points(sim, points, arm, width, *, sample=None, on_tick=None):
+    """Follow retimed arm targets through the same Simulation clock and controls."""
+    from ..control.interface import RobotCommand
+    for q in points:
+        command = RobotCommand(arm_q={arm: np.asarray(q)}, gripper_width={arm: width})
+        semantic_tick(sim, command, sample=sample, fixed_base=True)
+        if on_tick is not None:
+            on_tick()
+    goal = np.asarray(points[-1])
+    for _ in range(int(5 * sim.robot.config.control_hz)):
+        if np.max(np.abs(sim.robot.arm_positions(arm) - goal)) <= .02:
+            return
+        semantic_tick(sim, RobotCommand(arm_q={arm: goal}, gripper_width={arm: width}),
+                      sample=sample, fixed_base=True)
+        if on_tick is not None:
+            on_tick()
+    raise OperationFailure('arm_waypoint_timeout')

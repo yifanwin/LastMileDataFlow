@@ -1,4 +1,4 @@
-"""Pinned cuRoboV2 native grasp pipeline with 11D holobase/torso coupling."""
+"""Pinned cuRobo V2 grasp pipeline driven by the robot model description."""
 import importlib.metadata
 from pathlib import Path
 import time
@@ -8,8 +8,8 @@ from ..utils.io import write_json
 from ..utils.logging_config import trial_progress
 
 from .waypoints import PlanResult
-from ..scenes.geometry import body_pose, tcp_pose, pose7
-from .rby1m_mobile_torso import derive_urdf, robot_config, joint_names, ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
+from ..scenes.geometry import tcp_pose, pose7
+from .rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
 from .curobo_v2_costs import manager_type, fov_optimizer_configs
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
@@ -35,22 +35,16 @@ class V2Planner:
             raise RuntimeError('V2 requires CUDA')
         self.identity = verify_version()
         self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
-        self.names = joint_names(side)
-        self.base = body_pose(sim, sim.model.body('robot_0/base').id)
+        self.model = sim.robot.planning_model(sim, config, side, path, workspace)
+        self.names = self.model.names
+        self.base = self.model.base
         self.args = DeviceCfg()
         self.workspace = workspace
         center, radius = workspace
         local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
-        from ..runtime.control.action_limits import local_yaw_bounds
-        self.reference_yaw=float(sim.robot.group('base')[2])
-        bounds = {'base_x': (local[0]-radius, local[0]+radius),
-                  'base_y': (local[1]-radius, local[1]+radius), 'base_theta': local_yaw_bounds(sim.robot,self.reference_yaw)}
-        root = Path(config.robot_planner_dir)
-        urdf = self.path / 'mobile_torso_mimic.urdf'
-        coupling = derive_urdf(root/'urdf/model_holobase.urdf', urdf, bounds, sim.robot.config.torso_limits)
-        self.h_step_limit = coupling['h_velocity_limit'] * config.time_dilation * .9 / sim.robot.config.control_hz
-        cfg = robot_config(yaml.safe_load((root/'rby1m_holobase.yml').read_text()), sim, side, root, urdf)
-        cfg['kinematics']['collision_spheres'] = yaml.safe_load((root/'rby1m_holobase_spheres.yml').read_text())['collision_spheres']
+        self.reference_yaw = self.model.reference_yaw
+        self.h_step_limit = self.model.h_step_limit
+        bounds, coupling, cfg = self.model.bounds, self.model.coupling, self.model.cfg
         self.robot_cfg = cfg
         (self.path/'planner.yml').write_text(yaml.safe_dump(cfg, sort_keys=False))
         self.world_range = 2*radius+1.
@@ -58,21 +52,22 @@ class V2Planner:
         target = collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True)
         self.context = {'target_checker': SceneCollision.from_config(SceneCollisionCfg(
             device_cfg=self.args, scene_model=target, cache={'mesh': 2})),
-            'contact_links': [f'ee_finger_{side[0]}1', f'ee_finger_{side[0]}2'],
+            'contact_links': self.model.contact_links,
             'contact_allowed': False, 'attached': False,
-            'local_center': self.args.to_device(local), 'radius': radius}
+            'local_center': self.args.to_device(local), 'radius': radius, 'movable_base': self.model.movable_base}
         self.fov_log = []
-        self.fov_definition = camera_definition(sim, config.width, config.height)
-        self.fov_validator = SparseFOVValidator(sim, self.fov_definition, self.base_target_world, self.names,
-            min_depth=config.head_fov_min_depth_m)
+        self.fov_validator = None
         if config.head_fov_enabled:
+            self.fov_definition = camera_definition(sim, config.width, config.height)
+            self.fov_validator = SparseFOVValidator(sim, self.fov_definition, self.base_target_world, self.names,
+                min_depth=config.head_fov_min_depth_m)
             from curobo._src.types.robot import RobotCfg
             fov_cfg = camera_robot_config(cfg, self.fov_definition)
             self.context.update(fov_robot=RobotCfg.create(fov_cfg, device_cfg=self.args),
                 fov_cost=HeadFOVCost(self.fov_definition['tan_half_x'], self.fov_definition['tan_half_y'],
                     margin=config.head_fov_margin, min_depth=config.head_fov_min_depth_m, weight=config.head_fov_weight),
                 fov_target=self.args.to_device(np.linalg.solve(self.base, np.r_[sim.data.xpos[sim.target_id], 1.])[:3]),
-                fov_tcp_frame=f'ee_{side}_tcp', fov_attached_offset=None)
+                fov_tcp_frame=self.model.tcp_link, fov_attached_offset=None)
         owner = self
 
         class NativeGraspPlanner(MotionPlanner):
@@ -126,17 +121,18 @@ class V2Planner:
         # TrajOptSolver attribute. Use the tag's standalone native manager.
         from curobo._src.collision.attachment_manager import AttachmentManager
         self.attachment = AttachmentManager(self.motion.kinematics, self.motion.scene_collision_checker, self.args)
-        if set(self.motion.joint_names) != set(self.names) or self.motion.tool_frames != [f'ee_{side}_tcp']:
+        if set(self.motion.joint_names) != set(self.names) or self.motion.tool_frames != [self.model.tcp_link]:
             raise ValueError('unexpected degrees of freedom or auxiliary pose targets')
         self.pad_target_query_range()
         # Validate the real model/frame convention before any physical action.
-        fk = self.motion.compute_kinematics(self.state()).tool_poses.to_dict()[f'ee_{side}_tcp'].get_numpy_matrix().reshape(4, 4)
+        fk = self.motion.compute_kinematics(self.state()).tool_poses.to_dict()[self.model.tcp_link].get_numpy_matrix().reshape(4, 4)
         actual = np.linalg.solve(self.base, tcp_pose(sim, side))
         translation_error = float(np.linalg.norm(fk[:3, 3] - actual[:3, 3]))
         angle_error = float(np.arccos(np.clip((np.trace(fk[:3, :3].T @ actual[:3, :3])-1)/2, -1, 1)))
         write_json(self.path/'fk_check.json', {'translation_error_m': translation_error, 'rotation_error_rad': angle_error,
-            'scope':'initial calibration' if not sim.started else 'measured nonideal mimic tracking telemetry'})
-        if not sim.started and (translation_error > .001 or angle_error > .001):
+            'scope':'initial calibration' if not sim.started else 'measured FK alignment with tracking residuals'})
+        position_limit, rotation_limit = self.model.fk_limits
+        if self.model.fk_check_required and (translation_error > position_limit or angle_error > rotation_limit):
             raise ValueError(f'V2/MuJoCo FK mismatch {translation_error}m/{angle_error}rad')
         if config.head_fov_enabled:
             from curobo._src.robot.kinematics.kinematics import Kinematics
@@ -243,9 +239,7 @@ class V2Planner:
         self.motion.destroy()
 
     def current_joints(self):
-        relative = np.linalg.solve(self.base, body_pose(self.sim, self.sim.model.body('robot_0/base').id))
-        return np.r_[relative[:2, 3], float(self.sim.robot.group('base')[2])-self.reference_yaw,
-                     self.sim.robot.group(self.side+'_arm'), self.sim.robot.group('torso')[1]]
+        return self.model.current_joints()
 
     def state(self):
         from curobo.types import JointState
@@ -260,11 +254,7 @@ class V2Planner:
             quaternion=self.args.to_device(values[:, 3:]).view(1, 1, 1, len(values), 4))
 
     def base_target_world(self, point):
-        x, y, yaw = point[:3]
-        local = np.eye(4); local[:2, 3] = [x, y]
-        local[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
-        world = self.base @ local
-        return np.r_[world[:2, 3], self.reference_yaw+yaw]
+        return self.model.base_target_world(point)
 
     def points(self, trajectory, last=None):
         trajectory = trajectory.reorder(list(self.motion.joint_names))
@@ -314,10 +304,11 @@ class V2Planner:
 
     def detach(self):
         params = self.motion.kinematics.config.kinematics_config
-        params.reset_link_spheres('attached_object_'+self.side)
+        params.reset_link_spheres(self.model.attached_link)
         self.context['attached'] = False
         self.context['fov_attached_offset'] = None
-        self.fov_validator.attached_offset = None
+        if self.fov_validator is not None:
+            self.fov_validator.attached_offset = None
 
     def attach_target_geometry(self, state=None):
         import torch
@@ -339,11 +330,11 @@ class V2Planner:
             raise ValueError('empty carried-object fit')
         spheres = torch.cat((fit.centers, fit.radii[:, None]), dim=-1)
         state = self.state() if state is None else state
-        self.attachment.update(spheres, state, link_name='attached_object_'+self.side,
+        self.attachment.update(spheres, state, link_name=self.model.attached_link,
             world_objects_pose_offset=Pose.from_list([0,0,0,1,0,0,0], device_cfg=self.args))
         self.context['attached'] = True
         if self.config.head_fov_enabled:
-            tcp = self.motion.compute_kinematics(state).tool_poses.get_link_pose(f'ee_{self.side}_tcp', make_contiguous=True).get_matrix()
+            tcp = self.motion.compute_kinematics(state).tool_poses.get_link_pose(self.model.tcp_link, make_contiguous=True).get_matrix()
             target = self.context['fov_target']
             offset = (tcp[..., :3, :3].transpose(-1, -2) @ (target-tcp[..., :3, 3])[..., None]).squeeze(-1)
             self.context['fov_attached_offset'] = offset.detach().reshape(3)

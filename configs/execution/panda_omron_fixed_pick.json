@@ -1,0 +1,21 @@
+{
+  "data_root": "/data0/wenyifan/MoMaTrajGen/molmospaces_data",
+  "scene_xml": "assets/scenes/procthor-10k-val/val_103.xml",
+  "metadata": "assets/scenes/procthor-10k-val/val_103_metadata.json",
+  "assets_dir": "assets",
+  "target_asset": "Cup_30",
+  "source_object_id": "Cup|surface|2|28",
+  "base_xyyaw": [
+    6.55,
+    2.0988,
+    0.0
+  ],
+  "lift": 0.2,
+  "gripper_width": 0.08,
+  "max_candidates": 16,
+  "num_ik_seeds": 32,
+  "num_trajopt_seeds": 4,
+  "time_dilation": 0.5,
+  "approach_offset_m": 0.01,
+  "grasp_roll_rad": 1.5707963267948966
+}

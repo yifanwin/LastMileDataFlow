@@ -12,7 +12,7 @@ import numpy as np
 
 from ..config import read_config
 from ..utils.io import write_json
-from .control.robot import RBY1Adapter, prepare_robot_spec
+from .control.robot import make_robot_adapter, prepare_robot_spec
 from ..scenes.loading.source import instance_catalog, resolve_target
 from ..scenes.loading.mjcf import load_spec
 
@@ -26,7 +26,7 @@ class Simulation:
     def __init__(self, model, robot_config, catalog, target=None):
         self.model = model
         self.data = mujoco.MjData(model)
-        self.robot = RBY1Adapter(model, self.data, robot_config)
+        self.robot = make_robot_adapter(model, self.data, robot_config)
         self.catalog = catalog
         self.target_id = resolve_target(model, catalog, target)  # 目标 body 的数字 id
         self.started = False       # 是否已 begin()（连续执行纪律的开关）
@@ -246,7 +246,7 @@ class Simulation:
         return result
 
     def render(self, width, height):
-        """用机器人配置里的三台相机各渲染一帧 RGB（头相机 + 左右腕相机）。"""
+        """Render the actual configured robot cameras."""
         if self._raw_frame_cache is not None:
             time_s, w, h, frames = self._raw_frame_cache
             if time_s == float(self.data.time) and (w, h) == (width, height):
