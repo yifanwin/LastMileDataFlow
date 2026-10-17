@@ -29,6 +29,8 @@ reports/
 └── archives/                      # 已有历史归档
 ```
 
+当前主题：`build-lastmile-datasets/`、`benchmark/`（[困难 S0 benchmark 现状](benchmark/01-current-status.md)）、`panda-omron/`。
+
 - 新文档先确定所属主题，再放入对应分类目录；分类目录按需创建。
 - 尚未明确分类的文档先放在所属主题根目录，例如 `reports/build-lastmile-datasets/`，不另建 `other/`。
 - 已有 `REPORT.md` 和 [archives](archives/README.md) 暂时保留，不因本次分类规则批量搬迁历史文档。
