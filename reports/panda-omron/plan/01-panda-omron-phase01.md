@@ -1,13 +1,13 @@
 # PandaOmron 首期实施方案
 
-状态：draft  
+状态：done  
 日期：2026-10-17  
 替代：无  
 关联：[需求与验收](../requirement/01-panda-omron.md)、[方案编制结果](../delivery/phase_01/2026-10-17-panda-omron-plan.md)
 
 ## 1. 目标与实施顺序
 
-**交付由 robosuite factory 生成的整机、薄机器人接口、物理控制与相机、cuRobo V2 对齐，以及固定场景固定站位的一次真实 pick。** 本方案尚未执行，文中入口、配置及参数均为拟实施内容。
+**交付由 robosuite factory 生成的整机、薄机器人接口、物理控制与相机、cuRobo V2 对齐，以及固定场景固定站位的一次真实 pick。** 已在 `.worktrees/panda-omron-phase01`、分支 `feat/panda-omron-phase01` 完成首期实施与验收；实际结果见[实施报告](../delivery/phase_01/2026-10-17-panda-omron-implementation.md)。
 
 ```text
 环境/固定输入 → factory 整机 → 薄接口与 stepping → 控制/相机

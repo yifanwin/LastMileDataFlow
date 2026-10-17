@@ -154,9 +154,8 @@ def body_pose(sim,body):
 
 
 def tcp_pose(sim,side):
-    site=sim.model.site('robot_0/ee_site_'+side[0]).id
-    pose=np.eye(4); pose[:3,3]=sim.data.site_xpos[site]; pose[:3,:3]=sim.data.site_xmat[site].reshape(3,3)
-    return pose
+    from ..runtime.control.interface import tcp_matrix
+    return tcp_matrix(sim.robot, side)
 
 
 def pose7(matrix):

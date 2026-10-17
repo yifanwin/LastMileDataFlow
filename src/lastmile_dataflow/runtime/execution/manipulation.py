@@ -1,4 +1,4 @@
-"""Native grasp planning and real 20D execution; no scene edits or state resets."""
+"""Native grasp planning and semantic physical execution; no scene resets."""
 import copy
 import numpy as np
 from ...utils.io import write_json
@@ -7,6 +7,7 @@ from ...planning.curobo_v2 import V2Planner
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import evaluate_open
 from .checks import hold_pick, timed
+from dataclasses import replace
 
 
 def candidate_pool(ctx, candidates, seed, forced):
@@ -16,7 +17,13 @@ def candidate_pool(ctx, candidates, seed, forced):
         if not pool:
             raise ValueError('missing winning grasp')
         return pool[:ctx.config.max_grasp_candidates]
-    base = ctx.sim.robot.group('base')
+    if ctx.config.grasp_candidate_order == 'tcp_distance':
+        tcp = tcp_pose(ctx.sim, ctx.sim.robot.arms[0])
+        def distance(candidate):
+            pose = body_pose(ctx.sim, ctx.sim.model.body(candidate['body']).id) @ candidate['pose_local']
+            return float(np.linalg.norm(pose[:3,3]-tcp[:3,3]))
+        return sorted(candidates, key=distance)[:ctx.config.max_grasp_candidates]
+    base = ctx.sim.robot.base_pose()
     def score(c):
         goal = body_pose(ctx.sim, ctx.sim.model.body(c['body']).id) @ c['pose_local']
         vector = goal[:3, 3] - np.r_[base[:2], goal[2, 3]]
@@ -28,7 +35,7 @@ def candidate_pool(ctx, candidates, seed, forced):
 def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
     from .context import OperationFailure, planner_options
     pool = candidate_pool(ctx, candidates, seed, forced)
-    sides = [forced['arm']] if forced else (['left', 'right'] if seed % 2 == 0 else ['right', 'left'])
+    sides = [forced['arm']] if forced else (list(ctx.sim.robot.arms) if seed % 2 == 0 else list(reversed(ctx.sim.robot.arms)))
     sim = ctx.sim
     options = planner_options(ctx.config, assets_dir, seed)
     planner = None
@@ -56,11 +63,13 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
             for goal in goals:
                 goal[:3, 3] += goal[:3, 2] * ctx.config.approach_offset_m
+                angle = ctx.config.grasp_roll_rad
+                goal[:3,:3] = goal[:3,:3] @ np.array([[np.cos(angle),-np.sin(angle),0.],[np.sin(angle),np.cos(angle),0.],[0.,0.,1.]])
             if not goals:
                 raise OperationFailure('no_grasp_candidates')
             if task['operation'] == 'pick':
                 with timed(ctx, 'grasp_planning'):
-                    success, index, stages, diagnostic = planner.grasp(goals, query)
+                    success, index, stages, diagnostic = planner.grasp(goals, query, lift=sim.robot.plan_lift_before_close)
             else:
                 # A door handle is not lifted. Still use the native goal-set
                 # approach/grasp pipeline, with lift explicitly disabled.
@@ -76,11 +85,11 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         c = pool[index]
         goal = goals[index]
         pre = goal.copy(); pre[:3, 3] -= goal[:3, 2] * .08
-        ctx.monitor = PickMonitor(sim, side); ctx.fingers = ctx.monitor.fingers; ctx.samples = []
+        ctx.monitor = PickMonitor(sim, side); ctx.fingers = ctx.monitor.allowed_target_fingers; ctx.samples = []
         ctx.monitor.initial.update(workspace_center_xy=task['anchor_world'][:2], workspace_radius_m=ctx.config.radius_m)
         initial = copy.deepcopy(ctx.monitor.initial)
         ctx.pick_initial = initial if task['operation'] == 'pick' else None
-        ctx.active_control = {'arm': side, 'torso_h': float(sim.robot.group('torso')[1]), 'torso_mode': 'continuous_mimic',
+        ctx.active_control = {'arm': side, 'height_target': sim.robot.control_height(),
                               'grasp_row': c['row'], 'grasp_source': c['source'], 'seed': seed}
         write_json(ctx.recorder.path / 'task_evidence_initial.json',
                    {'operation': task['operation'], 'initial': initial, 'control': ctx.active_control})
@@ -90,10 +99,10 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             ctx.open_joint = int(sim.model.jnt_qposadr[j])
         ctx.begin()
         ctx.phase = 'pregrasp'
-        ctx.follow_points(planner, stages['pregrasp'], side, -.05, pre)
+        ctx.follow_points(planner, stages['pregrasp'], side, sim.robot.open_grip, pre)
         ctx.phase = 'approach'
-        ctx.follow_points(planner, stages['approach'], side, -.05, goal)
-        ctx.phase = 'close'; q = sim.robot.group(side + '_arm').copy()
+        ctx.follow_points(planner, stages['approach'], side, sim.robot.open_grip, goal)
+        ctx.phase = 'close'; q = sim.robot.arm_positions(side).copy()
         h = ctx.hold_torso_target()
         for _ in range(20):
             ctx.arm_tick(side, q, 0., h)
@@ -103,13 +112,15 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         directory = ctx.recorder.path / f'v080-closed-{ctx.plan_serial}-{side}'
         directory.mkdir(parents=True, exist_ok=True)
         with timed(ctx, 'planner_setup'):
-            planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
+            closed_options = replace(ctx.config, operation_base_mode='fixed') if sim.robot.lock_base_after_close else ctx.config
+            closed_options = planner_options(closed_options, assets_dir, seed)
+            planner = V2Planner(sim, closed_options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
         if task['operation'] == 'pick':
             write_json(ctx.recorder.path / 'attached_object.json', planner.attach_target_geometry())
             ctx.phase = 'lift_actual'
             lift = tcp_pose(sim, side).copy(); lift[2, 3] += .10
             ctx.follow(planner, lift, side, 0.)
-            ctx.phase = 'hold'; q = sim.robot.group(side + '_arm').copy(); h = ctx.hold_torso_target()
+            ctx.phase = 'hold'; q = sim.robot.arm_positions(side).copy(); h = ctx.hold_torso_target()
             verdict = hold_pick(ctx, side, q, h)
         else:
             if not ctx.samples or len(ctx.samples[-1]['finger_forces_n']) != 2:
@@ -136,11 +147,11 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
                 h = ctx.hold_torso_target()
                 if len(ctx.samples[-1]['finger_forces_n']) != 2:
                     raise OperationFailure('open_contact_lost')
-            ctx.phase = 'open_hold'; q = sim.robot.group(side + '_arm').copy()
+            ctx.phase = 'open_hold'; q = sim.robot.arm_positions(side).copy()
             for _ in range(int(np.ceil((ctx.config.open_hold_s + .1) * sim.robot.config.control_hz))):
                 ctx.arm_tick(side, q, 0., h)
             verdict = evaluate_open(task, ctx.samples, ctx.config.open_hold_s)
-        control = {'arm': side, 'torso_h': float(sim.robot.group('torso')[1]), 'torso_mode': 'continuous_mimic',
+        control = {'arm': side, 'height_target': sim.robot.control_height(),
                    'grasp_row': c['row'], 'grasp_source': c['source'], 'seed': seed}
         write_json(ctx.recorder.path / f'verdict-{len(ctx.plans)}.json', verdict)
         return verdict, control

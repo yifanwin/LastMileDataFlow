@@ -144,8 +144,9 @@ def _recovery_trials(baseline, scene, pairs, assets_dir, config, collection, roo
     current = [pair for pair in pairs if pair['scene_id'] == scene['scene_id']]
     if not current:
         return []
+    footprint = robot_footprint(baseline, whole_body=config.navigation_whole_body)
     grid = scene_grid(baseline, scene['task']['anchor_world'], config.radius_m, config.map_resolution_m,
-                      robot_footprint(baseline)['radius_m'], config.navigation_margin_m,
+                      footprint['radius_m'], config.navigation_margin_m, robot_height=footprint['max'][2] if config.navigation_whole_body else .4,
                       support_obstacles=task_support_obstacles(baseline, scene['task']))
     stations = {station['station_id']: station for station in scene['stations']}
     progress = Progress(logger)
@@ -229,7 +230,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     """对齐场景与执行配置，检查标定复用条件并创建运行目录。"""
     # 沿用数据集生成时的几何和传感器尺寸，保持采样与执行一致。
     geometry = read_config(Path(dataset) / 'config.json').get('geometry', {})
-    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m')
+    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m', 'navigation_whole_body')
     config = replace(config, **{key: geometry[key] for key in keys if key in geometry})
     collection = replace(collection, width=config.width, height=config.height, seed=config.seed,
                          output_dir=str(Path(output_dir).resolve()))
@@ -239,7 +240,8 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     # 检查场景控制模式，并生成各场景的执行配置档案。
     profiles = {}
     for scene in scenes:
-        robot = RobotConfig(**read_config(Path(scene['scene_path']) / 'config.json')['robot'])
+        from ..config import robot_config
+        robot = robot_config(read_config(Path(scene['scene_path']) / 'config.json')['robot'])
         if (robot.control_profile == 'molmobot-native-v1') != (config.operation_backend == 'molmobot'):
             raise ValueError('scene control profile incompatible with requested backend; construct an explicit matching scene')
         scene['robot_config'] = robot

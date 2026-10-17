@@ -45,15 +45,13 @@ class AttemptRecorder:
 
     @recording_operation
     def capture(self):
-        from .export.molmobot_dataset import state22
-
-        groups = {key: {'position': self.sim.robot.group(key)} for key in self.sim.robot.groups}
+        layout = self.sim.robot.record_layout()
         sample = {
             'time_s': float(self.sim.data.time),
             'qpos': self.sim.data.qpos.copy(),
             'qvel': self.sim.data.qvel.copy(),
             'ctrl': self.sim.data.ctrl.copy(),
-            'state22': state22(groups),
+            layout['state_key']: self.sim.robot.record_state(),
         }
         self.samples.append(sample)
         if self.collection['record_images']:
@@ -72,7 +70,7 @@ class AttemptRecorder:
 
     @recording_operation
     def executed(self, command):
-        self.actions.append(np.asarray(command['submitted_action'], float))
+        self.actions.append(self.sim.robot.record_action(command['submitted_action']))
         self.requested.append(np.asarray(self.requested_action, float))
         self.phases.append(self.phase)
         self.steps += 1
@@ -107,10 +105,12 @@ class AttemptRecorder:
             raise RuntimeError('rollout already finished')
         self.abort_close()
         if self.samples:
+            layout = self.sim.robot.record_layout()
+            size = layout.get('action_size', len(layout.get('action_fields', [])))
             arrays = {key: np.asarray([sample[key] for sample in self.samples]) for key in self.samples[0]}
             arrays.update(
-                actions=np.asarray(self.actions).reshape(-1, 20),
-                requested_actions=np.asarray(self.requested).reshape(-1, 20),
+                actions=np.asarray(self.actions).reshape(self.steps, size),
+                requested_actions=np.asarray(self.requested).reshape(self.steps, size),
                 phases=np.asarray(self.phases, dtype=str),
             )
             np.savez_compressed(self.path / 'trajectory.npz', **arrays)
@@ -136,6 +136,7 @@ class AttemptRecorder:
                 'complete': complete,
                 'errors': self.errors,
                 'controller_profile': self.sim.robot.config.control_profile if self.sim else None,
+                'layout': self.sim.robot.record_layout() if self.sim else None,
                 'task': self.config.get('task'),
                 'seed': self.config.get('seed'),
             },

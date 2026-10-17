@@ -1,0 +1,10 @@
+{
+  "data_root": "data",
+  "name": "panda_omron",
+  "model_path": "assets/robots/panda_omron/model.xml",
+  "namespace": "robot_0/",
+  "control_profile": "position-v1",
+  "control_hz": 20.0,
+  "physics_dt": 0.004,
+  "cameras": ["overview", "robot0_eye_in_hand"]
+}

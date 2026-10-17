@@ -33,14 +33,15 @@ def inspect_state(sim, config, *, initialization=False):
     if sim.robot is not None:
         # 躯干 6 个关节必须满足 [0,h,-2h,h,0,0] 的联动关系；偏离说明伺服跟不上或影子状态不一致。
         robot = sim.robot
-        torso = robot.group("torso")
-        expected = np.array([0., torso[1], -2 * torso[1], torso[1], 0., 0.])
-        if np.max(np.abs(torso - expected)) > config.feedback_warning_rad:
-            issues.append({"severity": "warning", "code": "torso_coupling_feedback",
-                           "actual": torso.tolist()})
-        # 头部锁定目标也应保持不变（头部没有动作维度）。
-        if np.max(np.abs(robot.group("head") - robot.fixed_head)) > config.feedback_warning_rad:
-            issues.append({"severity": "warning", "code": "head_feedback_drift"})
+        if 'torso' in robot.groups:
+            torso = robot.group("torso")
+            expected = np.array([0., torso[1], -2 * torso[1], torso[1], 0., 0.])
+            if np.max(np.abs(torso - expected)) > config.feedback_warning_rad:
+                issues.append({"severity": "warning", "code": "torso_coupling_feedback",
+                               "actual": torso.tolist()})
+            # 头部锁定目标也应保持不变（头部没有动作维度）。
+            if np.max(np.abs(robot.group("head") - robot.fixed_head)) > config.feedback_warning_rad:
+                issues.append({"severity": "warning", "code": "head_feedback_drift"})
     return {"valid": not any(i["severity"] == "error" for i in issues),
             "issues": issues, "contacts": contacts}
 

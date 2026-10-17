@@ -39,7 +39,8 @@ def augment_obstacles(config, output_dir, *, run_id, geometry_config=None, robot
 
     # 2. 加载未添加障碍物的基线场景，后续所有变体都以它为起点。
     if config.input_snapshot:
-        robot = RobotConfig(**read_config(Path(config.input_snapshot) / 'config.json')['robot'])
+        from ..config import robot_config as parse_robot_config
+        robot = parse_robot_config(read_config(Path(config.input_snapshot) / 'config.json')['robot'])
         baseline = Simulation.from_snapshot(config.input_snapshot, robot, target=config.target_instance)
     else:
         robot = robot_config or RobotConfig(

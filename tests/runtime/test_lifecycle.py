@@ -182,7 +182,7 @@ class RetryDirectoryTests(unittest.TestCase):
             timings={},
             recorder=SimpleNamespace(path=path),
             config=ExecutionConfig(),
-            sim=SimpleNamespace(model=Mock(), robot=Mock()),
+            sim=SimpleNamespace(model=Mock(), robot=Mock(control_height=Mock(return_value=0.), open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False)),
             plan_count=0,
             plan_serial=0,
             max_plans=10,
@@ -241,7 +241,7 @@ class RetryDirectoryTests(unittest.TestCase):
             planner.grasp.return_value = (True, 0, {"pregrasp": [], "approach": []}, {})
             candidate = {"body": "target", "pose_local": np.eye(4), "row": 0, "source": "fixture"}
             ctx.sim.robot.group.return_value = np.zeros(7)
-            monitor = SimpleNamespace(fingers=[], initial={})
+            monitor = SimpleNamespace(fingers=[], allowed_target_fingers=set(), initial={})
             with (
                 patch(
                     "lastmile_dataflow.runtime.execution.manipulation.candidate_pool",
@@ -278,7 +278,8 @@ class RetryDirectoryTests(unittest.TestCase):
             ctx.sim = SimpleNamespace(
                 model=Mock(),
                 robot=SimpleNamespace(
-                    config=SimpleNamespace(control_hz=20), group=Mock(return_value=np.zeros(7))
+                    config=SimpleNamespace(control_hz=20), group=Mock(return_value=np.zeros(7)),
+                    arm_positions=Mock(return_value=np.zeros(7)), control_height=lambda:0., open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False
                 ),
                 data=SimpleNamespace(qpos=np.zeros(1), xaxis=np.zeros((1, 3)), xanchor=np.zeros(3)),
             )
@@ -292,7 +293,7 @@ class RetryDirectoryTests(unittest.TestCase):
             planner = Mock()
             planner.grasp.return_value = (True, 0, {"pregrasp": [], "approach": []}, {})
             candidate = {"body": "target", "pose_local": np.eye(4), "row": 0, "source": "fixture"}
-            monitor = SimpleNamespace(fingers=[], initial={})
+            monitor = SimpleNamespace(fingers=[], allowed_target_fingers=set(), initial={})
             task = {
                 "operation": "open",
                 "anchor_world": [0, 0, 0],

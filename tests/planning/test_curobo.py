@@ -121,13 +121,22 @@ class V2ModelTests(unittest.TestCase):
             ),
         )
         ctx = ContinuousContext.__new__(ContinuousContext)
+        from lastmile_dataflow.runtime.control.robot import RBY1Adapter
+        robot.arms = ('left', 'right')
+        groups['right_arm'] = np.zeros(7)
+        robot._hold_targets = groups
+        robot.base_pose = lambda: groups['base'].copy()
+        robot.arm_positions = lambda side: groups[side+'_arm'].copy()
+        robot.control_height = lambda: .3
+        robot.manipulation_command = lambda *a: RBY1Adapter.manipulation_command(robot, *a)
         ctx.sim = SimpleNamespace(robot=robot)
         ctx.config = ExecutionConfig()
         ctx.monitor = None
         actions = []
         ctx.tick = lambda a, **kw: actions.append(a)
         planner = SimpleNamespace(
-            names=joint_names("left"), h_step_limit=0.00125, base_target_world=lambda p: p[:3]
+            names=joint_names("left"), h_step_limit=0.00125, base_target_world=lambda p: p[:3],
+            model=SimpleNamespace(arm_target=lambda p:p[3:10], height_target=lambda p:p[10])
         )
         point = np.r_[0.1, 0, 0, np.full(7, 0.1), 0.4]
         scale = ctx.mobile_tick(planner, point, "left", -0.05)

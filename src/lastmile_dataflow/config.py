@@ -54,6 +54,51 @@ class RobotConfig:
 
 
 @dataclass(frozen=True)
+class PandaOmronConfig:
+    model_path: str
+    max_base_delta: float = .10
+    max_yaw_delta: float = .20
+    max_arm_delta: float = .20
+    observation_camera: str = "overview"
+    observation_position: tuple = (.1, 0., 1.65)
+    observation_xyaxes: tuple = (0., -1., 0., .2425356, 0., .9701425)
+    observation_fovy: float = 75.
+    name: str = "panda_omron"
+    namespace: str = "robot_0/"
+    control_profile: str = "position-v1"
+    control_hz: float = 20.0
+    physics_dt: float = 0.004
+    cameras: tuple = ("overview", "robot0_eye_in_hand")
+    gravity_compensation: bool = True
+    base_kp: tuple = (25000., 25000., 5000.)
+    base_kv: tuple = (1000., 1000., 1500.)
+    lift_kp: float = 50000.
+    lift_kv: float = 1000.
+    arm_kp: tuple = (4500., 4500., 3500., 3500., 2000., 2000., 2000.)
+    arm_kv: tuple = (450., 450., 350., 350., 200., 200., 200.)
+    initial: dict = field(default_factory=lambda: {
+        "base_xyyaw": [0., 0., 0.], "lift": 0.2,
+        "arm_q": {"right": [0., math.pi/16-.2, 0., -5*math.pi/6, 0., math.pi-.4, math.pi/4]},
+        "gripper_width": {"right": .08}})
+
+    def __post_init__(self):
+        if self.name != "panda_omron" or self.control_profile != "position-v1":
+            raise ValueError("PandaOmron requires position-v1")
+        if not 0 < self.control_hz * self.physics_dt <= 1:
+            raise ValueError("invalid PandaOmron control/physics rate")
+
+
+def robot_config(values):
+    """The sole config selection boundary; existing RobotConfig remains RBY-1."""
+    cls = {"rby1m": RobotConfig, "panda_omron": PandaOmronConfig}[values.get("name", "rby1m")]
+    return cls(**values)
+
+
+def load_robot_config(path):
+    return robot_config(read_config(path, data_fields=("model_path",)))
+
+
+@dataclass(frozen=True)
 class CollectionConfig:
     output_dir: str = "outputs"
     seed: int = 42

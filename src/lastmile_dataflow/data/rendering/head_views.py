@@ -8,7 +8,7 @@ from .edit_views import RenderError, ViewConfig
 
 
 def camera_state(sim):
-    name = sim.robot.camera_names['head_camera']
+    name = sim.robot.camera_names[sim.robot.observation_camera]
     camera = sim.model.camera(name).id
     return {'name': name, 'position': sim.data.cam_xpos[camera].tolist(),
             'rotation_matrix': sim.data.cam_xmat[camera].reshape(3, 3).tolist(),
@@ -22,7 +22,7 @@ def head_frame(sim, target, config=None, *, renderer=None):
     renderer = renderer or mujoco.Renderer(sim.model, height=config.height, width=config.width)
     try:
         renderer.disable_segmentation_rendering()
-        renderer.update_scene(sim.data, camera=sim.robot.camera_names['head_camera'])
+        renderer.update_scene(sim.data, camera=sim.robot.camera_names[sim.robot.observation_camera])
         rgb = renderer.render().copy()
         renderer.enable_segmentation_rendering()
         segmentation = renderer.render().copy()

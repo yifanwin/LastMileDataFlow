@@ -6,13 +6,14 @@ remainder and fixed head targets as well as the physical state.
 """
 from dataclasses import asdict
 from pathlib import Path
+import json
 
 import mujoco
 import numpy as np
 
 from ..config import read_config
 from ..utils.io import write_json
-from .control.robot import RBY1Adapter, prepare_robot_spec
+from .control.robot import make_robot_adapter, prepare_robot_spec
 from ..scenes.loading.source import instance_catalog, resolve_target
 from ..scenes.loading.mjcf import load_spec
 
@@ -26,7 +27,7 @@ class Simulation:
     def __init__(self, model, robot_config, catalog, target=None):
         self.model = model
         self.data = mujoco.MjData(model)
-        self.robot = RBY1Adapter(model, self.data, robot_config)
+        self.robot = make_robot_adapter(model, self.data, robot_config)
         self.catalog = catalog
         self.target_id = resolve_target(model, catalog, target)  # 目标 body 的数字 id
         self.started = False       # 是否已 begin()（连续执行纪律的开关）
@@ -107,7 +108,7 @@ class Simulation:
     def save_snapshot(self, path):
         with Path(path).open('xb') as stream:
             np.savez_compressed(stream, state=self.state_vector(), state_spec=int(self.state_spec),
-                                fixed_head=self.robot.fixed_head, clock_remainder=self._clock_remainder)
+                                control_json=json.dumps(self.robot.snapshot_control()), clock_remainder=self._clock_remainder)
 
     def restore_snapshot(self, path):
         if self.started or self.closed:
@@ -117,7 +118,10 @@ class Simulation:
             if state.shape != self.state_vector().shape or not np.isfinite(state).all():
                 raise ValueError('snapshot state does not match this model')
             mujoco.mj_setState(self.model, self.data, state, self.state_spec)
-            self.robot.fixed_head = saved['fixed_head'].copy()
+            if 'control_json' in saved:
+                self.robot.restore_control(json.loads(str(saved['control_json'])))
+            else:
+                self.robot.restore_control({"fixed_head": saved['fixed_head'].tolist()})
             self._clock_remainder = float(saved['clock_remainder'])
         mujoco.mj_forward(self.model, self.data)
 
@@ -178,7 +182,19 @@ class Simulation:
     def _submit(self, action, *, fixed_base=False, command_raw=None):
         command = self.robot.apply(action, fixed_base=fixed_base)
         if self.evidence_recorder:
-            self.evidence_recorder.requested_action = np.asarray(action if command_raw is None else command_raw).copy()
+            raw = action if command_raw is None else command_raw
+            from .control.interface import RobotCommand
+            if isinstance(raw, RobotCommand):
+                from dataclasses import asdict
+                if not isinstance(command['submitted_action'], dict):
+                    raw = self.robot.execution_action(raw)
+                else:
+                    raw = asdict(raw)
+                # Missing fields denote held targets, recorded as submitted absolute targets.
+                if isinstance(raw, dict):
+                    held = command['submitted_action']
+                    raw = {k: held[k] if v is None else ({**held[k], **v} if isinstance(v, dict) else v) for k,v in raw.items()}
+            self.evidence_recorder.requested_action = self.robot.record_action(raw)
         return command
 
     def _advance(self, command, tick_groups, substep_check):
@@ -246,7 +262,7 @@ class Simulation:
         return result
 
     def render(self, width, height):
-        """用机器人配置里的三台相机各渲染一帧 RGB（头相机 + 左右腕相机）。"""
+        """Render the actual configured robot cameras."""
         if self._raw_frame_cache is not None:
             time_s, w, h, frames = self._raw_frame_cache
             if time_s == float(self.data.time) and (w, h) == (width, height):

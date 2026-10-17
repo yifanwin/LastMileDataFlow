@@ -34,7 +34,8 @@ scripts/install.sh
 ## 当前边界
 
 - 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
-- 已有有限真实实验包含导航成功、规划无解与策略超时，**尚未验证成功操作示教和真实困难 S0 评测闭环**。
+- PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
+- Panda 的 MolmoBot/VLA 与 benchmark 尚未接入；既有 RBY-1 实验边界仍按原报告解释，不能用 Panda 的成功替代 RBY-1 的真实任务验证。
 - 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
 

@@ -16,6 +16,10 @@ class ExecutionConfig:
     planner_backend: str = 'curobo_v2_v080'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
+    initial_settle_s: float = 0.
+    grasp_roll_rad: float = 0.
+    grasp_candidate_order: str = "facing"
+    local_base_radius_m: float = .35
     third_person_enabled: bool = True
     head_fov_enabled: bool = True
     head_fov_margin: float = .9
@@ -31,6 +35,7 @@ class ExecutionConfig:
     smoothing_sigma_m: float | None = None
     smoothing_support_distance_m: float = .35
     navigation_margin_m: float = .02
+    navigation_whole_body: bool = False
     navigation_speed_m_s: float = .20
     navigation_yaw_speed_rad_s: float = .4
     arrival_tolerance_m: float = .015
@@ -70,6 +75,10 @@ class ExecutionConfig:
             raise ValueError('invalid head FOV margin')
         if not math.isfinite(self.head_fov_weight) or self.head_fov_weight <= 0:
             raise ValueError('invalid head FOV weight')
+        if self.grasp_candidate_order not in ('facing', 'tcp_distance'):
+            raise ValueError('unknown grasp candidate order')
+        if not math.isfinite(self.grasp_roll_rad) or not math.isfinite(self.initial_settle_s) or self.initial_settle_s < 0:
+            raise ValueError('invalid grasp roll/settling')
         if self.planner_backend != 'curobo_v2_v080':
             raise ValueError('unknown planner backend')
         if self.operation_retries > 1:
@@ -77,7 +86,7 @@ class ExecutionConfig:
         if self.max_attempts != 5:
             raise ValueError('V2 uses native plan_pose default max_attempts=5')
         base_mode = 'policy_relative' if self.operation_backend == 'molmobot' else 'holonomic_joint_planning'
-        if self.operation_base_mode != base_mode:
+        if self.operation_base_mode not in ((base_mode, 'fixed') if self.operation_backend == 'curobo' else (base_mode,)):
             raise ValueError('operation base mode does not match backend')
         if self.operation_backend == 'molmobot' and (self.width, self.height) != (1024, 576):
             raise ValueError('MolmoBot evaluation requires 1024x576')
@@ -91,7 +100,7 @@ class ExecutionConfig:
         for key in ('seed', 'operation_retries', 'max_s1_candidates'):
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError('invalid ' + key)
-        for key in ('lastmile_nearby_m', 'head_fov_min_depth_m', 'radius_m', 'map_resolution_m',
+        for key in ('local_base_radius_m', 'lastmile_nearby_m', 'head_fov_min_depth_m', 'radius_m', 'map_resolution_m',
                     'smoothing_support_distance_m', 'navigation_speed_m_s', 'navigation_yaw_speed_rad_s',
                     'arrival_tolerance_m', 'arrival_tolerance_rad', 'attempt_timeout_s', 'gripper_width_m',
                     'open_hinge_rad', 'open_slide_m', 'open_hold_s', 'open_waypoint_step_rad', 'open_waypoint_step_m'):

@@ -48,7 +48,13 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
     navigation={'status':'running' if path else 'not_requested'}; attribution=None; retries=[]
     execution_termination=None; task_outcome=None; verdict=None; exception_detail=None
     try:
-        if path: navigation=navigate(ctx,path,goal)
+        if path:
+            navigation=navigate(ctx,path,goal)
+        elif config.initial_settle_s:
+            from ..control.interface import RobotCommand
+            ctx.phase = 'settle'
+            for _ in range(int(np.ceil(config.initial_settle_s*sim.robot.config.control_hz))):
+                ctx.tick(RobotCommand())
         ctx.plan_count=0
         for retry in range((config.operation_retries if path else 0)+1):
             try:
@@ -66,7 +72,9 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
                 if np.linalg.norm(sim.data.xpos[sim.target_id]-np.asarray(initial[:3])) > .01: break
                 ctx.monitor=None; ctx.phase='retry_release'
                 for _ in range(10):
-                    a=sim.robot.neutral_action(); a[10]=a[18]=-.05; ctx.tick(a,fixed_base=False)
+                    from ..control.interface import RobotCommand
+                    command = RobotCommand(gripper_width={a: .08 for a in sim.robot.arms})
+                    ctx.tick(command)
                 ctx.plan_count=0
         if status != 'success' and attribution is None:
             attribution=attribute(reason,samples=ctx.samples,collisions=ctx.collisions)

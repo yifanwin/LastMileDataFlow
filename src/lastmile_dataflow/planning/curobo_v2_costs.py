@@ -56,7 +56,7 @@ def manager_type(context):
                 idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
                 value = self.target_cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
                 result.add(value, 'target_collision')
-            if self.config.scene_collision_cfg is not None:
+            if self.config.scene_collision_cfg is not None and context.get("movable_base", True):
                 xy = state.joint_state.position[..., [self.names.index('base_x'), self.names.index('base_y')]]
                 center = context['local_center']
                 gap = torch.clamp(torch.linalg.vector_norm(xy - center, dim=-1) - context['radius'], min=0.)

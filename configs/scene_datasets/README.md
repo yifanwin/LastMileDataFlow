@@ -77,3 +77,7 @@ v3 额外要求 pick 类型白名单和 Case1 桌/台支撑面；同时启用 Ca
 `rby1_position_head320.json` 中 `data_root`、`model_path`、`control_profile`、`control_hz`、`physics_dt`、`cameras` 的含义见 [robots](../robots/README.md)。该文件显式设置 `position-v1`；名称中的 head320 不设置分辨率，站位图像尺寸由 `station_config` 默认值决定。
 
 站位是机器人底盘候选位姿，不是点云点或抓取点。构造 accepted 只说明场景和站位通过相应检查，不证明机器人任务成功。
+
+## PandaOmron 配方
+
+`panda_omron_val103.json` 使用 Panda 移动配置，示例为 val103 Cup 的 Case2 小规模构建。`station_config.navigation_whole_body=true` 使采样和采集采用相同的整机保守通行几何；`max_pick_object_size_m` 是任务发现的物体尺寸粗筛上界，独立于实际 `gripper_width_m=0.08`。构建 accepted 与抓取成功分别判定。仅复验原场景完整采集时，可按 [Panda 指南](../../reports/panda-omron/docs/panda-omron.md) 准备不加障碍物的输入。
