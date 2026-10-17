@@ -29,7 +29,7 @@ reports/
 └── archives/                      # 已有历史归档
 ```
 
-当前主题：`build-lastmile-datasets/`、`benchmark/`（[困难 S0 benchmark 现状](benchmark/01-current-status.md)）、`panda-omron/`。
+当前主题：`build-lastmile-datasets/`、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。
 
 - 新文档先确定所属主题，再放入对应分类目录；分类目录按需创建。
 - 尚未明确分类的文档先放在所属主题根目录，例如 `reports/build-lastmile-datasets/`，不另建 `other/`。
