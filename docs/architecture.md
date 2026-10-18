@@ -108,15 +108,15 @@ flowchart TD
 
     CLI -->|build-bench| BENCH["lastmilebench.build"]
     DATASET -.-> BENCH
-    CAL -.->|完整且匹配的 native 标定| BENCH
-    BENCH --> NATIVE["困难 S0 与 native 场景"]
+    CAL -.->|既有 cuRobo 标定，允许底盘移动| BENCH
+    BENCH --> NATIVE["困难 S0、来源场景与隐藏恢复区域/路径"]
     CLI -->|evaluate-bench| POLICY["lastmilebench.evaluate"]
     NATIVE -.-> POLICY
-    POLICY --> RESULT["MolmoBot 独立执行与评测汇总"]
+    POLICY --> RESULT["MolmoBot 独立执行、底盘诊断与分组 Macro"]
 ```
 
 热图用于展示；S0/S1 配对和困难 S0 选择读取原始 trial，而不是平滑后的颜色。
-benchmark 图示为有完整标定的正常路径；未标定 smoke 不代表困难 S0 评测。
+benchmark 按来源计划使用完整站位的原始计数，不重新标定；构建不依赖策略或 native 场景转换。`data/evaluation/recovery.py` 负责共享区域和诊断，路径搜索复用 `planning/astar.py`。策略需要的 native 控制适配在评测初始化阶段进行；隐藏 oracle 不发送到策略进程。
 
 ## 连续采集：先标定，再在同一次 attempt 中导航和操作
 

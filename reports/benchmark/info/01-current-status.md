@@ -1,9 +1,11 @@
 # 困难 S0 benchmark 现状梳理
 
-状态：active
-日期：2026-10-17
-替代：无（首份现状文档，旧实测记录见 [归档 benchmark 报告](../archives/benchmark/REPORT.md)）
-关联：[运行手册](../../docs/运行手册.md)、[数据格式](../../docs/data-format.md)、[报告首页](../README.md)
+状态：superseded
+日期：2026-10-18
+替代：[v0.1 实施与构建记录](../delivery/phase_01/2026-10-18-build.md)
+关联：[运行手册](../../../docs/运行手册.md)、[数据格式](../../../docs/data-format.md)、[报告首页](../../README.md)
+
+本文保留 v0.1 实施前的源码与实测边界；本工作区后续实现、构建及评测状态以替代文档为准。
 
 **结论：两条命令 `build-bench` / `evaluate-bench` 的软件实现完整、判定与统计口径明确；但至今没有跑过带标定的正式困难 S0 评测。唯一真实运行是归档中的两条未标定 smoke，均以 600 s 墙钟超时结束，TSR 0/2，不能作为泛化或难度结论。**
 
@@ -79,7 +81,7 @@
 1. **关键缺口**：没有与 native 派生配置（motor 夹爪、1024×576、对应站位初始化）匹配的 cuRobo 站位成功率图，因此始终无法构建正式困难 S0 benchmark。补上该标定后重新 `build-bench` 才会替换 smoke 起点。
 2. 未运行带 `--calibration` 的正式构建与评测，未验证非空 benchmark 的端到端结果。
 3. 未验证成功操作示教与困难 S0 恢复能力；`--allow-uncalibrated-smoke` 只做启动检查。
-4. benchmark 仍绑定 RBY-1，PandaOmron 迁移（[panda-omron](../panda-omron/requirement/01-panda-omron.md)）尚未实施，迁移后需重建站点与标定。
+4. benchmark 仍绑定 RBY-1，PandaOmron 迁移（[panda-omron](../../panda-omron/requirement/01-panda-omron.md)）尚未实施，迁移后需重建站点与标定。
 
 软件边界已有测试覆盖（`tests/workflows/test_benchmark.py` 10 项、`tests/workflows/test_benchmark_progress.py` 2 项），只验证选择、计数、native 转换与汇总逻辑，**不代表真实任务成功**。
 

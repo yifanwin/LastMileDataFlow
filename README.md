@@ -28,14 +28,14 @@ scripts/install.sh
 | `build-scenes` | 发现任务、资格筛选、场景增强与站位采样，保存场景库 |
 | `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot，保存实测率与热图 |
 | `collect-lastmile` | 复用成功标定示教，执行 S0×S1 全组合；支持独立物化为自包含训练数据集 |
-| `build-bench` | 根据完整匹配标定构建困难 S0 benchmark |
-| `evaluate-bench` | 独立 MolmoBot 评测与覆盖率汇总 |
+| `build-bench` | 复用已有开放底盘标定，筛选 ≤20% 起点、≥60% 恢复区域与合法路径；可用 CPU |
+| `evaluate-bench` | 独立 MolmoBot 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
 
 ## 当前边界
 
 - 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
 - PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
-- Panda 的 MolmoBot/VLA 与 benchmark 尚未接入；既有 RBY-1 实验边界仍按原报告解释，不能用 Panda 的成功替代 RBY-1 的真实任务验证。
+- Panda 已支持从已有标定构建 benchmark，MolmoBot/VLA 评测尚未接入；构建结果和实际策略表现分别验收。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。
 - 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
 

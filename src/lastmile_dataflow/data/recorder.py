@@ -48,6 +48,7 @@ class AttemptRecorder:
         layout = self.sim.robot.record_layout()
         sample = {
             'time_s': float(self.sim.data.time),
+            'base_xyyaw': self.sim.robot.base_pose().copy(),
             'qpos': self.sim.data.qpos.copy(),
             'qvel': self.sim.data.qvel.copy(),
             'ctrl': self.sim.data.ctrl.copy(),

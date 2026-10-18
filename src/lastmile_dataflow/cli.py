@@ -42,24 +42,19 @@ def parser():
             command.add_argument('--calibration', type=Path)
     bench = commands.add_parser('build-bench')
     bench.add_argument('--dataset', required=True, type=Path)
-    bench.add_argument('--calibration', type=Path)
-    bench.add_argument('--allow-uncalibrated-smoke', action='store_true')
-    bench.add_argument('--starts-per-sample', type=int, default=1)
-    bench.add_argument('--seed', type=int, default=42)
-    bench.add_argument('--horizon', type=int, default=400)
-    bench.add_argument('--wall-timeout-s', type=float, default=600.)
-    bench.add_argument('--radius-m', type=float, default=1.5)
+    bench.add_argument('--calibration', required=True, type=Path)
+    bench.add_argument('--config', type=Path, default=Path('configs/benchmark/v0.1.json'))
     evaluate = commands.add_parser('evaluate-bench')
     evaluate.add_argument('--benchmark', required=True, type=Path)
+    evaluate.add_argument('--policy-config', required=True, type=Path)
     for command in (bench, evaluate):
         command.add_argument('--output', required=True, type=Path)
-        command.add_argument('--policy-config', required=True, type=Path)
     for command in (build, commands.choices['evaluate-stations'], commands.choices['collect-lastmile']):
         command.add_argument('--output-dir', type=Path, default=local.output_dir,
                              help='输出根目录；默认读取 configs/local.json，否则为 outputs')
         command.add_argument('--run-id', required=command is not build)
     for name, command in commands.choices.items():
-        command.add_argument('--gpu', required=name != 'collect-lastmile', type=int)
+        command.add_argument('--gpu', required=name not in ('collect-lastmile', 'build-bench'), type=int)
     return cli
 
 
@@ -72,11 +67,12 @@ def main(argv=None):
     if args.command == 'collect-lastmile' and not materializing and (args.gpu is None or args.assets_dir is None):
         cli.error('collect-lastmile --dataset requires --gpu and --assets-dir (or local assets_dir)')
     setup_logging()
-    logger.info('开始命令=%s GPU=%s', args.command, 'CPU' if materializing else args.gpu)
+    logger.info('开始命令=%s GPU=%s', args.command, 'CPU' if materializing or args.gpu is None else args.gpu)
     gpu_ids = [args.gpu]
     import os
-    if not materializing:
-        os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
+    if not materializing and args.gpu is not None:
+        os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu))
+        os.environ.setdefault('MUJOCO_GL', 'egl')
     if materializing:
         from .data.export.lastmile_dataset import materialize_lastmile
         output = materialize_lastmile(args.materialize_from, args.output_dir / args.run_id)
@@ -102,10 +98,8 @@ def main(argv=None):
             output = evaluate_stations(args.dataset, args.assets_dir, config, recording, args.output_dir, **options)
     elif args.command == 'build-bench':
         from .workflows.lastmilebench import build
-        output = build(args.dataset, args.output, args.policy_config, gpu_ids=gpu_ids,
-            starts_per_sample=args.starts_per_sample, calibration_dir=args.calibration,
-            allow_uncalibrated=args.allow_uncalibrated_smoke, seed=args.seed, horizon=args.horizon,
-            wall_timeout_s=args.wall_timeout_s, radius_m=args.radius_m)
+        output = build(args.dataset, args.output, calibration_dir=args.calibration,
+                       config_path=args.config, gpu_ids=gpu_ids)
     else:
         from .workflows.lastmilebench import evaluate
         output = evaluate(args.benchmark, args.output, args.policy_config, gpu_ids=gpu_ids,

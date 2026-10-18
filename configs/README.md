@@ -24,7 +24,8 @@
 | [scene_datasets](scene_datasets/README.md) | `build-scenes --config` | 场景库配方；内含共用机器人配置 |
 | [execution](execution/README.md) | `evaluate-stations / collect-lastmile --config` | 逐站位执行和标定 |
 | [lastmile_datasets](lastmile_datasets/README.md) | `collect-lastmile --config` | S0→S1→操作的连续采集参数 |
-| [policies](policies/README.md) | execution 的 `policy_config`；benchmark 的 `--policy-config` | MolmoBot 模型服务 |
+| [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot 模型服务 |
+| [benchmark](benchmark/README.md) | `build-bench --config` | 恢复区域、路径、≤20% / ≥60% 阈值及评测预算 |
 | [robots](robots/README.md) | 机器人加载器；构造时由场景配方引用具体文件 | 机器人模型与控制；评测读取快照中的机器人配置 |
 | [scene_eval](scene_eval/README.md) | `evaluate-stations --config` | 与 execution/MolmoBot 同参数的预设 |
 | [collection](collection/README.md) | Python `load_config(CollectionConfig, ...)` | 记录配置示例；当前 CLI 不直接加载此 JSON |

@@ -47,7 +47,7 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=<chosen-index> CASE_EDIT_RENDER_TESTS=1 \
 - `smoke/curobo_rollout.py`：指定场景和站位，执行一次真实规划/rollout。
 - `smoke/head_fov.py`：真实机器人模型上的 CUDA FOV 梯度与管理器隔离检查，不执行任务。
 - `smoke/multitask.py`：本地真实权重加载、pick/open 动作与 service/client；观测是合成的，不执行机器人。
-- `smoke/pipeline.py`：单场景逐点标定与连续采集；只有显式提供匹配的 native 标定才附加 benchmark。没有手工恢复配对、自动降级 smoke 或搬迁探针。
+- `smoke/pipeline.py`：单场景逐点标定与连续采集；只有显式提供来源 cuRobo 标定才附加 benchmark。没有手工恢复配对、自动降级 smoke 或搬迁探针。
 
 ```bash
 .venv/bin/python tests/smoke/pipeline.py \
@@ -56,7 +56,7 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=<chosen-index> CASE_EDIT_RENDER_TESTS=1 \
 ```
 
 pipeline 默认每站位两次试验，仍会遍历所选场景的全部站位；应先准备少量站位的输入。任务失败或没有合格配对都是有效负结果。
-若提供 `--native-calibration`，benchmark 使用整个输入数据集及该匹配标定；小规模检查应传单场景数据集。
+若提供 `--benchmark-calibration`，benchmark 使用整个输入数据集及该来源标定；小规模检查应传单场景数据集。
 详细任务结果读取 run 主记录，不能用脚本退出码或目录存在代替成功判定。
 
 ## PandaOmron

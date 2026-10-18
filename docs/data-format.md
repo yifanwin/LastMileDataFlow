@@ -9,6 +9,7 @@
 | lastmile 配对 | `pair_index.jsonl` | 全量 S0×S1 计划、导航难度及执行结果，包含未执行和无路径 |
 | lastmile 训练入口 | `train_index.jsonl` | 两类成功完整示教；引用型指向来源 run，物化后指向内部 rollout |
 | benchmark 定义 | `episodes.jsonl` | 场景、任务、困难起点、种子 |
+| benchmark 内部证据 | `oracle.json` | 每场景共享恢复区域、原始计数引用、可达路径、难度和分组；策略不可见 |
 | benchmark 执行 | `results.jsonl` | episode 对应结果、终止与记录完整性 |
 
 `config.json` 保存有效参数、种子、机器人/相机、后端或策略配置。`summary.json` 和热图是可重建的阅读产物，不作为协议入口。引用型生成读取原标定，不复制第二份 trials；独立物化仅复制训练索引所选的唯一轨迹与必需观测。
@@ -48,7 +49,7 @@ MJB 是实际载入来源，需使用生成时的 MuJoCo 版本。XML 不是跨�
 
 ## 实际执行轨迹
 
-`rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl` 和本体状态数组为 N+1 个边界状态（RBY-1 为 `state22`，PandaOmron 为 `state`），`actions/requested_actions/phases` 为 N 个实际控制间隔。没有真实物理步就不伪造轨迹行。
+`rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl/base_xyyaw` 和本体状态数组为 N+1 个边界状态（RBY-1 为 `state22`，PandaOmron 为 `state`），`actions/requested_actions/phases` 为 N 个实际控制间隔。`base_xyyaw` 是实测世界坐标 x/y/yaw，单位 m/rad；旧轨迹未记录该字段时恢复诊断为 unknown，不从数组下标猜测。没有真实物理步就不伪造轨迹行。
 `phases` 在下发动作前设置，标明该实际间隔的执行阶段；MolmoBot 使用 `navigation/arrival/vla_operation`，不再用记录器的隐式 `operation` 默认值。
 `recording.json` 记录是否完整、步数和错误；事件用于诊断。RGB 图片默认保留，视频、深度、逐物理步日志按需选择。
 没有 canonical/raw 双份记录，也不保存独立 replay、final-state、outcome 或物理日志派生索引。
@@ -59,6 +60,14 @@ RBY-1 的 20D 动作：底盘 `[0:3]`、左臂 `[3:10]`、左夹爪 `[10]`、右
 PandaOmron 使用语义 `base_xyyaw / lift / arm_q / gripper_width`，在记录边界按明确字段顺序展平为绝对目标；位置与开口单位 m，角度 rad，base 使用世界参考系。`recording.json` 的 `layout` 保存 state/action 字段、布局与 `state[t], action[t], state[t+1]` 时间约定；物化后的 `metadata.json` 同样保留。Panda 不填充左臂或头部，也不写 `state22`。不同本体布局分别读取 batch，运行步骤见 [Panda 指南](../reports/panda-omron/docs/panda-omron.md)。
 
 ## 结果含义
+
+Benchmark v0.1：每个合格 S0 一条 episode，不按 S0×S1 复制。标定开放底盘仍有效；≤20% / ≥60% 表示从初始站位启动的参考协议任务成功率。区域由高率初始站位构造，不从成功轨迹终点补造高率站位。
+
+`oracle.json` 的 `regions` 按 scene 保存网格、朝向、锚点、原始计数和局部 patch；`episodes` 按 episode ID 保存 case/task/failure_family、S0 计数及 difficulty。difficulty 包含 `path_length_m`、`euclidean_distance_m`、`detour_factor`、`recovery_ratio` 及分子/分母；欧氏距离为零时 detour 为 null。区域近似不是连续空间的实测成功概率图。
+
+评测 `results.jsonl` 同时保存任务结论和 `recovery_success/recovery_first_time_s/base_path_length_m/final_displacement_m/max_displacement_m/base_yaw_travel_rad/final_yaw_delta_rad/max_yaw_delta_rad/effective_adjustment/diagnostic_status`。恢复结果独立于 TSR，轨迹缺失不当作恢复失败。
+
+`summary.json` 给出总体/分组 SR、覆盖率、`macro_by_case`（主 Macro）、`macro_by_task`、`macro_by_failure_family` 及恢复诊断覆盖率。分组有未知任务结果时正式 Macro 为 null；另报有效子集 SR，不移除未完成组。
 
 真实失败、规划无解、超时、初始化/记录/基础设施错误分开记录。逐点成败率只计算已完成的可评测试验；试验数未满不用于困难起点选择。导航成功不等于操作成功；记录完整也不等于任务成功。
 

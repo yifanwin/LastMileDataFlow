@@ -1,9 +1,11 @@
 # lastmile-bench v0.1 需求文档
 
-状态：draft
-日期：2026-10-17
+状态：active
+日期：2026-10-18
 替代：无（首版需求；现状记录不被本文替代）
 关联：[实施方案](../plan/01-lastmile-bench-v0.1.md)、[标定口径修订](../delivery/03-calibration-scope-correction.md)、[现状梳理](../info/01-current-status.md)、[本次整理记录](../delivery/01-requirements.md)、[lastmile-datasets 需求](../../build-lastmile-datasets/requirement/01-lastmile-datasets.md)
+
+实施结果见[2026-10-18 构建记录](../delivery/phase_01/2026-10-18-build.md)。当前交付覆盖已有 Pick 数据的构建与 RBY-1 真实评测；Open 覆盖及 A8 成功恢复正例尚未验收，本文完整目标继续保留。
 
 ## 1. 目标与研究问题
 

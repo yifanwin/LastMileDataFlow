@@ -1,9 +1,11 @@
 # lastmile-bench v0.1 实施方案
 
-状态：draft
-日期：2026-10-17
+状态：active
+日期：2026-10-18
 替代：无（首版实施方案）
 关联：[需求](../requirement/01-lastmile-bench-v0.1.md)、[标定口径修订](../delivery/03-calibration-scope-correction.md)、[现状](../info/01-current-status.md)、[方案整理记录](../delivery/02-implementation-plan.md)
+
+实施状态（2026-10-18）：P0/P1 已完成，P2 已在两个 RBY-1 episode 上实际执行并得到 0/2 成功；Panda 构建及导航区域进入已验证。没有 Open 来源标定，Panda VLA 与自主恢复成功正例未验收。实际交付见[实施与构建记录](../delivery/phase_01/2026-10-18-build.md)。
 
 ## 1. 实施目标与默认范围
 
