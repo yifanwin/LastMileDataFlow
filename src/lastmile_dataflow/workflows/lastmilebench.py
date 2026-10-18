@@ -25,6 +25,7 @@ from ..policies.molmobot import MolmoBotClient
 from ..policies.molmobot_config import load_policy_config
 from ..utils.io import create_run, read_json, rows, write_json, write_rows, append_row
 from ..utils.logging_config import Progress, trial_logging
+from ..data.visualization.benchmark import benchmark_view, evaluation_view
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,7 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
             'new_calibration_rollouts': 0, 'scenes': reports, 'elapsed_s': time.monotonic() - started})
         progress.update('benchmark 构建收尾 场景=%s/%s 已写入episode=%s 输出=%s',
                         len(reports), len(scenes), len(episodes), root, force=True)
+    benchmark_view(root)
     return root
 
 
@@ -219,10 +221,11 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
                     policy.config = replace(policy.config, task_horizon=settings.horizon)
                 config = ExecutionConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
                     policy_config=str(policy_path), width=1024, height=576, radius_m=saved['reference_execution']['radius_m'],
-                    attempt_timeout_s=settings.wall_timeout_s, third_person_enabled=False,
+                    attempt_timeout_s=settings.wall_timeout_s, third_person_enabled=True,
                     open_hold_s=saved['reference_execution'].get('open_hold_s', 1.))
                 collection = CollectionConfig(output_dir=str(root), width=1024, height=576, seed=episode['seed'],
-                    max_steps=settings.horizon, record_video=False)
+                    max_steps=settings.horizon, record_video=True, record_images=False,
+                    video_cameras={'head_camera': 'head', 'third_person_camera': 'third_person'})
                 with trial_logging(f'episode={eid} scene={episode["scene_id"]}', progress):
                     result = run_vla_attempt(sim, episode['task'], episode['station'], config, collection,
                         root=root, attempt_id=eid, seed=episode['seed'], policy=policy)
@@ -249,5 +252,6 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
         run_config = read_json(root / 'config.json')
         run_config['scene_profiles'] = profiles
         write_json(root / 'config.json', run_config)
+        evaluation_view(root)
         progress.update('benchmark 评测收尾 已记录episode=%s/%s 输出=%s', len(results), len(episodes), root, force=True)
     return root

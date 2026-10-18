@@ -90,3 +90,9 @@ MolmoBot 转换按需生成 `data.npz`，引用原图像。非原生控制模式
 `index.html` 引用 `previews/<scene_id>.png`，每个场景一张组合图，不生成散落子图。
 这些是只读派生预览，不是机器人相机输入，也不是操作成败证据。预览错误只在日志和页面展示，
 不改写主记录。补生成可覆盖派生图片和页面，不覆盖场景快照或采样记录。
+
+## Benchmark 可视化与视频
+
+`<benchmark>/visualization/` 输出每条 episode 的 `<episode_id>.png` 与 `summary.png`，仅含静态构建信息和私有 oracle。`<evaluation>/visualization/` 独立输出实际轨迹、结果和两个视角最终帧的组合 PNG。评测读 benchmark 原始数据，不回写 benchmark，也不依赖其图片是否已生成。不生成 HTML 或 JavaScript。
+
+评测 rollout 默认输出 `videos/head.mp4`、`videos/third_person.mp4`；录制器在初始状态及每个实际控制边界各捕获一次。`recording.json.videos` 按视角保存 `path`、`frames`、`fps`、`sample_times_s`、`source`。`source` 为 `live_render`、`recorded_images` 或 `recorded_state_reconstruction`。相机逐帧 PNG 不再默认输出于 benchmark 评测；其他采集流程保持各自配置。操作步骤见 [benchmark 指南](../reports/benchmark/docs/运行指南.md)。

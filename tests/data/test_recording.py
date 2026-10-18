@@ -79,6 +79,30 @@ class RecordingTests(unittest.TestCase):
             self.assertAlmostEqual(trajectory["time_s"][-1], 0.008)
         self.assertTrue(recorder.result["recording_complete"])
 
+    def test_selected_video_views_keep_one_shared_frame_clock(self):
+        from lastmile_dataflow.utils.io import read_json
+
+        recorder = self.recorder(record_images=False, record_video=True,
+            video_cameras={'head_camera': 'head', 'third_person_camera': 'third_person'})
+        frames = {k: np.zeros((32, 32, 3), dtype=np.uint8)
+                  for k in ('head_camera', 'third_person_camera', 'wrist_camera_l')}
+        writers = [Mock(), Mock()]
+        with (
+            patch('lastmile_dataflow.data.recorder.imageio.get_writer', side_effect=writers) as create,
+            patch.object(self.sim, 'render', return_value=frames),
+        ):
+            self.sim.begin()
+            recorder.video_frame(frames)
+            self.sim.step(self.sim.robot.neutral_action())
+            recorder.video_frame(frames)
+            recorder.finish('failure', 'fixture')
+        self.assertEqual([Path(c.args[0]).name for c in create.call_args_list], ['head.mp4', 'third_person.mp4'])
+        metadata = read_json(recorder.path / 'recording.json')['videos']
+        self.assertEqual(metadata['head']['sample_times_s'], metadata['third_person']['sample_times_s'])
+        self.assertEqual(metadata['head']['frames'], 2)
+        self.assertTrue(all(w.append_data.call_count == 2 for w in writers))
+        self.assertFalse((recorder.path / 'images').exists())
+
 
 class TrajectoryTests(DatasetTestCase):
     def test_single_live_trajectory_and_native_state_layout(self):

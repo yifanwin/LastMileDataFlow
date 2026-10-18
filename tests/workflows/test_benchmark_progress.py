@@ -43,9 +43,13 @@ class BenchmarkProgressTests(DatasetTestCase):
         oracle = read_json(root / 'oracle.json')
         self.assertEqual(set(oracle['episodes']), {e['episode_id'] for e in episodes})
         self.assertEqual(read_json(root / 'summary.json')['new_calibration_rollouts'], 0)
+        self.assertTrue((root / 'visualization' / 'summary.png').exists())
+        self.assertTrue((root / 'visualization' / 'e000000.png').exists())
+        self.assertFalse((root / 'visualization' / 'index.html').exists())
 
     def test_early_exit_keeps_full_plan_coverage_and_closes_policy(self):
         bench = self.make_benchmark()
+        original = {p.relative_to(bench): p.read_bytes() for p in bench.rglob('*') if p.is_file()}
         policy = Mock(config=self.policy_config)
         output = self.root / 'evaluation'
         with (
@@ -64,6 +68,8 @@ class BenchmarkProgressTests(DatasetTestCase):
         self.assertEqual(summary['coverage'], .5)
         self.assertIsNone(summary['task_success_rate'])
         self.assertIsNone(summary['macro_by_case'])
+        self.assertEqual(original, {p.relative_to(bench): p.read_bytes() for p in bench.rglob('*') if p.is_file()})
+        self.assertTrue((output / 'visualization' / 'summary.png').exists())
 
     def test_unsupported_robot_does_not_start_policy_or_fake_rollouts(self):
         bench = self.make_benchmark()

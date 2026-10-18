@@ -25,6 +25,7 @@ class AttemptRecorder:
         self.requested = []
         self.phases = []
         self.writers = {}
+        self.video_counts = {}
         self.errors = []
         self.phase = 'initialize'
         self.requested_action = None
@@ -55,7 +56,8 @@ class AttemptRecorder:
             layout['state_key']: self.sim.robot.record_state(),
         }
         self.samples.append(sample)
-        if self.collection['record_images']:
+        selected_video = self.collection['record_video'] and self.collection.get('video_cameras') is not None
+        if self.collection['record_images'] or selected_video:
             if self.collection['record_depth']:
                 sensors = self.sim.capture_sensors(self.width, self.height, depth=True)
                 frames = {key: value['rgb'] for key, value in sensors.items()}
@@ -67,7 +69,10 @@ class AttemptRecorder:
             else:
                 frames = self.sim.render(self.width, self.height)
             self.sim._raw_frame_cache = (sample['time_s'], self.width, self.height, frames)
-            self.observation(frames, step=self.steps)
+            if self.collection['record_images']:
+                self.observation(frames, step=self.steps)
+            if selected_video:
+                self.video_frame(frames)
 
     @recording_operation
     def executed(self, command):
@@ -89,16 +94,25 @@ class AttemptRecorder:
         if not self.collection['record_video']:
             return
         for camera, pixels in frames.items():
+            selected = self.collection.get('video_cameras')
+            if selected is not None and camera not in selected:
+                continue
+            name = selected[camera] if selected is not None else camera
+            # Selected raw views are captured once at each actual state boundary.
+            # Existing execution hooks may submit that same frame again.
+            if selected is not None and self.video_counts.get(name, 0) >= len(self.samples):
+                continue
             if camera not in self.writers:
                 directory = self.path / 'videos'
                 directory.mkdir(exist_ok=True)
                 self.writers[camera] = imageio.get_writer(
-                    directory / f'{camera}.mp4',
+                    directory / f'{name}.mp4',
                     fps=self.sim.robot.config.control_hz,
                     codec='libx264',
                     macro_block_size=2,
                 )
             self.writers[camera].append_data(pixels)
+            self.video_counts[name] = self.video_counts.get(name, 0) + 1
 
     @recording_operation
     def finish(self, status, reason):
@@ -140,6 +154,10 @@ class AttemptRecorder:
                 'layout': self.sim.robot.record_layout() if self.sim else None,
                 'task': self.config.get('task'),
                 'seed': self.config.get('seed'),
+                'videos': {name: {'path': f'videos/{name}.mp4', 'frames': count,
+                    'fps': self.sim.robot.config.control_hz,
+                    'sample_times_s': [s['time_s'] - self.samples[0]['time_s'] for s in self.samples[:count]],
+                    'source': 'live_render'} for name, count in self.video_counts.items()},
             },
         )
         self.finished = True

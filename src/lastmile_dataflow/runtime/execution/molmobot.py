@@ -62,7 +62,7 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
         monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=config.radius_m)
     samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
-    analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled else None
+    analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled and collection.video_cameras is None else None
     from ...data.recorder import open_trace
     physics = track_resource(open_trace(recorder.path/'physics.jsonl.gz', collection.record_physics))
     actions = track_resource(open_trace(recorder.path/'policy_actions.jsonl.gz', collection.record_physics))
@@ -135,9 +135,10 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
             'extrinsic_jitter':False,'fisheye':'upstream image_warping_utils, once in model process'})
         if sim.third_person_camera:
             write_json(recorder.path/'third_person_initial.json',sim.third_person_camera.metadata())
-        write_json(recorder.path/'analysis_video.json',{'style':'actual observer + wrist inset + measured facts',
-            'camera':'third_person_camera','dimensions':[1280,720],'planned_path':None,
-            'policy_input':False,'robot_videos':'raw 1024x576 RGB, pre-fisheye'})
+        if analysis is not None:
+            write_json(recorder.path/'analysis_video.json',{'style':'actual observer + wrist inset + measured facts',
+                'camera':'third_person_camera','dimensions':[1280,720],'planned_path':None,
+                'policy_input':False,'robot_videos':'raw 1024x576 RGB, pre-fisheye'})
         mark_episode_phase('execution')
         for step in range(policy.config.task_horizon):
             remaining=budget-(time.monotonic()-started)

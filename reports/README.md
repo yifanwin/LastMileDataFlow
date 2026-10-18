@@ -5,6 +5,7 @@
 
 ## 验证边界
 
+- benchmark 静态构建图与评测组合图已解耦，按最新要求输出 PNG；已有 RBY-1 两条 rollout 的 head / 第三人称共四个视频单独保留，见[图片交付](benchmark/delivery/phase_02/2026-10-18-png.md)。
 - lastmile-bench v0.1 已在独立工作区复用 6 组既有标定完成构建；当前 RBY-1 / Panda 输入分别得到 2 / 1 个 episode，实际导航与区域进入检查通过。RBY-1 Full policy TSR=0/2、Recovery=0/2、coverage=100%，见[实施与构建记录](benchmark/delivery/phase_01/2026-10-18-build.md)。来源标定允许底盘移动，没有重新标定；当前没有 Open 来源数据，Panda 的 VLA 尚未接入。
 
 - 第一轮有限真实实验已生成并重载增强场景，执行过 cuRobo V2 逐点规划和连续导航；没有得到成功操作示教。MolmoBot 逐点与单例 bench smoke 也未成功，不能视为困难评测完成。见 [真实实验记录](archives/第一轮精简/2026-10-14-refactor-light-step8-val103-cup30.md)。

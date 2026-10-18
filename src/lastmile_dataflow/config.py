@@ -107,6 +107,7 @@ class CollectionConfig:
     width: int = 320
     height: int = 240
     record_video: bool = True
+    video_cameras: dict[str, str] | None = None
     record_images: bool = True
     record_physics: bool = False
     record_depth: bool = False
