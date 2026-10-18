@@ -11,6 +11,8 @@ scripts/install.sh
 ```
 
 
+π0.5 使用项目内 `.venv-pi05`，安装与本体数据准备见 [π0.5 运行指南](../reports/pi05/docs/01-running.md)。
+
 ## 2. 数据目录与路径规则
 
 - 场景、资产、快照、权重、tokenizer 等数据路径相对于 `data_root`。

@@ -82,8 +82,8 @@ class PandaOmronConfig:
         "gripper_width": {"right": .08}})
 
     def __post_init__(self):
-        if self.name != "panda_omron" or self.control_profile != "position-v1":
-            raise ValueError("PandaOmron requires position-v1")
+        if self.name != "panda_omron" or self.control_profile not in ("position-v1", "robocasa-v1"):
+            raise ValueError("unsupported PandaOmron control profile")
         if not 0 < self.control_hz * self.physics_dt <= 1:
             raise ValueError("invalid PandaOmron control/physics rate")
 

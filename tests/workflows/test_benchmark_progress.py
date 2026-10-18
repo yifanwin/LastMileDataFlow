@@ -55,7 +55,8 @@ class BenchmarkProgressTests(DatasetTestCase):
         with (
             patch.object(workflow, 'load_policy_config', return_value=self.policy_config),
             patch.object(workflow, 'native_scene', side_effect=clone_preparation),
-            patch.object(workflow, 'MolmoBotClient', return_value=policy),
+            patch.object(workflow, 'backend', return_value='molmobot'),
+            patch.object(workflow, 'create_policy', return_value=policy),
             patch.object(workflow, 'run_vla_attempt', side_effect=[
                 {'status': 'success', 'reason': 'fixture', 'executed_steps': 1, 'recording_complete': True},
                 OSError('fixture write error')]),
@@ -77,7 +78,8 @@ class BenchmarkProgressTests(DatasetTestCase):
         with (
             patch.object(workflow, 'load_policy_config', return_value=self.policy_config),
             patch.object(workflow, 'robot_config', return_value=SimpleNamespace(name='panda_omron')),
-            patch.object(workflow, 'MolmoBotClient') as client,
+            patch.object(workflow, 'backend', return_value='molmobot'),
+            patch.object(workflow, 'create_policy') as client,
         ):
             workflow.evaluate(bench, output, 'unused-policy.json', gpu_ids=[0], log_dir=self.root / 'logs')
         client.assert_not_called()

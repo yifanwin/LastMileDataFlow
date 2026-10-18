@@ -121,6 +121,7 @@ def main():
     parser.add_argument('--stage', choices=['prepare','navigation','align-mobile'], default='prepare')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--robot', default='configs/robots/panda_omron_mobile.json')
     parser.add_argument('--case', type=Path, default=Path('configs/execution/panda_omron_fixed_pick.json'))
     parser.add_argument('--spacing', type=float, default=.4)
     parser.add_argument('--max-stations', type=int, default=6)
@@ -135,13 +136,13 @@ def main():
     from lastmile_dataflow.scenes.dataset_config import SceneStationConfig
     from lastmile_dataflow.utils.io import write_json, write_rows
     if args.stage == 'align-mobile':
-        return align_mobile(args.output, load_robot_config('configs/robots/panda_omron_mobile.json'))
+        return align_mobile(args.output, load_robot_config(args.robot))
     if args.stage == 'navigation':
-        return navigation(args.output, load_robot_config('configs/robots/panda_omron_mobile.json'))
+        return navigation(args.output, load_robot_config(args.robot))
     case = read_config(args.case, data_fields=('scene_xml','metadata','assets_dir'))
     objects = json.loads(Path(case['metadata']).read_text())['objects']
     target = next(name for name, row in objects.items() if row['asset_id']==case['target_asset'] and row['object_id']==case['source_object_id'])
-    config = load_robot_config('configs/robots/panda_omron_mobile.json')
+    config = load_robot_config(args.robot)
     initial = {**config.initial, 'base_xyyaw':case['base_xyyaw']}
     config = replace(config, initial=initial)
     source = SceneSource('val_103', case['scene_xml'], case['metadata'])

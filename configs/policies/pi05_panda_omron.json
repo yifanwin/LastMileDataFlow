@@ -1,0 +1,12 @@
+{
+  "backend": "pi05",
+  "embodiment": "panda_omron",
+  "data_root": "data",
+  "python": ".venv-pi05/bin/python",
+  "checkpoint": "/nas/wenyifan/models/pi05_pretrain_human300/multitask_learning/75000",
+  "tokenizer_path": "models/paligemma_tokenizer.model",
+  "norm_stats": "/nas/wenyifan/models/pi05_pretrain_human300/multitask_learning/75000/assets/norm_stats.json",
+  "normalization": "mean_std",
+  "replan_steps": 5,
+  "task_horizon": 400
+}

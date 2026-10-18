@@ -86,7 +86,7 @@ class TorsoCommandTests(unittest.TestCase):
                     warning=[],
                 )
                 robot = SimpleNamespace(
-                    config=SimpleNamespace(torso_limits=(0, 0.738)), group=lambda _: np.array([0, feedback])
+                    config=SimpleNamespace(torso_limits=(0, 0.738), control_profile='position-v1'), group=lambda _: np.array([0, feedback])
                 )
                 submitted = []
 

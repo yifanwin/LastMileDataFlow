@@ -1,0 +1,60 @@
+{
+  "data_root": "/data0/wenyifan/MoMaTrajGen/molmospaces_data",
+  "schema_version": "scene-dataset-recipe-v1",
+  "rule_version": "scene-cases-v3",
+  "dataset_dir": "assets/scenes/procthor-10k-val",
+  "asset_library": "assets/objects/thor",
+  "robot_config": "configs/robots/panda_omron_robocasa.json",
+  "houses": [
+    "val103"
+  ],
+  "input_snapshots": {},
+  "variants_per_case": 1,
+  "max_pick_targets_per_house": 1,
+  "max_open_targets_per_house": 1,
+  "cases": [
+    "Case1"
+  ],
+  "min_prefilter_points": 2,
+  "min_final_points": 3,
+  "station_selection": "coverage",
+  "max_final_stations": 3,
+  "seed": 42,
+  "max_candidates": 2400,
+  "max_physical_trials": 2,
+  "variant_timeout_s": 180.0,
+  "pick_target_types": [
+    "cup",
+    "mug",
+    "wine bottle",
+    "atomizer",
+    "salt shaker",
+    "pepper shaker",
+    "soap dispenser"
+  ],
+  "case1_support_types": [
+    "CounterTop",
+    "Table",
+    "DiningTable",
+    "CoffeeTable",
+    "SideTable",
+    "Desk"
+  ],
+  "targets": {
+    "val103": [
+      "Cup_30"
+    ]
+  },
+  "station_config": {
+    "radius_m": 1.6,
+    "spacing_m": 0.4,
+    "operations": [
+      "pick"
+    ],
+    "gripper_width_m": 0.08,
+    "max_pick_object_size_m": 0.2,
+    "navigation_whole_body": true,
+    "width": 256,
+    "height": 256
+  }
+}

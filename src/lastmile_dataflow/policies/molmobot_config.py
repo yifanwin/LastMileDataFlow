@@ -29,4 +29,7 @@ class MolmoBotConfig:
 
 
 def load_policy_config(path):
-    return MolmoBotConfig(**read_config(path, data_fields=('checkpoint', 'tokenizer_path'), repo_fields=('python',)))
+    values = read_config(path, data_fields=('checkpoint', 'tokenizer_path'), repo_fields=('python',))
+    if values.pop('backend', 'molmobot') != 'molmobot':
+        raise ValueError('expected molmobot policy config')
+    return MolmoBotConfig(**values)

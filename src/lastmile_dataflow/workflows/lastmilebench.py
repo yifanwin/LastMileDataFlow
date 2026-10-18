@@ -16,13 +16,12 @@ from ..planning.astar import scene_grid, task_support_obstacles
 from ..runtime.simulation import Simulation
 from ..runtime.execution_config import ExecutionConfig
 from ..runtime.construction.benchmark_scene import native_scene
-from ..runtime.execution.molmobot import run_vla_attempt
+from ..runtime.execution.vla import run_vla_attempt
 from ..scenes.dataset import load_scenes
 from ..scenes.stations.sampling import place_frozen_station, robot_contacts
 from ..scenes.stations.initialization import floor_support
 from ..scenes.tasks.discovery import robot_footprint
-from ..policies.molmobot import MolmoBotClient
-from ..policies.molmobot_config import load_policy_config
+from ..policies.config import load_policy_config, create_policy, backend, check_profile
 from ..utils.io import create_run, read_json, rows, write_json, write_rows, append_row
 from ..utils.logging_config import Progress, trial_logging
 from ..data.visualization.benchmark import benchmark_view, evaluation_view
@@ -188,6 +187,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
     oracle = read_json(benchmark / 'oracle.json')
     regions = {key: RecoveryRegion.from_dict(value) for key, value in oracle['regions'].items()}
     policy_config = load_policy_config(policy_path)
+    selected_backend = backend(policy_path)
     os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
     root = create_run(output, {'benchmark': str(benchmark), 'policy': asdict(policy_config),
                               'seed': settings.seed, 'horizon': settings.horizon, 'wall_timeout_s': settings.wall_timeout_s,
@@ -203,8 +203,9 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
             eid = episode['episode_id']
             snapshot = benchmark / episode['scene']
             robot = robot_config(read_json(snapshot / 'config.json')['robot'])
-            if robot.name != 'rby1m':
-                record = {'episode_id': eid, 'status': 'unsupported_policy', 'reason': 'MolmoBot RBY-1 policy does not support ' + robot.name,
+            supported = robot.name == (getattr(policy_config,'embodiment','rby1m'))
+            if not supported:
+                record = {'episode_id': eid, 'status': 'unsupported_policy', 'reason': selected_backend+' policy does not support ' + robot.name,
                           'recovery_success': None, 'recording_complete': False, 'executed_steps': 0}
                 append_row(root / 'results.jsonl', record)
                 results.append(record)
@@ -212,20 +213,25 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
             parent = sim = None
             try:
                 parent = Simulation.from_snapshot(snapshot, robot, target=episode['task']['target_body'])
-                sim = native_scene(parent)
+                if selected_backend == 'molmobot':
+                    sim = native_scene(parent)
+                else:
+                    check_profile(robot,'pi05',policy_path)
+                    sim,parent = parent,None
                 sim.scene_id = episode['scene_id']
                 profiles[episode['scene_id']] = asdict(sim.robot.config)
                 if policy is None:
-                    policy = MolmoBotClient(policy_path, logs / f'{root.name}-policy.log')
+                    policy = create_policy(policy_path, logs / f'{root.name}-policy.log')
                     from dataclasses import replace
                     policy.config = replace(policy.config, task_horizon=settings.horizon)
-                config = ExecutionConfig(operation_backend='molmobot', operation_base_mode='policy_relative',
-                    policy_config=str(policy_path), width=1024, height=576, radius_m=saved['reference_execution']['radius_m'],
+                width,height = (1024,576) if selected_backend == 'molmobot' else (saved['reference_execution']['width'],saved['reference_execution']['height'])
+                config = ExecutionConfig(operation_backend=selected_backend, operation_base_mode='policy_relative',
+                    policy_config=str(policy_path), width=width, height=height, radius_m=saved['reference_execution']['radius_m'],
                     attempt_timeout_s=settings.wall_timeout_s, third_person_enabled=True,
                     open_hold_s=saved['reference_execution'].get('open_hold_s', 1.))
-                collection = CollectionConfig(output_dir=str(root), width=1024, height=576, seed=episode['seed'],
+                collection = CollectionConfig(output_dir=str(root), width=width, height=height, seed=episode['seed'],
                     max_steps=settings.horizon, record_video=True, record_images=False,
-                    video_cameras={'head_camera': 'head', 'third_person_camera': 'third_person'})
+                    video_cameras={sim.robot.observation_camera: 'head' if selected_backend=='molmobot' else 'observation', 'third_person_camera': 'third_person'})
                 with trial_logging(f'episode={eid} scene={episode["scene_id"]}', progress):
                     result = run_vla_attempt(sim, episode['task'], episode['station'], config, collection,
                         root=root, attempt_id=eid, seed=episode['seed'], policy=policy)

@@ -2,13 +2,13 @@
 
 **场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
 
-规划使用 cuRobo V2（0.8.0），策略使用 MolmoBot，导航使用 A*。当前只有五个命令。
+规划使用 cuRobo V2（0.8.0），策略支持 MolmoBot / π0.5，导航使用 A*。当前只有五个命令。
 
 >什么是“最后一公里”任务：导航和操作的衔接段；机器人已到目标附近，但当前站位无法可靠完成操作，仍然需要通过 底盘移动的调整 来提高操作的成功率。
 
 ## 从这里开始
 
-1. [安装与数据准备](docs/setup.md)：一个 `.venv`，显式配置资产和权重位置。
+1. [安装与数据准备](docs/setup.md)：主环境 `.venv`，显式配置资产和权重位置；π0.5 使用项目 `.venv-pi05`。
 2. [运行手册](docs/运行手册.md)：五个命令、控制模式、标定复用和负结果。
 3. [代码结构](docs/architecture.md)：从 workflow 找到算法与实际执行。
 4. [数据格式](docs/data-format.md)：场景、trial、配对、训练索引和轨迹。
@@ -26,16 +26,17 @@ scripts/install.sh
 | 命令 | 用途 |
 |---|---|
 | `build-scenes` | 发现任务、资格筛选、场景增强与站位采样，保存场景库 |
-| `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot，保存实测率与热图 |
+| `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot / π0.5，保存实测率与热图 |
 | `collect-lastmile` | 复用成功标定示教，执行 S0×S1 全组合；支持独立物化为自包含训练数据集 |
 | `build-bench` | 复用已有开放底盘标定，筛选 ≤20% 起点、≥60% 恢复区域与合法路径；可用 CPU |
-| `evaluate-bench` | 独立 MolmoBot 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
+| `evaluate-bench` | 独立 MolmoBot / π0.5 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
 
 ## 当前边界
 
 - 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
 - PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
-- Panda 已支持从已有标定构建 benchmark，MolmoBot/VLA 评测尚未接入；构建结果和实际策略表现分别验收。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。
+- π0.5 已加入双本体适配与可选评测入口；Panda RoboCasa profile 已验证真权重推理和 cuRobo→FK→共用 controller 固定抓取。策略任务表现、批量 benchmark 与 RBY-1 微调分别验收，见 [π0.5 运行指南](reports/pi05/docs/01-running.md) 和 [构建报告](reports/pi05/delivery/03-implementation.md)。
+- Panda 已支持从已有标定构建 benchmark；原 position profile 的快照需要按 RoboCasa profile 重建后再供 Panda π0.5 使用。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。
 - 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
 

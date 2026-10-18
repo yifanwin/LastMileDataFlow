@@ -7,7 +7,7 @@
 1. 复制 `configs/local.example.json` 为 `configs/local.json`，填写本机 `assets_dir` 和 `output_dir`。该文件已被 Git 忽略；CLI 显式参数优先。
 2. 在场景、机器人和策略配置中填写 `data_root`，确认场景、对象、机器人 XML、权重和 tokenizer 已准备好。
 3. 在场景配方中修改 `houses`、`targets`、`cases` 和目标数/变体数，避免直接启动大规模构造。
-4. 选择 cuRobo 或 MolmoBot 执行配置；MolmoBot 还要配置权重、tokenizer 和本仓库解释器。
+4. 选择 cuRobo、MolmoBot 或 π0.5 执行配置；VLA 还要配置权重、tokenizer 和本仓库解释器。
 5. 运行时显式传数据集、唯一 `--run-id` 和 `--gpu`。先查看 GPU 0–7 的利用率和空闲显存，不固定卡号。
 
 `local.json` 只支持 `assets_dir` 和 `output_dir`，路径相对仓库根目录，也可用绝对路径；不改变其他配置的 `data_root`。
@@ -24,7 +24,7 @@
 | [scene_datasets](scene_datasets/README.md) | `build-scenes --config` | 场景库配方；内含共用机器人配置 |
 | [execution](execution/README.md) | `evaluate-stations / collect-lastmile --config` | 逐站位执行和标定 |
 | [lastmile_datasets](lastmile_datasets/README.md) | `collect-lastmile --config` | S0→S1→操作的连续采集参数 |
-| [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot 模型服务 |
+| [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot / π0.5 模型服务 |
 | [benchmark](benchmark/README.md) | `build-bench --config` | 恢复区域、路径、≤20% / ≥60% 阈值及评测预算 |
 | [robots](robots/README.md) | 机器人加载器；构造时由场景配方引用具体文件 | 机器人模型与控制；评测读取快照中的机器人配置 |
 | [scene_eval](scene_eval/README.md) | `evaluate-stations --config` | 与 execution/MolmoBot 同参数的预设 |

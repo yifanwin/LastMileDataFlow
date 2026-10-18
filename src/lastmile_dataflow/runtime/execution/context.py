@@ -94,7 +94,7 @@ class ContinuousContext:
     def tick(self,action,*,fixed_base=False):
         if isinstance(action, RobotCommand):
             action = self.sim.robot.execution_action(action)
-        semantic = isinstance(action, RobotCommand)
+        semantic = isinstance(action, RobotCommand) or self.sim.robot.config.control_profile == 'robocasa-v1'
         raw_action = copy.deepcopy(action) if semantic else np.asarray(action, dtype=float).copy()
         self.recorder.phase = self.phase
         action = raw_action
@@ -126,6 +126,8 @@ class ContinuousContext:
             contacts=contact_observations(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
             self.contact_stats.update(contacts)
             row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
+            if self.sim.robot.config.control_profile == 'robocasa-v1':
+                row['ctrl'] = self.sim.data.ctrl.tolist()
             # `record_only` protocol: a torso feedback excursion is telemetry, not a
             # stop condition. Only a gross violation (real loss of control) stops.
             if not semantic:
@@ -229,6 +231,9 @@ class ContinuousContext:
         if not positions: raise OperationFailure('empty_trajectory')
         if np.asarray(positions).shape[1:] != (len(planner.names),):
             raise ValueError('planner joint ordering mismatch')
+        if self.sim.robot.config.control_profile == 'robocasa-v1':
+            from .robocasa_tracking import follow_points
+            return follow_points(self,planner,positions,side,grip,goal)
         for point in positions:
             for _ in range(120):
                 if self.mobile_tick(planner, point, side, grip) <= 1.: break
@@ -281,6 +286,19 @@ def semantic_tick(sim, command, *, sample=None, fixed_base=False):
 def follow_arm_points(sim, points, arm, width, *, sample=None, on_tick=None):
     """Follow retimed arm targets through the same Simulation clock and controls."""
     from ..control.interface import RobotCommand
+    if sim.robot.config.control_profile == 'robocasa-v1':
+        from .robocasa_tracking import follow_points
+        base = sim.robot.base_pose().copy()
+        def tick(command):
+            semantic_tick(sim,command,sample=sample)
+            if on_tick is not None:
+                on_tick()
+        ctx = SimpleNamespace(sim=sim,tick=tick,
+            config=SimpleNamespace(arrival_tolerance_m=.015,arrival_tolerance_rad=.025),
+            yaw_gap=lambda a,b:float(np.arctan2(np.sin(a-b),np.cos(a-b))))
+        planner = SimpleNamespace(base_target_world=lambda p:base,
+                                  model=SimpleNamespace(arm_target=lambda p:np.asarray(p)))
+        return follow_points(ctx,planner,points,arm,width)
     for q in points:
         command = RobotCommand(arm_q={arm: np.asarray(q)}, gripper_width={arm: width})
         semantic_tick(sim, command, sample=sample, fixed_base=True)

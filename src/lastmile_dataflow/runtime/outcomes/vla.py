@@ -14,7 +14,7 @@ def constraint(row, initial):
 
 def evaluate(task, samples, initials, hold_s):
     verdicts = {}
-    for side in ('left', 'right'):
+    for side in samples:
         rows = samples[side]
         if task['operation'] == 'pick':
             verdicts[side] = evaluate_pick(rows, initials[side], constraint_checker=constraint)
@@ -27,4 +27,4 @@ def evaluate(task, samples, initials, hold_s):
     return {'status':status, 'reason':simulation_error if simulation_error else 'physical_'+task['operation'] if success else
             ('invalid_physics_evidence' if status=='infrastructure_error' else 'task_not_completed'),
             'winning_hand':success if status=='success' else None, 'hands':verdicts, 'protocol':PROTOCOL,
-            'torso_error_policy':'record_only', 'both_arms_commanded':True}
+            'torso_error_policy':'record_only', 'both_arms_commanded':len(samples)>1}

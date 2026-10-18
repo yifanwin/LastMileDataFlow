@@ -1,0 +1,12 @@
+{
+  "backend": "pi05",
+  "embodiment": "rby1m",
+  "data_root": ".",
+  "python": ".venv-pi05/bin/python",
+  "checkpoint": "/nas/models/pi05_base",
+  "tokenizer_path": "data/models/paligemma_tokenizer.model",
+  "norm_stats": "outputs/training/pi05-rby1-position/lerobot/assets/norm_stats.json",
+  "normalization": "quantile",
+  "replan_steps": 5,
+  "task_horizon": 400
+}
