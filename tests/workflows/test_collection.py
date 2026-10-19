@@ -20,6 +20,7 @@ from lastmile_dataflow.workflows.collection import (
     _recovery_trials,
     _plan_collection,
     _station_trials,
+    calibration_attempt_id,
     collect_lastmile,
     evaluate_stations,
 )
@@ -293,8 +294,7 @@ class CollectionTests(DatasetTestCase):
 
 
 class AttemptCounterTests(DatasetTestCase):
-    def test_attempt_counter_is_shared_across_scenes_without_file_scans(self):
-        ids = count()
+    def test_calibration_rollouts_are_named_by_station_and_trial(self):
         config = ExecutionConfig(trials_per_station=1)
         result = {"status": "failure", "reason": "fixture", "recording_complete": True}
         with (
@@ -302,17 +302,24 @@ class AttemptCounterTests(DatasetTestCase):
             patch("lastmile_dataflow.workflows.collection.grasp_candidates", return_value=[]),
             patch("lastmile_dataflow.workflows.collection.rows", side_effect=AssertionError("no scans")),
         ):
-            for scene_id in ("one", "two"):
+            for scene_id, prefix in (("one", "one-"), ("two", "two-")):
                 scene = {
                     "scene_id": scene_id,
+                    "attempt_prefix": prefix,
                     "task": {"task_id": "pick"},
-                    "stations": [{"station_id": "s0"}, {"station_id": "s1"}],
+                    "stations": [{"station_id": "S0000"}, {"station_id": "S0001"}],
                 }
-                _station_trials(None, scene, self.root, config, None, self.root, attempt_ids=ids)
+                _station_trials(None, scene, self.root, config, None, self.root)
         self.assertEqual(
             [call.kwargs["attempt_id"] for call in run.call_args_list],
-            ["r000000", "r000001", "r000002", "r000003"],
+            ["one-S0000/0", "one-S0001/0", "two-S0000/0", "two-S0001/0"],
         )
+
+    def test_single_scene_calibration_drops_the_scene_prefix(self):
+        self.assertEqual(calibration_attempt_id({"scene_id": "one", "attempt_prefix": ""}, {"station_id": "S0021"}, 1),
+                         "S0021/1")
+        self.assertEqual(calibration_attempt_id({"scene_id": "one", "attempt_prefix": "one-"}, {"station_id": "S0021"}, 1),
+                         "one-S0021/1")
 
 
 class PolicyBatchStopTests(unittest.TestCase):
@@ -327,7 +334,7 @@ class PolicyBatchStopTests(unittest.TestCase):
             self.assertLogs("lastmile_dataflow.workflows.collection", level="INFO") as logs,
         ):
             trials = _station_trials(None, scene, None, SimpleNamespace(seed=17, trials_per_station=2),
-                                     None, Path(tmp), budget=3, attempt_ids=count())
+                                     None, Path(tmp), budget=3)
             self.assertEqual(len(rows(Path(tmp) / "trials.jsonl")), 3)
         self.assertEqual([row["status"] for row in trials], [row["status"] for row in results])
         final = logs.records[-1]
@@ -346,7 +353,7 @@ class PolicyBatchStopTests(unittest.TestCase):
                 self.assertLogs("lastmile_dataflow.workflows.collection", level="DEBUG") as logs,
             ):
                 result = _execute(None, scene, {"station_id": "S0"}, None, config, None,
-                                  Path("unused"), 17, attempt_ids=count())
+                                  Path("unused"), 17, attempt_id="S0000/0")
             self.assertEqual(result["status"], status)
             self.assertEqual(logs.records[-1].levelname, level)
 
@@ -367,7 +374,7 @@ class PolicyBatchStopTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             patch("lastmile_dataflow.workflows.collection._execute", return_value=result) as execute,
         ):
-            trials = _station_trials(None, scene, None, config, None, Path(tmp), attempt_ids=count())
+            trials = _station_trials(None, scene, None, config, None, Path(tmp))
             self.assertEqual(len(trials), 1)
             self.assertEqual(len(rows(Path(tmp) / "trials.jsonl")), 1)
             execute.assert_called_once()

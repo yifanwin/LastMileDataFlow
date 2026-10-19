@@ -35,10 +35,15 @@ def _trial_record(result, scene, station, trial, seed):
     return record
 
 
-def _execute(baseline, scene, station, assets_dir, config, collection, root, seed, policy=None, path=None, goal=None, *, attempt_ids):
-    # 分配本次运行内唯一的试验编号。
-    """调用指定后端执行一次试验，共用试验编号和记录链路。"""
-    attempt_id = f'r{next(attempt_ids):06d}'
+def calibration_attempt_id(scene, station, trial):
+    """标定 rollout 目录名：单场景为 S00xx/N；多场景加场景前缀，避免各场景同号站位撞名。"""
+    name = f'{station["station_id"]}/{trial}'
+    prefix = scene.get('attempt_prefix', '')
+    return prefix + name
+
+
+def _execute(baseline, scene, station, assets_dir, config, collection, root, seed, policy=None, path=None, goal=None, *, attempt_id):
+    """调用指定后端执行一次试验；rollout 目录名由调用方按语义给出。"""
     task = scene['task']
     logger.debug('试验开始 %s scene=%s station=%s backend=%s seed=%s',
                 attempt_id, scene['scene_id'], station['station_id'], config.operation_backend, seed)
@@ -61,7 +66,7 @@ def _execute(baseline, scene, station, assets_dir, config, collection, root, see
     return result
 
 
-def _station_trials(baseline, scene, assets_dir, config, collection, root, policy=None, budget=None, *, attempt_ids):
+def _station_trials(baseline, scene, assets_dir, config, collection, root, policy=None, budget=None):
     """逐站位重复标定，达到预算或发生共享资源故障时停止。"""
     trials = []
     total = len(scene['stations']) * config.trials_per_station
@@ -76,10 +81,11 @@ def _station_trials(baseline, scene, assets_dir, config, collection, root, polic
                     logger.warning('scene=%s 标定达到预算=%s，停止新增 trial', scene['scene_id'], budget)
                     return trials
                 seed = config.seed + index * config.trials_per_station + trial
+                attempt_id = calibration_attempt_id(scene, station, trial)
                 label = f"scene={scene['scene_id']} station={station['station_id']} trial={trial + 1}/{config.trials_per_station}"
                 with trial_logging(label, progress):
                     result = _execute(baseline, scene, station, assets_dir, config, collection, root,
-                                      seed, policy, attempt_ids=attempt_ids)
+                                      seed, policy, attempt_id=attempt_id)
                 record = _trial_record(result, scene, station, trial, seed)
                 append_row(root / 'trials.jsonl', record)
                 trials.append(record)
@@ -166,7 +172,8 @@ def _recovery_trials(baseline, scene, pairs, assets_dir, config, collection, roo
                         for left, right in zip(path['xy'], path['xy'][1:]))
                     pair.update(status='running', reason='attempt_started', navigation_steps=None)
                     result = _execute(baseline, scene, start, assets_dir, config, collection, root,
-                                      pair['seed'], path=path, goal=goal, attempt_ids=attempt_ids)
+                                      pair['seed'], path=path, goal=goal,
+                                      attempt_id=f'r{next(attempt_ids):06d}')
                     pair.update(_trial_record(result, scene, start, None, pair['seed']))
                     pair['navigation_steps'] = (result.get('navigation') or {}).get(
                         'steps', 0 if result.get('executed_steps') == 0 else None)
@@ -210,7 +217,7 @@ def _station_summary(sim, scene, trials, config, root):
 
 def _evaluate_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids):
     """完成单个场景的站位标定和汇总，不执行连续采集。"""
-    trials = _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials, attempt_ids=attempt_ids)
+    trials = _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials)
     summary = _station_summary(sim, scene, trials, config, root)
     summary['shared_failure'] = any(_shared_failure(row) for row in trials)
     return summary
@@ -238,6 +245,8 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     if not scenes:
         raise ValueError('no accepted scenes')
     # 检查场景控制模式，并生成各场景的执行配置档案。
+    # 多场景时站位号会重复，给标定 rollout 目录加场景前缀，避免同号撞名。
+    multi_scene = len(scenes) > 1
     profiles = {}
     for scene in scenes:
         from ..config import robot_config
@@ -245,6 +254,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
         if (robot.control_profile == 'molmobot-native-v1') != (config.operation_backend == 'molmobot'):
             raise ValueError('scene control profile incompatible with requested backend; construct an explicit matching scene')
         scene['robot_config'] = robot
+        scene['attempt_prefix'] = f'{scene["scene_id"]}-' if multi_scene else ''
         profiles[scene['scene_id']] = execution_profile(robot, config)
     prior = None
     # 仅复用执行配置及各场景执行档案均匹配的标定。
@@ -293,7 +303,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
                     sim.scene_id = scene['scene_id']
                     try:
                         current = _station_trials(sim, scene, assets_dir, config, collection, root,
-                                                  budget=max_trials, attempt_ids=attempt_ids)
+                                                  budget=max_trials)
                         prior.extend(current)
                     finally:
                         sim.close()
