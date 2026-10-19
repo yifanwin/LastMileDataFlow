@@ -19,8 +19,10 @@ def house_number(value):
 
 @dataclass(frozen=True)
 class SceneStationConfig:
-    radius_m: float = .7928056080178096
-    spacing_m: float = .1108796040001314
+    radius_m: float
+    spacing_m: float
+    require_target_visibility: bool = False
+    require_navigation_clearance: bool = False
     width: int = 320
     height: int = 240
     min_target_pixels: int = 24
@@ -34,6 +36,15 @@ class SceneStationConfig:
     open_fraction: float = .3
     open_hinge_rad: float = math.pi / 6
     open_slide_m: float = .10
+
+    @classmethod
+    def from_robot(cls, robot, **values):
+        values.setdefault('radius_m', robot.arm_working_reach_m)
+        if 'spacing_m' not in values:
+            values['spacing_m'] = robot.base_radius_m / 4 if robot.base_radius_m is not None else None
+        if values['radius_m'] is None or values['spacing_m'] is None:
+            raise ValueError('configure robot arm_working_reach_m and base_radius_m, or explicit sampling geometry')
+        return cls(**values)
 
     def __post_init__(self):
         for key in ('radius_m', 'spacing_m', 'map_resolution_m', 'gripper_width_m',
@@ -129,7 +140,10 @@ class SceneDatasetRecipe:
 
     @property
     def geometry(self):
-        return SceneStationConfig(**{**self.station_config, 'seed': self.seed})
+        values = {**self.station_config, 'seed': self.seed}
+        if 'radius_m' in values and 'spacing_m' in values:
+            return SceneStationConfig(**values)
+        return SceneStationConfig.from_robot(load_robot_config(self.robot_config), **values)
 
     def selectors(self, house):
         return [t for h, values in self.targets.items() if house_number(h) == house for t in values]

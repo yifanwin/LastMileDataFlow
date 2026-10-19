@@ -73,7 +73,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
         imageio.imwrite(evidence_path/'head.png',rgb)
         imageio.imwrite(evidence_path/'target_mask.png',mask.astype(np.uint8)*255)
         row['head_image']=str(evidence_path/'head.png')
-    if visible['visible_pixels'] < config.min_target_pixels:
+    if getattr(config, 'require_target_visibility', False) and visible['visible_pixels'] < config.min_target_pixels:
         row['geometry'] = 'visibility_filtered'
     return row
 
@@ -133,7 +133,7 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
         stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     navigation_grid = None
-    if config.navigation_whole_body:
+    if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
         from ...planning.astar import scene_grid, task_support_obstacles
         from ..tasks.discovery import robot_footprint
         footprint = robot_footprint(sim, whole_body=True)

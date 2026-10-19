@@ -230,7 +230,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     """对齐场景与执行配置，检查标定复用条件并创建运行目录。"""
     # 沿用数据集生成时的几何和传感器尺寸，保持采样与执行一致。
     geometry = read_config(Path(dataset) / 'config.json').get('geometry', {})
-    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m', 'navigation_whole_body')
+    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m', 'navigation_whole_body', 'require_target_visibility', 'require_navigation_clearance')
     config = replace(config, **{key: geometry[key] for key in keys if key in geometry})
     collection = replace(collection, width=config.width, height=config.height, seed=config.seed,
                          output_dir=str(Path(output_dir).resolve()))

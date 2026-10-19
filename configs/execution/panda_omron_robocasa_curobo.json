@@ -18,5 +18,7 @@
   "initial_settle_s": 1.0,
   "navigation_whole_body": true,
   "width": 256,
-  "height": 256
+  "height": 256,
+  "require_target_visibility": false,
+  "require_navigation_clearance": false
 }

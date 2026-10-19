@@ -6,5 +6,10 @@
   "control_profile": "position-v1",
   "control_hz": 20.0,
   "physics_dt": 0.004,
-  "cameras": ["overview", "robot0_eye_in_hand"]
+  "cameras": [
+    "overview",
+    "robot0_eye_in_hand"
+  ],
+  "arm_working_reach_m": 0.9410662914823394,
+  "base_radius_m": 0.4382921400162225
 }

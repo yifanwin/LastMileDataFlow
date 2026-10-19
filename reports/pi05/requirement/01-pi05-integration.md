@@ -145,3 +145,7 @@ Panda 的 zero-shot 指不使用当前目标任务数据更新权重；仍需要
 ## 实施阶段补充：RBY-1 训练数据
 
 用户已确认存在 RBY-1 position 示教，优先从当前或 refactor-light outputs 定位 materialized_lastmile；只有引用数据时先物化。直接从训练集计算 OpenPI state/action mean/std 与 q01/q99，并随 Rby1DataConfig 保存，不等待外部 norm_stats.json。转换保留 state22、rby1-20d、head/wrist RGB 和 task。本轮只完成数据准备与推理适配，正式微调另行执行。
+
+## 全量参考标定补充
+
+Panda-Omron 与 RBY-1 均需显式配置固定肩枢轴至 TCP 工作臂展、底盘及车轮外接圆半径；采样比例与 RBY 原规则统一。全量 cuRobo 标定覆盖所有物理合法站位，可见性只记录。具体依据、术语区别和配置职责见[双本体全量标定需求](02-embodiment-full-calibration.md)。

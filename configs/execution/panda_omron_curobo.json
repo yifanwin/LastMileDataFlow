@@ -16,5 +16,7 @@
   "gripper_width_m": 0.08,
   "third_person_enabled": false,
   "initial_settle_s": 1.0,
-  "navigation_whole_body": true
+  "navigation_whole_body": true,
+  "require_target_visibility": false,
+  "require_navigation_clearance": false
 }

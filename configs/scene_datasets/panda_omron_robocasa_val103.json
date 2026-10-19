@@ -18,7 +18,7 @@
   "min_prefilter_points": 2,
   "min_final_points": 3,
   "station_selection": "coverage",
-  "max_final_stations": 3,
+  "max_final_stations": 20,
   "seed": 42,
   "max_candidates": 2400,
   "max_physical_trials": 2,
@@ -46,8 +46,6 @@
     ]
   },
   "station_config": {
-    "radius_m": 1.6,
-    "spacing_m": 0.4,
     "operations": [
       "pick"
     ],
@@ -55,6 +53,8 @@
     "max_pick_object_size_m": 0.2,
     "navigation_whole_body": true,
     "width": 256,
-    "height": 256
+    "height": 256,
+    "require_target_visibility": false,
+    "require_navigation_clearance": false
   }
 }

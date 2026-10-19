@@ -6,6 +6,8 @@
 |---|---|
 | `data_root` | 数据根目录，相对仓库根目录或绝对路径 |
 | `model_path` | MuJoCo 机器人 XML，相对 data_root |
+| `arm_working_reach_m` | 固定肩枢轴到 TCP 工作臂展；站位圆盘半径使用此值 |
+| `base_radius_m` | 底盘含车轮的 XY 外接圆半径；站位网格间距为此值的四分之一 |
 | `control_hz` | 名义控制频率，当前 20 Hz，即 50 ms 控制周期 |
 | `physics_dt` | 物理积分步长，当前 0.004 秒，即 250 Hz |
 | `cameras` | 采集的模型相机名；当前头部、左腕、右腕；必须与 XML 名称匹配 |
@@ -19,3 +21,5 @@
 ## PandaOmron
 
 `panda_omron.json` 用于首期控制/固定 pick；`panda_omron_mobile.json` 用于站位与移动操作，增加固定前向相机和腕相机。`name=panda_omron` 选择单臂适配器，`initial` 使用 `base_xyyaw/lift/arm_q/gripper_width`，不使用 RBY 的 head/torso/双臂字段。`observation_camera` 选择站位筛选相机；安装参数为 `observation_position/observation_xyaxes/observation_fovy`。两者都加载 factory 导出的整机资产；生成与运行命令见 [Panda 指南](../../reports/panda-omron/docs/panda-omron.md)。
+
+当前 Panda 的臂展/底盘半径为 0.9410662915 / 0.4382921400 m，RBY-1 为 0.7928056080 / 0.4435184160 m。完整候选物理检查后，按场景配方 coverage 均匀保留最多 20 点；可见性只记录。测量与执行见[标定记录](../../reports/pi05/delivery/05-full-calibration-start.md)。

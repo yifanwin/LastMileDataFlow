@@ -129,7 +129,8 @@ class Simulation:
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None):
         frozen_dir = Path(frozen_dir)
         value = read_config(frozen_dir / 'config.json')
-        if read_json_value(asdict(robot_config)) != value['robot']:
+        from ..config import robot_config as parse_robot_config
+        if read_json_value(asdict(robot_config)) != read_json_value(asdict(parse_robot_config(value['robot']))):
             raise ValueError('snapshot robot configuration mismatch')
         if value['mujoco_version'] != mujoco.__version__:
             raise ValueError('use the saved MuJoCo version; cross-version XML reconstruction is not verified')

@@ -36,6 +36,8 @@ class ExecutionConfig:
     smoothing_support_distance_m: float = .35
     navigation_margin_m: float = .02
     navigation_whole_body: bool = False
+    require_target_visibility: bool = False
+    require_navigation_clearance: bool = False
     navigation_speed_m_s: float = .20
     navigation_yaw_speed_rad_s: float = .4
     arrival_tolerance_m: float = .015

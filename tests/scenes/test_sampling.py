@@ -8,9 +8,41 @@ import numpy as np
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.augmentation.selection import coverage_select
 from lastmile_dataflow.scenes.stations.sampling import disk_samples, sample_stations
+from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
 
 
 class SamplingTests(unittest.TestCase):
+    def test_invisible_physical_station_is_kept_and_visibility_recorded(self):
+        from types import SimpleNamespace
+        from lastmile_dataflow.scenes.stations.sampling import initialize_station
+        sim = SimpleNamespace(started=False, closed=False, target_id=0,
+            data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)), model=SimpleNamespace(nq=1, body=lambda _:SimpleNamespace(name='target')),
+            robot=SimpleNamespace(config=SimpleNamespace(initial={'base':[0,0,0]}), initial_base_field='base',
+                addresses={}, aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
+        config = SimpleNamespace(min_target_pixels=24, width=8, height=8, require_target_visibility=False)
+        with (patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts',return_value=[]),
+              patch('lastmile_dataflow.scenes.stations.sampling.floor_support',return_value=True),
+              patch('lastmile_dataflow.scenes.stations.sampling.head_frame',
+                    return_value=(None,None,{'visible_pixels':0}))):
+            row = initialize_station(sim,{'xy':[0,0]},[1,0,1],config)
+            self.assertEqual(row['geometry'],'valid')
+            self.assertEqual(row['visibility']['visible_pixels'],0)
+            config.require_target_visibility = True
+            self.assertEqual(initialize_station(sim,{'xy':[0,0]},[1,0,1],config)['geometry'],'visibility_filtered')
+
+    def test_embodiments_use_their_own_reach_and_base_quarter(self):
+        from lastmile_dataflow.config import load_robot_config
+        for recipe, robot in [('panda_omron_robocasa_val103','configs/robots/panda_omron_robocasa.json'),
+                              ('val103_cup30_minimal_v3','configs/scene_datasets/rby1_position_head320.json')]:
+            config = load_scene_recipe(f'configs/scene_datasets/{recipe}.json')
+            body = load_robot_config(robot)
+            self.assertEqual(config.geometry.radius_m, body.arm_working_reach_m)
+            self.assertEqual(config.geometry.spacing_m, body.base_radius_m/4)
+            self.assertEqual(config.station_selection, 'coverage')
+            self.assertEqual(config.max_final_stations, 20)
+            self.assertFalse(config.geometry.require_target_visibility)
+            self.assertFalse(config.geometry.require_navigation_clearance)
+
     def test_invalid_parameters_rejected(self):
         for changes in ({"spacing_m": 0}, {"trials_per_station": True}, {"operations": ["place"]}):
             with self.assertRaises(ValueError):

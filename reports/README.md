@@ -46,3 +46,9 @@ reports/
 - 尚未明确分类的文档先放在所属主题根目录，例如 `reports/build-lastmile-datasets/`，不另建 `other/`。
 - 已有 `REPORT.md` 和 [archives](archives/README.md) 暂时保留，不因本次分类规则批量搬迁历史文档。
 - 报告不作为运行输入；不新增报告附件索引，不在这里堆积视频、日志等运行产物。
+
+- [Panda π0.5 benchmark 首轮运行](pi05/delivery/04-panda-benchmark.md)：重建 RoboCasa profile 并完成 3 站位 × 2 标定，0/6 成功、无高率恢复站位；benchmark 为 0 episode，策略评测入口停止，未加载模型。
+
+- [双本体全量标定需求纠正](pi05/requirement/02-embodiment-full-calibration.md)：Panda-Omron / RBY-1 分别配置固定肩枢轴至 TCP 工作臂展 L 和底盘半径 B；按 RBY 原规则整理为半径 L、间距 B/4，可见性只记录；全部候选物理检查后，均匀保留最多 20 点完整标定。上轮 3 点结果仅为局部结果，新标定已启动。
+
+- 两本体站位配置已改为各自固定臂展与底盘半径四分之一间距；全部候选完成物理检查后，每场景均匀保留最多 20 点，可见性只记录。新 cuRobo 标定启动与命令见[执行记录](pi05/delivery/05-full-calibration-start.md)。

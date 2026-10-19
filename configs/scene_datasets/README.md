@@ -68,7 +68,7 @@
 | `min_substantial` | Case2 至少 2 个大/高物体 |
 | `settle` | 静置参数，默认 `require_source_stability: false`；说明见 [case_edits](../case_edits/README.md) |
 | `views` | 构造对照图尺寸，默认 640×480；不等于站位可见性分辨率 |
-| `station_config` | 站位几何覆盖项；默认半径约 0.793 m、间距约 0.111 m、320×240、目标至少 24 像素，地图分辨率 0.05 m、导航余量 0.02 m；seed 由配方统一设置 |
+| `station_config` | 站位几何覆盖项；半径取所属机器人 arm_working_reach_m，间距取 base_radius_m/4；默认 320×240，地图分辨率 0.05 m、导航余量 0.02 m；seed 由配方统一设置；目标像素只记录，require_target_visibility=false、require_navigation_clearance=false |
 
 v3 额外要求 pick 类型白名单和 Case1 桌/台支撑面；同时启用 Case1/2 时，支撑面条件在共用目标筛选阶段生效。v3 还调整表面资产池和朝向/包围盒预筛，实际碰撞与静置检查仍保留。白名单只是语义约束，不代表实测成功率。
 
@@ -81,3 +81,5 @@ v3 额外要求 pick 类型白名单和 Case1 桌/台支撑面；同时启用 Ca
 ## PandaOmron 配方
 
 `panda_omron_val103.json` 使用 Panda 移动配置，示例为 val103 Cup 的 Case2 小规模构建。`station_config.navigation_whole_body=true` 使采样和采集采用相同的整机保守通行几何；`max_pick_object_size_m` 是任务发现的物体尺寸粗筛上界，独立于实际 `gripper_width_m=0.08`。构建 accepted 与抓取成功分别判定。仅复验原场景完整采集时，可按 [Panda 指南](../../reports/panda-omron/docs/panda-omron.md) 准备不加障碍物的输入。
+
+标定选点：检查圆盘内全部候选的物理合法性，再用 `coverage` 按方位/距离均匀压缩到每场景最多 20 点。被压缩的点保留记录，不计为失败。

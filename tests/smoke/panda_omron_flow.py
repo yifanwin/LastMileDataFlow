@@ -123,9 +123,9 @@ def main():
     parser.add_argument('--gpu', type=int, required=True)
     parser.add_argument('--robot', default='configs/robots/panda_omron_mobile.json')
     parser.add_argument('--case', type=Path, default=Path('configs/execution/panda_omron_fixed_pick.json'))
-    parser.add_argument('--spacing', type=float, default=.4)
-    parser.add_argument('--max-stations', type=int, default=6)
-    parser.add_argument('--radius', type=float, default=1.6)
+    parser.add_argument('--spacing', type=float)
+    parser.add_argument('--max-stations', type=int, default=20, help='uniform coverage limit; 0 keeps all physically valid stations')
+    parser.add_argument('--radius', type=float)
     args = parser.parse_args()
     os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
     from lastmile_dataflow.config import load_robot_config, read_config
@@ -146,7 +146,10 @@ def main():
     initial = {**config.initial, 'base_xyyaw':case['base_xyyaw']}
     config = replace(config, initial=initial)
     source = SceneSource('val_103', case['scene_xml'], case['metadata'])
-    geometry = SceneStationConfig(radius_m=args.radius, spacing_m=args.spacing, operations=['pick'], gripper_width_m=.08, max_pick_object_size_m=.20, navigation_whole_body=True, width=320, height=240)
+    overrides = {key:value for key,value in [('radius_m',args.radius),('spacing_m',args.spacing)] if value is not None}
+    width,height = (256,256) if config.control_profile=='robocasa-v1' else (320,240)
+    geometry = SceneStationConfig.from_robot(config, **overrides, operations=['pick'], gripper_width_m=.08,
+        max_pick_object_size_m=.20, navigation_whole_body=True, width=width, height=height)
     args.output.mkdir(parents=True, exist_ok=False)
     sim = Simulation.from_source(source, config, target=target)
     try:
@@ -155,7 +158,8 @@ def main():
         stations = sample_stations(sim, task, geometry)
         valid = [s for s in stations if s['geometry']=='valid']
         from lastmile_dataflow.scenes.dataset import select_stations
-        selected, selection = select_stations(stations, task['anchor_world'], limit=args.max_stations)
+        selected, selection = select_stations(stations, task['anchor_world'],
+            method='coverage' if args.max_stations else 'all_valid', limit=args.max_stations)
         print('stations', len(stations), 'valid', len(valid), 'selected', len(selected), flush=True)
         sim.freeze(args.output/'scene')
         write_json(args.output/'config.json', {'geometry':asdict(geometry)})

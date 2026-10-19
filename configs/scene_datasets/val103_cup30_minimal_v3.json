@@ -45,5 +45,9 @@
     "val103": [
       "Cup_30"
     ]
+  },
+  "station_config": {
+    "require_target_visibility": false,
+    "require_navigation_clearance": false
   }
 }

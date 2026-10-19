@@ -201,9 +201,10 @@ def evaluation_view(root):
             f"Final displacement: {_number(result.get('final_displacement_m'), ' m')}",
             f"Actual duration: {_number(times[-1], ' s') if trace is not None else 'unknown'} | {len(trace) if trace is not None else 0} states"]
         _text(fig.add_subplot(grid[0, 1]), lines, size=10)
-        for row, (key, name) in enumerate([('head', 'Head camera'), ('third_person', 'Third-person camera')], 1):
+        observation_key = 'head' if 'head' in videos else 'observation'
+        for row, (key, name) in enumerate([(observation_key, 'Robot observation camera'), ('third_person', 'Third-person camera')], 1):
             _video_still(fig.add_subplot(grid[row, 1]), rollout, videos.get(key), len(times) - 1, times[-1], name)
-        fig.supxlabel('Static contact sheet. Full head / third-person MP4 videos remain in rollouts/<episode>/videos/.\n'
+        fig.supxlabel('Static contact sheet. Full observation / third-person MP4 videos remain in rollouts/<episode>/videos/.\n'
                       'Benchmark oracle layers are read only. Recovery region is an XY approximation with heading constraints.', fontsize=9)
         _save(fig, root / 'visualization' / f'{eid}.png')
     return _summary(root, episodes, read_json(root / 'summary.json'), results)

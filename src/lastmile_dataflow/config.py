@@ -9,6 +9,8 @@ from pathlib import Path
 @dataclass(frozen=True)
 class RobotConfig:
     model_path: str
+    arm_working_reach_m: float | None = None
+    base_radius_m: float | None = None
     name: str = "rby1m"
     namespace: str = "robot_0/"
     control_hz: float = 20.0
@@ -56,6 +58,8 @@ class RobotConfig:
 @dataclass(frozen=True)
 class PandaOmronConfig:
     model_path: str
+    arm_working_reach_m: float | None = None
+    base_radius_m: float | None = None
     max_base_delta: float = .10
     max_yaw_delta: float = .20
     max_arm_delta: float = .20
