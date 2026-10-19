@@ -9,11 +9,13 @@
 - **不要任意修改固定约定**：cuRobo V2 的 `planner_backend`、`max_attempts=5`、`torso_error_policy=record_only`；两后端的底盘模式和分辨率要求不同。
 - **CLI 手动指定**：`--dataset`、`--assets-dir`、`--output-dir`、唯一 `--run-id`、`--gpu`；记录开关见 [collection](../collection/README.md)。
 
+π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`，Panda 路线 B 示教使用 `panda_omron_robocasa_curobo.json`。本体必须匹配显式 profile，命令见 [π0.5 指南](../../reports/pi05/docs/01-running.md)。
+
 ## 数据集参数优先级
 
 `workflows/collection.py` 会用数据集 config.json 的 geometry 覆盖 `radius_m`、`spacing_m`、`width`、`height`、`min_target_pixels`、`map_resolution_m`、`navigation_margin_m`、`navigation_whole_body`（仅覆盖已存在的键）。因此只改执行 JSON 不一定生效；最终以运行保存的有效配置为准。MolmoBot 必须使用 native 控制且几何分辨率匹配的数据集，不能直接对 position/320×240 数据集套用此预设。
 
-## 两个预设的区别
+## 执行预设
 
 | 文件 | 操作后端 | 底盘模式 | 图像尺寸 |
 |---|---|---|---|
@@ -26,8 +28,8 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 
 | 字段 | 含义 |
 |---|---|
-| `operation_backend` | `curobo` / `molmobot`，选择真实操作执行器 |
-| `policy_config` | MolmoBot 服务配置 JSON，相对仓库根目录；MolmoBot 必填 |
+| `operation_backend` | `curobo` / `molmobot` / `pi05`，选择真实操作执行器 |
+| `policy_config` | VLA 服务配置 JSON，相对仓库根目录；MolmoBot / π0.5 必填 |
 | `planner_backend` | 当前仅 `curobo_v2_v080` |
 | `operation_base_mode` | cuRobo 为 `holonomic_joint_planning`：规划含全向底盘；MolmoBot 为 `policy_relative`：策略相对动作 |
 | `torso_error_policy` | 仅 `record_only`；躯干反馈偏差按该约定记录，不是自动恢复/重置开关 |

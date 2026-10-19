@@ -1,11 +1,13 @@
-# MolmoBot 模型服务配置
+# VLA 模型服务配置
 
-由 `policies/molmobot_config.py` 的 `load_policy_config` 加载；推理实现随本仓库安装，不配置外部源码目录。
+由 `policies/config.py` 按 `backend` 分派；推理实现随本仓库安装，不配置外部源码目录。
+
+π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`，其控制 profile、归一化与准备命令见 [π0.5 运行指南](../../reports/pi05/docs/01-running.md)。以下其余字段说明针对 MolmoBot。
 
 ## 重点手动配置
 
 - **必须核对** `data_root`、`checkpoint`、`tokenizer_path` 和 `python`。模型权重与 tokenizer 分开准备，不能只创建空目录。
-- `python` 指向**当前 worktree** 的 `.venv/bin/python`，不借相邻工程环境。
+- `python` 指向本项目的 `.venv/bin/python`（MolmoBot）或 `.venv-pi05/bin/python`（π0.5），不借相邻工程环境。
 - 按实验设置 `task_horizon`；夹爪通常保持 `model_default`。GPU 通过 CLI `--gpu` 显式选择，不写在此 JSON。
 
 | 字段 | 含义 |

@@ -1,6 +1,7 @@
 __pycache__/
 *.egg-info/
 .venv/
+.venv-pi05/
 .venv-policy/
 .venv-download/
 /data/

@@ -335,6 +335,9 @@ class RBY1Adapter:
 
 
 def adapter_class(config):
+    if config.name == 'panda_omron' and config.control_profile == 'robocasa-v1':
+        from .panda_robocasa import PandaRoboCasaAdapter
+        return PandaRoboCasaAdapter
     from .panda_omron import PandaOmronAdapter
     return {"rby1m": RBY1Adapter, "panda_omron": PandaOmronAdapter}[config.name]
 
@@ -344,5 +347,8 @@ def make_robot_adapter(model, data, config):
 
 
 def prepare_robot_spec(spec, config):
+    if config.name == 'panda_omron' and config.control_profile == 'robocasa-v1':
+        from .panda_robocasa import prepare_spec
+        return prepare_spec(spec, config)
     from .panda_omron import prepare_spec
     {"rby1m": _prepare_rby1_spec, "panda_omron": prepare_spec}[config.name](spec, config)

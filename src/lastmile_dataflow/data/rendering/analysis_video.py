@@ -20,7 +20,7 @@ class AnalysisVideo:
         self.font=ImageFont.truetype(font,20) if font else ImageFont.load_default()
         self.title_font=ImageFont.truetype(font,26) if font else ImageFont.load_default()
 
-    def frame(self,frames, *, phase,time_s,base_xy,target_height,initial_height,facts=None,side=None,collisions=0):
+    def frame(self,frames, *, phase,time_s,base_xy,target_height,initial_height,facts=None,side=None,collisions=0,wrist_camera=None):
         self.history.append(list(base_xy))
         canvas=Image.new('RGB',(self.width,self.height),'#101820');draw=ImageDraw.Draw(canvas)
         scene=ImageOps.contain(Image.fromarray(frames['third_person_camera']),(960,594))
@@ -30,7 +30,7 @@ class AnalysisVideo:
         instruction=self.task.get('instruction','')
         draw.text((18,43),instruction[:60],font=self.font,fill='#72d8ea')
         draw.text((973,10),'夹爪近景 · 同一物理时刻',font=self.font,fill='white')
-        wrist='wrist_camera_r' if side=='right' else 'wrist_camera_l'
+        wrist=wrist_camera or ('wrist_camera_r' if side=='right' else 'wrist_camera_l')
         if wrist in frames:
             inset=ImageOps.contain(Image.fromarray(frames[wrist]),(308,230))
             canvas.paste(inset,(968+(308-inset.width)//2,76))

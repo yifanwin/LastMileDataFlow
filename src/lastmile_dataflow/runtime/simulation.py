@@ -129,7 +129,8 @@ class Simulation:
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None):
         frozen_dir = Path(frozen_dir)
         value = read_config(frozen_dir / 'config.json')
-        if read_json_value(asdict(robot_config)) != value['robot']:
+        from ..config import robot_config as parse_robot_config
+        if read_json_value(asdict(robot_config)) != read_json_value(asdict(parse_robot_config(value['robot']))):
             raise ValueError('snapshot robot configuration mismatch')
         if value['mujoco_version'] != mujoco.__version__:
             raise ValueError('use the saved MuJoCo version; cross-version XML reconstruction is not verified')
@@ -180,6 +181,11 @@ class Simulation:
         return self._advance(command, [5] * 5, substep_check)
 
     def _submit(self, action, *, fixed_base=False, command_raw=None):
+        from .control.interface import RobotCommand
+        if self.robot.config.control_profile == 'robocasa-v1' and isinstance(action, RobotCommand):
+            action = self.robot.execution_action(action)
+            if command_raw is None:
+                command_raw = action.copy()
         command = self.robot.apply(action, fixed_base=fixed_base)
         if self.evidence_recorder:
             raw = action if command_raw is None else command_raw
@@ -206,6 +212,9 @@ class Simulation:
             for ticks in tick_groups:
                 self.data.ctrl[:] = command['ctrl']
                 for _ in range(ticks):
+                    feedback = getattr(self.robot, 'update_control', None)
+                    if feedback is not None:
+                        feedback()
                     mujoco.mj_step(self.model, self.data)
                     actual_ticks += 1
                     if substep_check:
@@ -223,6 +232,8 @@ class Simulation:
             command.update(time_before_s=before, time_after_s=float(self.data.time),
                            requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
                            completion='partial' if stop or error else 'complete')
+            if getattr(self.robot, 'update_control', None) is not None:
+                command['ctrl'] = self.data.ctrl.tolist()
             if self.evidence_recorder and actual_ticks:
                 self.evidence_recorder.executed(command)
         return command, stop

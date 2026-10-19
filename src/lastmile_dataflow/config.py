@@ -9,6 +9,8 @@ from pathlib import Path
 @dataclass(frozen=True)
 class RobotConfig:
     model_path: str
+    arm_working_reach_m: float | None = None
+    base_radius_m: float | None = None
     name: str = "rby1m"
     namespace: str = "robot_0/"
     control_hz: float = 20.0
@@ -56,6 +58,8 @@ class RobotConfig:
 @dataclass(frozen=True)
 class PandaOmronConfig:
     model_path: str
+    arm_working_reach_m: float | None = None
+    base_radius_m: float | None = None
     max_base_delta: float = .10
     max_yaw_delta: float = .20
     max_arm_delta: float = .20
@@ -82,8 +86,8 @@ class PandaOmronConfig:
         "gripper_width": {"right": .08}})
 
     def __post_init__(self):
-        if self.name != "panda_omron" or self.control_profile != "position-v1":
-            raise ValueError("PandaOmron requires position-v1")
+        if self.name != "panda_omron" or self.control_profile not in ("position-v1", "robocasa-v1"):
+            raise ValueError("unsupported PandaOmron control profile")
         if not 0 < self.control_hz * self.physics_dt <= 1:
             raise ValueError("invalid PandaOmron control/physics rate")
 
@@ -107,6 +111,7 @@ class CollectionConfig:
     width: int = 320
     height: int = 240
     record_video: bool = True
+    video_cameras: dict[str, str] | None = None
     record_images: bool = True
     record_physics: bool = False
     record_depth: bool = False

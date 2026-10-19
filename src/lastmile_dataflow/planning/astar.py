@@ -75,6 +75,68 @@ def distance_field(grid, source_xy, limit):
     return distances
 
 
+def segment_free(grid, start_xy, end_xy):
+    """Check short endpoint connectors using the same no-corner-cutting grid."""
+    length = float(np.linalg.norm(np.asarray(end_xy) - start_xy))
+    count = max(1, math.ceil(length / (grid.resolution / 4)))
+    previous = None
+    for xy in np.linspace(start_xy, end_xy, count + 1):
+        cell = grid.cell(xy)
+        if cell is None or not grid.free[cell]:
+            return False
+        if previous is not None and cell != previous:
+            if cell not in {node for node, _ in grid.neighbors(previous)}:
+                return False
+        previous = cell
+    return True
+
+
+def search_region(grid, start_xy, goals):
+    """Dijkstra to a finite region approximation, including exact anchors.
+
+    Goals carry xy/yaw. All headings fit the held-body swept envelope used to
+    construct the grid; yaw does not contribute to the translation metric.
+    """
+    start = grid.cell(start_xy)
+    if start is None or not segment_free(grid, start_xy, grid.xy(start)):
+        return None
+    distance = {start: 0.}
+    parent = {}
+    queue = [(0., start)]
+    while queue:
+        cost, node = heapq.heappop(queue)
+        if cost > distance[node] + 1e-10:
+            continue
+        for neighbor, step in grid.neighbors(node):
+            value = cost + step
+            if value + 1e-10 < distance.get(neighbor, float('inf')):
+                distance[neighbor] = value
+                parent[neighbor] = node
+                heapq.heappush(queue, (value, neighbor))
+    reachable = []
+    start_offset = float(np.linalg.norm(np.asarray(start_xy) - grid.xy(start)))
+    for goal in goals:
+        cell = grid.cell(goal['xy'])
+        if cell not in distance or not segment_free(grid, grid.xy(cell), goal['xy']):
+            continue
+        length = start_offset + distance[cell] + float(np.linalg.norm(grid.xy(cell) - goal['xy']))
+        direct = cell == start and segment_free(grid, start_xy, goal['xy'])
+        if direct:
+            length = float(np.linalg.norm(np.asarray(start_xy) - goal['xy']))
+        reachable.append((length, cell, goal, direct))
+    if not reachable:
+        return None
+    length, node, goal, direct = min(reachable, key=lambda item: item[0])
+    cells = [node]
+    while node in parent:
+        node = parent[node]
+        cells.append(node)
+    xy = [list(start_xy), goal['xy']] if direct else [
+        list(start_xy), *(grid.xy(c).tolist() for c in reversed(cells)), goal['xy']]
+    return {'xy': xy, 'length_m': float(length), 'goal': goal,
+            'reachable_goals': [item[2] for item in reachable]}
+
+
 def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=.40):
     """Conservative PER-GEOM chassis-height raster; physical whole-body checks follow."""
     import mujoco

@@ -1,6 +1,6 @@
 """Bounded calibration and continuous collection on one accepted scene.
 
-Optional benchmark execution requires an existing matching native calibration.
+Optional benchmark execution requires an existing source cuRobo calibration.
 No synthetic recovery pair, automatic smoke fallback or relocation probe.
 """
 
@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--gpu", type=int, required=True)
     parser.add_argument("--config", type=Path, default=Path("configs/execution/curobo_v2.json"))
     parser.add_argument("--trials-per-station", type=int, default=2)
-    parser.add_argument("--native-calibration", type=Path)
+    parser.add_argument("--benchmark-calibration", type=Path)
     parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.json"))
     args = parser.parse_args()
     os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL="egl")
@@ -58,14 +58,13 @@ def main():
     )
     result = {"calibration": str(calibration), "collection": str(collection)}
     write_json(root / "results.json", result)
-    if args.native_calibration:
+    if args.benchmark_calibration:
         bench = build(
             args.dataset,
             root / "bench",
-            args.policy_config,
             gpu_ids=[args.gpu],
-            calibration_dir=args.native_calibration,
-            seed=config.seed,
+            calibration_dir=args.benchmark_calibration,
+            config_path="configs/benchmark/v0.1.json",
         )
         result["benchmark"] = str(bench)
         if rows(bench / "episodes.jsonl"):

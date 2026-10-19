@@ -19,5 +19,8 @@
   "height": 240,
   "seed": 42,
   "planner_backend": "curobo_v2_v080",
-  "max_attempts": 5
+  "max_attempts": 5,
+  "head_fov_enabled": false,
+  "require_target_visibility": false,
+  "require_navigation_clearance": false
 }

@@ -1,0 +1,39 @@
+{
+  "data_root": "data",
+  "name": "panda_omron",
+  "model_path": "assets/robots/panda_omron/model.xml",
+  "control_profile": "robocasa-v1",
+  "control_hz": 20.0,
+  "physics_dt": 0.002,
+  "cameras": [
+    "robot0_agentview_left",
+    "robot0_eye_in_hand",
+    "robot0_agentview_right"
+  ],
+  "observation_camera": "robot0_agentview_left",
+  "gravity_compensation": false,
+  "initial": {
+    "base_xyyaw": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "lift": 0.0,
+    "arm_q": {
+      "right": [
+        -0.01612974,
+        -1.03446714,
+        -0.02397936,
+        -2.27550888,
+        0.03932365,
+        1.51639493,
+        0.69615947
+      ]
+    },
+    "gripper_width": {
+      "right": 0.041666
+    }
+  },
+  "arm_working_reach_m": 0.9410662914823394,
+  "base_radius_m": 0.4382921400162225
+}

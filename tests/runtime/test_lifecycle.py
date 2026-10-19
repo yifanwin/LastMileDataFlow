@@ -103,7 +103,7 @@ class LifecycleIsolationTests(unittest.TestCase):
     def test_real_synthetic_mjdata_initialization_failure_closes_clone_not_baseline(self):
         from lastmile_dataflow.runtime.execution.context import clone_sim
         from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
-        from lastmile_dataflow.runtime.execution.molmobot import run_vla_attempt
+        from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
         from tests.helpers import make_sim
 
         baseline, robot = make_sim(self.root)
@@ -119,7 +119,7 @@ class LifecycleIsolationTests(unittest.TestCase):
         task = {**self.task, "target_body": "target"}
         for backend in ("curobo", "molmobot"):
             module = "lastmile_dataflow.runtime." + (
-                "execution.curobo" if backend == "curobo" else "execution.molmobot"
+                "execution.curobo" if backend == "curobo" else "execution.vla"
             )
             with (
                 patch(module + ".clone_sim", side_effect=clone),

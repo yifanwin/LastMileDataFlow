@@ -19,7 +19,7 @@ class ObstacleWorkflowTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.robot = RobotConfig("robot.xml")
-        self.geometry = SceneStationConfig()
+        self.geometry = SceneStationConfig(radius_m=.8, spacing_m=.1)
         self.config = ObstacleConfig(
             baseline_config="baseline.json", dataset_dir="dataset-val", asset_library="assets",
             target_instance="cup", variant_count=2, obstacle_count=[6, 9], surface_categories=["Cup"],

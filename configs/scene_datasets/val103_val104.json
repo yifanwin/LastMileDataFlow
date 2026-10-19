@@ -25,5 +25,9 @@
   "seed": 42,
   "max_candidates": 2400,
   "max_physical_trials": 12,
-  "variant_timeout_s": 1800.0
+  "variant_timeout_s": 1800.0,
+  "station_config": {
+    "require_target_visibility": false,
+    "require_navigation_clearance": false
+  }
 }

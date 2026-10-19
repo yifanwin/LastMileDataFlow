@@ -109,7 +109,7 @@ def constraint_failure(row,initial, *, check_base=True,check_torso=True,check_id
     if check_torso and 'torso' in row:
         torso=np.array(row['torso']); h=torso[1] if row['phase']=='torso_adjust' else row['command_h']
         if np.max(np.abs(torso-np.array([0,h,-2*h,h,0,0])))>PROTOCOL['torso_error_rad']: return 'torso_protocol'
-    if 'lift' in initial and abs(row['lift']-initial['lift'])>PROTOCOL['lift_hold_error_m']:
+    if check_torso and 'lift' in initial and abs(row['lift']-initial['lift'])>PROTOCOL['lift_hold_error_m']:
         return 'lift_drift'
     # Legacy contact labels remain readable, but no longer determine task failure.
     for issue in row['illegal']:

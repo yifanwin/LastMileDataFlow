@@ -73,6 +73,7 @@ class SceneDatasetTests(DatasetTestCase):
             "max_pick_targets_per_house": 1,
             "min_prefilter_points": 1,
             "min_final_points": 1,
+            "station_config": {"radius_m": .8, "spacing_m": .1},
             "variants_per_case": 1,
             **overrides,
         }

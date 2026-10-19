@@ -1,0 +1,3 @@
+π0.5 JAX model code adapted from Physical Intelligence openpi and the RoboCasa benchmark fork.
+Sources: https://github.com/Physical-Intelligence/openpi and https://github.com/robocasa-benchmark/openpi
+Adaptations: project-local imports, JAX-only model loading, single-device activation sharding.

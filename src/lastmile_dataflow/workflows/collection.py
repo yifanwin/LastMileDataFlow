@@ -13,7 +13,7 @@ from ..utils.io import append_row, create_run, rows, write_json, write_rows
 from ..utils.logging_config import Progress, trial_logging
 from ..runtime.simulation import Simulation
 from ..runtime.execution.curobo import run_curobo_attempt
-from ..runtime.execution.molmobot import run_vla_attempt
+from ..runtime.execution.vla import run_vla_attempt
 from ..scenes.dataset import load_scenes
 from ..runtime.execution_config import execution_profile, calibration_execution
 from ..data.evaluation.selection import station_calibration, eligible_stations, generate_pairs, evaluable
@@ -49,7 +49,7 @@ def _execute(baseline, scene, station, assets_dir, config, collection, root, see
                 attempt_id, scene['scene_id'], station['station_id'], config.operation_backend, seed)
     started = time.monotonic()
     # 按后端选择执行器，导航路径和目标站位沿用同一接口。
-    if config.operation_backend == 'molmobot':
+    if config.operation_backend in ('molmobot', 'pi05'):
         result = run_vla_attempt(baseline, task, station, config, collection, root=root, attempt_id=attempt_id,
                                seed=seed, policy=policy, path=path, goal=goal)
     else:
@@ -237,7 +237,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     """对齐场景与执行配置，检查标定复用条件并创建运行目录。"""
     # 沿用数据集生成时的几何和传感器尺寸，保持采样与执行一致。
     geometry = read_config(Path(dataset) / 'config.json').get('geometry', {})
-    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m', 'navigation_whole_body')
+    keys = ('radius_m', 'spacing_m', 'width', 'height', 'min_target_pixels', 'map_resolution_m', 'navigation_margin_m', 'navigation_whole_body', 'require_target_visibility', 'require_navigation_clearance')
     config = replace(config, **{key: geometry[key] for key in keys if key in geometry})
     collection = replace(collection, width=config.width, height=config.height, seed=config.seed,
                          output_dir=str(Path(output_dir).resolve()))
@@ -251,8 +251,8 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     for scene in scenes:
         from ..config import robot_config
         robot = robot_config(read_config(Path(scene['scene_path']) / 'config.json')['robot'])
-        if (robot.control_profile == 'molmobot-native-v1') != (config.operation_backend == 'molmobot'):
-            raise ValueError('scene control profile incompatible with requested backend; construct an explicit matching scene')
+        from ..policies.config import check_profile
+        check_profile(robot,config.operation_backend,config.policy_config)
         scene['robot_config'] = robot
         scene['attempt_prefix'] = f'{scene["scene_id"]}-' if multi_scene else ''
         profiles[scene['scene_id']] = execution_profile(robot, config)
@@ -289,11 +289,11 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     pairs = []
     stopped = False
     try:
-        if config.operation_backend == 'molmobot':
-            from ..policies.molmobot import MolmoBotClient
+        if config.operation_backend in ('molmobot', 'pi05'):
+            from ..policies.config import create_policy
             logs = Path(output_dir) / 'logs'
             logs.mkdir(parents=True, exist_ok=True)
-            policy = MolmoBotClient(config.policy_config, logs / f'{run_id}-policy.log')
+            policy = create_policy(config.policy_config, logs / f'{run_id}-policy.log')
         # 无外部标定时，先完成全部场景的标定，再生成全量计划。
         if collecting:
             if prior is None:
