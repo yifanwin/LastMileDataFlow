@@ -32,7 +32,7 @@ reports/
 └── archives/                      # 已有历史归档
 ```
 
-当前主题：`build-lastmile-datasets/`、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。
+当前主题：`build-lastmile-datasets/`（[耗时分析](build-lastmile-datasets/analyze/2026-10-20-scene-datasets-and-calibration-cost.md)）、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。
 
 - `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
 
