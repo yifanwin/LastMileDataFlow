@@ -19,8 +19,9 @@ $DATA_ROOT/
   assets/     # assets_dir：场景 XML/metadata、机器人配置、软链视图
   mujoco/     # 下载解压的资源实体
   models/     # MolmoBot、Qwen tokenizer、π0.5 权重
-  outputs/    # 运行产物（也可留在仓库 outputs/）
 ```
+
+运行产物保持在仓库内 `$REPO/outputs/`，默认不放到数据盘。
 
 ## 1. 系统前置
 
@@ -161,7 +162,7 @@ cp configs/local.example.json configs/local.json
 ```json
 {
   "assets_dir": "/data1/molmospaces_data/assets",
-  "output_dir": "/data1/molmospaces_data/outputs"
+  "output_dir": "outputs"
 }
 ```
 
@@ -182,7 +183,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 .venv/bin/python tests/smoke/multitask.py \
   --checkpoint "$DATA_ROOT/models/MolmoBot-RBY1Multitask" \
   --tokenizer "$DATA_ROOT/models/Qwen3-tokenizer" --gpu "$GPU" \
-  --output "$DATA_ROOT/outputs/diagnostics/multitask-smoke"
+  --output "outputs/diagnostics/multitask-smoke"
 ```
 
 小样本主链：
@@ -191,10 +192,10 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 .venv/bin/lastmile-dataflow build-scenes \
   --config configs/scene_datasets/val103_cup30_minimal_v3.json --run-id small --gpu "$GPU"
 .venv/bin/lastmile-dataflow evaluate-stations \
-  --dataset "$DATA_ROOT/outputs/scene_datasets/small" --run-id stations --gpu "$GPU"
+  --dataset "outputs/scene_datasets/small" --run-id stations --gpu "$GPU"
 .venv/bin/lastmile-dataflow collect-lastmile \
-  --dataset "$DATA_ROOT/outputs/scene_datasets/small" \
-  --calibration "$DATA_ROOT/outputs/stations" --run-id lastmile --gpu "$GPU"
+  --dataset "outputs/scene_datasets/small" \
+  --calibration "outputs/stations" --run-id lastmile --gpu "$GPU"
 ```
 
 benchmark 见 `build-bench --help`、`evaluate-bench --help`。
@@ -217,7 +218,7 @@ benchmark 见 `build-bench --help`、`evaluate-bench --help`。
 | `/nas/wenyifan/molmospaces_data/cache`、`mujoco` | `$DATA_ROOT/cache`、`$DATA_ROOT/mujoco` |
 | `/nas/wenyifan/models/*` | `$DATA_ROOT/models/` |
 | 旧环境的 `data/assets/robots/panda_omron` | `$DATA_ROOT/assets/robots/panda_omron` |
-| 旧仓库 `outputs/` | `$DATA_ROOT/outputs` |
+| 旧仓库 `outputs/` | `$REPO/outputs` |
 
 `assets/` 在旧机器上是链接视图，实体在 `/nas/.../cache` 与 `mujoco`。
 
@@ -254,7 +255,7 @@ find "$NEW" -xtype l | wc -l   # 0
 ### A.4 迁移运行结果
 
 ```bash
-rsync -aH --info=progress2 "$REPO/outputs/" "$DATA_ROOT/outputs/"
+rsync -aH --info=progress2 <旧环境>/LastMileDataFlow/outputs/ "$REPO/outputs/"
 ```
 
 已有 run 配置保存了旧绝对路径，不会自动重定位。需要续跑时优先从干净的 dataset/calibration 重新发起；必须复用旧 run 时，按旧路径批量替换 `outputs/**/*.json` 中的输入路径。
