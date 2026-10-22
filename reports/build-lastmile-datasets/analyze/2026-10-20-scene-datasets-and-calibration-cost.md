@@ -178,7 +178,51 @@ goalset 求解实测 **中位 0.92 s、最大 1.45 s，100% 在 5 s 内返回 No
 
 一个场景只要撞上几十次 timeout，单场景成本就从 1 h 拉到 6.8 h（实测 64/100 timeout 的案例）。
 
-### 3.6 记录开销
+### 3.6 碰撞体表示及其速度影响
+
+**当前既不是 Box 近似，也不是预计算 ESDF 网格。**
+
+| 对象 | 表示 | 证据 |
+|---|---|---|
+| 世界 / 场景 | **三角网格**，合并成单一 `SceneCfg.mesh`，运行时做 mesh SDF 查询 | `planning/collision_world_v2.py:12-53` |
+| 机器人本体 | **球体近似**：24 links / **86 spheres** | `rby1m_holobase_spheres.yml` |
+| 被抓取物 | **40 个 voxel 拟合球** | `curobo_v2.py:326` `SphereFitType.VOXEL` |
+| 目标专用 checker | 独立 `SceneCollision`，目标网格约 9 geoms / 5 938 顶点 | `collision_world(..., target_only=True)` |
+
+世界网格的构造细节（`collision_world_v2.py`）：
+
+- `MESH` geom 原样使用；`BOX` 转成精确的 8 顶点盒（最便宜）
+- `SPHERE/ELLIPSOID/CYLINDER/CAPSULE` **被迫曲面细分**成三角网（icosphere subdiv=2 为 320 面、cylinder 32 段）
+- 排除 floor（只在物理里保留）和机器人自身
+- 只保留包围球与 `world_range = 2*radius+1 ≈ 2.59 m` 相交的 geom
+- 所有 geom **合并成一个 mesh 和一棵 BVH**，没有按物体分组的 culling
+
+**实测规模**（本次 open 标定 run，225 个 rollout）：
+
+- 世界网格：**43–440 个 geom，2 444–33 575 个顶点**
+- `planner_setup` 每次调用中位 **5.3–8.5 s**，从这个规模区间的两端几乎不变
+- `corr(顶点数, planner_setup) ≈ 0.01`
+- 进程内第一次构造有 **413 s** 冷启动，之后每次约 7 s
+
+**结论：碰撞体复杂度没有成为构造阶段的主要成本。** `planner_setup` 是固定开销（Warp/CUDA 初始化、求解器配置构建），不是网格规模驱动。
+
+真正的碰撞查询成本发生在规划阶段：
+
+- 每次距离查询 = 86 个机器人球 × 世界 mesh SDF
+- `num_ik_seeds=32` → 每个 IK 种子集约 2 752 次距离查询；`num_trajopt_seeds=4` 再乘时间步与迭代
+- mesh SDF 每次都要遍历 BVH；预计算 ESDF 会把查询降为三线性插值（O(1)）
+- 实测 `grasp_planning` 中位 15.5 s（进入搜索时）、`motion_planning` 4.3 s；全失败的 goalset 只需 0.92 s
+
+**其他与速度相关的设计选择**：
+
+- `use_cuda_graph=False`（`curobo_v2.py:117`）：没有 kernel launch 摊销
+- `refresh_world`（`curobo_v2.py:364`）在闭爪后重传整个碰撞世界，每 trial 至少一次
+- 目标 checker 是独立 `SceneCollision`，目标 SDF 被重复构建
+- `pad_target_query_range` 只放大 query bound，不改变几何（避免小球半径大于 no-hit 距离时的假碰撞）
+
+**若要改变碰撞体以提速**：预计算 ESDF/TSDF 网格（查询 O(1)，代价是内存与预处理，适合当前"同一世界被上百 trial × 多 seed 查询"的模式）；减少 86 个机器人球（查询数线性下降，但改变保真度）；合并重复的 target checker；开启 CUDA graph；避免每 trial 重建世界。
+
+### 3.7 记录开销
 
 `CollectionConfig.record_images` 默认 `True`。实测 100 trial 产出 **2.3 GB**，平均 23.6 MB/trial。这是磁盘与写入时间，不是 GPU 计算。
 
