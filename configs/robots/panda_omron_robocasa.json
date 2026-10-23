@@ -1,5 +1,5 @@
 {
-  "data_root": "data",
+  "data_root": "/data1/wenyifan/molmospaces_data",
   "name": "panda_omron",
   "model_path": "assets/robots/panda_omron/model.xml",
   "control_profile": "robocasa-v1",

@@ -6,5 +6,5 @@
   "width": 320,
   "height": 240,
   "record_video": true,
-  "data_root": "data"
+  "data_root": "/data1/wenyifan/molmospaces_data"
 }

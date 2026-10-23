@@ -1,5 +1,5 @@
 {
-  "data_root": "data",
+  "data_root": "/data1/wenyifan/molmospaces_data",
   "schema_version": "procedural-obstacles-v1",
   "baseline_config": "configs/execution/curobo_v2.json",
   "dataset_dir": "assets/scenes/procthor-10k-val",

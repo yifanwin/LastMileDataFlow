@@ -1,5 +1,5 @@
 {
-  "data_root": "data",
+  "data_root": "/data1/wenyifan/molmospaces_data",
   "schema_version": "scene-dataset-recipe-v1",
   "rule_version": "scene-cases-v2",
   "dataset_dir": "assets/scenes/procthor-10k-val",

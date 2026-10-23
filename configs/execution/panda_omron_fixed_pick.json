@@ -1,5 +1,5 @@
 {
-  "data_root": "/data0/wenyifan/MoMaTrajGen/molmospaces_data",
+  "data_root": "/data1/wenyifan/molmospaces_data",
   "scene_xml": "assets/scenes/procthor-10k-val/val_103.xml",
   "metadata": "assets/scenes/procthor-10k-val/val_103_metadata.json",
   "assets_dir": "assets",

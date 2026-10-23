@@ -84,14 +84,15 @@ done
 - `mujoco/scenes/procthor-10k-test/20251121_with_occupancy`
 - `mujoco/grasps/droid_objaverse/20251218`（`*objaverse*` 场景使用；`droid` 对应 Thor 资产名，二者按场景二选一）
 
-建立 `assets/` 链接视图。代码按固定路径查找 `assets/scenes`、`assets/objects`、`assets/robots`、`assets/grasps`（例如 `assets_dir/robots/rby1m/curobo_config` 写在代码里），而下载结果是带 `mujoco/` 前缀和版本号的目录；链接视图负责稳定映射，不复制数据：
+建立 `assets/` 链接视图。代码按固定路径查找 `assets/scenes`、`assets/objects`、`assets/robots`、`assets/grasps`（例如 `assets_dir/robots/rby1m/curobo_config` 写在代码里），而下载结果是带 `mujoco/` 前缀和版本号的目录；链接视图负责稳定映射，不复制数据。注意场景目录必须是真实目录、内部文件用软链：`SceneSource.procthor()` 会解析真实路径并要求目录名以 `-train/-val/-test` 结尾，目录级软链会被解析成带版本号的名称。`objects`、`robots`、`grasps` 可以直接用目录软链。
 
 ```bash
 CACHE=$DATA_ROOT/mujoco
 ASSETS=$DATA_ROOT/assets
 
 mkdir -p "$ASSETS"/{scenes,objects,robots,grasps}
-ln -sfnT "$CACHE/scenes/procthor-10k-val/20251217_with_occupancy" "$ASSETS/scenes/procthor-10k-val"
+mkdir -p "$ASSETS/scenes/procthor-10k-val"
+cp -rs "$CACHE/scenes/procthor-10k-val/20251217_with_occupancy/." "$ASSETS/scenes/procthor-10k-val/"
 ln -sfnT "$CACHE/objects/thor/20251117" "$ASSETS/objects/thor"
 ln -sfnT "$CACHE/robots/rby1m/20251224" "$ASSETS/robots/rby1m"
 ln -sfnT "$CACHE/grasps/droid/20251116" "$ASSETS/grasps/droid"
@@ -100,8 +101,9 @@ ln -sfnT "$CACHE/grasps/droid/20251116" "$ASSETS/grasps/droid"
 需要 train/test 时追加：
 
 ```bash
-ln -sfnT "$CACHE/scenes/procthor-10k-train/20251122_with_occupancy" "$ASSETS/scenes/procthor-10k-train"
-ln -sfnT "$CACHE/scenes/procthor-10k-test/20251121_with_occupancy" "$ASSETS/scenes/procthor-10k-test"
+mkdir -p "$ASSETS/scenes/procthor-10k-train" "$ASSETS/scenes/procthor-10k-test"
+cp -rs "$CACHE/scenes/procthor-10k-train/20251122_with_occupancy/." "$ASSETS/scenes/procthor-10k-train/"
+cp -rs "$CACHE/scenes/procthor-10k-test/20251121_with_occupancy/." "$ASSETS/scenes/procthor-10k-test/"
 ```
 
 校验：
