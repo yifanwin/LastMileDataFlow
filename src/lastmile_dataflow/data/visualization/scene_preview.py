@@ -87,13 +87,21 @@ def observer(sim, rig, index, target, additions):
         calibration = rendered_camera(renderer, WIDTH, HEIGHT)
         image = Image.fromarray(renderer.render().copy())
         renderer.enable_segmentation_rendering()
-        segmentation = renderer.render().copy()
+        try:
+            segmentation = renderer.render().copy()
+        except IndexError:
+            # 与 head_frame 相同：segid 映射表越界时退回目标投影框。
+            segmentation = None
+        renderer.disable_segmentation_rendering()
     draw = ImageDraw.Draw(image)
     for i, name in enumerate(additions):
         outline(draw, project(object_points(sim, name), calibration), f'+{i + 1}', ADDED)
     bodies = descendants(sim.model, sim.model.body(target).id)
     geoms = np.flatnonzero(np.isin(sim.model.geom_bodyid, list(bodies)))
-    mask = (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(segmentation[:, :, 0], geoms)
+    if segmentation is None:
+        mask = np.zeros((HEIGHT, WIDTH), bool)
+    else:
+        mask = (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(segmentation[:, :, 0], geoms)
     ys, xs = np.nonzero(mask)
     pixels = np.column_stack((xs, ys)) if len(xs) else project(object_points(sim, target), calibration)
     outline(draw, pixels, '目标' if len(xs) else '目标（遮挡，投影框）', TARGET, dashed=not len(xs))

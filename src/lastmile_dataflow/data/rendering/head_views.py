@@ -24,8 +24,18 @@ def head_frame(sim, target, config=None, *, renderer=None):
         renderer.disable_segmentation_rendering()
         renderer.update_scene(sim.data, camera=sim.robot.camera_names[sim.robot.observation_camera])
         rgb = renderer.render().copy()
-        renderer.enable_segmentation_rendering()
-        segmentation = renderer.render().copy()
+        try:
+            renderer.enable_segmentation_rendering()
+            segmentation = renderer.render().copy()
+        except IndexError:
+            # MuJoCo Renderer 按 scene.ngeom 分配 segid 映射表，而 segid 使用模型
+            # geom id；场景剔除部分 geom 时会越界。该站位可见性记为 unknown，
+            # 不中断场景构建；require_target_visibility 会按不可见处理。
+            renderer.disable_segmentation_rendering()
+            return rgb, np.zeros(rgb.shape[:2], bool), {
+                'target': target, 'visible_pixels': 0, 'image_fraction': 0.0,
+                'bbox_xyxy': None, 'method': 'segmentation_unavailable',
+                'task_feasibility': 'unknown'}
         renderer.disable_segmentation_rendering()
         bodies = descendants(sim.model, sim.model.body(target).id)
         ids = np.flatnonzero(np.isin(sim.model.geom_bodyid, list(bodies)))

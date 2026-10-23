@@ -1,0 +1,14 @@
+# main 工作区更改迁移
+
+- 状态：done
+- 日期：2026-10-23
+- 替代：无
+- 关联：../build-lastmile-datasets/plan/2026-10-22-time-optimization-plan.md
+
+将 main 工作区的 6 个已修改文件和 2 个未跟踪文档迁移至 `.worktrees/curobo-time-optimization`，对应分支为 `exp/01-curobo-time-optimization`。两分支原本位于同一提交，无需合并提交历史。
+
+迁移内容包括报告入口、场景数据与标定耗时分析及两张图、标定耗时复盘、时间优化方案，以及 `head_views.py` 和 `scene_preview.py` 的现有修改。
+
+先在临时目录备份，再复制至目标并逐文件比较内容；确认一致后恢复 main 的已跟踪文件，并移除已迁移的两个未跟踪文件。目标原有的实验概览、探针报告与探针脚本均保留，内容比较一致。
+
+验证结果：main 的 `git status --porcelain` 为空；迁移文件与原始内容一致；目标原有 3 个文件保持不变。未创建提交，未移动分支指针，目标更改仍为未提交状态。本次仅迁移现有内容，未运行代码测试。
