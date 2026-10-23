@@ -278,6 +278,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     collecting = process_scene is _collect_scene
     pairs = []
     stopped = False
+    sim = None
     try:
         if config.operation_backend in ('molmobot', 'pi05'):
             from ..policies.config import create_policy
@@ -289,14 +290,14 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             if prior is None:
                 prior = []
                 for scene in scenes:
-                    sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
+                    sim = Simulation.from_snapshot(
+                        scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
                     sim.scene_id = scene['scene_id']
-                    try:
-                        current = _station_trials(sim, scene, assets_dir, config, collection, root,
-                                                  budget=max_trials, attempt_ids=attempt_ids)
-                        prior.extend(current)
-                    finally:
-                        sim.close()
+                    current = _station_trials(sim, scene, assets_dir, config, collection, root,
+                                              budget=max_trials, attempt_ids=attempt_ids)
+                    prior.extend(current)
+                    sim.close()
+                    sim = None
                     if any(_shared_failure(row) for row in current):
                         stopped = True
                         break
@@ -312,16 +313,17 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             robot = scene['robot_config']
             sim = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
             sim.scene_id = scene['scene_id']
-            try:
-                summary = process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials,
-                                        attempt_ids=attempt_ids, **({'pairs': pairs} if collecting else {}))
-                summaries.append(summary)
-                stopped = summary.get('shared_failure', False)
-                logger.info('场景结束 %s', scene['scene_id'], extra={'progress': True})
-            finally:
-                sim.close()
+            summary = process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials,
+                                    attempt_ids=attempt_ids, **({'pairs': pairs} if collecting else {}))
+            summaries.append(summary)
+            stopped = summary.get('shared_failure', False)
+            logger.info('场景结束 %s', scene['scene_id'], extra={'progress': True})
+            sim.close()
+            sim = None
     finally:
-        # 异常退出也关闭策略服务并保存已完成场景；运行完整不等于任务成功。
+        # 当前场景在异常退出时由这里释放；正常场景在进入下一场景前释放。
+        if sim is not None:
+            sim.close()
         if policy:
             policy.close()
         if collecting:

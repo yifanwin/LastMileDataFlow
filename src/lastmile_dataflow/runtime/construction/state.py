@@ -1,54 +1,83 @@
-"""构造期按关节/执行器名称迁移真实状态。"""
+"""构造期按名称迁移状态；增删物体后不能直接拷贝 qpos 数组。"""
 import mujoco
 
 
 def migrate_state(old, new, *, forward=True):
-    """把旧模型的状态迁到编辑后的新模型上（编辑固定家具会触发重新编译）。
+    if old.started or new.started or old.closed or new.closed:
+        raise RuntimeError('state migration requires construction/preparation sessions')
+    old_model, new_model = old.model, new.model
+    old_data, new_data = old.data, new.data
+    if len(old_data.plugin_state) or len(new_data.plugin_state):
+        raise ValueError('plugin state migration is unsupported')
 
-    【为什么不能直接拷贝 qpos 数组】编辑可能增删几何/物体，导致 qpos 布局完全变化，
-    盲拷会错位。所以这里**按名字**逐个关节/执行器/body/等式约束迁移：
-    名字存在才迁移，类型不一致就报错。这是“宁可拒绝也不猜”的一贯做法。
-    """
-    if old.started or new.started or old.closed or new.closed: raise RuntimeError('state migration requires construction/preparation sessions')
-    m0,m1,d0,d1=old.model,new.model,old.data,new.data
-    if len(d0.plugin_state) or len(d1.plugin_state): raise ValueError('plugin state migration is unsupported')
-    for j in range(m1.njnt):
-        name=m1.joint(j).name
-        try: k=m0.joint(name).id
-        except KeyError: continue
-        if m1.jnt_type[j] != m0.jnt_type[k]: raise ValueError('joint type changed during migration')
-        # 不同关节类型占用的 qpos/qvel 宽度不同，查表决定拷多少
-        nq,nv={0:(7,6),1:(4,3),2:(1,1),3:(1,1)}[int(m1.jnt_type[j])]
-        a,b=int(m1.jnt_qposadr[j]),int(m0.jnt_qposadr[k]); d1.qpos[a:a+nq]=d0.qpos[b:b+nq]
-        a,b=int(m1.jnt_dofadr[j]),int(m0.jnt_dofadr[k]); d1.qvel[a:a+nv]=d0.qvel[b:b+nv]; d1.qacc_warmstart[a:a+nv]=d0.qacc_warmstart[b:b+nv]
-        d1.qfrc_applied[a:a+nv]=d0.qfrc_applied[b:b+nv]
-    for a in range(m1.nu):
-        try: k=m0.actuator(m1.actuator(a).name).id
-        except KeyError: continue
-        d1.ctrl[a]=d0.ctrl[k]
-        n=int(m1.actuator_actnum[a])
-        if n != int(m0.actuator_actnum[k]): raise ValueError('actuator state shape changed')
-        if n: d1.act[m1.actuator_actadr[a]:m1.actuator_actadr[a]+n]=d0.act[m0.actuator_actadr[k]:m0.actuator_actadr[k]+n]
-    for b in range(m1.nbody):
-        name=m1.body(b).name
-        try: k=m0.body(name).id
-        except KeyError: continue
-        d1.xfrc_applied[b]=d0.xfrc_applied[k]
-        a,c=int(m1.body_mocapid[b]),int(m0.body_mocapid[k])
-        if a>=0 and c>=0: d1.mocap_pos[a]=d0.mocap_pos[c]; d1.mocap_quat[a]=d0.mocap_quat[c]
-    for e in range(m0.neq):
-        name=m0.equality(e).name
-        if not name:
-            # 匿名 equality 无法按名字配对：只有当状态与初始值一致时才允许（说明没被编辑过）。
-            if d0.eq_active[e] != m0.eq_active0[e]: raise ValueError('cannot migrate edited anonymous equality state')
+    for new_joint in range(new_model.njnt):
+        name = new_model.joint(new_joint).name
+        old_joint = mujoco.mj_name2id(old_model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        if old_joint < 0:
             continue
-        try: k=m1.equality(name).id
-        except KeyError: continue
-        if m0.eq_type[e] != m1.eq_type[k]: raise ValueError('equality type changed during migration')
-        d1.eq_active[k]=d0.eq_active[e]
-    for a,b in zip(d0.warning,d1.warning): b.number=a.number; b.lastinfo=a.lastinfo
-    if d1.userdata.shape != d0.userdata.shape: raise ValueError('userdata migration unsupported')
-    d1.userdata[:]=d0.userdata; d1.time=d0.time
-    new.robot.copy_control_from(old.robot); new._clock_remainder=old._clock_remainder
+        joint_type = int(new_model.jnt_type[new_joint])
+        if joint_type != old_model.jnt_type[old_joint]:
+            raise ValueError('joint type changed during migration')
+        position_size, velocity_size = {0: (7, 6), 1: (4, 3), 2: (1, 1), 3: (1, 1)}[joint_type]
+        new_position = int(new_model.jnt_qposadr[new_joint])
+        old_position = int(old_model.jnt_qposadr[old_joint])
+        new_data.qpos[new_position:new_position + position_size] = old_data.qpos[old_position:old_position + position_size]
+        new_velocity = int(new_model.jnt_dofadr[new_joint])
+        old_velocity = int(old_model.jnt_dofadr[old_joint])
+        new_slice = slice(new_velocity, new_velocity + velocity_size)
+        old_slice = slice(old_velocity, old_velocity + velocity_size)
+        new_data.qvel[new_slice] = old_data.qvel[old_slice]
+        new_data.qacc_warmstart[new_slice] = old_data.qacc_warmstart[old_slice]
+        new_data.qfrc_applied[new_slice] = old_data.qfrc_applied[old_slice]
+
+    for new_actuator in range(new_model.nu):
+        name = new_model.actuator(new_actuator).name
+        old_actuator = mujoco.mj_name2id(old_model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+        if old_actuator < 0:
+            continue
+        new_data.ctrl[new_actuator] = old_data.ctrl[old_actuator]
+        activation_size = int(new_model.actuator_actnum[new_actuator])
+        if activation_size != int(old_model.actuator_actnum[old_actuator]):
+            raise ValueError('actuator state shape changed')
+        if activation_size:
+            new_address = int(new_model.actuator_actadr[new_actuator])
+            old_address = int(old_model.actuator_actadr[old_actuator])
+            new_data.act[new_address:new_address + activation_size] = old_data.act[old_address:old_address + activation_size]
+
+    for new_body in range(new_model.nbody):
+        name = new_model.body(new_body).name
+        old_body = mujoco.mj_name2id(old_model, mujoco.mjtObj.mjOBJ_BODY, name)
+        if old_body < 0:
+            continue
+        new_data.xfrc_applied[new_body] = old_data.xfrc_applied[old_body]
+        new_mocap = int(new_model.body_mocapid[new_body])
+        old_mocap = int(old_model.body_mocapid[old_body])
+        if new_mocap >= 0 and old_mocap >= 0:
+            new_data.mocap_pos[new_mocap] = old_data.mocap_pos[old_mocap]
+            new_data.mocap_quat[new_mocap] = old_data.mocap_quat[old_mocap]
+
+    for old_equality in range(old_model.neq):
+        name = old_model.equality(old_equality).name
+        if not name:
+            # 匿名约束无法按名字配对，只允许未编辑的初始状态。
+            if old_data.eq_active[old_equality] != old_model.eq_active0[old_equality]:
+                raise ValueError('cannot migrate edited anonymous equality state')
+            continue
+        new_equality = mujoco.mj_name2id(new_model, mujoco.mjtObj.mjOBJ_EQUALITY, name)
+        if new_equality < 0:
+            continue
+        if old_model.eq_type[old_equality] != new_model.eq_type[new_equality]:
+            raise ValueError('equality type changed during migration')
+        new_data.eq_active[new_equality] = old_data.eq_active[old_equality]
+
+    for old_warning, new_warning in zip(old_data.warning, new_data.warning):
+        new_warning.number = old_warning.number
+        new_warning.lastinfo = old_warning.lastinfo
+    if new_data.userdata.shape != old_data.userdata.shape:
+        raise ValueError('userdata migration unsupported')
+    new_data.userdata[:] = old_data.userdata
+    new_data.time = old_data.time
+    new.robot.copy_control_from(old.robot)
+    new._clock_remainder = old._clock_remainder
     if forward:
-        mujoco.mj_forward(m1,d1)
+        mujoco.mj_forward(new_model, new_data)

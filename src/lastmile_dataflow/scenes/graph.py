@@ -126,9 +126,8 @@ def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station
     roots, points_by_id, geoms_by_id, regions_by_id = {}, {}, {}, {}
     for item in sorted(sim.catalog, key=lambda x: x['instance_id']):
         name = item['instance_id']
-        try:
-            body = m.body(item.get('mjcf_body', name)).id
-        except KeyError:
+        body = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, item.get('mjcf_body', name))
+        if body < 0:
             issues.append({'code': 'instance_missing_from_model', 'instance': name})
             continue
         if name == STATION_ID:
@@ -158,11 +157,7 @@ def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station
         nodes[name] = node
         points_by_id[name] = points
         geoms_by_id[name] = set(collision_geoms(sim, body))
-        try:
-            regions_by_id[name] = extract_regions(sim, m.body(body).name)
-        except (ValueError, KeyError) as exc:
-            regions_by_id[name] = []
-            issues.append({'code': 'unsupported_support_geometry', 'instance': name, 'reason': str(exc)})
+        regions_by_id[name] = extract_regions(sim, m.body(body).name)
         # Region support uses the stable instance ID, not the current body index.
         regions_by_id[name] = [replace(r, support=name) for r in regions_by_id[name]]
         pure_plane = (not count and len(geoms_by_id[name]) == 1 and all(
@@ -189,9 +184,9 @@ def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station
                 'pose': _pose(d.geom_xpos[g], quaternion), 'directions': {}}
         try:
             points = None if plane else geom_points(sim, g)
-            regions = [] if plane else extract_regions(sim, m.body(0).name, geom_name)
         except ValueError:
-            points, regions = None, []
+            points = None
+        regions = [] if plane else extract_regions(sim, m.body(0).name, geom_name)
         _geometry(node, points)
         regions = [replace(r, support=name, region_id=name + ':top') for r in regions]
         node['support_capability'] = 'horizontal_plane' if plane and horizontal else 'planar' if regions else 'unknown'

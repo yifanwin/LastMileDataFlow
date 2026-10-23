@@ -1,5 +1,5 @@
 """Read-only scene contact sheets: paired observers and final station coverage."""
-from contextlib import ExitStack, closing
+from contextlib import ExitStack
 from html import escape
 import logging
 from pathlib import Path
@@ -73,7 +73,7 @@ def outline(draw, pixels, label, color, *, dashed=False):
 
 def observer(sim, rig, index, target, additions):
     """Hide only architecture/robot in the render scene, never in model or physics."""
-    with closing(mujoco.Renderer(sim.model, height=HEIGHT, width=WIDTH)) as renderer:
+    with mujoco.Renderer(sim.model, height=HEIGHT, width=WIDTH) as renderer:
         renderer.update_scene(sim.data, camera=rig.camera(index))
         for geom in renderer.scene.geoms[:renderer.scene.ngeom]:
             if geom.objtype != mujoco.mjtObj.mjOBJ_GEOM:
@@ -156,7 +156,9 @@ def render_scene_preview(root, record, destination):
             path = root / location
             from ...config import robot_config
             robot = robot_config(read_json(path / 'config.json')['robot'])
-            return stack.enter_context(closing(Simulation.from_snapshot(path, robot, target=task['target_body'])))
+            sim = Simulation.from_snapshot(path, robot, target=task['target_body'])
+            stack.callback(sim.close)
+            return sim
 
         after = load(record['scene'])
         before = load(record['before_scene']) if edited and record.get('before_scene') else None

@@ -80,9 +80,8 @@ def discover_tasks(sim, metadata, config):
         joints = obj.get('name_map', {}).get('joints', {})
         found = 0
         for joint_name, semantic in sorted(joints.items()):
-            try:
-                j = sim.model.joint(joint_name).id
-            except KeyError:
+            j = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+            if j < 0:
                 continue
             kind = sim.model.jnt_type[j]
             if kind not in (mujoco.mjtJoint.mjJNT_HINGE, mujoco.mjtJoint.mjJNT_SLIDE):

@@ -1,4 +1,5 @@
 """构建事务、静置、源场景影响与回滚。"""
+from contextlib import closing
 
 import copy
 import os
@@ -144,7 +145,7 @@ class TransactionTests(unittest.TestCase):
         candidate = self.session.candidate([self.placement])
         report = self.session.settle()
         control, _ = matched_control(self.sim, report["simulated_s"], self.session.config, None)
-        try:
+        with closing(control):
             self.assertAlmostEqual(control.data.time, candidate.data.time)
             self.assertTrue(matched_source_effects(control, candidate, config())["valid"])
             j = candidate.model.body("target").jntadr[0]
@@ -152,8 +153,6 @@ class TransactionTests(unittest.TestCase):
             candidate.data.qpos[q] += 0.1
             mujoco.mj_forward(candidate.model, candidate.data)
             self.assertFalse(matched_source_effects(control, candidate, config())["valid"])
-        finally:
-            control.close()
 
     def test_wrong_control_time_rejected(self):
         candidate = self.session.candidate([self.placement])

@@ -72,13 +72,11 @@ def capture_sensors(sim, width, height, *, depth):
                 'source_to_optical_rotation': np.diag([1., -1., -1.]).tolist()}
         sample = {'rgb': rgb, 'calibration': calibration, 'depth': None, 'depth_error': None}
         if depth:
+            if calibration['projection_type'] != 'pinhole':
+                raise ValueError('depth linearization for non-pinhole projection is not validated')
+            renderer.enable_depth_rendering()
             try:
-                if calibration['projection_type'] != 'pinhole':
-                    raise ValueError('depth linearization for non-pinhole projection is not validated')
-                renderer.enable_depth_rendering()
                 sample['depth'] = renderer.render().copy()
-            except Exception as exc:
-                sample['depth_error'] = type(exc).__name__ + ':' + str(exc)
             finally:
                 renderer.disable_depth_rendering()
         result[alias] = sample

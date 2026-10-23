@@ -100,6 +100,24 @@ class LifecycleIsolationTests(unittest.TestCase):
             self.execute(run)
         self.assertTrue(resource.closed)
 
+    def test_cleanup_failure_keeps_original_error_and_closes_other_resources(self):
+        resource = io.StringIO()
+        broken = SimpleNamespace(closed=False, close=Mock(side_effect=OSError(errno.ENOSPC, 'disk full')))
+
+        def run():
+            track_resource(resource)
+            track_resource(broken)
+            mark_episode_phase('execution')
+            raise ValueError('original execution error')
+
+        result = self.execute(run)
+        self.assertEqual(result['status'], 'infrastructure_error')
+        self.assertEqual(result['attribution']['phase'], 'finalize')
+        self.assertIn('original execution error', result['error'])
+        self.assertIn('disk full', result['cleanup_errors'][0]['traceback'])
+        self.assertFalse(result['recording_complete'])
+        self.assertTrue(resource.closed)
+
     def test_real_synthetic_mjdata_initialization_failure_closes_clone_not_baseline(self):
         from lastmile_dataflow.runtime.execution.context import clone_sim
         from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
@@ -168,12 +186,156 @@ class LifecycleIsolationTests(unittest.TestCase):
         self.assertEqual(result["attribution"]["phase"], "recording")
         self.assertFalse(result["execution_started"])
 
+    def test_failed_finalization_is_not_retried_by_cleanup(self):
+        from dataclasses import asdict
+
+        from tests.helpers import make_sim
+
+        sim, _ = make_sim(self.root)
+        collection = CollectionConfig(record_images=False, record_video=False)
+
+        def run():
+            track_resource(sim)
+            recorder = AttemptRecorder(self.root, {'collection': asdict(collection)}, attempt_id='disk-error')
+            recorder.bind_simulation(sim)
+            sim.begin()
+            sim.step(sim.robot.neutral_action())
+            recorder.finish('failure', 'fixture')
+
+        with patch('lastmile_dataflow.data.recorder.np.savez_compressed',
+                   side_effect=OSError(errno.ENOSPC, 'disk full')) as save:
+            result = self.execute(run, 'disk-error')
+        self.assertEqual(result['status'], 'infrastructure_error')
+        self.assertIn('disk full', result['error'])
+        self.assertFalse(result['recording_complete'])
+        self.assertTrue(sim.closed)
+        save.assert_called_once()
+
     def test_poll_connection_failure_is_shared(self):
         client = MolmoBotClient.__new__(MolmoBotClient)
         client.connection = Mock()
         client.connection.poll.side_effect = OSError(errno.EPIPE, "closed channel")
         with self.assertRaises(PolicyInfrastructureError):
             client.receive(1)
+
+    def test_policy_error_keeps_remote_traceback(self):
+        client = MolmoBotClient.__new__(MolmoBotClient)
+        client.connection = Mock()
+        client.connection.poll.return_value = True
+        client.connection.recv.return_value = {
+            'type': 'RuntimeError', 'error': 'CUDA out of memory',
+            'traceback': 'remote inference frame: CUDA out of memory',
+        }
+        with self.assertRaises(PolicyInfrastructureError) as caught:
+            client.receive(1)
+        self.assertIn('remote inference frame', '\n'.join(caught.exception.__notes__))
+
+    def test_curobo_error_and_interrupt_preserve_executed_trajectory(self):
+        from dataclasses import asdict
+
+        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
+        from lastmile_dataflow.utils.io import read_json
+        from tests.helpers import make_sim
+
+        baseline, robot = make_sim(self.root)
+        self.addCleanup(baseline.close)
+        task = {**self.task, 'target_body': 'target'}
+        station = {**self.station, 'initial': asdict(robot)['initial']}
+        collection = CollectionConfig(record_images=False, record_video=False)
+        config = ExecutionConfig(initial_settle_s=0., third_person_enabled=False)
+        clones = []
+
+        for name, error in [('error', RuntimeError('unexpected execution error')),
+                            ('interrupt', KeyboardInterrupt())]:
+            def manipulate(ctx, *args):
+                clones.append(ctx.sim)
+                ctx.sim.begin()
+                def fail():
+                    raise error
+                ctx.sim.step(ctx.sim.robot.neutral_action(), substep_check=fail)
+
+            with self.subTest(name=name), patch(
+                'lastmile_dataflow.runtime.execution.curobo.manipulate', side_effect=manipulate,
+            ):
+                def run():
+                    return run_curobo_attempt(baseline, task, station, [], self.root, config, collection,
+                                             root=self.root, attempt_id=name, seed=1)
+
+                if name == 'interrupt':
+                    with self.assertRaises(KeyboardInterrupt):
+                        run()
+                else:
+                    result = run()
+                    self.assertEqual(result['status'], 'episode_error')
+                    self.assertEqual(result['executed_steps'], 1)
+                    self.assertEqual(result['rollout_id'], name)
+                    self.assertIn('unexpected execution error', result['error'])
+                    self.assertTrue(result['recording_complete'])
+            attempt = self.root / 'rollouts' / name
+            with np.load(attempt / 'trajectory.npz') as trace:
+                self.assertEqual(len(trace['actions']), 1)
+                self.assertEqual(len(trace['time_s']), 2)
+            self.assertEqual(read_json(attempt / 'recording.json')['steps'], 1)
+            self.assertTrue(clones[-1].closed)
+            self.assertFalse(baseline.started)
+
+    def test_unsuccessful_curobo_verdict_does_not_create_execution_rows(self):
+        from dataclasses import asdict
+
+        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
+        from tests.helpers import make_sim
+
+        baseline, robot = make_sim(self.root)
+        self.addCleanup(baseline.close)
+        station = {**self.station, 'initial': asdict(robot)['initial']}
+        with patch('lastmile_dataflow.runtime.execution.curobo.manipulate',
+                   return_value=({'status': 'failure', 'reason': 'no_grasp'}, None)):
+            result = run_curobo_attempt(
+                baseline, {**self.task, 'target_body': 'target'}, station, [], self.root,
+                ExecutionConfig(initial_settle_s=0., third_person_enabled=False),
+                CollectionConfig(record_images=False, record_video=False),
+                root=self.root, attempt_id='no-plan', seed=1,
+            )
+        self.assertEqual(result['status'], 'planning_no_solution')
+        self.assertEqual(result['reason'], 'no_grasp')
+        self.assertEqual(result['executed_steps'], 0)
+        self.assertFalse((self.root / 'rollouts/no-plan/trajectory.npz').exists())
+
+    def test_vla_budget_exhaustion_keeps_actual_steps(self):
+        from dataclasses import asdict
+        import sys
+
+        from lastmile_dataflow.policies.molmobot_config import MolmoBotConfig
+        from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
+        from lastmile_dataflow.runtime.simulation import Simulation
+        from tests.helpers import make_sim
+
+        baseline, robot = make_sim(self.root)
+        self.addCleanup(baseline.close)
+        action = baseline.robot.neutral_action()
+        policy = SimpleNamespace(
+            config=MolmoBotConfig(checkpoint='unused', python=sys.executable, task_horizon=1),
+            metadata={},
+            action=Mock(return_value={'action': action, 'raw_action': action, 'processed_images': None}),
+        )
+        frames = {name: np.zeros((32, 32, 3), np.uint8) for name in baseline.robot.camera_names}
+        station = {**self.station, 'initial': asdict(robot)['initial']}
+        with patch.object(Simulation, 'render', return_value=frames):
+            result = run_vla_attempt(
+                baseline, {**self.task, 'target_body': 'target', 'anchor_world': [2, 0, .15]}, station,
+                ExecutionConfig(operation_backend='pi05', policy_config='unused.json',
+                                operation_base_mode='policy_relative', radius_m=3.,
+                                third_person_enabled=False, width=32, height=32),
+                CollectionConfig(record_images=False, record_video=False),
+                root=self.root, attempt_id='policy-budget', seed=1, policy=policy,
+            )
+        self.assertEqual(result['status'], 'failure')
+        self.assertEqual(result['reason'], 'policy_step_budget_exhausted')
+        self.assertEqual(result['executed_steps'], 1)
+        self.assertTrue(result['recording_complete'])
+        with np.load(self.root / 'rollouts/policy-budget/trajectory.npz') as trace:
+            self.assertEqual(len(trace['actions']), 1)
+            self.assertGreater(trace['time_s'][-1], trace['time_s'][0])
 
 
 class RetryDirectoryTests(unittest.TestCase):

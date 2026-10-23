@@ -3,7 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 
@@ -32,6 +32,62 @@ def station(name, xy, geometry="valid"):
 
 
 class ObserverAndTimingTests(unittest.TestCase):
+    def test_head_render_error_propagates_and_restores_borrowed_renderer(self):
+        from lastmile_dataflow.data.rendering.head_views import head_frame
+
+        with tempfile.TemporaryDirectory() as directory:
+            sim, _ = make_sim(directory)
+            self.addCleanup(sim.close)
+            renderer = Mock()
+            failure = RuntimeError('renderer failed')
+            renderer.render.side_effect = failure
+            with self.assertRaises(RuntimeError) as caught:
+                head_frame(sim, 'target', renderer=renderer)
+            self.assertIs(caught.exception, failure)
+            renderer.disable_segmentation_rendering.assert_called()
+            renderer.close.assert_not_called()
+
+    def test_depth_error_propagates_and_restores_renderer_mode(self):
+        from lastmile_dataflow.data.rendering.camera_calibration import capture_sensors
+
+        with tempfile.TemporaryDirectory() as directory:
+            sim, _ = make_sim(directory)
+            self.addCleanup(sim.close)
+            sim.renderer = Mock(width=64, height=48)
+            failure = RuntimeError('depth capture failed')
+            sim.renderer.render.side_effect = [np.zeros((48, 64, 3), np.uint8), failure]
+            with patch('lastmile_dataflow.data.rendering.camera_calibration.rendered_camera',
+                       return_value={'projection_type': 'pinhole'}):
+                with self.assertRaises(RuntimeError) as caught:
+                    capture_sensors(sim, 64, 48, depth=True)
+            self.assertIs(caught.exception, failure)
+            sim.renderer.disable_depth_rendering.assert_called_once()
+
+    def test_pair_renderer_creation_error_closes_resources_and_restores_fovy(self):
+        from types import SimpleNamespace
+
+        from lastmile_dataflow.data.rendering.edit_views import render_edit_pair
+
+        with tempfile.TemporaryDirectory() as directory:
+            sim, _ = make_sim(directory)
+            self.addCleanup(sim.close)
+            original_fovy = float(sim.model.vis.global_.fovy)
+            graph = SimpleNamespace(nodes={'target': {'mjcf_body': 'target'}})
+            renderer = MagicMock()
+            renderer.__enter__.return_value = renderer
+            def close_renderer(*args):
+                renderer.close()
+            renderer.__exit__.side_effect = close_renderer
+            failure = RuntimeError('second renderer failed')
+            with patch('lastmile_dataflow.data.rendering.edit_views.mujoco.Renderer',
+                       side_effect=[renderer, failure]):
+                with self.assertRaises(RuntimeError) as caught:
+                    render_edit_pair(sim, sim, graph, graph, {'target'}, Path(directory) / 'pair',
+                                     sample_id='fixture', config=ViewConfig(fovy_rad=.9))
+            self.assertIs(caught.exception, failure)
+            renderer.close.assert_called_once()
+            self.assertEqual(float(sim.model.vis.global_.fovy), original_fovy)
+
     def test_reusable_observer_fits_robot_target_without_state_or_model_changes(self):
         with tempfile.TemporaryDirectory() as d:
             sim, _ = make_sim(d)

@@ -1,6 +1,6 @@
 """Build from existing reference calibration; independently evaluate policies."""
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import logging
 import os
 from pathlib import Path
@@ -110,14 +110,20 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
             reports.append(report)
             exclusions = Counter()
             if not choices:
-                reason = 'incomplete_calibration' if not complete else 'no_high_success_station' if low_count and not high_count else 'no_low_success_station'
+                if not complete:
+                    reason = 'incomplete_calibration'
+                elif low_count and not high_count:
+                    reason = 'no_high_success_station'
+                else:
+                    reason = 'no_low_success_station'
                 report['exclusions'] = {reason: low_count or 1}
                 continue
             snapshot = Path(scene['scene_path'])
             snapshot_config = read_json(snapshot / 'config.json')
             if saved['profiles'][sid]['robot'] != snapshot_config['robot']:
                 raise ValueError('source robot profile does not match calibration: ' + sid)
-            sim = Simulation.from_snapshot(snapshot, robot_config(snapshot_config['robot']), target=scene['task']['target_body'])
+            robot = robot_config(snapshot_config['robot'])
+            sim = Simulation.from_snapshot(snapshot, robot, target=scene['task']['target_body'])
             try:
                 radius = reference['radius_m']
                 region, legal, init_rejected, footprint = _navigation_region(sim, scene, calibration, settings, radius)
@@ -210,19 +216,17 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
                 append_row(root / 'results.jsonl', record)
                 results.append(record)
                 continue
-            parent = sim = None
+            parent = Simulation.from_snapshot(snapshot, robot, target=episode['task']['target_body'])
+            sim = parent
             try:
-                parent = Simulation.from_snapshot(snapshot, robot, target=episode['task']['target_body'])
                 if selected_backend == 'molmobot':
                     sim = native_scene(parent)
                 else:
                     check_profile(robot,'pi05',policy_path)
-                    sim,parent = parent,None
                 sim.scene_id = episode['scene_id']
                 profiles[episode['scene_id']] = asdict(sim.robot.config)
                 if policy is None:
                     policy = create_policy(policy_path, logs / f'{root.name}-policy.log')
-                    from dataclasses import replace
                     policy.config = replace(policy.config, task_horizon=settings.horizon)
                 width,height = (1024,576) if selected_backend == 'molmobot' else (saved['reference_execution']['width'],saved['reference_execution']['height'])
                 config = ExecutionConfig(operation_backend=selected_backend, operation_base_mode='policy_relative',
@@ -247,10 +251,9 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
                 if record.get('failure_scope') == 'shared':
                     break
             finally:
-                if sim is not None:
+                if sim is not parent:
                     sim.close()
-                if parent is not None:
-                    parent.close()
+                parent.close()
     finally:
         if policy is not None:
             policy.close()

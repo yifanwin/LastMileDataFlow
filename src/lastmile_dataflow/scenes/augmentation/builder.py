@@ -1,5 +1,6 @@
 """Bounded obstacle placement with actual settling and case checks."""
 import time
+from contextlib import closing
 
 import numpy as np
 from ...utils.logging_config import trial_progress
@@ -65,7 +66,7 @@ def build_variant(session, baseline, task, config, geometry_config, pool, geomet
         physical_trials += 1
         settling = session.settle(deadline=deadline)
         control, _ = matched_control(baseline, settling['simulated_s'], session.config, deadline)
-        try:
+        with closing(control):
             checks = validate_augmented_scene(sim, placements, settling, control, config)
             if not checks['valid']:
                 placements = []
@@ -100,6 +101,4 @@ def build_variant(session, baseline, task, config, geometry_config, pool, geomet
             return {**result, 'status': 'accepted', 'task': task, 'stations': selected,
                     'placements': placements, 'before_stations': before_stations, 'case': policy.case if policy else 'procedural',
                     'actual_count': len(placements)}
-        finally:
-            control.close()
     return {**result, 'reason': 'candidate_budget_exhausted'}

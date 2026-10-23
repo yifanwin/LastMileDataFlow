@@ -207,7 +207,7 @@ class Simulation:
         before = float(self.data.time)
         actual_ticks = 0
         stop = None
-        error = None
+        complete = False
         try:
             for ticks in tick_groups:
                 self.data.ctrl[:] = command['ctrl']
@@ -224,14 +224,12 @@ class Simulation:
                         stop = None
                 if stop:
                     break
-        except BaseException as exc:
-            error = exc
-            raise
+            complete = True
         finally:
             mujoco.mj_forward(self.model, self.data)
             command.update(time_before_s=before, time_after_s=float(self.data.time),
                            requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
-                           completion='partial' if stop or error else 'complete')
+                           completion='complete' if complete and not stop else 'partial')
             if getattr(self.robot, 'update_control', None) is not None:
                 command['ctrl'] = self.data.ctrl.tolist()
             if self.evidence_recorder and actual_ticks:

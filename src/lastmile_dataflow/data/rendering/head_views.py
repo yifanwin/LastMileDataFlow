@@ -4,7 +4,7 @@ import numpy as np
 
 from ...runtime.construction.preparation import preparation_guard
 from ...scenes.geometry import descendants
-from .edit_views import RenderError, ViewConfig
+from .edit_views import ViewConfig
 
 
 def camera_state(sim):
@@ -44,10 +44,7 @@ def head_frame(sim, target, config=None, *, renderer=None):
         return rgb, mask, {'target': target, 'visible_pixels': int(mask.sum()), 'image_fraction': float(mask.mean()),
             'bbox_xyxy': [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())] if len(xs) else None,
             'method': 'actual_rendered_geom_segmentation_walls_not_hidden', 'task_feasibility': 'unknown'}
-    except (ValueError, KeyError):
-        raise
-    except Exception as exc:
-        raise RenderError('head_render_failed:' + type(exc).__name__) from None
     finally:
+        renderer.disable_segmentation_rendering()
         if own:
             renderer.close()

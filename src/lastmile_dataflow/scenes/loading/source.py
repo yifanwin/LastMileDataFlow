@@ -2,6 +2,8 @@
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import mujoco
+
 from ...utils.io import read_json
 
 
@@ -62,12 +64,8 @@ def resolve_target(model, catalog, target):
         return None
     names = {c["mjcf_body"] for c in catalog if target in (c["instance_id"], c.get("asset_id"))}
     # 允许明确 MJCF 部件名；资产类别不被当成唯一目标。
-    if not names:
-        try:
-            model.body(target)
-            names = {target}
-        except KeyError:
-            pass
+    if not names and mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, target) >= 0:
+        names = {target}
     if len(names) != 1:
         raise ValueError(f"target must resolve uniquely: {target}, matches={sorted(names)}")
     return model.body(next(iter(names))).id

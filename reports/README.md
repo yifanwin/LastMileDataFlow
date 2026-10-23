@@ -34,6 +34,8 @@ reports/
 
 当前主题：`build-lastmile-datasets/`（[耗时分析](build-lastmile-datasets/analyze/2026-10-20-scene-datasets-and-calibration-cost.md)）、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。
 
+- `exception-cleanup/`：[第二轮方案](exception-cleanup/plan/02-simplification-and-readability.md)、[执行结果](exception-cleanup/delivery/02-result.md)；防御逻辑、资源管理和可读性整理完成，独立 CPU 环境离线回归 247 项通过、2 项跳过，未执行真实 GPU/渲染验收。
+
 - `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
 
   [cuRobo 与 π0.5 共用控制链路](pi05/info/01-panda-shared-control.md)进一步说明动作汇合、轨迹跟踪、控制时序及待验证条件；尚未切换默认 profile。

@@ -54,14 +54,17 @@ class MolmoBotClient:
             while not Path(socket).exists():
                 if self.process.poll() is not None:
                     raise PolicyInfrastructureError('model process exited; see '+str(log_path))
-                if time.monotonic() > deadline: raise PolicyInfrastructureError('model startup timeout')
+                if time.monotonic() > deadline:
+                    raise PolicyInfrastructureError('model startup timeout')
                 time.sleep(.2)
             self.connection = Client(socket, family='AF_UNIX', authkey=bytes.fromhex(token))
             self.metadata = self.receive(max(.1, deadline-time.monotonic()))
-            if not self.metadata.get('ready'): raise PolicyInfrastructureError('model not ready')
+            if not self.metadata.get('ready'):
+                raise PolicyInfrastructureError('model not ready')
             logger.info('%s 已就绪 metadata=%s', self.policy_name, self.metadata)
         except BaseException:
-            self.close(); raise
+            self.close()
+            raise
 
     def receive(self, timeout):
         try:
@@ -74,12 +77,17 @@ class MolmoBotClient:
         if not isinstance(response,dict):
             raise PolicyInfrastructureError('malformed model response')
         if 'error' in response:
-            if response.get('invalid_action'): raise InvalidAction(response['error'])
-            message=response['type']+':'+response['error']
-            from ..runtime.execution.lifecycle import classify_episode_exception
-            if response['type'] not in ('MemoryError','OutOfMemoryError') and classify_episode_exception(RuntimeError(message))['failure_scope']=='episode':
-                raise PolicyEpisodeError(message)
-            raise PolicyInfrastructureError(message)
+            if response.get('invalid_action'):
+                error = InvalidAction(response['error'])
+            else:
+                message = response['type'] + ':' + response['error']
+                from ..runtime.execution.lifecycle import classify_episode_exception
+                shared = response['type'] in ('MemoryError', 'OutOfMemoryError') or (
+                    classify_episode_exception(RuntimeError(message))['failure_scope'] == 'shared')
+                error = PolicyInfrastructureError(message) if shared else PolicyEpisodeError(message)
+            if response.get('traceback'):
+                error.add_note('Policy process traceback:\n' + response['traceback'])
+            raise error
         return response
 
     def action(self, observation, *, task, attempt, seed, first=False, timeout=None):
@@ -101,11 +109,14 @@ class MolmoBotClient:
 
     def close(self):
         if self.connection is not None:
-            self.connection.close(); self.connection = None
-        if getattr(self, 'process', None) is not None:
-            try: self.process.wait(timeout=5)
+            self.connection.close()
+            self.connection = None
+        for stop in (self.process.terminate, self.process.kill):
+            try:
+                self.process.wait(timeout=5)
+                break
             except subprocess.TimeoutExpired:
-                self.process.terminate()
-                try: self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired: self.process.kill(); self.process.wait()
-        self.log.close(); self.directory.cleanup()
+                stop()
+        self.process.wait()
+        self.log.close()
+        self.directory.cleanup()

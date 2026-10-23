@@ -64,9 +64,10 @@ def fixtures(root):
                 ctrlrange="-3.14 3.14",
             )
     for side in ["left", "right"]:
+        ET.SubElement(body, "site", name="robot_0/ee_site_" + side[0], pos="0 0 .1")
         for i in (1, 2):
             name = f"gripper_finger_{side[0]}{i}"
-            child = ET.SubElement(body, "body", name="robot_0/" + name, pos="0 0 .1")
+            child = ET.SubElement(body, "body", name=f"robot_0/ee_finger_{side[0]}{i}", pos="0 0 .1")
             ET.SubElement(child, "geom", type="sphere", size=".02", mass="1", contype="0", conaffinity="0")
             ET.SubElement(
                 child,

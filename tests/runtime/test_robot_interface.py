@@ -1,4 +1,5 @@
 """Semantic controls and real hold groups, without external robot assets."""
+from contextlib import closing
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -48,7 +49,7 @@ class RobotInterfaceTests(unittest.TestCase):
     def test_rby1_semantic_targets_preserve_existing_delta_protocol(self):
         with tempfile.TemporaryDirectory() as directory:
             sim, _ = make_sim(directory)
-            try:
+            with closing(sim):
                 q = sim.robot.arm_positions("left") + .05
                 result = sim.robot.apply(RobotCommand(arm_q={"left": q}, gripper_width={"left": .06}))
                 np.testing.assert_allclose(result["submitted_action"][3:10], .05)
@@ -57,8 +58,6 @@ class RobotInterfaceTests(unittest.TestCase):
                 sim.data.qpos[sim.robot.addresses["left_arm_0"]] += .01
                 sim.robot.hold()
                 np.testing.assert_equal(sim.data.ctrl, before)
-            finally:
-                sim.close()
 
     def test_panda_width_and_lift_hold_use_semantic_units(self):
         robot = panda_adapter()

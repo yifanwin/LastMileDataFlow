@@ -1,4 +1,5 @@
 """静置后的支撑关系与场景图刷新。"""
+from contextlib import closing
 
 import tempfile
 import time
@@ -35,11 +36,9 @@ class GraphTests(unittest.TestCase):
         self.assertGreater(self.prepared.settling["steps"], 100)
         self.prepared.save(self.root / "baseline")
         sim = Simulation.from_snapshot(self.root / "baseline/scene", self.robot)
-        try:
+        with closing(sim):
             np.testing.assert_array_equal(sim.data.qpos, self.prepared.sim.data.qpos)
             self.assertIsNone(sim.target_id)
-        finally:
-            sim.close()
         self.assertEqual(Path(self.source.xml_path).read_bytes(), self.original)
 
     def test_actual_support_and_surface(self):

@@ -1,5 +1,6 @@
 """Paired three-view RGB with a fixed union framing; all API angles adapted to degrees."""
 import copy
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 import itertools
 import math
@@ -24,29 +25,14 @@ class ViewConfig:
     height: int = 480
     fovy_rad: float = math.pi/4
     max_expansions: int = 3
-    max_review_retries: int = 1
-    initial_group_tolerance: float = .002
-    camera_position_tolerance_m: float = .002
-    camera_matrix_tolerance: float = .003
-    initial_aux_views: int = 2
-    max_aux_views: int = 3
-    max_camera_trials: int = 32
 
     def __post_init__(self):
         if any(type(v) is not int or v <= 0 for v in (self.width, self.height)):
             raise ValueError('positive image dimensions required')
         if not math.isfinite(self.fovy_rad) or not .1 < self.fovy_rad < 2.5:
             raise ValueError('invalid fovy_rad')
-        if any(type(v) is not int or not 0 <= v <= 5 for v in (self.max_expansions, self.max_review_retries)):
+        if type(self.max_expansions) is not int or not 0 <= self.max_expansions <= 5:
             raise ValueError('invalid view retry budget')
-        if not (type(self.initial_aux_views) is int and type(self.max_aux_views) is int
-                and 0 <= self.initial_aux_views <= self.max_aux_views <= 5
-                and type(self.max_camera_trials) is int and 1 <= self.max_camera_trials <= 128):
-            raise ValueError('invalid auxiliary view budget')
-        for name in ('initial_group_tolerance', 'camera_position_tolerance_m', 'camera_matrix_tolerance'):
-            value = getattr(self, name)
-            if type(value) not in (float, int) or not math.isfinite(value) or value <= 0:
-                raise ValueError('invalid pairing tolerance: ' + name)
 
 
 @dataclass(frozen=True)
@@ -85,36 +71,29 @@ class CameraRig:
 
 
 def framing_points(sim, graph, names):
-    points = []
+    points, bodies = [], set()
     for name in names:
         node = graph.nodes.get(name)
         if node is None:
             continue
         if node.get('mjcf_body'):
             body = sim.model.body(node['mjcf_body']).id
-            bodies = descendants(sim.model, body)
-            for g in range(sim.model.ngeom):
-                if int(sim.model.geom_bodyid[g]) not in bodies:
-                    continue
-                try:
-                    points.extend(geom_points(sim, g))  # includes visual, not just collision geoms
-                except ValueError:
-                    radius = float(sim.model.geom_rbound[g])
-                    if radius > 0:
-                        points.extend(np.array(list(itertools.product((-radius, radius), repeat=3))) + sim.data.geom_xpos[g])
+            bodies.update(descendants(sim.model, body))
         elif node.get('pose'):
             points.append(node['pose']['position'])
             if node.get('kind') == 'station':
                 # Cover the actual robot context, not just a mathematical base point.
-                for g in range(sim.model.ngeom):
-                    if not sim.model.body(int(sim.model.geom_bodyid[g])).name.startswith(sim.robot.config.namespace):
-                        continue
-                    try:
-                        points.extend(geom_points(sim, g))
-                    except ValueError:
-                        radius = float(sim.model.geom_rbound[g])
-                        if radius > 0:
-                            points.extend(np.array(list(itertools.product((-radius, radius), repeat=3))) + sim.data.geom_xpos[g])
+                bodies.update(b for b in range(sim.model.nbody)
+                              if sim.model.body(b).name.startswith(sim.robot.config.namespace))
+    for g in range(sim.model.ngeom):
+        if int(sim.model.geom_bodyid[g]) not in bodies:
+            continue
+        try:
+            points.extend(geom_points(sim, g))  # includes visual, not just collision geoms
+        except ValueError:
+            radius = float(sim.model.geom_rbound[g])
+            if radius > 0:
+                points.extend(np.array(list(itertools.product((-radius, radius), repeat=3))) + sim.data.geom_xpos[g])
     return np.asarray(points)
 
 
@@ -158,109 +137,98 @@ def render_edit_pair(before_sim, after_sim, before_graph, after_graph, affected,
                     ((before_sim, before_graph), (after_sim, after_graph))]
     local_arrays = [p for p in local_points if len(p)]
     local_union = np.concatenate(local_arrays) if local_arrays else union
-    renderers, originals = [], {}
+    originals = {id(sim.model): (sim.model, float(sim.model.vis.global_.fovy))
+                 for sim in (before_sim, after_sim)}
+    renderers = []
     try:
-        for sim in (before_sim, after_sim):
-            originals.setdefault(id(sim.model), (sim.model, float(sim.model.vis.global_.fovy)))
-            sim.model.vis.global_.fovy = math.degrees(config.fovy_rad)
-            renderers.append(mujoco.Renderer(sim.model, height=config.height, width=config.width))
-        for attempt in range(config.max_expansions+1):
-            rig = CameraRig.fit(union, config, expansion=expansion*1.4**attempt)
-            local_rig = CameraRig.fit(local_union, config, expansion=expansion*1.4**attempt)
-            def rotated(r):
-                angles = r.angles
-                if oblique_azimuths_rad is not None:
-                    if len(oblique_azimuths_rad) != 2 or not np.isfinite(oblique_azimuths_rad).all():
-                        raise ValueError('two finite oblique camera azimuths required')
-                    angles = (angles[0], (oblique_azimuths_rad[0], angles[1][1]),
-                              (oblique_azimuths_rad[1], angles[2][1]))
-                return CameraRig(r.lookat, r.distance_m, r.fovy_rad, r.width, r.height,
-                                 tuple((az+view_rotation_rad, el) for az, el in angles))
-            rigs = [rotated(rig), rotated(local_rig), rotated(local_rig)]
-            frames, covered = [], True
-            visibility = {}
-            light_snapshots = []
-            for stage, sim, points, renderer in zip(('before', 'after'), (before_sim, after_sim),
-                                                   (before_points, after_points), renderers):
-                for i, view in enumerate(('top', 'oblique_a', 'oblique_b')):
-                    view_rig = rigs[i]
-                    renderer.update_scene(sim.data, camera=view_rig.camera(i))
-                    # Identical clip planes and actual baseline lights at each view.
-                    for camera in renderer.scene.camera:
-                        factor = .005/camera.frustum_near
-                        camera.frustum_bottom *= factor
-                        camera.frustum_top *= factor
-                        camera.frustum_center *= factor
-                        camera.frustum_width *= factor
-                        camera.frustum_near = .005
-                        camera.frustum_far = max(100., rig.distance_m*4)
-                        actual_fovy = math.atan(camera.frustum_top/camera.frustum_near)-math.atan(camera.frustum_bottom/camera.frustum_near)
-                        if not math.isclose(actual_fovy, config.fovy_rad, abs_tol=1e-6):
-                            raise RenderError('rendered_fovy_does_not_match_config')
-                    if stage == 'before':
-                        light_snapshots.append([{k: copy.deepcopy(getattr(light, k)) for k in
-                            ('ambient', 'attenuation', 'bulbradius', 'castshadow', 'cutoff', 'diffuse',
-                             'dir', 'exponent', 'headlight', 'id', 'intensity', 'pos', 'range',
-                             'specular', 'texid', 'type')} for light in renderer.scene.lights[:renderer.scene.nlight]])
-                    else:
-                        renderer.scene.nlight = len(light_snapshots[i])
-                        for light, values in zip(renderer.scene.lights, light_snapshots[i]):
-                            for key, value in values.items():
-                                setattr(light, key, value)
-                    view_points = points if i == 0 else local_points[0 if stage == 'before' else 1]
-                    covered &= bool(not len(view_points) or in_frame(view_points, renderer.scene.camera[0], config.width, config.height))
-                    rgb = renderer.render().copy()
-                    if rgb.shape != (config.height, config.width, 3):
-                        raise RenderError('invalid_render_shape')
-                    frames.append((stage + '/' + view, rgb))
-                    if visibility_instances:
-                        renderer.enable_segmentation_rendering()
-                        try:
+        with ExitStack() as render_stack:
+            for sim in (before_sim, after_sim):
+                sim.model.vis.global_.fovy = math.degrees(config.fovy_rad)
+                renderer = mujoco.Renderer(sim.model, height=config.height, width=config.width)
+                renderers.append(render_stack.enter_context(renderer))
+            for attempt in range(config.max_expansions+1):
+                rig = CameraRig.fit(union, config, expansion=expansion*1.4**attempt)
+                local_rig = CameraRig.fit(local_union, config, expansion=expansion*1.4**attempt)
+                def rotated(r):
+                    angles = r.angles
+                    if oblique_azimuths_rad is not None:
+                        if len(oblique_azimuths_rad) != 2 or not np.isfinite(oblique_azimuths_rad).all():
+                            raise ValueError('two finite oblique camera azimuths required')
+                        angles = (angles[0], (oblique_azimuths_rad[0], angles[1][1]),
+                                  (oblique_azimuths_rad[1], angles[2][1]))
+                    return CameraRig(r.lookat, r.distance_m, r.fovy_rad, r.width, r.height,
+                                     tuple((az+view_rotation_rad, el) for az, el in angles))
+                rigs = [rotated(rig), rotated(local_rig), rotated(local_rig)]
+                frames, covered = [], True
+                visibility = {}
+                light_snapshots = []
+                for stage, sim, points, renderer in zip(('before', 'after'), (before_sim, after_sim),
+                                                       (before_points, after_points), renderers):
+                    for i, view in enumerate(('top', 'oblique_a', 'oblique_b')):
+                        view_rig = rigs[i]
+                        renderer.update_scene(sim.data, camera=view_rig.camera(i))
+                        # Identical clip planes and actual baseline lights at each view.
+                        for camera in renderer.scene.camera:
+                            factor = .005/camera.frustum_near
+                            camera.frustum_bottom *= factor
+                            camera.frustum_top *= factor
+                            camera.frustum_center *= factor
+                            camera.frustum_width *= factor
+                            camera.frustum_near = .005
+                            camera.frustum_far = max(100., rig.distance_m*4)
+                            actual_fovy = math.atan(camera.frustum_top/camera.frustum_near)-math.atan(camera.frustum_bottom/camera.frustum_near)
+                            if not math.isclose(actual_fovy, config.fovy_rad, abs_tol=1e-6):
+                                raise RenderError('rendered_fovy_does_not_match_config')
+                        if stage == 'before':
+                            light_snapshots.append([{k: copy.deepcopy(getattr(light, k)) for k in
+                                ('ambient', 'attenuation', 'bulbradius', 'castshadow', 'cutoff', 'diffuse',
+                                 'dir', 'exponent', 'headlight', 'id', 'intensity', 'pos', 'range',
+                                 'specular', 'texid', 'type')} for light in renderer.scene.lights[:renderer.scene.nlight]])
+                        else:
+                            renderer.scene.nlight = len(light_snapshots[i])
+                            for light, values in zip(renderer.scene.lights, light_snapshots[i]):
+                                for key, value in values.items():
+                                    setattr(light, key, value)
+                        view_points = points if i == 0 else local_points[0 if stage == 'before' else 1]
+                        covered &= bool(not len(view_points) or in_frame(view_points, renderer.scene.camera[0], config.width, config.height))
+                        rgb = renderer.render().copy()
+                        if rgb.shape != (config.height, config.width, 3):
+                            raise RenderError('invalid_render_shape')
+                        frames.append((stage + '/' + view, rgb))
+                        if visibility_instances:
+                            renderer.enable_segmentation_rendering()
                             segmentation = renderer.render().copy()
-                        finally:
                             renderer.disable_segmentation_rendering()
-                        counts = {}
-                        for name in visibility_instances:
-                            try:
-                                bodies = descendants(sim.model, sim.model.body(name).id)
-                            except KeyError:
-                                bodies = set()
-                            geoms = [g for g in range(sim.model.ngeom) if int(sim.model.geom_bodyid[g]) in bodies]
-                            mask = (segmentation[:, :, 1] == mujoco.mjtObj.mjOBJ_GEOM) & np.isin(segmentation[:, :, 0], geoms)
-                            counts[name] = int(mask.sum())
-                        visibility[stage + '/' + view] = counts
-            if covered:
-                break
-        if not covered:
-            raise RenderError('objects_still_out_of_frame')
-        packet = {'sample_id': sample_id, 'before_graph_id': before_graph.to_dict()['graph_id'],
-                  'after_graph_id': after_graph.to_dict()['graph_id'], 'rig': rigs[0].to_dict(),
-                  'view_rigs': {v: r.to_dict() for v, r in zip(('top', 'oblique_a', 'oblique_b'), rigs)},
-                  'framing': 'top_with_context_oblique_affected_union_all_paired',
-                  'lighting': 'same_source_model_lighting_no_asset_lights', 'expansions': attempt,
-                  'not_robot_input': True, 'images': []}
-        if visibility_instances:
-            packet['visible_pixels_by_instance'] = visibility
-        try:
+                            counts = {}
+                            for name in visibility_instances:
+                                body = mujoco.mj_name2id(sim.model, mujoco.mjtObj.mjOBJ_BODY, name)
+                                bodies = descendants(sim.model, body) if body >= 0 else set()
+                                geoms = [g for g in range(sim.model.ngeom) if int(sim.model.geom_bodyid[g]) in bodies]
+                                mask = (segmentation[:, :, 1] == mujoco.mjtObj.mjOBJ_GEOM) & np.isin(segmentation[:, :, 0], geoms)
+                                counts[name] = int(mask.sum())
+                            visibility[stage + '/' + view] = counts
+                if covered:
+                    break
+            if not covered:
+                raise RenderError('objects_still_out_of_frame')
+            packet = {'sample_id': sample_id, 'before_graph_id': before_graph.to_dict()['graph_id'],
+                      'after_graph_id': after_graph.to_dict()['graph_id'], 'rig': rigs[0].to_dict(),
+                      'view_rigs': {v: r.to_dict() for v, r in zip(('top', 'oblique_a', 'oblique_b'), rigs)},
+                      'framing': 'top_with_context_oblique_affected_union_all_paired',
+                      'lighting': 'same_source_model_lighting_no_asset_lights', 'expansions': attempt,
+                      'not_robot_input': True, 'images': []}
+            if visibility_instances:
+                packet['visible_pixels_by_instance'] = visibility
             from OpenGL.GL import glGetString, GL_RENDERER, GL_VENDOR
             packet['renderer_info'] = {key: (value.decode() if value else None) for key, value in
                 (('renderer', glGetString(GL_RENDERER)), ('vendor', glGetString(GL_VENDOR)))}
-        except Exception:
-            packet['renderer_info'] = {'renderer': None, 'vendor': None}
-        packet['pair_id'] = sample_id
-        for view, rgb in frames:
-            file = path / (view.replace('/', '_') + '.png')
-            imageio.imwrite(file, rgb)
-            packet['images'].append({'view': view, 'path': file.name, 'pair_id': packet['pair_id']})
-        write_json(path/'pair.json', packet)
-        return packet
-    except Exception as exc:
-        write_json(path/'render_error.json', {'status': 'infrastructure_error', 'reason': type(exc).__name__})
-        if isinstance(exc, RenderError):
-            raise
-        raise RenderError('real_render_failed:' + type(exc).__name__) from None
+            packet['pair_id'] = sample_id
+            for view, rgb in frames:
+                file = path / (view.replace('/', '_') + '.png')
+                imageio.imwrite(file, rgb)
+                packet['images'].append({'view': view, 'path': file.name, 'pair_id': packet['pair_id']})
+            write_json(path/'pair.json', packet)
+            return packet
     finally:
-        for renderer in renderers:
-            renderer.close()
-        for model, fovy in originals.values():
-            model.vis.global_.fovy = fovy
+        for model, original_fovy in originals.values():
+            model.vis.global_.fovy = original_fovy

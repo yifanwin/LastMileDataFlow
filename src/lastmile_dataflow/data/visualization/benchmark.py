@@ -157,11 +157,8 @@ def _video_still(ax, rollout, video, index, time_s, name):
     if video is None:
         ax.text(.5, .5, 'No video (not recorded / not executed)', ha='center', va='center', transform=ax.transAxes)
         return
-    reader = imageio.get_reader(rollout / video['path'])
-    try:
+    with imageio.get_reader(rollout / video['path']) as reader:
         ax.imshow(reader.get_data(min(index, video['frames'] - 1)))
-    finally:
-        reader.close()
     ax.text(0, -.04, video['source'], fontsize=8, transform=ax.transAxes, va='top', color='#526575')
 
 

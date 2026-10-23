@@ -1,4 +1,5 @@
 """Explicit V2 rollout on a scene-dataset; excluded from unittest discovery."""
+from contextlib import closing
 
 import argparse
 import os
@@ -37,7 +38,7 @@ def main():
     )
     sim = Simulation.from_snapshot(scene["scene_path"], robot, target=scene["task"]["target_body"])
     sim.scene_id = scene["scene_id"]
-    try:
+    with closing(sim):
         result = run_curobo_attempt(
             sim,
             scene["task"],
@@ -52,8 +53,6 @@ def main():
         )
         write_json(root / "result.json", result)
         print(result["status"])
-    finally:
-        sim.close()
 
 
 if __name__ == "__main__":

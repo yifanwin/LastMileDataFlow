@@ -1,4 +1,5 @@
 """困难起点选择、native 场景与完整计划集合统计。"""
+from contextlib import closing
 
 import tempfile
 import unittest
@@ -89,14 +90,12 @@ class BenchmarkTests(unittest.TestCase):
             start = int(sim.model.jnt_dofadr[sim.model.joint("target_free").id])
             sim.data.qvel[start : start + 6] = np.arange(6) * 0.01
             old = sim.data.qvel.copy()
-            try:
+            with closing(sim):
                 place_frozen_station(sim, {"initial": asdict(robot)["initial"]})
                 np.testing.assert_array_equal(sim.data.qvel[start : start + 6], old[start : start + 6])
                 sim.begin()
                 with self.assertRaises(RuntimeError):
                     place_frozen_station(sim, {"initial": asdict(robot)["initial"]})
-            finally:
-                sim.close()
 
     def test_native_conversion_preserves_geometry_state_and_parent(self):
         with tempfile.TemporaryDirectory() as directory:

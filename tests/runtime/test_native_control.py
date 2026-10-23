@@ -28,11 +28,6 @@ class NativeTests(unittest.TestCase):
         for motor in tree.findall("./actuator/motor"):
             motor.set("ctrllimited", "true")
             motor.set("ctrlrange", "-100 100")
-        for body in tree.findall(".//body"):
-            if "gripper_finger_" in body.get("name", ""):
-                body.set("name", body.get("name").replace("gripper_finger_", "ee_finger_"))
-        for side in ("l", "r"):
-            ET.SubElement(tree.find("./worldbody/body"), "site", name="robot_0/ee_site_" + side, pos="0 0 .1")
         tree.write(robot.model_path)
         self.robot = replace(robot, control_profile="molmobot-native-v1", control_hz=10)
         self.sim = Simulation.from_source(source, self.robot, target="target")

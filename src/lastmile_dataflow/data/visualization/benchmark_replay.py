@@ -36,48 +36,47 @@ def reconstruct(root):
         # camera settings. Actuator gains are irrelevant: no physics is stepped.
         model = mujoco.MjModel.from_binary_path(str(snapshot / 'model.mjb'))
         sim = Simulation(model, robot_config(profile), saved['instances'], episode['task']['target_body'])
-        if profile['control_profile'] == 'molmobot-native-v1':
-            for alias, fovy in (('head_camera', 139.), ('wrist_camera_l', 58.), ('wrist_camera_r', 58.)):
-                model.cam_fovy[model.camera(profile['namespace'] + alias).id] = fovy
-        width, height = read_json(rollout / 'camera_profile.json')['resolution']
-        model.vis.global_.offwidth = max(model.vis.global_.offwidth, width)
-        model.vis.global_.offheight = max(model.vis.global_.offheight, height)
-        camera = sim.enable_third_person()
-        directory = rollout / 'videos'
-        directory.mkdir(exist_ok=True)
-        if any((directory / f'{k}.mp4').exists() for k in ('head', 'third_person')):
-            sim.close()
-            raise FileExistsError(f'videos already exist: {directory}')
-        writers = {}
         try:
+            if profile['control_profile'] == 'molmobot-native-v1':
+                for alias, fovy in (('head_camera', 139.), ('wrist_camera_l', 58.), ('wrist_camera_r', 58.)):
+                    model.cam_fovy[model.camera(profile['namespace'] + alias).id] = fovy
+            width, height = read_json(rollout / 'camera_profile.json')['resolution']
+            model.vis.global_.offwidth = max(model.vis.global_.offwidth, width)
+            model.vis.global_.offheight = max(model.vis.global_.offheight, height)
+            camera = sim.enable_third_person()
+            directory = rollout / 'videos'
+            directory.mkdir(exist_ok=True)
+            if any((directory / f'{k}.mp4').exists() for k in ('head', 'third_person')):
+                raise FileExistsError(f'videos already exist: {directory}')
             with np.load(rollout / 'trajectory.npz', allow_pickle=False) as trace:
                 if trace['qpos'].shape[1] != model.nq or trace['qvel'].shape[1] != model.nv:
                     raise ValueError('recorded state does not match frozen geometry')
                 times = (trace['time_s'] - trace['time_s'][0]).tolist()
                 fps = profile['control_hz']
-                for name in ('head', 'third_person'):
-                    writers[name] = imageio.get_writer(directory / f'{name}.mp4', fps=fps,
-                        codec='libx264', macro_block_size=2)
-                for i in range(len(times)):
-                    sim.data.qpos[:] = trace['qpos'][i]
-                    sim.data.qvel[:] = trace['qvel'][i]
-                    sim.data.ctrl[:] = trace['ctrl'][i]
-                    sim.data.time = trace['time_s'][i]
-                    mujoco.mj_forward(model, sim.data)
-                    if sim.renderer is None:
-                        sim.renderer = mujoco.Renderer(model, width=width, height=height)
-                    third = camera.render(sim, sim.renderer, width, height)
-                    head_path = rollout / 'images' / 'head_camera' / f'{i:06d}.png'
-                    if not head_path.exists():
-                        raise FileNotFoundError(f'original head frame missing: {head_path}')
-                    writers['head'].append_data(imageio.imread(head_path))
-                    writers['third_person'].append_data(third)
-                    if i % 50 == 0:
-                        print(f'{eid}: rendered {i + 1}/{len(times)}', flush=True)
+                with (
+                    imageio.get_writer(directory / 'head.mp4', fps=fps,
+                                       codec='libx264', macro_block_size=2) as head_writer,
+                    imageio.get_writer(directory / 'third_person.mp4', fps=fps,
+                                       codec='libx264', macro_block_size=2) as third_person_writer,
+                ):
+                    for i in range(len(times)):
+                        sim.data.qpos[:] = trace['qpos'][i]
+                        sim.data.qvel[:] = trace['qvel'][i]
+                        sim.data.ctrl[:] = trace['ctrl'][i]
+                        sim.data.time = trace['time_s'][i]
+                        mujoco.mj_forward(model, sim.data)
+                        if sim.renderer is None:
+                            sim.renderer = mujoco.Renderer(model, width=width, height=height)
+                        third = camera.render(sim, sim.renderer, width, height)
+                        head_path = rollout / 'images' / 'head_camera' / f'{i:06d}.png'
+                        if not head_path.exists():
+                            raise FileNotFoundError(f'original head frame missing: {head_path}')
+                        head_writer.append_data(imageio.imread(head_path))
+                        third_person_writer.append_data(third)
+                        if i % 50 == 0:
+                            print(f'{eid}: rendered {i + 1}/{len(times)}', flush=True)
                 metadata = camera.metadata()
         finally:
-            for writer in writers.values():
-                writer.close()
             sim.close()
         recording = read_json(rollout / 'recording.json')
         recording['videos'] = {name: {'path': f'videos/{name}.mp4', 'frames': len(times),

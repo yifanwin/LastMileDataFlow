@@ -37,7 +37,9 @@ def search(grid, start_xy, goal_xy):
     start,goal = grid.cell(start_xy),grid.cell(goal_xy)
     if start is None or goal is None or not grid.free[start] or not grid.free[goal]:
         return None
-    distance = {start: 0.}; parent = {}; queue = [(0.,0.,start)]
+    distance = {start: 0.}
+    parent = {}
+    queue = [(0., 0., start)]
     while queue:
         _,cost,node = heapq.heappop(queue)
         if cost > distance[node]+1e-10:
@@ -45,14 +47,16 @@ def search(grid, start_xy, goal_xy):
         if node == goal:
             cells = [node]
             while node in parent:
-                node = parent[node]; cells.append(node)
+                node = parent[node]
+                cells.append(node)
             xy = [np.asarray(start_xy), *(grid.xy(c) for c in reversed(cells)), np.asarray(goal_xy)]
             return {'xy': np.asarray(xy).tolist(), 'length_m': cost,
                     'cells': [list(c) for c in reversed(cells)]}
         for neighbor,step in grid.neighbors(node):
             value = cost+step
             if value+1e-10 < distance.get(neighbor,float('inf')):
-                distance[neighbor] = value; parent[neighbor] = node
+                distance[neighbor] = value
+                parent[neighbor] = node
                 heuristic = np.linalg.norm(np.asarray(neighbor)-goal)*grid.resolution
                 heapq.heappush(queue,(value+heuristic,value,neighbor))
     return None
@@ -63,7 +67,8 @@ def distance_field(grid, source_xy, limit):
     start = grid.cell(source_xy)
     if start is None or not grid.free[start]:
         return distances
-    distances[start] = 0.; queue = [(0.,start)]
+    distances[start] = 0.
+    queue = [(0., start)]
     while queue:
         cost,node = heapq.heappop(queue)
         if cost > distances[node]+1e-10:
@@ -71,7 +76,8 @@ def distance_field(grid, source_xy, limit):
         for neighbor,step in grid.neighbors(node):
             value = cost+step
             if value <= limit and value+1e-10 < distances[neighbor]:
-                distances[neighbor] = value; heapq.heappush(queue,(value,neighbor))
+                distances[neighbor] = value
+                heapq.heappush(queue, (value, neighbor))
     return distances
 
 
@@ -144,7 +150,8 @@ def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, sup
     from ..scenes.stations.initialization import room_triangles, inside_triangles
     size = int(math.ceil(2*radius/resolution))+1
     origin = np.asarray(anchor[:2])-radius
-    yy,xx = np.indices((size,size)); xy = origin+np.stack((xx,yy),axis=-1)*resolution
+    yy, xx = np.indices((size, size))
+    xy = origin + np.stack((xx, yy), axis=-1) * resolution
     free = np.linalg.norm(xy-np.asarray(anchor[:2]),axis=-1) <= radius+1e-9
     triangles = room_triangles(sim)
     if len(triangles):
@@ -152,14 +159,16 @@ def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, sup
             free[y,x] = inside_triangles(xy[y,x],triangles)
     inflation = footprint_radius+margin
     for g in range(sim.model.ngeom):
-        name = sim.model.geom(g).name; body = sim.model.body(int(sim.model.geom_bodyid[g])).name
+        name = sim.model.geom(g).name
+        body = sim.model.body(int(sim.model.geom_bodyid[g])).name
         if body.startswith('robot_0/') or 'floor' in name.lower():
             continue
         if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]):
             continue
         if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE:
             continue
-        points = geom_points(sim,g); lo,hi = points.min(axis=0),points.max(axis=0)
+        points = geom_points(sim, g)
+        lo, hi = points.min(axis=0), points.max(axis=0)
         if hi[2] <= .005 or lo[2] >= robot_height:
             continue
         dx = np.maximum(np.maximum(lo[0]-xy[:,:,0],xy[:,:,0]-hi[0]),0.)
@@ -205,7 +214,8 @@ def task_support_obstacles(sim, task):
                 tops.append(hi[2])
         if not tops and not is_open:
             continue
-        pts = np.concatenate(points); lo,hi = pts.min(axis=0),pts.max(axis=0)
+        pts = np.concatenate(points)
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
         obstacle = {'body':entry['mjcf_body'],'min':lo.tolist(),'max':hi.tolist(),
                     'kind':'support','evidence':'open_task_furniture' if is_open else 'surface_below_target_AABB'}
         candidates.append((is_open or entry['instance_id'] == hint,max(tops,default=hi[2]),obstacle))

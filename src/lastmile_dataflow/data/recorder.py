@@ -1,6 +1,7 @@
 """一套实时轨迹与观测；不产生发布包、重复 replay 或审计侧车。"""
 
 from pathlib import Path
+import traceback
 import uuid
 import imageio.v2 as imageio
 import numpy as np
@@ -19,6 +20,7 @@ class AttemptRecorder:
         self.collection = config['collection']
         self.steps = 0
         self.finished = False
+        self.finalizing = False
         self.sim = None
         self.samples = []
         self.actions = []
@@ -62,10 +64,9 @@ class AttemptRecorder:
                 sensors = self.sim.capture_sensors(self.width, self.height, depth=True)
                 frames = {key: value['rgb'] for key, value in sensors.items()}
                 for key, value in sensors.items():
-                    if value['depth'] is not None:
-                        target = self.path / 'images' / key
-                        target.mkdir(parents=True, exist_ok=True)
-                        np.save(target / f'{self.steps:06d}-depth.npy', value['depth'])
+                    target = self.path / 'images' / key
+                    target.mkdir(parents=True, exist_ok=True)
+                    np.save(target / f'{self.steps:06d}-depth.npy', value['depth'])
             else:
                 frames = self.sim.render(self.width, self.height)
             self.sim._raw_frame_cache = (sample['time_s'], self.width, self.height, frames)
@@ -116,11 +117,12 @@ class AttemptRecorder:
 
     @recording_operation
     def finish(self, status, reason):
-        if self.finished:
-            raise RuntimeError('rollout already finished')
+        if self.finalizing:
+            raise RuntimeError('rollout finalization already started')
+        self.finalizing = True
         self.abort_close()
+        layout = self.sim.robot.record_layout() if self.sim is not None else None
         if self.samples:
-            layout = self.sim.robot.record_layout()
             size = layout.get('action_size', len(layout.get('action_fields', [])))
             arrays = {key: np.asarray([sample[key] for sample in self.samples]) for key in self.samples[0]}
             arrays.update(
@@ -151,7 +153,7 @@ class AttemptRecorder:
                 'complete': complete,
                 'errors': self.errors,
                 'controller_profile': self.sim.robot.config.control_profile if self.sim else None,
-                'layout': self.sim.robot.record_layout() if self.sim else None,
+                'layout': layout,
                 'task': self.config.get('task'),
                 'seed': self.config.get('seed'),
                 'videos': {name: {'path': f'videos/{name}.mp4', 'frames': count,
@@ -170,7 +172,8 @@ class AttemptRecorder:
             except Exception as exc:
                 from ..runtime.execution.lifecycle import classify_episode_exception
 
-                self.errors.append({'camera': camera, **classify_episode_exception(exc, 'recording')})
+                self.errors.append({'camera': camera, **classify_episode_exception(exc, 'recording'),
+                                    'traceback': traceback.format_exc()})
             del self.writers[camera]
 
 

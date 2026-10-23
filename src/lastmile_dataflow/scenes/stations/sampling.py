@@ -9,6 +9,7 @@ from ...data.rendering.edit_views import ViewConfig
 from .initialization import floor_support, room_triangles
 from ...runtime.construction.preparation import preparation_guard
 from ...runtime.construction.session import clone_preparation
+from ...runtime.control.action import InvalidAction
 
 
 def disk_samples(anchor, radius, spacing):
@@ -69,11 +70,12 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     if evidence_path is not None:
         import imageio.v2 as imageio
         from pathlib import Path
-        evidence_path=Path(evidence_path); evidence_path.mkdir(parents=True,exist_ok=True)
+        evidence_path = Path(evidence_path)
+        evidence_path.mkdir(parents=True, exist_ok=True)
         imageio.imwrite(evidence_path/'head.png',rgb)
         imageio.imwrite(evidence_path/'target_mask.png',mask.astype(np.uint8)*255)
         row['head_image']=str(evidence_path/'head.png')
-    if getattr(config, 'require_target_visibility', False) and visible['visible_pixels'] < config.min_target_pixels:
+    if config.require_target_visibility and visible['visible_pixels'] < config.min_target_pixels:
         row['geometry'] = 'visibility_filtered'
     return row
 
@@ -131,9 +133,8 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
     stations = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
     if frozen_stations is not None:
         stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
-    renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     navigation_grid = None
-    if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
+    if config.navigation_whole_body and config.require_navigation_clearance:
         from ...planning.astar import scene_grid, task_support_obstacles
         from ..tasks.discovery import robot_footprint
         footprint = robot_footprint(sim, whole_body=True)
@@ -143,16 +144,25 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
     rows = []
     if stop_after_valid is not None and (not static_only or type(stop_after_valid) is not int or stop_after_valid <= 0):
         raise ValueError('early-stop is only for positive-budget static discovery')
+    renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
+    check_scope = 'static_geometry' if static_only else 'actual_robot_initialization_and_visibility'
     try:
         for station in stations:
             probe = clone_preparation(sim)
             try:
                 warning_before = [w.number for w in probe.data.warning]
-                row = initialize_station(probe, station, task['anchor_world'], config, renderer=renderer,
-                                         check_visibility=not static_only)
+                try:
+                    row = initialize_station(probe, station, task['anchor_world'], config, renderer=renderer,
+                                             check_visibility=not static_only)
+                except InvalidAction as exc:
+                    rows.append({**station, 'geometry': 'geometry_filtered', 'reason': str(exc),
+                                 'independent_simulation': True,
+                                 'check_scope': check_scope,
+                                 'initialization_attempt_id': station['station_id']})
+                    continue
                 new_warnings = [{'index': i, 'number': int(w.number), 'lastinfo': int(w.lastinfo)}
                                 for i, w in enumerate(probe.data.warning) if w.number > warning_before[i]]
-                row.update(independent_simulation=True, check_scope='static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
+                row.update(independent_simulation=True, check_scope=check_scope,
                            initialization_attempt_id=station['station_id'], new_solver_warnings=new_warnings)
                 if navigation_grid is not None and row['geometry'] == 'valid':
                     cell = navigation_grid.cell(row['xy'])
@@ -163,11 +173,6 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
                 if row['geometry'] != 'valid':
                     row.setdefault('reason', 'target_visibility' if row['geometry'] == 'visibility_filtered' else 'robot_collision_or_floor_or_nonfinite')
                 rows.append(row)
-            except ValueError as exc:
-                rows.append({**station, 'geometry': 'geometry_filtered', 'reason': str(exc),
-                             'independent_simulation': True,
-                             'check_scope': 'static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
-                             'initialization_attempt_id': station['station_id']})
             finally:
                 probe.close()
             if stop_after_valid is not None and sum(r['geometry'] == 'valid' for r in rows) >= stop_after_valid:

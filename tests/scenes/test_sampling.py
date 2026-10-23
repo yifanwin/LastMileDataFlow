@@ -1,7 +1,7 @@
 """站位采样、初始化过滤与覆盖压缩。"""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -12,6 +12,22 @@ from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
 
 
 class SamplingTests(unittest.TestCase):
+    def test_unexpected_initialization_error_is_not_a_filtered_station(self):
+        from types import SimpleNamespace
+
+        probe = SimpleNamespace(close=Mock(), data=SimpleNamespace(warning=[]))
+        failure = ValueError('broken camera configuration')
+        with (
+            patch('lastmile_dataflow.scenes.stations.sampling.clone_preparation', return_value=probe),
+            patch('lastmile_dataflow.scenes.stations.sampling.initialize_station', side_effect=failure),
+        ):
+            with self.assertRaises(ValueError) as caught:
+                sample_stations(None, {'anchor_world': [0, 0, 1]},
+                                SimpleNamespace(radius_m=.1, spacing_m=.1, navigation_whole_body=False),
+                                static_only=True)
+        self.assertIs(caught.exception, failure)
+        probe.close.assert_called_once()
+
     def test_invisible_physical_station_is_kept_and_visibility_recorded(self):
         from types import SimpleNamespace
         from lastmile_dataflow.scenes.stations.sampling import initialize_station

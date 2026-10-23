@@ -1,4 +1,5 @@
 """场景往返、标定分母与按需模型数据导出。"""
+from contextlib import closing
 
 import unittest
 from dataclasses import asdict
@@ -26,7 +27,7 @@ class DatasetTests(DatasetTestCase):
         dataset = self.dataset()
         record = load_scenes(dataset)[0]
         restored = Simulation.from_snapshot(record["scene_path"], self.robot, target="target")
-        try:
+        with closing(restored):
             np.testing.assert_array_equal(restored.state_vector(), self.sim.state_vector())
             model = mujoco.MjModel.from_xml_path(str(Path(record["scene_path"]) / "model.xml"))
             self.assertEqual(model.nq, self.sim.model.nq)
@@ -34,8 +35,6 @@ class DatasetTests(DatasetTestCase):
                 {p.name for p in Path(record["scene_path"]).iterdir()},
                 {"config.json", "model.xml", "model.mjb", "initial.npz"},
             )
-        finally:
-            restored.close()
 
     def test_rates_exclude_errors_and_require_complete_points(self):
         config = ExecutionConfig(trials_per_station=2, start_count=1)

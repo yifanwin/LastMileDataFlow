@@ -53,13 +53,12 @@ def classify_episode_exception(exc, phase='execution'):
     ):
         status, category = 'infrastructure_error', 'SharedGPUFailure'
     else:
-        status = (
-            'initialization_error'
-            if phase == 'initialize'
-            else 'recording_error'
-            if phase in ('finalize', 'recording')
-            else 'episode_error'
-        )
+        if phase == 'initialize':
+            status = 'initialization_error'
+        elif phase in ('finalize', 'recording'):
+            status = 'recording_error'
+        else:
+            status = 'episode_error'
         category = {
             'initialization_error': 'EpisodeInitializationError',
             'recording_error': 'EpisodeRecordingError',
@@ -78,19 +77,16 @@ def classify_episode_exception(exc, phase='execution'):
     }
 
 
-def episode_phase():
-    return _SCOPE.get().phase if _SCOPE.get() is not None else 'execution'
-
-
 def mark_episode_phase(phase):
-    if _SCOPE.get() is not None:
-        _SCOPE.get().phase = phase
-
-
-def track_resource(resource, close=None):
     scope = _SCOPE.get()
     if scope is not None:
-        scope.resources.append((resource, close or resource.close))
+        scope.phase = phase
+
+
+def track_resource(resource):
+    scope = _SCOPE.get()
+    if scope is not None:
+        scope.resources.append(resource)
     return resource
 
 
@@ -98,7 +94,7 @@ def track_recorder(recorder):
     scope = _SCOPE.get()
     if scope is not None:
         scope.recorder = recorder
-        scope.resources.append((recorder, recorder.abort_close))
+        scope.resources.append(recorder)
 
 
 class EpisodeScope:
@@ -107,62 +103,72 @@ class EpisodeScope:
         self.resources = []
         self.recorder = None
 
-    def cleanup(self):
+    def cleanup(self, result):
         errors = []
-        for resource, close in reversed(self.resources):
-            if getattr(resource, 'closed', False) is True:
-                continue
+        status = result['status'] if result is not None else 'incomplete'
+        reason = result['reason'] if result is not None else 'interrupted'
+        for resource in reversed(self.resources):
             try:
-                close()
+                if resource is self.recorder:
+                    if not resource.finalizing:
+                        resource.finish(status, reason)
+                    else:
+                        resource.abort_close()
+                    errors.extend(resource.errors)
+                else:
+                    resource.close()
             except Exception as exc:
-                errors.append(classify_episode_exception(exc, 'finalize'))
+                errors.append({**classify_episode_exception(exc, 'finalize'),
+                               'traceback': traceback.format_exc()})
         return errors
 
 
 def execute_isolated_episode(function, *, root, station, attempt_id):
     scope = EpisodeScope()
     token = _SCOPE.set(scope)
-    caught = None
+    result = None
     try:
         try:
             result = function()
         except Exception as exc:
-            caught = traceback.format_exc()
+            classified = classify_episode_exception(exc, scope.phase)
+            detail = {**classified, 'traceback': traceback.format_exc()}
+            recorder = scope.recorder
+            steps = recorder.steps if recorder is not None else None
             result = {
-                **classify_episode_exception(exc, scope.phase),
+                **classified,
+                'error': detail['traceback'],
+                'exception_detail': detail,
+                'execution_termination': {'status': classified['status'], 'reason': classified['reason'],
+                                          'phase': scope.phase},
+                'task_outcome': {'status': 'unknown', 'reason': classified['reason']},
                 'station_id': station['station_id'],
                 'attempt': str(Path(root) / 'rollouts' / attempt_id),
-                'executed_steps': getattr(scope.recorder, 'steps', None),
-                'recorded_steps': getattr(scope.recorder, 'steps', None),
-                'execution_started': any(getattr(r, 'started', False) is True for r, _ in scope.resources),
+                'executed_steps': steps,
+                'recorded_steps': steps,
+                'execution_started': any(getattr(resource, 'started', False) is True for resource in scope.resources),
                 'artifact_complete': False,
+                'recording_complete': False,
                 'task_completion': 'unknown',
                 'video_status': 'unavailable',
             }
         finally:
-            cleanup_errors = scope.cleanup()
+            cleanup_errors = scope.cleanup(result)
+        if scope.recorder is not None:
+            recorder = scope.recorder
+            result.update(rollout_id=recorder.attempt_id,
+                          seed=recorder.config.get('seed'),
+                          recording_complete=recorder.finished and recorder.result['recording_complete'])
         if cleanup_errors:
-            original = result
-            result = {
-                **result,
-                **next((e for e in cleanup_errors if e['failure_scope'] == 'shared'), cleanup_errors[0]),
-                'original_episode_status': original.get('status'),
-                'cleanup_errors': cleanup_errors,
-                'artifact_complete': False,
-            }
-        if result.get('status') in LOCAL_ERRORS:
-            result = {
-                **result,
-                'failure_scope': 'episode',
-                'artifact_complete': False,
-                'task_completion': 'unknown',
-            }
-            if result.get('exception_detail'):
-                result['attribution'] = result['exception_detail']['attribution']
-        if result.get('status') == 'infrastructure_error':
+            original_status = result['status']
+            failure = next((error for error in cleanup_errors if error['failure_scope'] == 'shared'), cleanup_errors[0])
+            result.update(failure)
+            result.update(original_episode_status=original_status, cleanup_errors=cleanup_errors,
+                          artifact_complete=False, recording_complete=False)
+        if result['status'] in LOCAL_ERRORS:
+            result.update(failure_scope='episode', artifact_complete=False, task_completion='unknown')
+        elif result['status'] == 'infrastructure_error':
             result['failure_scope'] = 'shared'
-        if caught:
-            result['error'] = caught
         return result
     finally:
         _SCOPE.reset(token)

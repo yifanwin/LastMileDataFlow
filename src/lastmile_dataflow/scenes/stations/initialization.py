@@ -4,6 +4,7 @@ import mujoco
 import numpy as np
 
 from ...runtime.outcomes.health import inspect_state
+from ...runtime.control.action import InvalidAction
 
 
 def room_triangles(sim):
@@ -92,7 +93,7 @@ def initialize_robot(sim, collection, *, base=None):
         initial[sim.robot.initial_base_field] = candidate.tolist()
         try:
             sim.robot.initialize(initial)
-        except ValueError as exc:
+        except InvalidAction as exc:
             trials.append({"base": candidate.tolist(), "valid": False, "reason": str(exc)})
             continue
         # 基座必须位于实际地面上方；向下 ray 排除房外/空洞。

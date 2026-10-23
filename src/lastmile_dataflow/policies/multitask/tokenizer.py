@@ -68,11 +68,8 @@ class HfTokenizerWrapper:
         ):
             x = x[1:]
         if truncate_at_eos:
-            try:
-                eos_ix = x.index(self.eos_token_id)
-                x = x[:eos_ix]
-            except ValueError:
-                pass
+            eos_ix = next((i for i, token in enumerate(x) if token == self.eos_token_id), len(x))
+            x = x[:eos_ix]
         else:
             x = [t for t in x if t != self.eos_token_id and t != self.bos_token_id]
         return self.tokenizer.decode(x)

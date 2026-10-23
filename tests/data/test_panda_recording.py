@@ -1,4 +1,5 @@
 """Panda semantic recording and preparation snapshots, without external assets."""
+from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
 import tempfile
@@ -24,18 +25,14 @@ class PandaRecordingTests(unittest.TestCase):
             sim.robot.initialize()
             sim.source = SceneSource('test', 'unused.xml')
             sim.restoration = None
-            try:
+            with closing(sim):
                 sim.freeze(root/'scene')
                 restored = Simulation.from_snapshot(root/'scene', robot.config)
-                try:
+                with closing(restored):
                     self.assertEqual(restored.robot.state_targets(), sim.robot.state_targets())
                     cloned = clone_sim(restored)
-                    try:
+                    with closing(cloned):
                         self.assertEqual(cloned.robot.state_targets(), sim.robot.state_targets())
-                    finally:
-                        cloned.close()
-                finally:
-                    restored.close()
                 collection = CollectionConfig(record_images=False, record_video=False)
                 recorder = AttemptRecorder(root, {'collection':asdict(collection)}, attempt_id='semantic')
                 recorder.bind_simulation(sim)
@@ -50,8 +47,6 @@ class PandaRecordingTests(unittest.TestCase):
                     self.assertAlmostEqual(trace['requested_actions'][0,-1], .04)
                     self.assertGreater(trace['time_s'][1], trace['time_s'][0])
                     self.assertNotIn('state22', trace)
-            finally:
-                sim.close()
 
     def test_materialization_reads_panda_fields_without_rby_state(self):
         from lastmile_dataflow.data.export.lastmile_dataset import materialize_lastmile, load_training_batch

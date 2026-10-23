@@ -70,7 +70,7 @@ class EditAssetCatalog:
                 continue
             try:
                 _, asset = self.load(asset_id)
-            except (ValueError, OSError):
+            except ValueError:
                 continue
             if any(not lo <= asset['size'][name] <= hi for name, (lo, hi) in selector.get('size', {}).items()):
                 continue
