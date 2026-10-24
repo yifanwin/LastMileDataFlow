@@ -1,9 +1,11 @@
 # E01：成功轨迹图像生成与 PNG 编码探针
 
-- 状态：done
+- 状态：archived
 - 日期：2026-10-22
-- 替代：无
-- 关联：[探索计划](../plan/00-curobo-optimization-overview.md)、[主仓库复核](../../../../../reports/build-lastmile-datasets/delivery/2026-10-22-calibration-time-review.md)
+- 替代：[当前文档](../../../info/01-current-status.md)
+- 关联：[探索计划](../plan/00-curobo-optimization-overview.md)、[主仓库复核](2026-10-22-calibration-time-review.md)
+
+**2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 
 **优先继续降低 PNG 编码成本、保留现场 RGB；离线状态渲染暂不替换主链。** 本轮 PNG 压缩 1 相对 6 的内存编码总耗时降为 21.2%，解码像素完全相同，体积增加 21.1%。这个比例只描述编码探针，不代表标定整体加速。
 
@@ -68,7 +70,7 @@
 
 初次准备发现模型有 mocap，补读初始化快照；原始状态文件未修改。默认 EGL 混入 Mesa，且 NVIDIA EGL 只枚举 7 个设备，直接用设备编号 7 无效。最终显式选择 NVIDIA vendor 和 EGL 索引 6 完成测量；未证明 EGL 索引与物理 GPU 编号相同。不修改服务器设备权限或系统配置。
 
-脚本：[curobo_visual_probe.py](../../../scripts/experiments/curobo_visual_probe.py)。紧凑结果保留于本工作区 outputs/diagnostics/curobo-time/E01/result.json；运行产物不提交，不复制源图像。当前环境只完成渲染依赖安装，完整 cuRobo Git 依赖离线缓存缺失，不构成 cuRobo 规划运行环境验收。
+脚本：[curobo_visual_probe.py](../../../../../scripts/experiments/curobo_visual_probe.py)。紧凑结果保留于本工作区 outputs/diagnostics/curobo-time/E01/result.json；运行产物不提交，不复制源图像。当前环境只完成渲染依赖安装，完整 cuRobo Git 依赖离线缓存缺失，不构成 cuRobo 规划运行环境验收。
 
 从本工作区运行：
 

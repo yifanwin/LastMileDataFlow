@@ -14,6 +14,8 @@
 
 `config.json` 保存有效参数、种子、机器人/相机、后端或策略配置。`summary.json` 和热图是可重建的阅读产物，不作为协议入口。引用型生成读取原标定，不复制第二份 trials；独立物化仅复制训练索引所选的唯一轨迹与必需观测。
 
+标定 run 的 `config.json.resources` 保存 `station_workers/gpu_ids/egl_devices/reuse_planners`，不参与物理执行配置匹配。新 trial 行包含原场景内的 `station_index`；seed 为 `config.seed + station_index × trials_per_station + trial`。并行时父进程预分配唯一 `rollout_id`，JSONL 行可按完成顺序排列，读取端不依赖行序。
+
 ## 场景库与标定关系
 
 场景构建完成发现任务、资格筛选、增强与站位采样，accepted/rejected 都保留在 `scenes.jsonl`。
@@ -52,7 +54,10 @@ MJB 是实际载入来源，需使用生成时的 MuJoCo 版本。XML 不是跨�
 `rollouts/<id>/trajectory.npz`：`time_s/qpos/qvel/ctrl/base_xyyaw` 和本体状态数组为 N+1 个边界状态（RBY-1 为 `state22`，PandaOmron 为 `state`），`actions/requested_actions/phases` 为 N 个实际控制间隔。`base_xyyaw` 是实测世界坐标 x/y/yaw，单位 m/rad；旧轨迹未记录该字段时恢复诊断为 unknown，不从数组下标猜测。没有真实物理步就不伪造轨迹行。
 `phases` 在下发动作前设置，标明该实际间隔的执行阶段；MolmoBot 使用 `navigation/arrival/vla_operation`，不再用记录器的隐式 `operation` 默认值。
 `recording.json` 记录是否完整、步数和错误；事件用于诊断。RGB 图片默认保留，视频、深度、逐物理步日志按需选择。
+RGB PNG 使用无损压缩级别 1，减少在线编码耗时，文件体积相应增大。
 没有 canonical/raw 双份记录，也不保存独立 replay、final-state、outcome 或物理日志派生索引。
+
+关闭逐物理步日志时仍保留 4 ms 任务事实与原接触统计，只省去完整遥测行构造和序列化；开启日志时保留原字段。复用的闭爪前 planner 目录用 `planner_reuse.json` 引用同 run 内首次构造的资源目录，路径相对于 run 根目录；当前 trial 的 seed、规划、FOV 与 solver 日志仍独立记录。
 
 RBY-1 的 20D 动作：底盘 `[0:3]`、左臂 `[3:10]`、左夹爪 `[10]`、右臂 `[11:18]`、右夹爪 `[18]`、躯干 `[19]`。
 底盘/手臂是增量，夹爪/躯干是绝对目标；机器人配置决定控制模式和合法范围。
@@ -96,3 +101,11 @@ MolmoBot 转换按需生成 `data.npz`，引用原图像。非原生控制模式
 `<benchmark>/visualization/` 输出每条 episode 的 `<episode_id>.png` 与 `summary.png`，仅含静态构建信息和私有 oracle。`<evaluation>/visualization/` 独立输出实际轨迹、结果和两个视角最终帧的组合 PNG。评测读 benchmark 原始数据，不回写 benchmark，也不依赖其图片是否已生成。不生成 HTML 或 JavaScript。
 
 评测 rollout 默认输出 `videos/head.mp4`、`videos/third_person.mp4`；录制器在初始状态及每个实际控制边界各捕获一次。`recording.json.videos` 按视角保存 `path`、`frames`、`fps`、`sample_times_s`、`source`。`source` 为 `live_render`、`recorded_images` 或 `recorded_state_reconstruction`。相机逐帧 PNG 不再默认输出于 benchmark 评测；其他采集流程保持各自配置。操作步骤见 [benchmark 指南](../reports/benchmark/docs/运行指南.md)。
+
+## 实测状态离线回放
+
+`trajectory.npz` 同时保存初始帧及每个实际控制步后的 `integration_state`、`state_spec`、`control_json`、`clock_remainder`、相机位姿和内参。`actions`、`requested_actions`、`phases` 仍各对应一次实际控制步，不为无执行的 trial 补行。
+
+`recording.json` 保存 MuJoCo 版本、`model_dir`、相机别名/名称、尺寸、控制频率和 `replay_complete`。公共准备资料位于 `preparations/<scene>/<station>/`，trial 引用同一准备状态，但独立执行。数值记录完整与视觉示教模态完整分别判定。
+
+离线输出的 `replay.json` 标明 `source=measured_state_replay`、实测时间戳、视频播放时间及原始帧索引。回放只恢复实测状态并调用 `mj_forward`，不积分、不重新判定成败。

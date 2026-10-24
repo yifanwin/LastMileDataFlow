@@ -15,7 +15,7 @@ from ..control.torso_command import bounded_torso_command, torso_feedback_margin
 from ...scenes.geometry import descendants
 from ..outcomes.evaluation import mobile_constraint_failure, torso_tracking_error
 from ..outcomes.pick import rotation_error
-from ..outcomes.contacts import ContactStatistics, simulation_failure, contact_observations
+from ..outcomes.contacts import ContactSampler, ContactStatistics, simulation_failure
 from ..simulation import Simulation
 from .checks import checkpoint_pick_success, timed
 
@@ -29,16 +29,19 @@ def clone_sim(sim, *, target=None):
     """New MjData, shared read-only model; never restore the running instance."""
     result=Simulation(sim.model,sim.robot.config,copy.deepcopy(sim.catalog),target=target)
     track_resource(result)
-    mujoco.mj_setState(result.model,result.data,sim.state_vector(),sim.state_spec)
-    result.robot.copy_control_from(sim.robot); result._clock_remainder=sim._clock_remainder
+    from .protocol import SimulationState
+    SimulationState.capture(sim).initialize(result)
     result.source=sim.source; result.restoration=None; result.spec=None
-    mujoco.mj_forward(result.model,result.data)
+    result.frozen_dir = getattr(sim, 'frozen_dir', None)
+    result.planning_geometry = sim.planning_geometry
     return result
 
 
 class ContinuousContext:
-    def __init__(self, sim, recorder, config):
+    def __init__(self, sim, recorder, config, *, budget=None):
         self.sim, self.recorder, self.config = sim, recorder, config
+        self.budget = budget
+        self.stop = None
         self.phase = 'initialize'
         self.started_at = time.monotonic()
         self.initial_sim_time = float(sim.data.time)
@@ -52,16 +55,18 @@ class ContinuousContext:
             open_trace(recorder.path / 'physics.jsonl.gz', recorder.collection['record_physics'])
         )
         self.contact_stats = ContactStatistics()
+        self.contact_sampler = ContactSampler(sim)
+        self.record_physics = recorder.collection['record_physics']
         self.samples = []
         self.collisions = self.contact_stats.examples
         self.plans = []
         self.monitor = None
         self.fingers = set()
         self.target_bodies = descendants(sim.model, sim.target_id)
-        self.plan_count = 0
+        self.plan_count = 0 if budget is None else budget.plan_count
         # Monotonic across retries: plan_count is intentionally reset per attempt so
         # its budget applies to that attempt, but evidence directories must stay unique.
-        self.plan_serial = 0
+        self.plan_serial = self.plan_count
         self.analysis = None
         self.initial_target_height = float(sim.data.xpos[sim.target_id, 2])
         self.max_plans = config.max_operation_plans
@@ -70,6 +75,12 @@ class ContinuousContext:
         self.manip_base_target = None
 
     def deadline(self):
+        if self.stop is not None and self.stop.is_set():
+            from ...planning.curobo_v2 import PlannerUnavailable
+            raise PlannerUnavailable('shared planning failure stopped the batch')
+        if self.budget is not None:
+            self.budget.check()
+            return
         if time.monotonic() - self.started_at > self.config.attempt_timeout_s:
             raise TimeoutError('attempt_wall_clock_budget')
 
@@ -120,35 +131,44 @@ class ContinuousContext:
             health=simulation_failure(self.sim)
             if health:
                 failures.append(health)
-                self.physics.write(canonical({'time_s':float(self.sim.data.time),'issue':health})+b'\n')
+                if self.record_physics:
+                    self.physics.write(canonical({'time_s':float(self.sim.data.time),'issue':health})+b'\n')
                 return {'valid':False,'issues':[{'severity':'error','code':health}]}
             mujoco.mj_forward(self.sim.model,self.sim.data)
-            contacts=contact_observations(self.sim,target_bodies=self.target_bodies,fingers=self.fingers)
-            self.contact_stats.update(contacts)
-            row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts}
-            if self.sim.robot.config.control_profile == 'robocasa-v1':
+            contacts=self.contact_sampler.capture(target_bodies=self.target_bodies,fingers=self.fingers)
+            self.contact_stats.update_frame(contacts)
+            row = None
+            if self.record_physics:
+                row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts.observations()}
+            if row is not None and self.sim.robot.config.control_profile == 'robocasa-v1':
                 row['ctrl'] = self.sim.data.ctrl.tolist()
             # `record_only` protocol: a torso feedback excursion is telemetry, not a
             # stop condition. Only a gross violation (real loss of control) stops.
             if not semantic:
                 h_actual=float(self.sim.robot.group('torso')[1])
                 margin=torso_feedback_margin(h_actual,self.sim.robot.config.torso_limits)
-                row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
-                           torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
+                if row is not None:
+                    row.update(torso_measured_h=h_actual,torso_limit_excess_rad=margin,
+                               torso_feedback_tolerance_rad=FEEDBACK_TOLERANCE_RAD)
                 if margin > TORSO_SEVERE_FEEDBACK_RAD:
                     failures.append('torso_feedback_limit')
             if self.monitor:
                 self.monitor.phase=self.phase; self.monitor.command_h=self.sim.robot.control_height()
-                facts=self.monitor.sample()
+                facts=self.monitor.sample(contacts)
                 if 'torso' in facts:
                     facts.update(torso_tracking_error_rad=torso_tracking_error(facts),
                                  torso_error_policy=self.config.torso_error_policy)
-                row.update(facts); self.samples.append(facts)
+                if row is not None:
+                    row.update(facts)
+                self.samples.append(facts)
                 fail=mobile_constraint_failure(facts,self.monitor.initial)
                 if fail: failures.append(fail)
                 if self.open_joint is not None:
-                    facts['joint_value']=float(self.sim.data.qpos[self.open_joint]); row['joint_value']=facts['joint_value']
-            self.physics.write(canonical(row)+b'\n')
+                    facts['joint_value']=float(self.sim.data.qpos[self.open_joint])
+                    if row is not None:
+                        row['joint_value']=facts['joint_value']
+            if row is not None:
+                self.physics.write(canonical(row)+b'\n')
             return {'valid':not failures,'issues':[{'severity':'error','code':v} for v in failures]}
         with timed(self, 'simulation_and_physics_evidence'):
             command,stop=self.sim.step(action,fixed_base=fixed_base,substep_check=check,command_raw=raw_action)
@@ -214,9 +234,9 @@ class ContinuousContext:
         self.plan_count+=1
         with timed(self, 'motion_planning'):
             result=planner.plan(goal)
-        self.deadline()
         self.plans.append({'phase':self.phase,'goal_world':goal.tolist(),**asdict(result)})
         write_json(self.recorder.path/'planning.json',self.plans)
+        self.deadline()
         if result.status != 'success':
             diagnostic=dict(result.diagnostics)
             raise OperationFailure(diagnostic.get('failure_reason') or

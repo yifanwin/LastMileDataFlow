@@ -9,18 +9,19 @@ import numpy as np
 from ...utils.io import create_run, read_json, rows, write_json, write_rows
 
 
-def successful(record, *, continuous=False):
+def successful(record, *, continuous=False, observations=False):
     valid = (record.get('status') == 'success'
              and (record.get('task_outcome') or {}).get('status') == 'success'
              and record.get('recording_complete') is True
              and (record.get('executed_steps') or 0) > 0
              and bool(record.get('rollout_id')))
-    return valid and (not continuous or (record.get('navigation') or {}).get('status') == 'success')
+    return (valid and (not continuous or (record.get('navigation') or {}).get('status') == 'success')
+            and (not observations or record.get('observation_complete') is True))
 
 
 def training_record(record, source_run, source_type):
     fields = ('scene_id', 'task_id', 'station_id', 'trial', 'seed', 'rollout_id',
-              'status', 'task_outcome', 'recording_complete', 'executed_steps')
+              'status', 'task_outcome', 'recording_complete', 'observation_complete', 'executed_steps')
     result = {key: record[key] for key in fields if key in record}
     result.update(source_run=source_run, source_type=source_type)
     if source_type == 's0_to_s1_continuous':

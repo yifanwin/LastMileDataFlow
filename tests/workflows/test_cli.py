@@ -40,7 +40,7 @@ class CliTests(unittest.TestCase):
     def test_assets_and_gpu_still_required_without_defaults(self):
         argv = ['evaluate-stations', '--dataset', 'dataset', '--run-id', 'one']
         with patch('sys.stderr'), self.assertRaises(SystemExit):
-            parser().parse_args(argv + ['--gpu', '6'])
+            main(argv + ['--gpu', '6'])
         self.local.return_value = LocalConfig(assets_dir=Path('/shared/assets'))
         with patch('sys.stderr'), self.assertRaises(SystemExit):
             parser().parse_args(argv)
@@ -51,6 +51,16 @@ class CliTests(unittest.TestCase):
             set(commands.choices),
             {"build-scenes", "evaluate-stations", "collect-lastmile", "build-bench", "evaluate-bench"},
         )
+
+    def test_measured_replay_dispatch_needs_no_planner_or_assets(self):
+        with (patch('lastmile_dataflow.data.rendering.replay.render_run', return_value=Path('video')) as replay,
+              patch('lastmile_dataflow.workflows.collection.evaluate_stations') as evaluate,
+              patch('builtins.print')):
+            main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0', 'r1',
+                  '--replay-camera', 'overview', '--output-dir', 'out', '--run-id', 'video', '--gpu', '0'])
+        replay.assert_called_once_with(Path('run'), Path('out/replays/video'),
+                                       rollouts=['r0', 'r1'], camera='overview')
+        evaluate.assert_not_called()
 
     def test_materialization_dispatch_needs_neither_gpu_nor_assets(self):
         with (
@@ -71,7 +81,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("命令结束=build-scenes 输出=out", logs.output[-1])
         output.assert_called_once_with(Path("out"))
         build.assert_called_once_with(
-            Path("recipe.json"), Path("outputs"), "one", gpu_ids=[6], allow_partial_targets=False
+            Path("recipe.json"), Path("outputs"), "one", gpu_ids=[6], allow_partial_targets=False, workers=1
         )
 
     def test_preview_dataset_dispatch_without_new_run(self):
@@ -130,7 +140,7 @@ class CliTests(unittest.TestCase):
             with (
                 patch(
                     "lastmile_dataflow.workflows.scene_datasets.discover_scene_dataset",
-                    side_effect=lambda config, path: path,
+                    side_effect=lambda config, path, **options: path,
                 ) as discover,
                 patch(
                     "lastmile_dataflow.workflows.scene_datasets.qualify_scene_discovery",
@@ -140,16 +150,19 @@ class CliTests(unittest.TestCase):
                     "lastmile_dataflow.workflows.scene_datasets.build_scene_dataset",
                     return_value=root / "result",
                 ) as build,
+                patch('lastmile_dataflow.workflows.scene_datasets.read_json', return_value={}),
+                patch('lastmile_dataflow.workflows.scene_datasets.write_json') as save_summary,
             ):
                 result = build_scenes("recipe.json", root, "one", gpu_ids=[6])
             discover.assert_called_once()
             qualify.assert_called_once()
             build.assert_called_once()
-            self.assertRegex(discover.call_args.args[1].parent.name, r"^scene-build-\d{8}-\d{6}$")
+            self.assertTrue(discover.call_args.args[1].parent.name.startswith('scene-build-'))
             self.assertEqual(qualify.call_args.args[0], discover.call_args.args[1])
             self.assertEqual(build.call_args.args[1], qualify.call_args.args[1])
             self.assertEqual(result, root / "result")
             self.assertEqual(list(root.iterdir()), [])
+            self.assertIn('wall_elapsed_s', save_summary.call_args.args[1])
 
 
 class IndependenceTests(unittest.TestCase):

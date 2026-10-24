@@ -24,7 +24,9 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
         if 'floor' in name.lower() or kind==mujoco.mjtGeom.mjGEOM_PLANE: continue
         # enclosing radius is a conservative local inclusion test, not collision geometry
         if np.linalg.norm(d.geom_xpos[g,:2]-base[:2,3])-m.geom_rbound[g]>range_m: continue
-        if kind==mujoco.mjtGeom.mjGEOM_MESH:
+        if g in sim.planning_geometry:
+            v, f = sim.planning_geometry[g]
+        elif kind==mujoco.mjtGeom.mjGEOM_MESH:
             mesh=int(m.geom_dataid[g]); va,vn=int(m.mesh_vertadr[mesh]),int(m.mesh_vertnum[mesh]); fa,fn=int(m.mesh_faceadr[mesh]),int(m.mesh_facenum[mesh])
             v=m.mesh_vert[va:va+vn].copy(); f=m.mesh_face[fa:fa+fn].copy()
         else:
@@ -36,6 +38,7 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
             elif kind==mujoco.mjtGeom.mjGEOM_CAPSULE: obj=trimesh.creation.capsule(radius=size[0],height=2*size[1])
             else: raise ValueError(f'unsupported collision geometry {name}')
             v,f=np.asarray(obj.vertices),np.asarray(obj.faces)
+        sim.planning_geometry[g] = v, f
         world=v@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g]
         vertices.append((np.c_[world,np.ones(len(v))]@inv.T)[:,:3]); faces.append(f+count); count+=len(v); names.append(name)
     if not vertices:

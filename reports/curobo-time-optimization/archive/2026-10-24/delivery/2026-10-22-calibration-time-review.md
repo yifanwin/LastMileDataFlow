@@ -1,9 +1,11 @@
 # cuRobo 标定耗时复核与 30 分钟优化建议
 
-- 状态：done
+- 状态：archived
 - 日期：2026-10-22
-- 替代：无
+- 替代：[当前文档](../../../info/01-current-status.md)
 - 关联：[原耗时分析](../analyze/2026-10-20-scene-datasets-and-calibration-cost.md)、[更新方案](../plan/2026-10-22-time-optimization-plan.md)
+
+**2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 
 **建议把主线改成“成功轨迹保留视觉数据 + 单场景内并行 + 保持逐物理步判定的采集优化”。仅复用规划器，无法达到每场景 30 分钟。** 原方案把部分重叠收益相加，规划器调用结构也判断错了；1.5–1.8 小时只是旧估算，当前没有对应的优化后实测。
 
@@ -26,7 +28,7 @@ RBY 两轮的站位、头部姿态和 FOV 配置等有差异，**不能把成功
 
 原始输入：
 
-- [small3 标定](../../../.worktrees/refactor-light/outputs/station_evaluations/small3/curobo_v2_001/summary.json) 的仓库相对实际路径为 `.worktrees/refactor-light/outputs/station_evaluations/small3/curobo_v2_001/`。
+- small3 标定当时的仓库相对路径为 `.worktrees/refactor-light/outputs/station_evaluations/small3/curobo_v2_001/`，汇总文件为 `summary.json`（旧输出已删除，仅保留来源说明）。
 - RBY：`.worktrees/model-train/outputs/rby1-full-calibration-02/`。
 - Panda：`.worktrees/model-train/outputs/panda-full-calibration-02/`。
 - open：`outputs/station_evaluations/eval_ds/curobo_v2_001/`。
@@ -52,7 +54,7 @@ RBY 两轮的站位、头部姿态和 FOV 配置等有差异，**不能把成功
 
 原 P6 的“端到端下降 2%–4%”也不成立：若用批次构建 3,886 s、降至 1,000–1,500 s，再配标定 1–2.3 h，算术降幅约 **20%–39%**；这仍是跨样本估算，不是验证过的收益。
 
-源码依据：[执行与计时](../../../src/lastmile_dataflow/runtime/execution/context.py)、[实际步进](../../../src/lastmile_dataflow/runtime/simulation.py)、[记录器](../../../src/lastmile_dataflow/data/recorder.py)、[任务证据约束](../../../src/lastmile_dataflow/runtime/outcomes/pick.py)、[规划器](../../../src/lastmile_dataflow/planning/curobo_v2.py)、[模型绑定](../../../src/lastmile_dataflow/planning/rby1m_mobile_torso.py)。
+源码依据：[执行与计时](../../../../../src/lastmile_dataflow/runtime/execution/context.py)、[实际步进](../../../../../src/lastmile_dataflow/runtime/simulation.py)、[记录器](../../../../../src/lastmile_dataflow/data/recorder.py)、[任务证据约束](../../../../../src/lastmile_dataflow/runtime/outcomes/pick.py)、[规划器](../../../../../src/lastmile_dataflow/planning/curobo_v2.py)、[模型绑定](../../../../../src/lastmile_dataflow/planning/rby1m_mobile_torso.py)。
 
 ## 3. 30 分钟需要同时考虑延迟和资源
 
@@ -138,7 +140,7 @@ GPU 非确定性和原有墙钟 timeout 要单独解释：去掉记录等待后�
 
 更新原耗时分析的错误口径，并将原方案改为本轮确认的目标。没有把已有 dirty/untracked 文档回退。验证采用原始记录复算、调用链检查和文档链接检查；纯文档修改不运行软件回归。
 
-用户随后授权新工作区探索，已创建 .worktrees/curobo-time-optimization，分支 exp/01-curobo-time-optimization。[E01 探针](../../../.worktrees/curobo-time-optimization/reports/build-lastmile-datasets/delivery/E01-visual-recording-probe.md)在独立环境完成 15 张图像还原与内存 PNG 编码：压缩 1 比 6 的总编码时间约快 4.71 倍、体积增加 21.09%，解码无损；状态渲染未全部逐像素一致，先推进现场 RGB 与编码优化。它不构成完整标定加速或 30 分钟目标验收。
+用户随后授权新工作区探索，已创建 .worktrees/curobo-time-optimization，分支 exp/01-curobo-time-optimization。[E01 探针](E01-visual-recording-probe.md)在独立环境完成 15 张图像还原与内存 PNG 编码：压缩 1 比 6 的总编码时间约快 4.71 倍、体积增加 21.09%，解码无损；状态渲染未全部逐像素一致，先推进现场 RGB 与编码优化。它不构成完整标定加速或 30 分钟目标验收。
 
 | 视觉候选 | 选择 | 原因 |
 |---|---|---|

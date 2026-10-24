@@ -29,8 +29,10 @@ class SceneSource:
         return asdict(self)
 
 
-def instance_catalog(model, source):
-    meta = read_json(source.metadata_path).get("objects", {}) if source.metadata_path else {}
+def instance_catalog(model, source, *, metadata=None):
+    if metadata is None:
+        metadata = read_json(source.metadata_path) if source.metadata_path else {}
+    meta = metadata.get('objects', {})
     result, used = [], set()
     body_names = {model.body(i).name: i for i in range(1, model.nbody)}
     for key, obj in sorted(meta.items()):

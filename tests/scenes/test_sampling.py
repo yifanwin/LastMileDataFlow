@@ -62,6 +62,26 @@ class SamplingTests(unittest.TestCase):
 
 
 class StationSelectionTests(unittest.TestCase):
+    def test_static_qualification_reuses_prefix_and_checks_all_remaining_candidates(self):
+        from types import SimpleNamespace
+        from lastmile_dataflow.scenes.stations import sampling
+
+        task = {'anchor_world': [0, 0, 1]}
+        config = SimpleNamespace(radius_m=.2, spacing_m=.1, navigation_whole_body=False)
+        lattice = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
+        prefix = [{**s, 'geometry': 'geometry_filtered', 'reason': 'fixture'} for s in lattice[:3]]
+        clone = lambda _: SimpleNamespace(close=lambda: None, data=SimpleNamespace(warning=[]))
+        with (patch.object(sampling, 'clone_preparation', side_effect=clone),
+              patch.object(sampling, 'room_triangles', return_value=np.empty((0, 3, 2))),
+              patch.object(sampling, 'initialize_station',
+                           side_effect=lambda sim, station, *a, **kw: {**station, 'geometry': 'valid'}) as initialize,
+              patch.object(sampling.mujoco, 'Renderer') as renderer):
+            rows = sample_stations(None, task, config, static_only=True, checked_stations=prefix)
+        self.assertEqual(len(rows), len(lattice))
+        self.assertEqual(initialize.call_count, len(lattice) - len(prefix))
+        self.assertEqual(rows[:3], prefix)
+        renderer.assert_not_called()
+
     def test_coverage_not_prefix_and_preserves_range_and_bearing(self):
         rows = []
         for radius in (0.2, 0.5, 0.8):
@@ -105,6 +125,7 @@ class StationSelectionTests(unittest.TestCase):
         config = SimpleNamespace(radius_m=0.3, spacing_m=0.1, navigation_whole_body=False)
         with (
             patch("lastmile_dataflow.scenes.stations.sampling.clone_preparation", side_effect=clone),
+            patch('lastmile_dataflow.scenes.stations.sampling.room_triangles', return_value=np.empty((0, 3, 2))),
             patch(
                 "lastmile_dataflow.scenes.stations.sampling.initialize_station",
                 side_effect=lambda sim, station, *a, **kw: {**station, "geometry": "valid"},
@@ -131,6 +152,7 @@ class StationSelectionTests(unittest.TestCase):
 
         with (
             patch("lastmile_dataflow.scenes.stations.sampling.clone_preparation", side_effect=clone),
+            patch('lastmile_dataflow.scenes.stations.sampling.room_triangles', return_value=np.empty((0, 3, 2))),
             patch("lastmile_dataflow.scenes.stations.sampling.initialize_station", side_effect=initialize),
         ):
             rows = sample_stations(

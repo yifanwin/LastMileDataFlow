@@ -1,6 +1,7 @@
 """控制提交、快照与执行后的生命周期限制。"""
 
 import tempfile
+import pickle
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,25 @@ from tests.helpers import make_sim
 
 
 class SimulationTests(unittest.TestCase):
+    def test_frozen_skybox_xml_reloads_with_the_original_layout_and_pixels(self):
+        import imageio.v2 as imageio
+        from tests.helpers import fixtures
+        from lastmile_dataflow.scenes.loading.mjcf import load_spec
+
+        source, robot = fixtures(self.root)
+        imageio.imwrite(self.root / 'sky.png', np.arange(24, dtype=np.uint8).reshape(2, 4, 3))
+        scene = Path(source.xml_path)
+        scene.write_text(scene.read_text().replace('<worldbody>', f'<asset><texture name="sky" type="skybox" '
+            f'file="{self.root}/sky.png" gridsize="2 4" gridlayout="LFRB.D.."/></asset><worldbody>'))
+        sim = Simulation.from_source(source, robot, target='target')
+        self.addCleanup(sim.close)
+        frozen = self.root / 'skybox'
+        sim.freeze(frozen)
+        rebuilt = load_spec(frozen / 'model.xml').compile()
+        np.testing.assert_array_equal(rebuilt.tex_data, sim.model.tex_data)
+        np.testing.assert_array_equal(rebuilt.tex_height, sim.model.tex_height)
+        self.assertIn('gridlayout="LFRB.D.."', (frozen / 'model.xml').read_text())
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -86,6 +106,32 @@ class SimulationTests(unittest.TestCase):
 
 
 class CloneTests(unittest.TestCase):
+    def test_prepared_state_transport_keeps_clock_controls_and_independent_data(self):
+        from lastmile_dataflow.runtime.execution.protocol import SimulationState
+
+        with tempfile.TemporaryDirectory() as d:
+            sim, _ = make_sim(d)
+            self.addCleanup(sim.close)
+            sim.begin()
+            command = sim.robot.neutral_action()
+            command[3] = .03
+            sim.step(command)
+            saved = pickle.loads(pickle.dumps(SimulationState.capture(sim)))
+            clone = clone_sim(sim, target='target')
+            self.addCleanup(clone.close)
+            saved.initialize(clone)
+            self.assertIs(clone.model, sim.model)
+            self.assertIsNot(clone.data, sim.data)
+            self.assertEqual(clone.robot.snapshot_control(), sim.robot.snapshot_control())
+            self.assertAlmostEqual(clone._clock_remainder, sim._clock_remainder)
+            before = sim.state_vector().copy()
+            clone.begin()
+            clone.step(clone.robot.neutral_action())
+            self.assertAlmostEqual(clone.data.time, .1)
+            np.testing.assert_array_equal(sim.state_vector(), before)
+            with self.assertRaises(RuntimeError):
+                saved.initialize(sim)
+
     def test_diagnostic_clone_does_not_reset_running_simulation(self):
         with tempfile.TemporaryDirectory() as d:
             sim, robot = make_sim(d)

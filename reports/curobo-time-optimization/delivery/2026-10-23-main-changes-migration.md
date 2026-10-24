@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-23
 - 替代：无
-- 关联：../build-lastmile-datasets/plan/2026-10-22-time-optimization-plan.md
+- 关联：[当时的时间优化方案（已归档）](../archive/2026-10-24/plan/2026-10-22-time-optimization-plan.md)
 
 将 main 工作区的 6 个已修改文件和 2 个未跟踪文档迁移至 `.worktrees/curobo-time-optimization`，对应分支为 `exp/01-curobo-time-optimization`。两分支原本位于同一提交，无需合并提交历史。
 

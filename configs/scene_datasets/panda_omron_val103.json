@@ -1,5 +1,5 @@
 {
-  "data_root": "/data0/wenyifan/MoMaTrajGen/molmospaces_data",
+  "data_root": "/data1/wenyifan/molmospaces_data",
   "schema_version": "scene-dataset-recipe-v1",
   "rule_version": "scene-cases-v3",
   "dataset_dir": "assets/scenes/procthor-10k-val",
@@ -54,5 +54,6 @@
     "navigation_whole_body": true,
     "require_target_visibility": false,
     "require_navigation_clearance": false
-  }
+  },
+  "local_task_models": true
 }

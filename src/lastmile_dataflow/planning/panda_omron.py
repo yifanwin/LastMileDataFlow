@@ -1,5 +1,7 @@
 """PandaOmron V2 model: named kinematics, movable fingers and fixed/mobile planning."""
 from pathlib import Path
+from copy import deepcopy
+from functools import lru_cache
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -16,8 +18,13 @@ FULL_NAMES = (*BASE_NAMES, "torso_height", *ARM_NAMES, *FINGER_NAMES)
 TCP = "panda_grip_site"
 
 
+@lru_cache(maxsize=1)
+def robot_description():
+    return ET.parse(ASSETS / 'model.urdf'), yaml.safe_load((ASSETS / 'spheres.yml').read_text())['collision_spheres']
+
+
 def configuration(robot, *, fixed=True, mobile=False):
-    spheres = yaml.safe_load((ASSETS / "spheres.yml").read_text())["collision_spheres"]
+    spheres = deepcopy(robot_description()[1])
     spheres["attached_object_right"] = [{"center": [0., 0., 0.], "radius": -.01}] * 40
     links = list(spheres)
     ignore = {
@@ -86,7 +93,7 @@ class PlanningModel:
             self.bounds = {"base_x": (max(-travel, local[0]-radius), min(travel, local[0]+radius)),
                            "base_y": (max(-travel, local[1]-radius), min(travel, local[1]+radius)),
                            "base_theta": (-np.pi, np.pi)}
-            urdf = ET.parse(ASSETS / "model.urdf")
+            urdf = deepcopy(robot_description()[0])
             for name, (low, high) in self.bounds.items():
                 limit = urdf.getroot().find(f"joint[@name='{name}']/limit")
                 limit.set("lower", str(low)); limit.set("upper", str(high))

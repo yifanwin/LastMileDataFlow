@@ -5,6 +5,7 @@ only; an independent trial requires a new Simulation. Snapshots retain clock
 remainder and fixed head targets as well as the physical state.
 """
 from dataclasses import asdict
+from collections import OrderedDict
 from pathlib import Path
 import json
 
@@ -12,7 +13,7 @@ import mujoco
 import numpy as np
 
 from ..config import read_config
-from ..utils.io import write_json
+from ..utils.io import read_json, write_json
 from .control.robot import make_robot_adapter, prepare_robot_spec
 from ..scenes.loading.source import instance_catalog, resolve_target
 from ..scenes.loading.mjcf import load_spec
@@ -21,6 +22,28 @@ from ..scenes.loading.mjcf import load_spec
 class InitializationError(ValueError):
     """初态不合法时使用；runner 会据此归类为 invalid_initialization 而不是基础设施错误。"""
     pass
+
+
+class SnapshotCache:
+    """Process-local frozen models; every operation still creates fresh MjData."""
+    def __init__(self, capacity=2):
+        self.capacity = capacity
+        self.scenes = OrderedDict()
+
+    def get(self, path, robot, target):
+        key = (str(path), target)
+        if key not in self.scenes:
+            while len(self.scenes) >= self.capacity:
+                _, old = self.scenes.popitem(last=False)
+                old.close()
+            self.scenes[key] = Simulation.from_snapshot(path, robot, target=target)
+        self.scenes.move_to_end(key)
+        return self.scenes[key]
+
+    def close(self):
+        for scene in self.scenes.values():
+            scene.close()
+        self.scenes.clear()
 
 
 class Simulation:
@@ -41,6 +64,7 @@ class Simulation:
         self._raw_frame_cache = None
         self._sensor_result = None
         self._capture_depth_requested = False
+        self.planning_geometry = {}
 
     @classmethod
     def from_source(cls, source, robot_config, *, target=None):
@@ -48,7 +72,8 @@ class Simulation:
         spec = cls.prepare_spec(source, robot_config)
         spec.option.timestep = robot_config.physics_dt
         model = spec.compile()
-        catalog = instance_catalog(model, source)
+        metadata = read_json(source.metadata_path) if source.metadata_path else {}
+        catalog = instance_catalog(model, source, metadata=metadata)
         sim = cls(model, robot_config, catalog, target)
         try:
             sim.robot.initialize()
@@ -57,6 +82,7 @@ class Simulation:
             raise InitializationError(str(exc)) from exc
         sim.spec = spec
         sim.source = source
+        sim.source_metadata = metadata
         sim.restoration = None
         return sim
 
@@ -83,18 +109,17 @@ class Simulation:
         # Binary remains available until exported XML has been tested with the actual assets.
         spec = self.spec
         if spec is not None:
-            import xml.etree.ElementTree as ET
-            xml = ET.fromstring(spec.to_xml())
-            defaults = xml.find('default')
-            # Attached main defaults have no class name; XML requires them at root.
-            if defaults is not None:
-                for child in list(defaults):
-                    if child.tag == 'default' and not child.get('class'):
-                        defaults.remove(child)
-                        defaults.extend(list(child))
-            (path / 'model.xml').write_text(ET.tostring(xml, encoding='unicode'))
+            from ..scenes.loading.mjcf import save_spec
+            save_spec(spec, path / 'model.xml')
+        elif getattr(self, 'frozen_dir', None):
+            from shutil import copyfile
+            original_xml = Path(self.frozen_dir) / 'model.xml'
+            if original_xml.is_file():
+                copyfile(original_xml, path / 'model.xml')
         value = {'robot': asdict(self.robot.config), 'source': self.source.to_dict(),
                  'mujoco_version': mujoco.__version__, 'instances': self.catalog}
+        if hasattr(self, 'local_model'):
+            value['local_model'] = self.local_model
         write_json(path / 'config.json', value)
         self.save_snapshot(path / 'initial.npz')
         return value
@@ -136,6 +161,9 @@ class Simulation:
             raise ValueError('use the saved MuJoCo version; cross-version XML reconstruction is not verified')
         model = mujoco.MjModel.from_binary_path(str(frozen_dir / 'model.mjb'))
         sim = cls(model, robot_config, value['instances'], target)
+        sim.frozen_dir = str(frozen_dir.resolve())
+        if 'local_model' in value:
+            sim.local_model = value['local_model']
         sim.restore_snapshot(frozen_dir / 'initial.npz')
         from ..scenes.loading.source import SceneSource
         sim.source = SceneSource(**value['source'])

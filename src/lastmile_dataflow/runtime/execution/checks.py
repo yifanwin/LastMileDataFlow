@@ -6,6 +6,7 @@ from ..outcomes.evaluation import evaluate_mobile_pick
 from ..outcomes.pick import PROTOCOL
 
 EXECUTION_SEMANTICS = 'continuous-execution-v2'
+SPLIT_EXECUTION_SEMANTICS = 'continuous-execution-v3-active-budget'
 
 
 class PickEvidenceComplete(Exception):
@@ -20,9 +21,12 @@ def timed(ctx, category):
     try:
         yield
     finally:
+        elapsed = time.monotonic() - start
         entry = ctx.timings.setdefault(category, {'wall_s': 0., 'calls': 0})
-        entry['wall_s'] += time.monotonic() - start
+        entry['wall_s'] += elapsed
         entry['calls'] += 1
+        if category == 'simulation_and_physics_evidence' and getattr(ctx, 'budget', None) is not None:
+            ctx.budget.execution_s += elapsed
 
 
 def pick_verdict(ctx):

@@ -100,6 +100,7 @@ class SceneDatasetRecipe:
     min_substantial: int = 2
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
     views: dict = field(default_factory=lambda: {'width': 640, 'height': 480})
+    local_task_models: bool = False
 
     def __post_init__(self):
         if self.schema_version != 'scene-dataset-recipe-v1' or self.rule_version not in ('scene-cases-v2', 'scene-cases-v3'):

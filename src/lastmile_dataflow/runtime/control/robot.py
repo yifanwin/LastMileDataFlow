@@ -251,10 +251,14 @@ class RBY1Adapter:
         self._hold_targets = deepcopy(getattr(other, "_hold_targets", None))
 
     def snapshot_control(self):
-        return {"fixed_head": self.fixed_head.tolist()}
+        held = self._hold_targets
+        return {"fixed_head": self.fixed_head.tolist(),
+                "hold_targets": None if held is None else {k: v.tolist() for k, v in held.items()}}
 
     def restore_control(self, saved):
         self.fixed_head = np.asarray(saved["fixed_head"])
+        held = saved.get('hold_targets')
+        self._hold_targets = None if held is None else {k: np.asarray(v) for k, v in held.items()}
 
     def control_height(self):
         from .torso_command import bounded_torso_command

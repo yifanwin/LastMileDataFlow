@@ -79,6 +79,8 @@ src/lastmile_dataflow/
 `sample_stations` 只检查候选点的初始化与可见性；`evaluate_stations` 才执行规划/策略 rollout，两者不混用。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
+cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始的场景基线，每个 trial 仍经 `run_curobo_attempt` 新建仿真。父进程分配编号、汇总唯一的 `trials.jsonl`；共享故障通过进程事件停止新增试验。`StationPlannerCache` 每站位最多保留每臂一个闭爪前 planner，相同初态时重绑仿真、FOV 和日志，并为新 seed 重建原生种子管理器；闭爪后继续重建。`ContactSampler` 缓存静态名称与分类，每物理步读取一次接触力，供任务 monitor 和接触统计共用，详细遥测只在需要时生成。
+
 `config.py` 和 `cli.py` 是包根的共用配置和薄入口；`utils/io.py` 管理读写，`utils/logging_config.py` 统一日志配置。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
 
 ## 总流程：五个命令如何连接四个 workflow
@@ -166,3 +168,9 @@ flowchart TD
 `collect-lastmile --materialize-from` 直接调用 `data.export.lastmile_dataset.materialize_lastmile`，不载入仿真、资产或 GPU 后端。它按 train_index 复制唯一成功轨迹和必要观测，保留 pair 全集及来源，以内部相对路径交付。`load_training_batch` 读取原始 20D 动作窗口；不替代模型专用格式转换。
 
 π0.5 控制与数据准备细节见 [π0.5 运行指南](../reports/pi05/docs/01-running.md)。Panda 路线 B 经 FK 和反馈跟踪产生 RoboCasa 动作，与模型共用 `runtime/control/panda_robocasa.py`；RBY-1 使用 position 动作。
+
+## Panda 标定双池
+
+`workflows/station_calibration.py` 调度全 run 的有界准备、GPU 查询与 CPU trial 队列，父进程唯一写原始 trial。`planning/pool.py` 的 spawn 进程拥有 CUDA、solver 和规划视图；`planning/remote.py` 在 CPU 侧将实测状态转为后续请求。
+
+`runtime/execution/workers.py` 创建独立 MjData，并继续调用原 `run_curobo_attempt`、`ContinuousContext`、跟踪器和任务判定。`protocol.py` 传递数值状态、身份及累计活跃预算；`SnapshotCache` 仅在进程内保留少量只读模型。`data/rendering/replay.py` 使用独立 MjData 逐帧 mj_forward 回放，不参与任务成败。

@@ -24,7 +24,7 @@ def prepare_reference(evaluations, output):
     for source in evaluations:
         source = Path(source).resolve()
         training.extend(training_record(row, str(source), 's1_direct_operation')
-                        for row in rows(source / 'trials.jsonl') if successful(row))
+                        for row in rows(source / 'trials.jsonl') if successful(row, observations=True))
     if not training:
         raise ValueError('no complete successful demonstrations')
     root = create_run(output, {'kind': 'lastmile', 'evaluation_sources': list(map(str, evaluations))})

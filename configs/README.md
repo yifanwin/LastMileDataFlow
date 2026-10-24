@@ -52,3 +52,12 @@ nvidia-smi
 ```
 
 评测会优先使用数据集保存的部分几何参数；覆盖规则见 [execution](execution/README.md#数据集参数优先级)。改变机器人控制、相机分辨率、策略或输入场景后，应重新生成匹配的标定。场景接受、执行结束、导航成功、操作成功分别判断，不把文件存在当任务成功。完整命令见 [运行手册](../docs/运行手册.md)。
+
+## Panda 三次协议
+
+- `scene_datasets/panda_omron_val103.json`：position-v1 首阶段 val103/Cup_30/Case2、1 变体。
+- `scene_datasets/panda_omron_val100.json`：固定 val0–val99，Case1–3，每房最多 1 个 pick/1 个 open，各 1 变体；构建使用 `--allow-partial-targets` 保留缺项。
+- `execution/panda_omron_curobo.json` 与 `lastmile_datasets/panda_omron_curobo.json`：每点 3 次、低 1/3、高 1.0，启用公共准备和独立规划/执行池。
+- `benchmark/panda_omron.json`：匹配三次协议的困难配对阈值。
+
+资源使用 CLI 的 `--gpu`、`--cpu-workers`、`--preparation-workers`、`--recording-mode`，不混入 ExecutionConfig。构建使用 `--build-workers`；RBY/通用配方及阈值保留。

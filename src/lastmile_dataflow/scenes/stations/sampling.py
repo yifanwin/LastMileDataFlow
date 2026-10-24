@@ -1,5 +1,6 @@
 """Uniform disk samples and pre-begin, robot-only visible initialization."""
 import copy
+from contextlib import closing
 import math
 import mujoco
 import numpy as np
@@ -41,7 +42,7 @@ def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
             and c['distance_m'] < (-.002 if c['kind']=='self_collision' else -.001)]
 
 
-def initialize_station(sim, station, anchor, config, *, renderer=None, check_visibility=True, evidence_path=None):
+def initialize_station(sim, station, anchor, config, *, renderer=None, check_visibility=True, evidence_path=None, floor_triangles=None):
     if sim.started or sim.closed:
         raise RuntimeError('station initialization only before begin')
     original = sim.data.qpos.copy()
@@ -54,7 +55,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     if not np.array_equal(original[mask],sim.data.qpos[mask]):
         raise RuntimeError('initialization changed non-robot qpos')
     collisions = robot_contacts(sim)
-    ground = floor_support(sim,xy)
+    ground = floor_support(sim,xy,triangles=floor_triangles)
     finite = bool(np.isfinite(sim.data.qpos).all() and np.isfinite(sim.data.qvel).all())
     row = {**station, 'base': sim.robot.group('base').tolist(),
            'observation_camera': sim.robot.observation_camera, 'initial': initial,
@@ -127,7 +128,7 @@ def park_robot(sim, anchor, config):
     raise ValueError('no_legal_robot_parking_pose')
 
 
-def sample_stations(sim, task, config, *, frozen_stations=None, static_only=False, stop_after_valid=None):
+def sample_stations(sim, task, config, *, frozen_stations=None, static_only=False, stop_after_valid=None, checked_stations=()):
     stations = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
     if frozen_stations is not None:
         stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
@@ -141,15 +142,20 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
             footprint['radius_m'], config.navigation_margin_m, robot_height=footprint['max'][2],
             support_obstacles=task_support_obstacles(sim, task))
     rows = []
+    checked = {row['station_id']: row for row in checked_stations}
+    floor_triangles = room_triangles(sim)
     if stop_after_valid is not None and (not static_only or type(stop_after_valid) is not int or stop_after_valid <= 0):
         raise ValueError('early-stop is only for positive-budget static discovery')
     try:
         for station in stations:
+            if station['station_id'] in checked:
+                rows.append(checked[station['station_id']])
+                continue
             probe = clone_preparation(sim)
             try:
                 warning_before = [w.number for w in probe.data.warning]
                 row = initialize_station(probe, station, task['anchor_world'], config, renderer=renderer,
-                                         check_visibility=not static_only)
+                                         check_visibility=not static_only, floor_triangles=floor_triangles)
                 new_warnings = [{'index': i, 'number': int(w.number), 'lastinfo': int(w.lastinfo)}
                                 for i, w in enumerate(probe.data.warning) if w.number > warning_before[i]]
                 row.update(independent_simulation=True, check_scope='static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
@@ -176,3 +182,15 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
         if renderer is not None:
             renderer.close()
     return rows
+
+
+def record_station_visibility(sim, stations, config):
+    """Render only selected stations after all candidates pass physical filtering."""
+    with mujoco.Renderer(sim.model, height=config.height, width=config.width) as renderer:
+        for station in stations:
+            with closing(clone_preparation(sim)) as probe:
+                place_frozen_station(probe, station)
+                _, _, visible = head_frame(probe, sim.model.body(sim.target_id).name,
+                    ViewConfig(width=config.width, height=config.height), renderer=renderer)
+                station['visibility'] = visible
+    return stations

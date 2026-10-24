@@ -8,7 +8,6 @@ import mujoco
 from .state import migrate_state
 from .preparation import preparation_guard, settle_scene
 from ..simulation import Simulation
-from ...scenes.loading.source import instance_catalog
 
 
 def clone_preparation(sim):
@@ -18,6 +17,9 @@ def clone_preparation(sim):
     try:
         new.source, new.restoration = sim.source, sim.restoration
         new.spec = sim.spec
+        new.frozen_dir = getattr(sim, 'frozen_dir', None)
+        if hasattr(sim, 'local_model'):
+            new.local_model = sim.local_model
         migrate_state(sim, new)
         return new
     except BaseException:
@@ -63,6 +65,10 @@ class ObstacleEditSession:
             self.models.popitem(last=False)
         if self.baseline_spec is None:
             source_spec = self.baseline.spec
+            if source_spec is None and getattr(self.baseline, 'frozen_dir', None):
+                from ...scenes.loading.mjcf import load_spec
+                from pathlib import Path
+                source_spec = load_spec(Path(self.baseline.frozen_dir) / 'model.xml')
             self.baseline_spec = source_spec.copy() if source_spec is not None else Simulation.prepare_spec(
                 self.baseline.source, self.baseline.robot.config)
         spec = self.baseline_spec.copy()
@@ -85,7 +91,8 @@ class ObstacleEditSession:
             extra.append({'instance_id': name, 'mjcf_body': name, 'asset_id': asset_id,
                           'category': asset['category'], 'name_map': {}})
         model = spec.compile()
-        catalog = instance_catalog(model, self.baseline.source)
+        catalog = [{**copy.deepcopy(c), 'body_id': model.body(c['mjcf_body']).id}
+                   for c in self.baseline.catalog]
         for entry in extra:
             catalog = [c for c in catalog if c['instance_id'] != entry['instance_id']]
             catalog.append({**entry, 'body_id': model.body(entry['mjcf_body']).id})
@@ -103,6 +110,8 @@ class ObstacleEditSession:
         new = Simulation(model, self.baseline.robot.config, copy.deepcopy(catalog), target=target)
         try:
             new.source, new.restoration, new.spec = self.baseline.source, self.baseline.restoration, spec
+            if hasattr(self.baseline, 'local_model'):
+                new.local_model = self.baseline.local_model
             # All added free joints must have legal proposal poses BEFORE forward.
             # Otherwise 6–12 default roots at the origin can overflow contact arena.
             migrate_state(self.baseline, new, forward=False)
