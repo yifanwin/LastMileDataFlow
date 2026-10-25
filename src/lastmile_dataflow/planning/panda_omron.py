@@ -71,6 +71,9 @@ class PlanningModel:
     tcp_link = TCP
     attached_link = "attached_object_right"
     contact_links = ["panda_finger1", "panda_finger2"]
+    # A pinch on a handle deeper than the 3 cm finger band presses the palm
+    # against it; only the handle is relaxed, never the surrounding furniture.
+    handle_contact_links = ["panda_finger1", "panda_finger2", "panda_gripper"]
 
     def __init__(self, sim, config, side, path, workspace):
         self.sim = sim

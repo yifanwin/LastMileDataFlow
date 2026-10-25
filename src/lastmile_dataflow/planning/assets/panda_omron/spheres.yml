@@ -214,31 +214,25 @@ collision_spheres:
     - 0.06
     radius: 0.065
   panda_gripper:
-  - center:
-    - -0.08
-    - 0.0
-    - 0.02
-    radius: 0.046
+  # The hand plate spans the +/-0.04 finger travel; the old +/-0.08 spheres
+  # covered 0.126 m each side, i.e. 4-6 cm past any physical part, and blocked
+  # every handle pinch next to a fridge carcass. Radius 0.04 keeps a 4 cm
+  # half-width bound for the 8-10 cm wide hand.
   - center:
     - -0.04
     - 0.0
     - 0.02
-    radius: 0.046
+    radius: 0.04
   - center:
     - 0.0
     - 0.0
     - 0.02
-    radius: 0.046
+    radius: 0.04
   - center:
     - 0.04
     - 0.0
     - 0.02
-    radius: 0.046
-  - center:
-    - 0.08
-    - 0.0
-    - 0.02
-    radius: 0.046
+    radius: 0.04
   panda_finger1:
   - center:
     - 0.0

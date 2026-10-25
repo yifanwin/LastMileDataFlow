@@ -32,13 +32,15 @@ def candidate_pool(ctx, candidates, seed, forced):
     return [pool[i] for i in rng.permutation(len(pool))[:ctx.config.max_grasp_candidates]]
 
 
-def grasp_goals(sim, config, pool):
+def grasp_goals(sim, config, pool, *, retreat=False):
+    """World grasp goals; open retreats along the approach, pick pushes in."""
     goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
     angle = config.grasp_roll_rad
     roll = np.array([[np.cos(angle), -np.sin(angle), 0.],
                      [np.sin(angle), np.cos(angle), 0.], [0., 0., 1.]])
+    offset = -config.approach_offset_m if retreat else config.approach_offset_m
     for goal in goals:
-        goal[:3, 3] += goal[:3, 2] * config.approach_offset_m
+        goal[:3, 3] += goal[:3, 2] * offset
         goal[:3, :3] = goal[:3, :3] @ roll
     return goals
 
@@ -83,7 +85,7 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             directory.mkdir(parents=True, exist_ok=True)
             with timed(ctx, 'planner_setup'):
                 planner = factory(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
-            goals = grasp_goals(sim, ctx.config, pool)
+            goals = grasp_goals(sim, ctx.config, pool, retreat=task['operation'] == 'open')
             if not goals:
                 raise OperationFailure('no_grasp_candidates')
             if task['operation'] == 'pick':

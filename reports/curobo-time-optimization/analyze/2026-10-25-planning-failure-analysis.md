@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-25
 - 替代：无
-- 关联：[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、[运行目录](../../../outputs/panda-time-val100-calibration-20261024-r01/)、[执行配置](../../../configs/execution/panda_omron_all_cases_curobo.json)
+- 关联：[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、[运行目录](../../../../curobo-time-optimization/outputs/panda-time-val100-calibration-20261024-r01/)、[执行配置](../../../configs/execution/panda_omron_all_cases_curobo.json)、[Case3 假失败核查](2026-10-25-case3-false-collision-check.md)
 
 数据来源：`trials.jsonl`（8463 条 trial）、`planning/*-batch/batch_grasp_result.json` 与 `solver_trace.json`（2821 个 station 批次）、`scenes.jsonl`（Case / operation / category 映射）。每个 station 批次含 3 条 trial（3 个 seed），本文全部按单条 trial 统计，不按批次。
 
@@ -160,6 +160,8 @@
 | Microwave | 55 | link6 100%、link7 100%、gripper 100%、link5 85% |
 
 位姿误差中位数为 0（精确到达目标），失败来自腕部/夹爪与家具本体的碰撞约束。
+
+> 后续核查（[Case3 假失败核查](2026-10-25-case3-false-collision-check.md)）：本节"碰撞链"取自 top-12 备选解（含未到达目标位姿的 seed），高估了腕部。按实际到达的目标位姿复算，Fridge 有 314 个站位到达位姿，其中 **314/314 掌部都与把手或门板重叠**；主因是掌部不在接触白名单（白名单只有两个手指）。
 
 ## 5. 汇总
 
