@@ -1,7 +1,7 @@
 # PandaOmron 加速方案执行计划表
 
-- 状态：active
-- 日期：2026-10-24
+- 状态：done
+- 日期：2026-10-25
 - 替代：无；将主方案拆成可执行工作包
 - 关联：[主方案](01-panda-omron-time-optimization.md)、[并行专项](02-parallel-execution.md)、[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)
 
@@ -19,15 +19,15 @@
 | P03 | 局部任务模型与发现/资格数据流合并 | P00、P02 | `scenes/loading/`、`scenes/tasks/`、`scenes/stations/`、`workflows/scene_datasets.py` | 每任务固定局部模型，覆盖站位与运动范围，保留支撑/相关结构及 open 的完整关节结构。三类 Case 任务数据流接通；元数据解析一次，同模型复用检查，全部候选物理资格后覆盖选取最多 20 点，再记录最终点可见性 | 已完成：局部模型、候选复用、渲染后移；P12 与 P14 三类 Case 正式构建已完成 |
 | P04 | 构建缓存、独立单元并行与稳定输出 | P03 | `runtime/construction/`、`scenes/augmentation/`、`workflows/scene_datasets.py` | 复用资产组合编译缓存，先廉价几何排除再物理验证；按房屋/任务/变体并行，变体内事务顺序明确。父进程分配唯一目录并写 `scenes.jsonl`，保留 accepted/rejected 原因；修复秒级临时目录冲突 | 已完成：spawn 构建与父进程唯一写入；P14 220 单元完整收尾，183 accepted/37 rejected |
 | P05 | 每站位公共准备一次 | P02 | `runtime/construction/`、`runtime/execution/context.py`、`scenes/stations/`、`workflows/collection.py` | 摆位和真实静置只做一次，保存准备后的完整状态与实际站位；三次 trial 从该状态分别新建 Simulation。准备失败单列；不重复摆位覆盖准备状态，不重置已开始实例，不改 `started` 绕过生命周期 | 已完成：公共静置、独立状态和失败单列已由双池复用；P12 20 点准备均成功 |
-| P06 | 静态规划资源与三次独立 seed 的 batch | P02、P05 | `planning/curobo_v2.py` 及必要规划适配、`runtime/execution/manipulation.py` | 分离静态资源与 trial 绑定；pick/open 同站位闭爪前三次组成共享世界 batch，随机流/预算/日志归属正确，保留 32 IK / 4 TrajOpt seeds。闭爪后独立规划，Case3 按开门实测状态更新世界与查询；失败 slot 不补执行 | 软件实现与检查完成；solver/静态几何复用、独立 core/LM seed、实测后续查询已接通；P12 双 GPU batch/实测后续规划已验收，P14 全 Case 标定运行中 |
-| P07 | 1 个或多个常驻 GPU 规划进程 | P06 | `planning/`、`workflows/collection.py` | `G=len(gpu_ids)≥1`，spawn 后各进程初始化自己的 CUDA；队列传数值与引用，返回按 trial 划分的计划/状态/耗时。单卡多卡共用协议，已执行 trial 的后续查询优先，进程跨场景常驻 | 常驻进程、单/多进程协议与优先队列已通过软件检查；P12 双 GPU 实测完成（查询峰值 2），P14 跨场景运行中 |
-| P08 | 最多 60 个 CPU trial 执行进程与全局调度 | P05、P07 | `workflows/collection.py`、`runtime/execution/context.py`、`runtime/execution/manipulation.py` | 同站位三条可执行计划分别进入 CPU 池；原仿真实例闭爪后携实测状态请求规划并继续。跨场景补空闲 slot，模型进程内缓存；首次规划到结束的身份/次数/300 s 活跃预算连续，等待单列。父进程唯一写 `trials.jsonl`，共享故障停批 | 独立 CPU 池、跨场景调度、首次规划/活跃预算接续和共享停批已接通；软件检查与 P12 真实执行通过（CPU trial 峰值 8、容量 60）；P14 运行中 |
-| P09 | 离线视频生成与回放资料完整性 | P02、P03 | `data/recorder.py`、`data/rendering/`、现有 CLI 的后处理入口 | 在线不渲染，保存完整规划/实测轨迹及稳定模型/相机依赖；离线用独立 MjData 恢复实测帧并 `mj_forward` 输出视频，不重新规划或积分。简化 fixture 验证状态、时间戳和相机对应；无执行不补视频 | 实测状态回放及五命令内后处理入口已实现，fixture 检查通过；P12 真实成功/失败视频生成并解码通过；P14 视频待该轮标定完成 |
+| P06 | 静态规划资源与三次独立 seed 的 batch | P02、P05 | `planning/curobo_v2.py` 及必要规划适配、`runtime/execution/manipulation.py` | 分离静态资源与 trial 绑定；pick/open 同站位闭爪前三次组成共享世界 batch，随机流/预算/日志归属正确，保留 32 IK / 4 TrajOpt seeds。闭爪后独立规划，Case3 按开门实测状态更新世界与查询；失败 slot 不补执行 | 软件实现与检查完成；solver/静态几何复用、独立 core/LM seed、实测后续查询已接通；P12 双 GPU batch/实测后续规划已验收，P14 全 Case 批次已完成，Case3 无物理执行 |
+| P07 | 1 个或多个常驻 GPU 规划进程 | P06 | `planning/`、`workflows/collection.py` | `G=len(gpu_ids)≥1`，spawn 后各进程初始化自己的 CUDA；队列传数值与引用，返回按 trial 划分的计划/状态/耗时。单卡多卡共用协议，已执行 trial 的后续查询优先，进程跨场景常驻 | 常驻进程、单/多进程协议与优先队列已通过软件检查；P12 双 GPU 实测完成（查询峰值 2），P14 跨场景双 GPU 实测完成 |
+| P08 | 最多 60 个 CPU trial 执行进程与全局调度 | P05、P07 | `workflows/collection.py`、`runtime/execution/context.py`、`runtime/execution/manipulation.py` | 同站位三条可执行计划分别进入 CPU 池；原仿真实例闭爪后携实测状态请求规划并继续。跨场景补空闲 slot，模型进程内缓存；首次规划到结束的身份/次数/300 s 活跃预算连续，等待单列。父进程唯一写 `trials.jsonl`，共享故障停批 | 独立 CPU 池、跨场景调度、首次规划/活跃预算接续和共享停批已接通；软件检查与 P12 真实执行通过（CPU trial 峰值 8、容量 60）；P14 正式批次已完成 |
+| P09 | 离线视频生成与回放资料完整性 | P02、P03 | `data/recorder.py`、`data/rendering/`、现有 CLI 的后处理入口 | 在线不渲染，保存完整规划/实测轨迹及稳定模型/相机依赖；离线用独立 MjData 恢复实测帧并 `mj_forward` 输出视频，不重新规划或积分。简化 fixture 验证状态、时间戳和相机对应；无执行不补视频 | 实测状态回放及五命令内后处理入口已实现，fixture 检查通过；P12 真实成功/失败视频生成并解码通过；P14 六段实际轨迹视频已验收 |
 | P10 | 五命令接入、配置匹配和当前文档 | P01、P04、P08、P09 | `cli.py`、`config.py`、配置加载器、`docs/`、`configs/README.md`、`tests/README.md` | build、标定、内置标定复用同一实现；GPU/CPU 资源、数值记录/离线视频、阈值及新协议有明确入口。完整配置落入 run，困难配对与模态检查匹配；保留五个顶层命令，运行手册给出可执行命令 | 五命令、资源 CLI、数值/视觉模态及内置标定已接入，当前说明已更新 |
-| P11 | 相关领域检查与一次全套软件回归 | P10 | `tests/scenes/`、`tests/runtime/`、`tests/planning/`、`tests/data/`、`tests/workflows/` | 各工作包先做局部检查，集成后全套回归。覆盖三类 Case、状态/预算传递、单/多 GPU 进程调度、batch、率表、共享故障与视频回放；fixture/import 结果不冒充真实 GPU 成功 | 已完成：274 项，272 通过、2 条件跳过；日志 p11-software-regression-02.log。不是实际 GPU 验收 |
+| P11 | 相关领域检查与一次全套软件回归 | P10 | `tests/scenes/`、`tests/runtime/`、`tests/planning/`、`tests/data/`、`tests/workflows/` | 各工作包先做局部检查，集成后全套回归。覆盖三类 Case、状态/预算传递、单/多 GPU 进程调度、batch、率表、共享故障与视频回放；fixture/import 结果不冒充真实 GPU 成功 | 已完成：P11 初始 272 通过/2 跳过；正式 XML 修复后最终 276 项，274 通过/2 跳过，日志 final-software-regression-20261025.log。软件回归与实际 GPU 结果分开 |
 | P12 | 首阶段单任务正式全量与报告 | P11 | 五命令工作流、`outputs/`、本主题 `delivery/` | position-v1，val103/Cup_30/Case2、1 变体；全部最终合法站位（最多 20）各 3 次，不用 `max-trials` 截断。保留完整覆盖/原始结果、分项与资源池耗时，按需回放；结论限于该任务 | 已完成：20×3 全覆盖，225.458 s，20 成功；成功/失败离线视频解码通过 |
 | P13 | 最终 100 个 val 来源的任务清单与提前估时 | P12 | 正式全量配方、首阶段诊断、当前交付报告 | 固定 100 来源、三类 Case 和每房目标数/规则，按计划 G/C 给出构建/标定/保存/按需视频的正常与保守预计时间；Case1/Case3 未测成本列明假设，不额外抽点 rollout | 已完成：固定 val0–99，上限 300 场景/18,000 trial；正常/保守估时见最终批次交付 |
-| P14 | 最终 100 来源全 Case 正式实验与报告 | P13 | 五命令工作流、`outputs/`、本主题 `delivery/` | 运行前已有时长预估；完整构建三类 Case，按实际 accepted 场景/最终站位更新标定预计时长后再全量标定。报告各 Case 覆盖、原始结果、视频回放及预计/实际差异；缺项/rejected 不补造，既有结果不覆盖 | 进行中：构建 r01 完成（183 accepted/37 rejected，54.29 min）；按 2,822 点更新估时后已启动 8,466 trial 全量标定 |
+| P14 | 最终 100 来源全 Case 正式实验与报告 | P13 | 五命令工作流、`outputs/`、本主题 `delivery/` | 运行前已有时长预估；完整构建三类 Case，按实际 accepted 场景/最终站位更新标定预计时长后再全量标定。报告各 Case 覆盖、原始结果、视频回放及预计/实际差异；缺项/rejected 不补造，既有结果不覆盖 | 已完成正式批次：183 accepted/37 rejected，计划 8,466、记录 8,463（另 1 站准备失败），820 成功；标定 2.88 h，6 视频通过，实际/预计差异见最终交付 |
 
 ## 依赖与推进安排
 
@@ -89,3 +89,7 @@ P00 先明确状态/身份/预算和资源字段，P02 落地其最小结构，�
 ## 初始计划编写记录（历史）
 
 依据主方案整理工作包并回链；按本次确认扩展为 P00–P14：首阶段单任务正式全量、最终批次提前估时、100 个 val 来源全 Case 正式实验分别列项，position-v1 与初态/预算默认值明确。初始编写阶段只修改文档；后续实际状态已更新到表格，当前交付见 delivery。
+
+## 最终执行结果
+
+P00–P14 已执行并交付。首阶段 20×3 完整，225.458 s 达到该任务 30 min 目标；最终批次 183 accepted、37 rejected，2,822 点均取得准备结果，其中 1 点准备失败，剩余 2,821 点各有 3 条原始 trial。该失败单列且不参与困难配对，未补造三次失败。Case3 全为规划无解，没有开门执行证据。6 段真实视频已生成/解码，最终结果、估时偏差和复现命令见[最终交付](../delivery/2026-10-24-val100-experiment.md)。
