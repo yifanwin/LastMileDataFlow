@@ -53,6 +53,7 @@ class Simulation:
         self.robot = make_robot_adapter(model, self.data, robot_config)
         self.catalog = catalog
         self.target_id = resolve_target(model, catalog, target)  # 目标 body 的数字 id
+        self.handle_id = None      # open 任务的把手 body；由 executor 按 task 填入
         self.started = False       # 是否已 begin()（连续执行纪律的开关）
         self.closed = False
         self.renderer = None

@@ -132,7 +132,7 @@ def discover_tasks(sim, metadata, config):
     return tasks, skipped
 
 
-def grasp_candidates(task, assets_dir, max_rows=1024):
+def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020):
     """Read asset grasp poses, or generate bbox pinch poses without modifying assets."""
     asset = task['asset_id']
     if Path(asset).name != asset or asset in ('.', '..'):
@@ -163,16 +163,25 @@ def grasp_candidates(task, assets_dir, max_rows=1024):
                 if result:
                     return result
     lo, hi = np.asarray(task.get('handle_local_bounds', task.get('local_bounds')))
-    center = (lo+hi)/2; width_axis = int(np.argmin(hi-lo))
+    center = (lo+hi)/2; width_axis = int(np.argmin(hi-lo)); size = hi-lo
+    # The bbox centre sits inside the handle; the Panda palm is 3.1 cm behind
+    # the TCP, so an open grasp there always interpenetrates the handle. Place
+    # the pinch point on the robot-facing surface and let it sit `pinch_inset_m`
+    # inside: the open path retreats by approach_offset_m (1 cm), so the net
+    # depth is 1 cm, enough for the 3 cm finger band to close on the handle.
+    # Pick keeps the centre: its corpus poses are already on the object surface.
+    open_pinch = task['operation'] == 'open'
     result = []
     for axis in range(3):
         if axis == width_axis:
             continue
         for sign in (-1, 1):
             y = np.eye(3)[width_axis]; z = sign*np.eye(3)[axis]; x = np.cross(y,z)
+            depth = float(np.abs(z) @ size)
+            point = center - z*(depth/2 - pinch_inset_m) if open_pinch else center
             for flip in (1, -1):
                 pose = np.eye(4); pose[:3, :3] = np.column_stack((flip*x,flip*y,z))
-                pose[:3, 3] = center
+                pose[:3, 3] = point
                 result.append({'pose_local': pose,
                                'body': task.get('handle_body', task['target_body']),
                                'source': 'procedural_bbox_pinch_v1', 'row': len(result),

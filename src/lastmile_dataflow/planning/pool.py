@@ -51,7 +51,7 @@ class PlanningService:
                     raise OperationFailure('planning_budget_no_solution')
                 budget.plan_count += 1
 
-        with closing(clone_sim(baseline, target=task['target_body'])) as sim:
+        with closing(clone_sim(baseline, target=task['target_body'], handle=task.get('handle_body'))) as sim:
             request.state.initialize(sim)
             seeds = [identity.seed for identity in request.identities]
             side = inputs.get('side', sim.robot.arms[0])
@@ -68,7 +68,7 @@ class PlanningService:
                     pools = [candidate_pool(context, inputs['candidates'], seed, None) for seed in seeds]
                     if not pools[0]:
                         raise OperationFailure('no_grasp_candidates')
-                    goals = [grasp_goals(sim, config, pool) for pool in pools]
+                    goals = [grasp_goals(sim, config, pool, retreat=task['operation'] == 'open') for pool in pools]
                     lanes = planner.grasp_batch(goals, seeds, query)
                     for lane in lanes:
                         lane.update(side=side, joint_names=list(planner.names), reference_world=planner.base.tolist())

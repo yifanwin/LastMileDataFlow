@@ -9,14 +9,18 @@ from ..scenes.geometry import body_pose
 
 _mesh_ids = itertools.count()
 
-def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False):
-    """Per-geom collision mesh, never use furniture-wide AABB as exact geometry."""
+def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False, bodies=None, filename=None):
+    """Per-geom collision mesh, never use furniture-wide AABB as exact geometry.
+
+    `bodies` restricts `target_only` to a body set (e.g. the handle alone);
+    `filename` names the diagnostic JSON so split worlds do not overwrite.
+    """
     import trimesh
     from curobo._src.geom.types import SceneCfg, Mesh
     m,d=sim.model,sim.data
     base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
     inv=np.linalg.inv(base)
-    target=descendants(m,sim.target_id); vertices=[]; faces=[]; names=[]; count=0
+    target=descendants(m,sim.target_id) if bodies is None else bodies; vertices=[]; faces=[]; names=[]; count=0
     for g in range(m.ngeom):
         b=int(m.geom_bodyid[g]); name=m.geom(g).name
         if m.body(b).name.startswith('robot_0/') or ((b not in target) if target_only else (b in target)) or not (m.geom_contype[g] or m.geom_conaffinity[g]): continue
@@ -41,11 +45,12 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
         sim.planning_geometry[g] = v, f
         world=v@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g]
         vertices.append((np.c_[world,np.ones(len(v))]@inv.T)[:,:3]); faces.append(f+count); count+=len(v); names.append(name)
+    report = path/(filename or ('target_world.json' if target_only else 'collision_world.json'))
     if not vertices:
-        write_json(path/('target_world.json' if target_only else 'collision_world.json'),{'frame':'measured base','geoms':[],
+        write_json(report,{'frame':'measured base','geoms':[],
                    'target_excluded':'separate target-only checker with allowed finger mask'})
         return SceneCfg()
-    write_json(path/('target_world.json' if target_only else 'collision_world.json'),{'frame':'measured base','geoms':names,'vertices':count,
+    write_json(report,{'frame':'measured base','geoms':names,'vertices':count,
                  'target_excluded':'separate target-only checker with allowed finger mask','floor_excluded':'only planner; physics unchanged',
                  'carried_object':'attached geometry during lift; no physical welding; contacts independently checked',
                  'primitive_note':'box/mesh exact; curved primitives tessellated'})

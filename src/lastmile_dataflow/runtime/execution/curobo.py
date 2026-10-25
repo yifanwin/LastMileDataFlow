@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @isolated_episode
 def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None,planner_cache=None,prepared=None,planning_client=None):
-    sim=clone_sim(baseline,target=task['target_body'])
+    sim=clone_sim(baseline,target=task['target_body'],handle=task.get('handle_body'))
     if prepared is None:
         place_frozen_station(sim,station)
     else:

@@ -10,7 +10,7 @@ from ..utils.io import write_json
 from ..utils.logging_config import trial_progress
 
 from .waypoints import PlanResult
-from ..scenes.geometry import body_pose, tcp_pose, pose7
+from ..scenes.geometry import body_pose, tcp_pose, pose7, descendants
 from .rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
 from .curobo_v2_costs import manager_type, fov_optimizer_configs
@@ -187,11 +187,20 @@ class V2Planner:
         self.robot_cfg = cfg
         (self.path/'planner.yml').write_text(yaml.safe_dump(cfg, sort_keys=False))
         self.world_range = 2*radius+1.
+        self.target_bodies = descendants(sim.model, sim.target_id)
+        self.handle_bodies = descendants(sim.model, sim.handle_id) if getattr(sim, 'handle_id', None) else set()
         world = collision_world(sim, self.path, self.world_range, reference_base=self.base)
-        target = collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True)
+        target = collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True,
+                                 bodies=self.target_bodies - self.handle_bodies)
+        handle = (collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True,
+                                  bodies=self.handle_bodies, filename='handle_world.json')
+                  if self.handle_bodies else None)
         self.context = {'target_checker': SceneCollision.from_config(SceneCollisionCfg(
             device_cfg=self.args, scene_model=target, cache={'mesh': 2})),
+            'handle_checker': (SceneCollision.from_config(SceneCollisionCfg(
+                device_cfg=self.args, scene_model=handle, cache={'mesh': 2})) if handle is not None else None),
             'contact_links': self.model.contact_links,
+            'handle_contact_links': getattr(self.model, 'handle_contact_links', self.model.contact_links),
             'contact_allowed': False, 'attached': False,
             'local_center': self.args.to_device(local), 'radius': radius, 'movable_base': self.model.movable_base}
         self.fov_log = []
@@ -348,7 +357,9 @@ class V2Planner:
             'default_plan_pose_attempts': 5, 'self_collision': True,
             'head_fov_enabled': config.head_fov_enabled, 'head_fov_margin': config.head_fov_margin,
             'head_fov_weight': config.head_fov_weight, 'head_fov_fk': 'position_basis_probes',
-            'disabled_collision_links': [], 'target_contact_links': self.context['contact_links']})
+            'disabled_collision_links': [], 'target_contact_links': self.context['contact_links'],
+            'handle_contact_links': self.context['handle_contact_links'],
+            'handle_checker': self.context['handle_checker'] is not None})
         write_json(self.path/'mobile_base.json', {'reference_world': self.base.tolist(),
             'joint_bounds_local': bounds, 'workspace_center_world': list(center[:2]), 'workspace_radius_m': radius})
         trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
@@ -641,9 +652,12 @@ class V2Planner:
         # unchanged. This is conservative, not collision disablement.
         max_radius = float(self.motion.kinematics.config.kinematics_config.link_spheres[..., 3].max().item())
         minimum_dimension = minimum_mesh_query_dimension(max_radius)
-        for data in self.context['target_checker'].data.get_valid_data():
-            if hasattr(data, 'dims'):
-                data.dims[..., :3].clamp_(min=minimum_dimension)
+        for checker in (self.context['target_checker'], self.context['handle_checker']):
+            if checker is None:
+                continue
+            for data in checker.data.get_valid_data():
+                if hasattr(data, 'dims'):
+                    data.dims[..., :3].clamp_(min=minimum_dimension)
         write_json(self.path/'target_query_range.json', {'largest_robot_sphere_radius_m':max_radius,
             'minimum_query_bound_dimension_m':minimum_dimension, 'geometry_changed':False,
             'reason':'no-hit SDF must exceed every queried sphere radius plus activation margin'})
@@ -652,12 +666,20 @@ class V2Planner:
         import torch
         torch.cuda.synchronize()
         # No graph capture: no outstanding queries may refer to discarded BVHs.
-        for checker in (self.motion.scene_collision_checker, self.context['target_checker']):
+        checkers = [self.motion.scene_collision_checker, self.context['target_checker']]
+        if self.context['handle_checker'] is not None:
+            checkers.append(self.context['handle_checker'])
+        for checker in checkers:
             for data in checker.data.get_valid_data():
                 if hasattr(data, 'wp_cache'): data.wp_cache.clear()
         self.motion.update_world(collision_world(self.sim, Path(path), self.world_range, reference_base=self.base))
         self.context['target_checker'].load_collision_model(collision_world(
-            self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True))
+            self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True,
+            bodies=self.target_bodies - self.handle_bodies))
+        if self.context['handle_checker'] is not None:
+            self.context['handle_checker'].load_collision_model(collision_world(
+                self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True,
+                bodies=self.handle_bodies, filename='handle_world.json'))
         self.pad_target_query_range()
         if self.config.head_fov_enabled:
             self.context['fov_target'] = self.args.to_device(np.linalg.solve(

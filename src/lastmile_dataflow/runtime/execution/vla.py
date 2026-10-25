@@ -39,7 +39,7 @@ def first_point(sim, task):
 
 @isolated_episode
 def run_vla_attempt(baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None):
-    sim = clone_sim(baseline, target=task['target_body']); place_frozen_station(sim,station)
+    sim = clone_sim(baseline, target=task['target_body'], handle=task.get('handle_body')); place_frozen_station(sim,station)
     pi05 = config.operation_backend == 'pi05'
     width,height = (config.width,config.height) if pi05 else (1024,576)
     def policy_step(action, **kwargs):

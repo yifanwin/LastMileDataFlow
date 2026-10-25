@@ -25,9 +25,10 @@ class OperationFailure(RuntimeError):
 
 
 
-def clone_sim(sim, *, target=None):
+def clone_sim(sim, *, target=None, handle=None):
     """New MjData, shared read-only model; never restore the running instance."""
     result=Simulation(sim.model,sim.robot.config,copy.deepcopy(sim.catalog),target=target)
+    result.handle_id = result.model.body(handle).id if handle else getattr(sim, 'handle_id', None)
     track_resource(result)
     from .protocol import SimulationState
     SimulationState.capture(sim).initialize(result)

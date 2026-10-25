@@ -25,6 +25,7 @@ def manager_type(context):
         def initialize_from_config(self, config, transition_model, scene_collision_checker=None, **kwargs):
             super().initialize_from_config(config, transition_model, scene_collision_checker, **kwargs)
             self.target_cost = None
+            self.handle_cost = None
             self.head_fk = None
             if (config.head_fov_cost_enabled or config.head_fov_endpoint_check) and context.get('fov_robot') is not None:
                 from curobo._src.robot.kinematics.kinematics import Kinematics
@@ -36,16 +37,26 @@ def manager_type(context):
                 cfg = copy.copy(config.scene_collision_cfg)
                 cfg.scene_collision_checker = context['target_checker']
                 self.target_cost = SceneCollisionCost(cfg)
+                if context.get('handle_checker') is not None:
+                    cfg = copy.copy(config.scene_collision_cfg)
+                    cfg.scene_collision_checker = context['handle_checker']
+                    self.handle_cost = SceneCollisionCost(cfg)
             params = transition_model.robot_model.config.kinematics_config
             indices = []
             for link in context['contact_links']:
                 indices.extend(params.get_sphere_index_from_link_name(link).tolist())
             self.contact_indices = indices
+            handle_indices = []
+            for link in context.get('handle_contact_links', ()):
+                handle_indices.extend(params.get_sphere_index_from_link_name(link).tolist())
+            self.handle_indices = handle_indices
 
         def setup_batch_tensors(self, batch_size, horizon):
             super().setup_batch_tensors(batch_size, horizon)
             if self.target_cost is not None:
                 self.target_cost.setup_batch_tensors(batch_size, horizon)
+            if self.handle_cost is not None:
+                self.handle_cost.setup_batch_tensors(batch_size, horizon)
 
         def compute_costs(self, state, cost_collection=None, goal=None, **kwargs):
             result = super().compute_costs(state, cost_collection, goal, **kwargs)
@@ -56,6 +67,14 @@ def manager_type(context):
                 idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
                 value = self.target_cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
                 result.add(value, 'target_collision')
+            if self.handle_cost is not None and not context['attached']:
+                # A pinch on a deep handle puts the palm against it; only the
+                # handle is relaxed, the surrounding body stays a hard obstacle.
+                kin = copy.copy(state.cuda_robot_model_state)
+                kin.robot_spheres = contact_spheres(state.robot_spheres, self.handle_indices, context['contact_allowed'])
+                idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
+                value = self.handle_cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
+                result.add(value, 'handle_contact')
             if self.config.scene_collision_cfg is not None and context.get("movable_base", True):
                 xy = state.joint_state.position[..., [self.names.index('base_x'), self.names.index('base_y')]]
                 center = context['local_center']
