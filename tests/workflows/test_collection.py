@@ -34,7 +34,7 @@ class CollectionTests(DatasetTestCase):
             return {
                 "status": "success",
                 "reason": "mocked",
-                "recording_complete": True,
+                "recording_complete": True, "observation_complete": True,
                 "rollout_id": "mock-" + station["station_id"],
                 "executed_steps": 1,
             }
@@ -67,7 +67,7 @@ class CollectionTests(DatasetTestCase):
                 "status": "failure" if station["station_id"] == "s0" else "success",
                 "reason": "mocked",
                 "rollout_id": station["station_id"],
-                "recording_complete": True,
+                "recording_complete": True, "observation_complete": True,
                 "executed_steps": 1,
                 "task_outcome": {"status": "failure" if station["station_id"] == "s0" else "success"},
             }
@@ -118,7 +118,7 @@ class CollectionTests(DatasetTestCase):
         with (
             patch(
                 "lastmile_dataflow.workflows.collection._execute",
-                return_value={"status": "failure", "reason": "mocked", "recording_complete": True},
+                return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ) as execute,
             patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]) as recovery,
             patch("lastmile_dataflow.workflows.collection.export_heatmap"),
@@ -138,7 +138,7 @@ class CollectionTests(DatasetTestCase):
         with (
             patch(
                 "lastmile_dataflow.workflows.collection._execute",
-                return_value={"status": "failure", "reason": "mocked", "recording_complete": True},
+                return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ),
             patch("lastmile_dataflow.workflows.collection.export_heatmap"),
         ):
@@ -211,7 +211,7 @@ class CollectionTests(DatasetTestCase):
                    'trial': trial, 'seed': trial, 'rollout_id': f'r{i}-{trial}',
                    'status': 'success' if trial < successes else 'failure',
                    'task_outcome': {'status': 'success' if trial < successes else 'failure'},
-                   'recording_complete': True, 'executed_steps': 3}
+                   'recording_complete': True, 'observation_complete': True, 'executed_steps': 3}
                   for i, successes in enumerate(counts) for trial in range(5)]
         return config, scene, trials
 
@@ -228,7 +228,7 @@ class CollectionTests(DatasetTestCase):
         self.assertTrue(all('navigation' not in r and 's0' not in r for r in direct))
         path = {'xy': [[0., 0.], [1., 1.], [3., 1.]]}
         result = {'status': 'success', 'reason': 'synthetic', 'task_outcome': {'status': 'success'},
-                  'recording_complete': True, 'executed_steps': 3, 'rollout_id': 'new',
+                  'recording_complete': True, 'observation_complete': True, 'executed_steps': 3, 'rollout_id': 'new',
                   'navigation': {'status': 'success', 'steps': 2}}
         with (
             patch('lastmile_dataflow.workflows.collection.scene_grid'),
@@ -296,7 +296,7 @@ class AttemptCounterTests(DatasetTestCase):
     def test_attempt_counter_is_shared_across_scenes_without_file_scans(self):
         ids = count()
         config = ExecutionConfig(trials_per_station=1)
-        result = {"status": "failure", "reason": "fixture", "recording_complete": True}
+        result = {"status": "failure", "reason": "fixture", "recording_complete": True, "observation_complete": True}
         with (
             patch("lastmile_dataflow.workflows.collection.run_curobo_attempt", return_value=result) as run,
             patch("lastmile_dataflow.workflows.collection.grasp_candidates", return_value=[]),

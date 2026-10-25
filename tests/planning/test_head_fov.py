@@ -154,7 +154,9 @@ class HeadFOVTests(unittest.TestCase):
         planner.names = joint_names("left")
         planner.query_log = []
         planner.fov_log = [{"valid": False}]
-        planner.config = SimpleNamespace(head_fov_enabled=True)
+        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
+        planner.base = np.eye(4)
+        planner.sim = SimpleNamespace(robot=SimpleNamespace(config=SimpleNamespace(control_hz=20)))
         planner.goals = lambda g: g
         planner.state = lambda: None
         result = planner.plan(np.eye(4))
@@ -171,7 +173,9 @@ class HeadFOVTests(unittest.TestCase):
         planner.names = joint_names("left")
         planner.query_log = []
         planner.fov_log = []
-        planner.config = SimpleNamespace(head_fov_enabled=True)
+        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
+        planner.base = np.eye(4)
+        planner.sim = SimpleNamespace(robot=SimpleNamespace(config=SimpleNamespace(control_hz=20)))
         planner.goals = lambda g: g
         planner.state = lambda: None
         planner.points = lambda t: ((0.0,) * 11,)

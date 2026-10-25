@@ -18,7 +18,7 @@ import mujoco
 import numpy as np
 from ...scenes.geometry import body_pose, tcp_pose
 from ...scenes.geometry import descendants
-from .contacts import CONTACT_POLICY, SIMULATION_FAILURES
+from .contacts import CONTACT_POLICY, SIMULATION_FAILURES, ContactSampler
 
 # 任务成功阈值不可通过配置放宽。
 PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_m':.002,
@@ -53,17 +53,18 @@ class PickMonitor:
                         "height_m": float(sim.data.xpos[sim.target_id, 2]),
                         "fingers": sorted(self.fingers)}
         self.phase='torso_adjust'; self.command_h=0.
+        self.contact_sampler = ContactSampler(sim)
 
-    def sample(self):
+    def sample(self, contacts=None):
         """采集一行物理事实。包含：力、支撑、接触标记列表、相对位姿（TCP←目标）。"""
         sim=self.sim; m,d=sim.model,sim.data; forces={}; support=False; illegal=[]; contact_flags=[]
         if not all(np.isfinite(x).all() for x in (d.qpos,d.qvel,d.ctrl,d.qacc)): illegal.append('nonfinite_state')
         if any(w.number for w in d.warning): illegal.append('mujoco_warning')
-        for i,c in enumerate(d.contact):
-            a,b=[int(m.geom_bodyid[g]) for g in (c.geom1,c.geom2)]
-            if a==b: continue
-            f=np.zeros(6); mujoco.mj_contactForce(m,d,i,f)
-            bearing=bool(c.efc_address>=0 and f[0]>PROTOCOL['finger_force_min_n'])   # 是否真的承力
+        if contacts is None:
+            contacts = self.contact_sampler.capture()
+        for _,pair,force,active,_,_ in contacts.contacts:
+            a,b=pair.bodies
+            bearing=bool(active and force>PROTOCOL['finger_force_min_n'])   # 是否真的承力
             ta,tb=a in self.target_bodies,b in self.target_bodies
             ra,rb=a in self.robot_bodies,b in self.robot_bodies
             if ta!=tb:
@@ -71,15 +72,15 @@ class PickMonitor:
                 other=b if ta else a
                 if other in self.finger_index and bearing:
                     finger = self.finger_index[other]
-                    forces[finger] = forces.get(finger, 0.) + float(f[0])
+                    forces[finger] = forces.get(finger, 0.) + force
                 elif other not in self.robot_bodies and bearing: support=True      # 目标仍被桌面支撑
                 elif other in self.robot_bodies and other not in self.allowed_target_fingers: contact_flags.append('nonfinger_target')
             elif ra and rb: contact_flags.append('self_collision')
             elif ra!=rb:
                 # 机器人 vs 环境：豁免“底盘/轮 vs 地板”的正常支撑接触
-                other_g=int(c.geom2 if ra else c.geom1); rbod=a if ra else b
-                floor='floor' in m.geom(other_g).name.lower()
-                base='base' in m.body(rbod).name or 'wheel' in m.body(rbod).name
+                floor='floor' in pair.geom_names[1 if ra else 0].lower()
+                name=pair.body_names[0 if ra else 1]
+                base='base' in name or 'wheel' in name
                 if not (floor and base): contact_flags.append('robot_environment_collision')
         target=body_pose(sim,sim.target_id); tcp=tcp_pose(sim,self.side)
         # relative_pose = TCP^-1 · 目标，即“目标相对手爪”的位姿；滑移检测就看它是否稳定。

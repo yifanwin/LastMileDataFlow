@@ -17,6 +17,7 @@ class ExecutionConfig:
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
     initial_settle_s: float = 0.
+    shared_station_preparation: bool = False
     grasp_roll_rad: float = 0.
     grasp_candidate_order: str = "facing"
     local_base_radius_m: float = .35

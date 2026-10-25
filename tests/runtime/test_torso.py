@@ -68,6 +68,7 @@ class TorsoCommandTests(unittest.TestCase):
                 )
 
                 ctx.contact_stats = ContactStatistics()
+                ctx.record_physics = True
                 ctx.state = lambda: {"time_s": 0.0}
                 ctx.monitor = None
                 ctx.collisions = []
@@ -96,6 +97,8 @@ class TorsoCommandTests(unittest.TestCase):
                     return {"submitted_action": action.tolist()}, None if check["valid"] else check
 
                 ctx.sim = SimpleNamespace(data=data, robot=robot, model=None, step=step)
+                from lastmile_dataflow.runtime.outcomes.contacts import ContactFrame
+                ctx.contact_sampler = SimpleNamespace(capture=lambda **kw: ContactFrame(ctx.sim, []))
                 action = np.zeros(20)
                 action[19] = 0.739327605117437
                 with (
@@ -104,9 +107,6 @@ class TorsoCommandTests(unittest.TestCase):
                         side_effect=lambda robot, a, **kw: (a, []),
                     ),
                     patch("lastmile_dataflow.runtime.execution.context.mujoco.mj_forward"),
-                    patch(
-                        "lastmile_dataflow.runtime.execution.context.contact_observations", return_value=[]
-                    ),
                 ):
                     if fails:
                         with self.assertRaisesRegex(OperationFailure, "torso_feedback_limit"):

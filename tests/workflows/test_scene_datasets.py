@@ -80,8 +80,9 @@ class SceneDatasetTests(DatasetTestCase):
         write_json(self.recipe_path, value)
         return load_scene_recipe(self.recipe_path)
 
-    def plan(self, recipe, selected, exclusions=()):
-        for row in selected:
+    def plan(self, recipe, selected, exclusions=(), candidates=None):
+        candidates = selected if candidates is None else candidates
+        for row in candidates:
             row["input_snapshot"] = str(self.baseline)
         path = self.root / "discovery.json"
         write_json(
@@ -89,6 +90,7 @@ class SceneDatasetTests(DatasetTestCase):
             {
                 "recipe": asdict(recipe),
                 "selected": selected,
+                "candidates": candidates,
                 "exclusions": list(exclusions),
                 "houses": [{"house": 1}],
                 "elapsed_s": 0.0,
@@ -149,10 +151,12 @@ class SceneDatasetTests(DatasetTestCase):
             recipe,
             [a, c],
             [{"house": 1, "task_id": "b", "reason": "eligible_not_selected_by_spatial_coverage"}],
+            candidates=[a, b, c],
         )
         checked = []
 
-        def sample(sim, task, geometry):
+        def sample(sim, task, geometry, **options):
+            self.assertTrue(options['static_only'])
             checked.append(task["task_id"])
             return [] if task["task_id"] == "c" else self.points[:1]
 
@@ -160,7 +164,7 @@ class SceneDatasetTests(DatasetTestCase):
         with (
             patch.object(workflow.SceneSource, "procthor", return_value=self.sim.source),
             patch.object(workflow, "read_json", return_value={}),
-            patch.object(workflow, "discover_tasks", return_value=([r["task"] for r in (a, b, c)], [])),
+            patch.object(workflow, "discover_tasks", side_effect=AssertionError('tasks must not be rediscovered')),
             patch.object(workflow, "task_support_obstacles", return_value=[]),
             patch.object(workflow, "support_regions", return_value=[support]),
             patch.object(workflow, "sample_stations", side_effect=sample),
@@ -184,7 +188,8 @@ class SceneDatasetTests(DatasetTestCase):
             self.recipe_path, plan, self.root, "partial", [0], allow_partial_targets=True
         )
         self.assertEqual(
-            read_json(root / "summary.json"), {"status": "completed", "accepted": 0, "rejected": 0}
+            {k: read_json(root / 'summary.json')[k] for k in ('status', 'accepted', 'rejected')},
+            {"status": "completed", "accepted": 0, "rejected": 0}
         )
 
     def test_pick_cases_write_into_parent_dataset_with_correct_counts(self):
@@ -198,13 +203,29 @@ class SceneDatasetTests(DatasetTestCase):
         self.assertTrue(all(call.kwargs["dataset_root"] == root for call in augment.call_args_list))
         self.assertEqual([config.seed for config in configs], [recipe.seed, recipe.seed])
 
+    def test_spawned_build_units_return_independent_rejections_to_one_parent_file(self):
+        recipe = self.recipe(cases=['Case3'], max_open_targets_per_house=2, min_final_points=20,
+                             station_config={'radius_m': .1, 'spacing_m': .2})
+        selected = [candidate('door-a', 2.), candidate('door-b', 2.)]
+        for row in selected:
+            row['task']['operation'] = 'open'
+        plan = self.plan(recipe, selected)
+        root = workflow.build_scene_dataset(self.recipe_path, plan, self.root, 'spawned', [0], workers=2)
+        records = rows(root / 'scenes.jsonl')
+        self.assertEqual(len(records), 2)
+        self.assertEqual({r['task_id'] for r in records}, {'door-a', 'door-b'})
+        self.assertTrue(all(r['status'] == 'rejected' for r in records))
+        self.assertTrue(all(r['reason'] == 'too_few_stations' for r in records))
+        self.assertTrue(all(len(r['station_candidates']) == 1 for r in records))
+
     def test_open_saves_snapshot_only_when_final_stations_are_sufficient(self):
         recipe = self.recipe(cases=["Case3"])
         opening = candidate("open", 0.0)
         opening["task"]["operation"] = "open"
         plan = self.plan(recipe, [opening])
         for name, points, status in [("accepted", self.points[:1], "accepted"), ("rejected", [], "rejected")]:
-            with self.subTest(status=status), patch.object(workflow, "sample_stations", return_value=points):
+            with (self.subTest(status=status), patch.object(workflow, "sample_stations", return_value=points),
+                  patch.object(workflow, 'record_station_visibility')):
                 root = workflow.build_scene_dataset(self.recipe_path, plan, self.root, name, [0])
                 record = rows(root / "scenes.jsonl")[0]
                 self.assertEqual(record["status"], status)

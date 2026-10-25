@@ -1,6 +1,7 @@
 """Contact telemetry only: never change physics, commands, or task verdicts."""
 import mujoco
 import numpy as np
+from dataclasses import dataclass
 
 CONTACT_POLICY = 'runtime-record-only-v1'
 SIMULATION_FAILURES = frozenset(('nonfinite_physics', 'nonfinite_physics_state',
@@ -18,36 +19,78 @@ def simulation_failure(sim):
     return None
 
 
+@dataclass(frozen=True)
+class ContactPair:
+    bodies: tuple
+    body_names: tuple
+    geom_ids: tuple
+    geom_names: tuple
+    robot: tuple
+    floor_base: bool
+    same_hand: bool
+
+
+class ContactFrame:
+    """One physics boundary's forces, consumed before the next simulation step."""
+    def __init__(self, sim, contacts):
+        self.sim, self.contacts = sim, contacts
+
+    def observations(self, limit=None):
+        result = []
+        for index, pair, force, bearing, intended, forbidden in self.contacts[:limit]:
+            contact = self.sim.data.contact[index]
+            result.append({
+                'body_names': list(pair.body_names), 'geom_names': list(pair.geom_names),
+                'geom_ids': list(pair.geom_ids), 'distance_m': float(contact.dist),
+                'position_world': contact.pos.tolist(), 'normal_force_n': force,
+                'time_s': float(self.sim.data.time), 'robot_contact': any(pair.robot),
+                'allowed_floor_base': pair.floor_base, 'intended_target_contact': intended,
+                'forbidden': forbidden, 'kind': 'self_collision' if all(pair.robot) else
+                'environment_collision' if any(pair.robot) else 'object_contact'})
+        return result
+
+
+class ContactSampler:
+    """Cache fixed names/classifications and read each contact force once per tick."""
+    def __init__(self, sim):
+        self.sim = sim
+        self.pairs = {}
+        self.force = np.zeros(6)
+
+    def pair(self, g1, g2):
+        key = (g1, g2)
+        if key not in self.pairs:
+            model = self.sim.model
+            namespace = self.sim.robot.config.namespace if self.sim.robot else 'robot_0/'
+            bodies = tuple(int(model.geom_bodyid[g]) for g in key)
+            names = tuple(model.body(b).name or '' for b in bodies)
+            geometry = tuple(model.geom(g).name or '' for g in key)
+            robot = tuple(name.startswith(namespace) for name in names)
+            floor_base = any('floor' in g.lower() for g in geometry) and any(
+                r and ('base' in n or 'wheel' in n) for r, n in zip(robot, names))
+            same_hand = any(all(n.startswith(namespace+'ee_finger_'+side) for n in names)
+                            for side in ('l', 'r'))
+            self.pairs[key] = ContactPair(bodies, names, key, geometry, robot, floor_base, same_hand)
+        return self.pairs[key]
+
+    def capture(self, *, target_bodies=(), fingers=()):
+        result = []
+        for index, contact in enumerate(self.sim.data.contact):
+            pair = self.pair(int(contact.geom1), int(contact.geom2))
+            a, b = pair.bodies
+            if a == b:
+                continue
+            mujoco.mj_contactForce(self.sim.model, self.sim.data, index, self.force)
+            force = float(self.force[0])
+            intended = a in fingers and b in target_bodies or b in fingers and a in target_bodies
+            forbidden = any(pair.robot) and not (pair.floor_base or intended or pair.same_hand)
+            result.append((index, pair, force, contact.efc_address >= 0, intended, forbidden))
+        return ContactFrame(self.sim, result)
+
+
 def contact_observations(sim, *, target_bodies=(), fingers=()):
     """All named contacts. `forbidden` is a quality flag, NOT physical illegality."""
-    m, d = sim.model, sim.data
-    namespace = sim.robot.config.namespace if sim.robot else 'robot_0/'
-    result = []
-    for i, c in enumerate(d.contact):
-        geoms = [int(c.geom1), int(c.geom2)]
-        bodies = [int(m.geom_bodyid[g]) for g in geoms]
-        if bodies[0] == bodies[1]:
-            continue
-        names = [m.body(b).name or '' for b in bodies]
-        geometry = [m.geom(g).name or '' for g in geoms]
-        robot = [n.startswith(namespace) for n in names]
-        floor_base = any('floor' in g.lower() for g in geometry) and any(
-            r and ('base' in n or 'wheel' in n) for r, n in zip(robot, names))
-        intended = (bodies[0] in fingers and bodies[1] in target_bodies or
-                    bodies[1] in fingers and bodies[0] in target_bodies)
-        same_hand = any(all(n.startswith(namespace+'ee_finger_'+side) for n in names)
-                        for side in ('l', 'r'))
-        force = np.zeros(6)
-        mujoco.mj_contactForce(m, d, i, force)
-        result.append({'body_names': names, 'geom_names': geometry, 'geom_ids':geoms,
-                       'distance_m': float(c.dist), 'position_world': c.pos.tolist(),
-                       'normal_force_n': float(force[0]), 'time_s': float(d.time),
-                       'robot_contact': any(robot), 'allowed_floor_base': floor_base,
-                       'intended_target_contact': intended,
-                       'forbidden': bool(any(robot) and not (floor_base or intended or same_hand)),
-                       'kind': 'self_collision' if all(robot) else
-                               'environment_collision' if any(robot) else 'object_contact'})
-    return result
+    return ContactSampler(sim).capture(target_bodies=target_bodies, fingers=fingers).observations()
 
 
 class ContactStatistics:
@@ -62,6 +105,14 @@ class ContactStatistics:
         self.forbidden_contact_count += len({tuple(sorted(c['body_names'])) for c in contacts
                                              if c.get('forbidden', False)})
         self.examples.extend(contacts[:max(0, 32-len(self.examples))])
+
+    def update_frame(self, frame):
+        self.contact_count += len(frame.contacts)
+        self.forbidden_contact_count += len({tuple(sorted(pair.body_names))
+            for _, pair, _, _, _, forbidden in frame.contacts if forbidden})
+        remaining = 32 - len(self.examples)
+        if remaining > 0:
+            self.examples.extend(frame.observations(remaining))
 
     def metrics(self, *, task_success=None, simulation_valid=None):
         return {'task_success': task_success, 'simulation_valid': simulation_valid,

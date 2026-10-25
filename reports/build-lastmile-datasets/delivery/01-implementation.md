@@ -1,6 +1,11 @@
 # lastmile-datasets 实现与验证
 
-日期：2026-10-16。依据：[需求定义](../requirement/01-lastmile-datasets.md)。
+- 状态：done
+- 日期：2026-10-16
+- 替代：无
+- 关联：[需求定义](../requirement/01-lastmile-datasets.md)、[当前状况](../../curobo-time-optimization/info/01-current-status.md)
+
+本文保留当轮数据集软件交付事实；2026-10-24 的 PandaOmron 主体与每点 3 次需求见当前状况，不据此改写下文历史验证结果。
 
 **已实现全组合采集、两类成功示教索引及独立物化。离线回归通过，合成数据已验证搬迁后脱离源目录读取 batch；未运行真实 RBY-1/GPU 成功采集或模型训练。**
 

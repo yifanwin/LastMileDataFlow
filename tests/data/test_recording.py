@@ -1,12 +1,14 @@
 """实际控制边界、唯一采样和轨迹读写。"""
 
 import tempfile
+import json
 import unittest
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
+import mujoco
 
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
@@ -105,6 +107,29 @@ class RecordingTests(unittest.TestCase):
 
 
 class TrajectoryTests(DatasetTestCase):
+    def test_numeric_record_restores_full_measured_boundaries_without_stepping(self):
+        recorder = AttemptRecorder(self.root, {'collection': asdict(CollectionConfig(
+            record_images=False, record_video=False))}, attempt_id='measured')
+        recorder.bind_simulation(self.sim)
+        self.sim.begin()
+        self.sim.step(self.sim.robot.neutral_action())
+        measured = self.sim.state_vector().copy()
+        controls = self.sim.robot.snapshot_control()
+        recorder.finish('failure', 'fixture')
+        replay = mujoco.MjData(self.sim.model)
+        with np.load(recorder.path / 'trajectory.npz', allow_pickle=False) as data:
+            self.assertEqual(len(data['integration_state']), recorder.steps + 1)
+            mujoco.mj_setState(self.sim.model, replay, data['integration_state'][-1],
+                               int(data['state_spec']))
+            mujoco.mj_forward(self.sim.model, replay)
+            restored = np.empty_like(measured)
+            mujoco.mj_getState(self.sim.model, replay, restored, int(data['state_spec']))
+            np.testing.assert_array_equal(restored, measured)
+            np.testing.assert_allclose(replay.cam_xpos, data['camera_xpos'][-1])
+            self.assertEqual(replay.time, data['time_s'][-1])
+            self.assertEqual(json.loads(str(data['control_json'][-1])), controls)
+        self.assertIsNone(self.sim.renderer)
+
     def test_single_live_trajectory_and_native_state_layout(self):
         recorder = AttemptRecorder(
             self.root, {"collection": asdict(self.collection), "task": self.task, "seed": 3}, attempt_id="r0"

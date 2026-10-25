@@ -32,6 +32,17 @@ def candidate_pool(ctx, candidates, seed, forced):
     return [pool[i] for i in rng.permutation(len(pool))[:ctx.config.max_grasp_candidates]]
 
 
+def grasp_goals(sim, config, pool):
+    goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
+    angle = config.grasp_roll_rad
+    roll = np.array([[np.cos(angle), -np.sin(angle), 0.],
+                     [np.sin(angle), np.cos(angle), 0.], [0., 0., 1.]])
+    for goal in goals:
+        goal[:3, 3] += goal[:3, 2] * config.approach_offset_m
+        goal[:3, :3] = goal[:3, :3] @ roll
+    return goals
+
+
 def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
     from .context import OperationFailure, planner_options
     pool = candidate_pool(ctx, candidates, seed, forced)
@@ -39,6 +50,18 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
     sim = ctx.sim
     options = planner_options(ctx.config, assets_dir, seed)
     planner = None
+    cache = getattr(ctx, 'planner_cache', None)
+    factory = getattr(ctx, 'planner_factory', V2Planner if cache is None else cache.acquire)
+
+    def release():
+        nonlocal planner
+        if planner is not None:
+            if cache is None:
+                planner.detach()
+                planner.close()
+            else:
+                cache.release(planner)
+            planner = None
     def query(phase):
         ctx.deadline()
         if ctx.plan_count >= ctx.max_plans:
@@ -59,12 +82,8 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             directory = ctx.recorder.path / f'v080-{ctx.plan_serial}-{side}'
             directory.mkdir(parents=True, exist_ok=True)
             with timed(ctx, 'planner_setup'):
-                planner = V2Planner(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
-            goals = [body_pose(sim, sim.model.body(c['body']).id) @ c['pose_local'] for c in pool]
-            for goal in goals:
-                goal[:3, 3] += goal[:3, 2] * ctx.config.approach_offset_m
-                angle = ctx.config.grasp_roll_rad
-                goal[:3,:3] = goal[:3,:3] @ np.array([[np.cos(angle),-np.sin(angle),0.],[np.sin(angle),np.cos(angle),0.],[0.,0.,1.]])
+                planner = factory(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
+            goals = grasp_goals(sim, ctx.config, pool)
             if not goals:
                 raise OperationFailure('no_grasp_candidates')
             if task['operation'] == 'pick':
@@ -79,7 +98,7 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             ctx.plans.append({'phase': 'native_grasp_result', **diagnostic})
             if success:
                 break
-            planner.close(); planner = None
+            release()
         else:
             raise OperationFailure((diagnostic or {}).get('failure_reason') or 'planning_no_solution', diagnostic)
         c = pool[index]
@@ -108,13 +127,13 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             ctx.arm_tick(side, q, 0., h)
         # Rebuild at measured closed state: relative finger locks must not retain
         # their open value, and the lift must start at the actual executed state.
-        planner.close(); planner = None
+        release()
         directory = ctx.recorder.path / f'v080-closed-{ctx.plan_serial}-{side}'
         directory.mkdir(parents=True, exist_ok=True)
         with timed(ctx, 'planner_setup'):
             closed_options = replace(ctx.config, operation_base_mode='fixed') if sim.robot.lock_base_after_close else ctx.config
             closed_options = planner_options(closed_options, assets_dir, seed)
-            planner = V2Planner(sim, closed_options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
+            planner = factory(sim, closed_options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
         if task['operation'] == 'pick':
             write_json(ctx.recorder.path / 'attached_object.json', planner.attach_target_geometry())
             ctx.phase = 'lift_actual'
@@ -156,6 +175,4 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         write_json(ctx.recorder.path / f'verdict-{len(ctx.plans)}.json', verdict)
         return verdict, control
     finally:
-        if planner is not None:
-            planner.detach()
-            planner.close()
+        release()

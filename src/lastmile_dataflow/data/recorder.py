@@ -1,8 +1,10 @@
 """一套实时轨迹与观测；不产生发布包、重复 replay 或审计侧车。"""
 
 from pathlib import Path
+import json
 import uuid
 import imageio.v2 as imageio
+import mujoco
 import numpy as np
 
 from ..utils.io import append_row, write_json
@@ -26,6 +28,8 @@ class AttemptRecorder:
         self.phases = []
         self.writers = {}
         self.video_counts = {}
+        self.image_counts = {}
+        self.missing_depth_cameras = set()
         self.errors = []
         self.phase = 'initialize'
         self.requested_action = None
@@ -53,6 +57,14 @@ class AttemptRecorder:
             'qpos': self.sim.data.qpos.copy(),
             'qvel': self.sim.data.qvel.copy(),
             'ctrl': self.sim.data.ctrl.copy(),
+            'integration_state': self.sim.state_vector(),
+            'control_json': json.dumps(self.sim.robot.snapshot_control()),
+            'clock_remainder': self.sim._clock_remainder,
+            'camera_xpos': self.sim.data.cam_xpos.copy(),
+            'camera_xmat': self.sim.data.cam_xmat.copy(),
+            'camera_fovy': self.sim.model.cam_fovy.copy(),
+            'camera_intrinsic': self.sim.model.cam_intrinsic.copy(),
+            'camera_sensorsize': self.sim.model.cam_sensorsize.copy(),
             layout['state_key']: self.sim.robot.record_state(),
         }
         self.samples.append(sample)
@@ -66,6 +78,8 @@ class AttemptRecorder:
                         target = self.path / 'images' / key
                         target.mkdir(parents=True, exist_ok=True)
                         np.save(target / f'{self.steps:06d}-depth.npy', value['depth'])
+                    else:
+                        self.missing_depth_cameras.add(key)
             else:
                 frames = self.sim.render(self.width, self.height)
             self.sim._raw_frame_cache = (sample['time_s'], self.width, self.height, frames)
@@ -87,7 +101,8 @@ class AttemptRecorder:
         for camera, pixels in frames.items():
             path = self.path / 'images' / camera / f'{step:06d}.png'
             path.parent.mkdir(parents=True, exist_ok=True)
-            imageio.imwrite(path, pixels)
+            imageio.imwrite(path, pixels, compress_level=1)
+            self.image_counts[camera] = self.image_counts.get(camera, 0) + 1
 
     @recording_operation
     def video_frame(self, frames):
@@ -124,12 +139,18 @@ class AttemptRecorder:
             size = layout.get('action_size', len(layout.get('action_fields', [])))
             arrays = {key: np.asarray([sample[key] for sample in self.samples]) for key in self.samples[0]}
             arrays.update(
+                state_spec=np.asarray(int(self.sim.state_spec)),
                 actions=np.asarray(self.actions).reshape(self.steps, size),
                 requested_actions=np.asarray(self.requested).reshape(self.steps, size),
                 phases=np.asarray(self.phases, dtype=str),
             )
             np.savez_compressed(self.path / 'trajectory.npz', **arrays)
         complete = not self.errors and len(self.samples) == self.steps + 1
+        model_dir = getattr(self.sim, 'frozen_dir', None)
+        replay_complete = complete and model_dir is not None and (Path(model_dir) / 'model.mjb').is_file()
+        observation_complete = (complete and self.collection['record_images'] and self.sim is not None
+            and all(self.image_counts.get(camera, 0) == self.steps + 1 for camera in self.sim.robot.camera_names)
+            and not self.missing_depth_cameras)
         if self.errors:
             status = (
                 'infrastructure_error'
@@ -140,6 +161,8 @@ class AttemptRecorder:
             'status': status,
             'reason': reason,
             'recording_complete': complete,
+            'replay_complete': replay_complete,
+            'observation_complete': observation_complete,
             'executed_steps': self.steps,
             'recording_errors': self.errors,
         }
@@ -149,11 +172,21 @@ class AttemptRecorder:
                 'frames': len(self.samples),
                 'steps': self.steps,
                 'complete': complete,
+                'replay_complete': replay_complete,
+                'observation_complete': observation_complete,
+                'missing_depth_cameras': sorted(self.missing_depth_cameras),
                 'errors': self.errors,
                 'controller_profile': self.sim.robot.config.control_profile if self.sim else None,
                 'layout': self.sim.robot.record_layout() if self.sim else None,
+                'mujoco_version': mujoco.__version__,
+                'model_dir': getattr(self.sim, 'frozen_dir', None),
+                'state_spec': int(self.sim.state_spec) if self.sim else None,
+                'cameras': dict(self.sim.robot.camera_names) if self.sim else {},
+                'resolution': [self.width, self.height] if self.sim else None,
+                'control_hz': self.sim.robot.config.control_hz if self.sim else None,
                 'task': self.config.get('task'),
                 'seed': self.config.get('seed'),
+                'preparation': self.config.get('preparation'),
                 'videos': {name: {'path': f'videos/{name}.mp4', 'frames': count,
                     'fps': self.sim.robot.config.control_hz,
                     'sample_times_s': [s['time_s'] - self.samples[0]['time_s'] for s in self.samples[:count]],

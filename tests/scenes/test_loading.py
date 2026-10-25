@@ -10,7 +10,7 @@ import numpy as np
 
 from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.scenes.loading.asset_library import ThorLibrary
-from lastmile_dataflow.scenes.loading.mjcf import load_spec
+from lastmile_dataflow.scenes.loading.mjcf import load_spec, save_spec
 from tests.helpers import table_scene
 
 
@@ -51,6 +51,28 @@ class LoadingTests(unittest.TestCase):
             '<mujoco><asset><mesh file="tetra.obj"/></asset><worldbody><body><freejoint/><geom type="mesh" mesh="tetra"/></body></worldbody></mujoco>'
         )
         self.assert_model_equal(p)
+
+    def test_attached_specs_export_resources_from_both_original_directories(self):
+        specs = []
+        for identity, scale in [('scene', 1), ('robot', 2)]:
+            folder = self.root / identity
+            folder.mkdir()
+            (folder / 'mesh.obj').write_text(
+                f'v 0 0 0\nv {scale} 0 0\nv 0 {scale} 0\nv 0 0 {scale}\n'
+                'f 1 2 3\nf 1 4 2\nf 1 3 4\nf 2 4 3\n')
+            xml = folder / 'model.xml'
+            xml.write_text(f'<mujoco><asset><mesh name="{identity}" file="mesh.obj"/></asset>'
+                f'<worldbody><body name="{identity}"><geom type="mesh" mesh="{identity}"/></body></worldbody></mujoco>')
+            specs.append(load_spec(xml))
+        specs[0].attach(specs[1], prefix='', frame=specs[0].worldbody.add_frame())
+        original = specs[0].compile()
+        exported = self.root / 'exported.xml'
+        save_spec(specs[0], exported)
+        restored = load_spec(exported).compile()
+        np.testing.assert_array_equal(restored.mesh_vert, original.mesh_vert)
+        np.testing.assert_array_equal(restored.body_mass, original.body_mass)
+        self.assertIn(str(self.root / 'scene/mesh.obj'), exported.read_text())
+        self.assertIn(str(self.root / 'robot/mesh.obj'), exported.read_text())
 
     def test_same_basename_includes_and_nested_resource_paths(self):
         for name, offset in [("a", 0), ("b", 2)]:

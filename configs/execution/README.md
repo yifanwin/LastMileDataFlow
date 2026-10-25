@@ -63,3 +63,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 ## PandaOmron cuRobo
 
 `panda_omron_curobo.json` 使用相同生产入口，默认局部底盘—机械臂联合规划、固定 lift、闭爪后固定底盘抬升。`navigation_whole_body=true` 使用保持姿态整机包络及高度建立导航栅格；`local_base_radius_m` 在当前局部 XY 两轴各约束 ±该值。`grasp_candidate_order=tcp_distance`、`grasp_roll_rad` 和 `approach_offset_m` 是显式候选参数，当前预设针对 Cup 杯沿案例。`initial_settle_s` 仅在独立站位操作开始时通过真实 stepping 静置；连续采集不会到站重置。切换 `operation_base_mode=fixed` 可做 Panda 固定底盘对照，须重新标定。`head_fov_enabled=false` 不启用 RBY 头部 FOV 约束；站位仍检查真实相机可见性。详见 [Panda 指南](../../reports/panda-omron/docs/panda-omron.md)。
+
+Panda 配置的 `shared_station_preparation=true` 表示每站位静置一次，并用全局 GPU 规划池与独立 CPU trial 池标定。`initial_settle_s` 保留为站位准备时长，不再每个 trial 重复。资源和记录模式由 CLI 的 `--gpu`、`--cpu-workers`、`--preparation-workers`、`--recording-mode` 指定；不参与物理配置匹配。Panda 的 3 次、1/3 与 1.0 阈值只在对应配置生效。
+
+`panda_omron_all_cases_curobo.json` 用于百来源 Case1–3 标定，开放 pick/open，其余预算、三次与阈值同主 Panda 配置。

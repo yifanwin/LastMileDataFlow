@@ -4,7 +4,7 @@
   "grasp_candidate_order": "tcp_distance",
   "grasp_roll_rad": 1.5707963267948966,
   "local_base_radius_m": 0.35,
-  "trials_per_station": 2,
+  "trials_per_station": 3,
   "operation_retries": 0,
   "operations": [
     "pick"
@@ -18,5 +18,8 @@
   "initial_settle_s": 1.0,
   "navigation_whole_body": true,
   "require_target_visibility": false,
-  "require_navigation_clearance": false
+  "require_navigation_clearance": false,
+  "lastmile_low": 0.3333333333333333,
+  "lastmile_high": 1.0,
+  "shared_station_preparation": true
 }

@@ -3,7 +3,7 @@
 状态：draft  
 日期：2026-10-18  
 替代：无  
-关联：[双本体接入需求](../requirement/01-pi05-integration.md)、[共用控制链路详细评估](../info/01-panda-shared-control.md)、[需求梳理记录](../delivery/01-requirements-review.md)
+关联：[双本体接入需求](../requirement/01-pi05-integration.md)、[共用控制链路详细评估](01-panda-shared-control.md)、[需求梳理记录](../delivery/01-requirements-review.md)
 
 ## 结论
 
@@ -13,7 +13,7 @@
 
 本轮只完成源码评估。是否将现有 cuRobo Panda 默认执行切换到该控制层，须在小规模跟踪、碰撞和任务对照后确认，尚未决定替换当前 position 实现。
 
-进一步的[链路评估](../info/01-panda-shared-control.md)已明确：两路在未归一化的 RoboCasa 动作处汇合；需要同步改 cuRobo 跟踪、A* 导航、mode/保持语义及逐物理步反馈。物理 profile 还涉及 2 ms 对 4 ms、摩擦与重力补偿差异。原 position profile 暂保留为对照，不意味着最终永久保留两套控制。
+进一步的[链路评估](01-panda-shared-control.md)已明确：两路在未归一化的 RoboCasa 动作处汇合；需要同步改 cuRobo 跟踪、A* 导航、mode/保持语义及逐物理步反馈。物理 profile 还涉及 2 ms 对 4 ms、摩擦与重力补偿差异。原 position profile 暂保留为对照，不意味着最终永久保留两套控制。
 
 ## 1. 环境约束修订
 

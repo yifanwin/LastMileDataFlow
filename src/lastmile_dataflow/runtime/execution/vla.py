@@ -269,4 +269,5 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
         recorder.finish(status, reason)
     return {**outcome, 'status': recorder.result['status'], 'station_id': station['station_id'],
         'rollout_id': recorder.attempt_id, 'attempt': str(recorder.path), 'executed_steps': recorder.steps,
-        'recording_complete': recorder.result['recording_complete']}
+        'recording_complete': recorder.result['recording_complete'],
+        'observation_complete': recorder.result['observation_complete']}

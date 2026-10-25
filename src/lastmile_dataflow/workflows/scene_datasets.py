@@ -7,12 +7,14 @@ import logging
 
 import os
 import time
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import asdict
-from datetime import datetime
-from itertools import combinations
+from itertools import combinations, repeat
 from pathlib import Path
 from shutil import rmtree
+import tempfile
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
@@ -28,7 +30,8 @@ from ..scenes.dataset import select_stations
 from ..data.visualization.scene_preview import export_scene_previews
 from ..scenes.dataset_config import SceneDatasetRecipe, load_scene_recipe, load_scene_robot
 from ..scenes.loading.source import SceneSource
-from ..scenes.stations.sampling import sample_stations
+from ..scenes.stations.sampling import sample_stations, record_station_visibility
+from ..scenes.loading.local import task_local_model, local_model_bounds
 from ..scenes.tasks.discovery import discover_tasks, robot_footprint
 from ..scenes.tasks.eligibility import allowed_case1_support, pick_type
 from .obstacle_augmentation import augment_obstacles
@@ -235,6 +238,7 @@ def _probe_target(sim, task, recipe, geometry):
             "prefilter_count": valid,
             "prefilter_count_scope": "early_stop_lower_bound_not_full_candidate_count",
             "discovery_checked_count": len(stations),
+            "checked_stations": stations,
         }, None
 
 
@@ -246,12 +250,25 @@ def _discover_house(recipe, robot, geometry, house, baseline):
     progress = Progress(logger)
     eligible = {"pick": [], "open": []}
     with closing(_load_original_baseline(source, robot, recipe.input_snapshots.get(str(house)))) as sim:
-        sim.freeze(baseline)
+        if not recipe.local_task_models:
+            sim.freeze(baseline)
         logger.debug(f"val_{house}: 基线已冻结，开始发现任务")
-        tasks, skipped = discover_tasks(sim, read_json(source.metadata_path), geometry)
+        metadata = sim.source_metadata if hasattr(sim, 'source_metadata') else read_json(source.metadata_path)
+        tasks, skipped = discover_tasks(sim, metadata, geometry)
+        bounds = local_model_bounds(sim) if recipe.local_task_models else None
         exclusions = [{"house": house, **row} for row in skipped]
         for index, task in enumerate(_filter_tasks(tasks, recipe, house, exclusions), 1):
-            candidate, rejection = _probe_target(sim, task, recipe, geometry)
+            snapshot = baseline
+            if recipe.local_task_models:
+                # Station disk + arm sweep + chassis + local base travel + margin.
+                radius = geometry.radius_m + robot.arm_working_reach_m + robot.base_radius_m + .35 + .5
+                with closing(task_local_model(sim, task, radius, bounds)) as local:
+                    candidate, rejection = _probe_target(local, task, recipe, geometry)
+                    if candidate is not None:
+                        snapshot = baseline.parent / task['task_id'] / 'scene'
+                        local.freeze(snapshot)
+            else:
+                candidate, rejection = _probe_target(sim, task, recipe, geometry)
             progress.update('发现 val_%s 已探测候选=%s 原始任务=%s 当前目标=%s 耗时=%.1fs',
                             house, index, len(tasks), task['asset_id'], time.monotonic() - started)
             if rejection is not None:
@@ -262,7 +279,7 @@ def _discover_house(recipe, robot, geometry, house, baseline):
                     "house": house,
                     **candidate,
                     "source": source.to_dict(),
-                    "input_snapshot": str(baseline.resolve()),
+                    "input_snapshot": str(snapshot.resolve()),
                 }
             )
     # 后续只读候选记录，选优和统计不再占用仿真资源。
@@ -294,10 +311,10 @@ def _discover_house(recipe, robot, geometry, house, baseline):
     progress.update('房屋发现收尾 val_%s 原始任务=%s 静态合格 pick=%s open=%s 选中 pick=%s open=%s 耗时=%.1fs',
                     house, len(tasks), len(eligible['pick']), len(eligible['open']), len(picks), len(opening),
                     time.monotonic() - started, force=True)
-    return chosen, exclusions, summary
+    return chosen, exclusions, summary, eligible['pick'] + eligible['open']
 
 
-def discover_scene_dataset(recipe, output):
+def discover_scene_dataset(recipe, output, *, workers=1):
     """逐房屋发现目标，汇总候选、排除原因和数量预估。"""
     output = Path(output)
     if output.exists():
@@ -306,13 +323,20 @@ def discover_scene_dataset(recipe, output):
     robot = load_scene_robot(recipe.robot_config)
     geometry = recipe.geometry
     started = time.monotonic()
-    selected, exclusions, houses = [], [], []
-    for house in recipe.houses:
-        baseline = output.parent / (output.stem + "-baselines") / f"val_{house}" / "scene"
-        chosen, rejected, summary = _discover_house(recipe, robot, geometry, house, baseline)
-        selected.extend(chosen)
-        exclusions.extend(rejected)
-        houses.append(summary)
+    selected, exclusions, houses, candidates = [], [], [], []
+    os.environ.update(OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
+    baselines = [output.parent / (output.stem + '-baselines') / f'val_{h}' / 'scene'
+                 for h in recipe.houses]
+    with (ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn'))
+          if workers > 1 else nullcontext()) as pool:
+        results = (pool.map(_discover_house, repeat(recipe), repeat(robot), repeat(geometry),
+                            recipe.houses, baselines) if pool else
+                   map(_discover_house, repeat(recipe), repeat(robot), repeat(geometry), recipe.houses, baselines))
+        for chosen, rejected, summary, eligible in results:
+            selected.extend(chosen)
+            exclusions.extend(rejected)
+            houses.append(summary)
+            candidates.extend(eligible)
     log_scene_counts(recipe, houses, "发现")
     write_json(
         output,
@@ -320,23 +344,13 @@ def discover_scene_dataset(recipe, output):
             "schema_version": "scene-dataset-discovery-v1",
             "recipe": asdict(recipe),
             "selected": selected,
+            "candidates": candidates,
             "houses": houses,
             "exclusions": exclusions,
             "elapsed_s": time.monotonic() - started,
         },
     )
     return output
-
-
-def _qualification_candidates(sim, tasks, recipe, seed, eligible_ids):
-    """只重建发现阶段已通过的目标，不重复审核同一冻结基线的静态条件。"""
-    candidates = []
-    for task in tasks:
-        if task["task_id"] not in eligible_ids:
-            continue
-        candidate, _ = _target_geometry(sim, task)
-        candidates.append({**seed, **candidate, "prefilter_count": recipe.min_prefilter_points})
-    return candidates
 
 
 def _qualify_target(sim, row, recipe, geometry, existing):
@@ -346,7 +360,8 @@ def _qualify_target(sim, row, recipe, geometry, existing):
     sim.target_id = sim.model.body(task["target_body"]).id
     started = time.monotonic()
     stations = (
-        existing[identity]["stations"] if identity in existing else sample_stations(sim, task, geometry)
+        existing[identity]["stations"] if identity in existing else sample_stations(
+            sim, task, geometry, static_only=True, checked_stations=row.get('checked_stations', ()))
     )
     valid = sum(station["geometry"] == "valid" for station in stations)
     evidence = {
@@ -375,7 +390,7 @@ def _qualify_target(sim, row, recipe, geometry, existing):
     return evidence
 
 
-def _select_qualified(sim, candidates, recipe, geometry, existing):
+def _select_qualified(robot, candidates, recipe, geometry, existing):
     """空间选优后检查资格；失败只剔除失败目标，再从合格池补选。"""
     selected, cache = [], {}
     progress = Progress(logger)
@@ -389,7 +404,9 @@ def _select_qualified(sim, candidates, recipe, geometry, existing):
                 identity = row["task"]["task_id"]
                 # 补选时复用已检查目标，避免重复渲染和采样。
                 if identity not in cache:
-                    cache[identity] = _qualify_target(sim, row, recipe, geometry, existing)
+                    with closing(Simulation.from_snapshot(row['input_snapshot'], robot,
+                                 target=row['task']['target_body'])) as sim:
+                        cache[identity] = _qualify_target(sim, row, recipe, geometry, existing)
                     evidence = cache[identity]
                     if not evidence['valid']:
                         logger.warning('资格未通过 house=%s task=%s reason=%s', row['house'], identity,
@@ -399,6 +416,7 @@ def _select_qualified(sim, candidates, recipe, geometry, existing):
                 evidence = cache[identity]
                 if evidence["valid"]:
                     row["baseline_visible_count"] = evidence["valid_count"]
+                    row["checked_stations"] = evidence["stations"]
                 else:
                     rejected.add(identity)
             if not rejected:
@@ -423,21 +441,10 @@ def qualify_scene_discovery(discovery, output):
     selected, qualifications = [], []
     existing = {row["task_id"]: row for row in plan.get("qualification", [])}
     for house in recipe.houses:
-        house_selected = [row for row in plan["selected"] if row["house"] == house]
-        if not house_selected:
+        candidates = [row for row in plan['candidates'] if row['house'] == house]
+        if not candidates:
             continue  # 没有静态合格目标时保留排除原因，不为房屋凑数。
-        seed = house_selected[0]
-        eligible_ids = {row["task"]["task_id"] for row in house_selected}
-        eligible_ids.update(
-            row["task_id"]
-            for row in plan["exclusions"]
-            if row.get("house") == house and row.get("reason") == "eligible_not_selected_by_spatial_coverage"
-        )
-        source = SceneSource.procthor(recipe.dataset_dir, house)
-        with closing(Simulation.from_snapshot(seed["input_snapshot"], robot)) as sim:
-            tasks, _ = discover_tasks(sim, read_json(source.metadata_path), geometry)
-            candidates = _qualification_candidates(sim, tasks, recipe, seed, eligible_ids)
-            chosen, evidence = _select_qualified(sim, candidates, recipe, geometry, existing)
+        chosen, evidence = _select_qualified(robot, candidates, recipe, geometry, existing)
         selected.extend(chosen)
         qualifications.extend(evidence)
     plan["selected"] = selected
@@ -477,14 +484,18 @@ def _save_open_scene(unit, scene_id, root, recipe, robot, geometry):
     """open 不加障碍物；采样和压缩站位后保存场景或返回拒绝记录。"""
     task = unit["task"]
     with closing(Simulation.from_snapshot(unit["input_snapshot"], robot, target=task["target_body"])) as sim:
+        candidates = sample_stations(sim, task, geometry, static_only=True,
+                                     checked_stations=unit.get('checked_stations', ()))
         points, _ = select_stations(
-            sample_stations(sim, task, geometry),
+            candidates,
             task["anchor_world"],
             recipe.station_selection,
             recipe.max_final_stations,
         )
         if len(points) < recipe.min_final_points:
-            return {"scene_id": scene_id, "status": "rejected", "reason": "too_few_stations"}
+            return {"scene_id": scene_id, "status": "rejected", "reason": "too_few_stations",
+                    'station_candidates': candidates}
+        record_station_visibility(sim, points, geometry)
         location = Path("scene-files") / scene_id
         sim.freeze(root / location)
     return {
@@ -493,6 +504,7 @@ def _save_open_scene(unit, scene_id, root, recipe, robot, geometry):
         "scene": str(location),
         "task": task,
         "stations": points,
+        'station_candidates': candidates,
         "placements": [],
         "case": "Case3",
     }
@@ -536,7 +548,25 @@ def _obstacle_config(recipe, recipe_path, unit, case, seed):
     )
 
 
-def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, allow_partial_targets=False):
+def _build_unit(job):
+    unit_index, unit, case, variant, recipe, recipe_path, robot, geometry, root, output_dir = job
+    scene_id = f"val{unit['house']}-{unit['task']['task_id']}-{case}"
+    started = time.monotonic()
+    if case == 'Case3':
+        results = [_save_open_scene(unit, scene_id, root, recipe, robot, geometry)]
+    else:
+        results = []
+        config = _obstacle_config(recipe, recipe_path, unit, case, recipe.seed + unit_index)
+        augment_obstacles(config, output_dir, run_id=scene_id, geometry_config=geometry,
+                          robot_config=robot, dataset_root=root, task=unit['task'], emit=results.append,
+                          variant_index=variant)
+    for result in results:
+        result.update(case=case, house=unit['house'], task_id=unit['task']['task_id'],
+                      build_unit_elapsed_s=time.monotonic() - started)
+    return results
+
+
+def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids, allow_partial_targets=False, *, workers=1):
     """消费同配方的资格结果，按 Case 分发保存或增强，不展开底层构造过程。"""
     recipe = load_scene_recipe(recipe_path)
     robot = load_scene_robot(recipe.robot_config)
@@ -550,42 +580,27 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
         Path(output_dir) / "scene_datasets" / dataset_id,
         {"recipe": asdict(recipe), "robot": asdict(robot), "geometry": asdict(geometry), "seed": recipe.seed},
     )
-    os.environ["MUJOCO_EGL_DEVICE_ID"] = str(gpu_ids[0])
+    os.environ.update(MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]),
+                      OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
     progress = Progress(logger)
-    for unit_index, unit in enumerate(plan["selected"]):
-        for case in recipe.cases:
-            if (case == "Case3") != (unit["task"]["operation"] == "open"):
-                continue
-            scene_id = f"val{unit['house']}-{unit['task']['task_id']}-{case}"
-            logger.debug(
-                f"[构建 {unit_index + 1}/{len(plan['selected'])}] "
-                f"val_{unit['house']} {unit['task']['asset_id']} {case}: 开始",
-            )
-            if case == "Case3":
-                result = _save_open_scene(unit, scene_id, root, recipe, robot, geometry)
-                append_row(root / "scenes.jsonl", result)
-                if result['status'] == 'accepted':
-                    logger.debug('%s: accepted', scene_id)
-                else:
-                    logger.warning('%s: %s %s', scene_id, result['status'], result.get('reason', ''))
-                continue
-            config = _obstacle_config(recipe, recipe_path, unit, case, recipe.seed + unit_index)
-            # 增强器直接写父场景库，不创建第二套子 run 或发布记录。
-            augment_obstacles(
-                config,
-                output_dir,
-                run_id=scene_id,
-                geometry_config=geometry,
-                robot_config=robot,
-                dataset_root=root,
-            )
-        progress.update('场景构建 已处理目标=%s/%s 当前目标=%s',
-                        unit_index + 1, len(plan['selected']), unit['task']['asset_id'])
+    jobs = [(index, unit, case, variant, recipe, recipe_path, robot, geometry, root, output_dir)
+            for index, unit in enumerate(plan['selected']) for case in recipe.cases
+            if (case == 'Case3') == (unit['task']['operation'] == 'open')
+            for variant in range(1 if case == 'Case3' else recipe.variants_per_case)]
+    with (ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn'))
+          if workers > 1 else nullcontext()) as pool:
+        results = pool.map(_build_unit, jobs) if pool else map(_build_unit, jobs)
+        for index, records in enumerate(results, 1):
+            for record in records:
+                append_row(root / 'scenes.jsonl', record)
+            progress.update('场景构建 已完成工作单元=%s/%s', index, len(jobs))
     records = rows(root / "scenes.jsonl")
     summary = {
         "status": "completed",
         "accepted": sum(row["status"] == "accepted" for row in records),
         "rejected": sum(row["status"] != "accepted" for row in records),
+        'sources': plan['houses'], 'excluded_targets': plan['exclusions'],
+        'build_workers': workers, 'gpu_ids': list(gpu_ids),
     }
     write_json(root / "summary.json", summary)
     export_scene_previews(root)
@@ -594,23 +609,35 @@ def build_scene_dataset(recipe_path, discovery, output_dir, dataset_id, gpu_ids,
     return root
 
 
-def build_scenes(config, output_dir, run_id, *, gpu_ids, allow_partial_targets=False):
+def build_scenes(config, output_dir, run_id, *, gpu_ids, allow_partial_targets=False, workers=1):
     """依次执行发现、资格检查和构建；退出时清理中间基线及计划文件。"""
+    if not 1 <= workers <= 12:
+        raise ValueError('build workers must be between 1 and 12')
     output_dir = Path(output_dir)
+    started = time.monotonic()
+    timings = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     os.environ.update(MUJOCO_GL="egl", MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
-    # 中间目录用服务器本地时间命名，退出时清理。
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    temporary = output_dir / f"scene-build-{timestamp}"
-    temporary.mkdir()
+    temporary = Path(tempfile.mkdtemp(prefix='scene-build-', dir=output_dir))
     try:
         logger.info('场景构建：开始发现目标', extra={'progress': True})
-        discovery = discover_scene_dataset(config, temporary / "discovery.json")
+        discovery = discover_scene_dataset(config, temporary / "discovery.json", workers=workers)
+        timings['discovery_s'] = time.monotonic() - started
+        phase_started = time.monotonic()
         logger.info('场景构建：开始资格检查', extra={'progress': True})
         qualified = qualify_scene_discovery(discovery, temporary / "qualified.json")
+        timings['qualification_s'] = time.monotonic() - phase_started
+        phase_started = time.monotonic()
         logger.info('场景构建：开始增强与保存', extra={'progress': True})
-        return build_scene_dataset(
-            config, qualified, output_dir, run_id, gpu_ids, allow_partial_targets=allow_partial_targets
+        root = build_scene_dataset(
+            config, qualified, output_dir, run_id, gpu_ids, allow_partial_targets=allow_partial_targets, workers=workers
         )
+        timings['construction_and_previews_s'] = time.monotonic() - phase_started
     finally:
+        cleanup_started = time.monotonic()
         rmtree(temporary)
+    timings['cleanup_s'] = time.monotonic() - cleanup_started
+    summary = read_json(root / 'summary.json')
+    summary.update(wall_elapsed_s=time.monotonic() - started, phase_wall_s=timings)
+    write_json(root / 'summary.json', summary)
+    return root

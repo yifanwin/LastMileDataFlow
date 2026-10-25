@@ -1,5 +1,7 @@
 """Pinned cuRobo V2 grasp pipeline driven by the robot model description."""
 import importlib.metadata
+from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 import time
 import numpy as np
@@ -8,33 +10,170 @@ from ..utils.io import write_json
 from ..utils.logging_config import trial_progress
 
 from .waypoints import PlanResult
-from ..scenes.geometry import tcp_pose, pose7
+from ..scenes.geometry import body_pose, tcp_pose, pose7
 from .rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
 from .curobo_v2_costs import manager_type, fov_optimizer_configs
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
 
 
+class PlannerUnavailable(RuntimeError):
+    shared_resource = True
+
+
 def verify_version():
     version = importlib.metadata.version('nvidia-curobo')
     if version != '0.8.0':
-        raise RuntimeError('this planner requires nvidia-curobo==0.8.0')
+        raise PlannerUnavailable('this planner requires nvidia-curobo==0.8.0')
     return {'version': version}
 
 
+def reset_motion_seed(motion, seed):
+    """v0.8.0 random_seed configures the two SolverCore seed managers.
+
+    Other rollout/optimizer/PRM samplers have their own fixed configuration
+    seeds. Reset those as a fresh planner does; recreate the two trial-seeded
+    managers rather than resetting the previous trial's random stream.
+    """
+    for solver in (motion.ik_solver, motion.trajopt_solver):
+        core = solver.core
+        core.config.random_seed = seed
+        core.seed_manager = type(core.seed_manager)(
+            core.config.device_cfg, core.action_dim,
+            core.auxiliary_rollout.action_bound_lows, core.auxiliary_rollout.action_bound_highs,
+            random_seed=seed, action_horizon=core.auxiliary_rollout.action_horizon)
+    motion.reset_seed()
+
+
+def bind_batch_seeds(motion, seeds):
+    """Bind core and default LM-IK random samples to individual trial seeds."""
+    import torch
+
+    for solver in (motion.ik_solver, motion.trajopt_solver):
+        core = solver.core
+        streams = [type(core.seed_manager)(
+            core.config.device_cfg, core.action_dim,
+            core.auxiliary_rollout.action_bound_lows, core.auxiliary_rollout.action_bound_highs,
+            random_seed=seed, action_horizon=core.auxiliary_rollout.action_horizon) for seed in seeds]
+
+        def generate(batch_size, num_seeds, streams=streams):
+            return torch.cat([stream.generate_random_actions(1, num_seeds) for stream in streams], dim=0)
+
+        core.seed_manager.generate_random_actions = generate
+
+    seed_solver = motion.ik_solver.seed_ik_solver
+    if seed_solver is not None:
+        from curobo._src.util.sampling import SampleBuffer
+        streams = [SampleBuffer.create_halton_sample_buffer(
+            ndims=seed_solver.dof, device_cfg=seed_solver.device_cfg,
+            up_bounds=seed_solver.action_max, low_bounds=seed_solver.action_min,
+            seed=seed) for seed in seeds]
+
+        def generate_lm(batch_size, seed_config=None):
+            provided = 0 if seed_config is None else seed_config.shape[1]
+            remaining = seed_solver.config.num_seeds - provided
+            if not remaining:
+                return seed_config
+            samples = torch.stack([stream.get_samples(remaining, bounded=True) for stream in streams])
+            if seed_config is not None:
+                return torch.cat((seed_config, samples), dim=1)
+            samples[:, -1] = seed_solver._robot_model.default_joint_state.position
+            return samples
+
+        seed_solver._generate_seed_configs = generate_lm
+
+
+class StationPlannerCache:
+    """Own at most one pre-close planner per arm, for one frozen station."""
+    def __init__(self):
+        self.planners = {}
+
+    def acquire(self, sim, config, side, path, *, workspace):
+        # Navigation/settling/retries and closed-finger stages use measured state.
+        if sim.started:
+            return V2Planner(sim, config, side, path, workspace=workspace)
+        planner = self.planners.get(side)
+        if planner is not None and not planner.matches_initial(sim):
+            planner.close()
+            del self.planners[side]
+            planner = None
+        if planner is None:
+            planner = V2Planner(sim, config, side, path, workspace=workspace)
+            self.planners[side] = planner
+        else:
+            planner.bind_trial(sim, config, path)
+        return planner
+
+    def release(self, planner):
+        planner.detach()
+        planner.on_query = None
+        if not any(planner is cached for cached in self.planners.values()):
+            planner.close()
+
+    def close(self):
+        for planner in self.planners.values():
+            planner.close()
+        self.planners.clear()
+
+
+class PlannerResources:
+    """A GPU process retains at most two compatible solver families."""
+    def __init__(self):
+        self.planners = OrderedDict()
+
+    @contextmanager
+    def acquire(self, sim, config, side, path, *, workspace, batch_size):
+        key = (sim.robot.config.model_path, sim.robot.config.control_profile, side,
+               config.operation_base_mode, batch_size, config.num_ik_seeds,
+               config.num_trajopt_seeds, config.max_candidates)
+        planner = self.planners.get(key) if not config.head_fov_enabled else None
+        if planner is None:
+            while len(self.planners) >= 2:
+                _, old = self.planners.popitem(last=False)
+                old.close()
+            planner = V2Planner(sim, config, side, path, workspace=workspace, batch_size=batch_size)
+            if not config.head_fov_enabled:
+                self.planners[key] = planner
+        else:
+            self.planners.move_to_end(key)
+            planner.rebind_resources(sim, config, path, workspace)
+        try:
+            yield planner
+        finally:
+            planner.detach()
+            planner.on_query = None
+            if any(planner is item for item in self.planners.values()):
+                planner.sim = planner.model.sim = None
+            else:
+                planner.close()
+
+    def close(self):
+        for planner in self.planners.values():
+            planner.close()
+        self.planners.clear()
+
+
 class V2Planner:
-    def __init__(self, sim, config, side, path, *, workspace):
+    def __init__(self, sim, config, side, path, *, workspace, batch_size=1):
         setup_started = time.monotonic()
         self.progress_ready = False
         import yaml
-        import torch
-        from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
-        from curobo.types import DeviceCfg
-        from curobo._src.geom.collision.collision_scene import SceneCollision, SceneCollisionCfg
-        if not torch.cuda.is_available():
-            raise RuntimeError('V2 requires CUDA')
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                raise PlannerUnavailable('V2 requires CUDA')
+            from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
+            from curobo._src.motion.motion_planner_batch import BatchMotionPlanner
+            from curobo.types import DeviceCfg
+            from curobo._src.geom.collision.collision_scene import SceneCollision, SceneCollisionCfg
+        except ImportError as exc:
+            raise PlannerUnavailable(f'cuRobo dependency unavailable: {exc}') from exc
         self.identity = verify_version()
+        self.batch_size = batch_size
         self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
+        self.initial_model = sim.model
+        self.initial_state = sim.state_vector().copy() if not sim.started else None
+        self.resource_path = self.path
         self.model = sim.robot.planning_model(sim, config, side, path, workspace)
         self.names = self.model.names
         self.base = self.model.base
@@ -70,12 +209,15 @@ class V2Planner:
                 fov_tcp_frame=self.model.tcp_link, fov_attached_offset=None)
         owner = self
 
-        class NativeGraspPlanner(MotionPlanner):
+        native_type = BatchMotionPlanner if batch_size > 1 else MotionPlanner
+
+        class NativeGraspPlanner(native_type):
             def plan_pose(self, goal_tool_poses, current_state, *args, **kwargs):
                 phase = next(owner.phases) if owner.phases is not None else owner.single_phase
                 owner.progress_phase = phase
                 if owner.on_query is not None:
                     owner.on_query(phase)
+                kwargs.setdefault('max_attempts', owner.config.max_attempts)
                 owner.context['contact_allowed'] = phase in ('goalset', 'grasp', 'approach_contact')
                 if phase == 'lift':
                     owner.attach_target_geometry(current_state)
@@ -112,6 +254,7 @@ class V2Planner:
             extra_settings = {'ik_optimizer_configs': [ik_config], 'trajopt_optimizer_configs': [trajopt_config],
                               'metrics_rollout': str(metrics_path.resolve())}
         settings = MotionPlannerCfg.create(**extra_settings, robot=cfg, scene_model=world, device_cfg=self.args,
+            max_batch_size=batch_size, multi_env=False,
             num_ik_seeds=config.num_ik_seeds, num_trajopt_seeds=config.num_trajopt_seeds,
             max_goalset=config.max_candidates, self_collision_check=True,
             optimizer_collision_activation_distance=.01, use_cuda_graph=False,
@@ -125,15 +268,7 @@ class V2Planner:
             raise ValueError('unexpected degrees of freedom or auxiliary pose targets')
         self.pad_target_query_range()
         # Validate the real model/frame convention before any physical action.
-        fk = self.motion.compute_kinematics(self.state()).tool_poses.to_dict()[self.model.tcp_link].get_numpy_matrix().reshape(4, 4)
-        actual = np.linalg.solve(self.base, tcp_pose(sim, side))
-        translation_error = float(np.linalg.norm(fk[:3, 3] - actual[:3, 3]))
-        angle_error = float(np.arccos(np.clip((np.trace(fk[:3, :3].T @ actual[:3, :3])-1)/2, -1, 1)))
-        write_json(self.path/'fk_check.json', {'translation_error_m': translation_error, 'rotation_error_rad': angle_error,
-            'scope':'initial calibration' if not sim.started else 'measured FK alignment with tracking residuals'})
-        position_limit, rotation_limit = self.model.fk_limits
-        if self.model.fk_check_required and (translation_error > position_limit or angle_error > rotation_limit):
-            raise ValueError(f'V2/MuJoCo FK mismatch {translation_error}m/{angle_error}rad')
+        self.check_fk()
         if config.head_fov_enabled:
             from curobo._src.robot.kinematics.kinematics import Kinematics
             head_fk = Kinematics(self.context['fov_robot'].kinematics, compute_spheres=False)
@@ -206,7 +341,6 @@ class V2Planner:
                                         if (costs > 0).any(): links[link] = costs.tolist()
                                     row['constraint_terms'][category + '/' + name]['selected_link_costs'] = links
                 self.solver_log.append(row)
-                write_json(self.path/'solver_trace.json', self.solver_log)
                 return result
             solver.solve_pose = traced
         write_json(self.path/'planner_identity.json', {**self.identity, **coupling,
@@ -218,6 +352,17 @@ class V2Planner:
         write_json(self.path/'mobile_base.json', {'reference_world': self.base.tolist(),
             'joint_bounds_local': bounds, 'workspace_center_world': list(center[:2]), 'workspace_radius_m': radius})
         trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
+
+    def check_fk(self):
+        fk = self.motion.compute_kinematics(self.state()).tool_poses.to_dict()[self.model.tcp_link].get_numpy_matrix().reshape(4, 4)
+        actual = np.linalg.solve(self.base, tcp_pose(self.sim, self.side))
+        translation_error = float(np.linalg.norm(fk[:3, 3] - actual[:3, 3]))
+        angle_error = float(np.arccos(np.clip((np.trace(fk[:3, :3].T @ actual[:3, :3])-1)/2, -1, 1)))
+        write_json(self.path/'fk_check.json', {'translation_error_m': translation_error, 'rotation_error_rad': angle_error,
+            'scope':'initial calibration' if not self.sim.started else 'measured FK alignment with tracking residuals'})
+        position_limit, rotation_limit = self.model.fk_limits
+        if self.model.fk_check_required and (translation_error > position_limit or angle_error > rotation_limit):
+            raise ValueError(f'V2/MuJoCo FK mismatch {translation_error}m/{angle_error}rad')
 
     def validate_fov_result(self, result, phase):
         trajectory = result.get_interpolated_plan()
@@ -237,21 +382,112 @@ class V2Planner:
     def close(self):
         self.on_query = None
         self.motion.destroy()
+        # Native callbacks close over this owner. Break that cycle at station
+        # release so solver tensors do not wait for Python's cyclic collector.
+        self.motion = None
+        self.attachment = None
+        self.context.clear()
+        self.sim = self.model.sim = None
+
+    def matches_initial(self, sim):
+        return (not sim.started and sim.model is self.initial_model
+                and np.array_equal(sim.state_vector(), self.initial_state))
+
+    def bind_trial(self, sim, config, path):
+        """Reuse static geometry/solvers only at the identical frozen initial state."""
+        self.detach()
+        self.sim, self.model.sim, self.config, self.path = sim, sim, config, Path(path)
+        self.phases, self.single_phase, self.on_query = None, 'pose', None
+        self.progress_phase = 'pose'
+        self.context['contact_allowed'] = False
+        self.query_log.clear()
+        self.solver_log.clear()
+        self.fov_log.clear()
+        if config.head_fov_enabled:
+            self.fov_validator = SparseFOVValidator(
+                sim, self.fov_definition, self.base_target_world, self.names,
+                min_depth=config.head_fov_min_depth_m)
+            self.context['fov_target'] = self.args.to_device(np.linalg.solve(
+                self.base, np.r_[sim.data.xpos[sim.target_id], 1.])[:3])
+        from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
+        self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
+        reset_motion_seed(self.motion, config.seed)
+        write_json(self.path / 'planner_reuse.json', {
+            'resources_relative_to_run': str(self.resource_path.relative_to(self.path.parents[2])),
+            'seed': config.seed, 'scope': 'identical frozen station, pre-close',
+            'new_simulation': True, 'motion_replanned': True})
+
+    def rebind_resources(self, sim, config, path, workspace):
+        """Update measured locks, limits and world while retaining solver allocations."""
+        from curobo._src.types.robot import RobotCfg
+
+        self.detach()
+        self.sim, self.config, self.path, self.workspace = sim, config, Path(path), workspace
+        self.model = sim.robot.planning_model(sim, config, self.side, path, workspace)
+        self.names, self.base = self.model.names, self.model.base
+        self.reference_yaw, self.h_step_limit = self.model.reference_yaw, self.model.h_step_limit
+        self.robot_cfg = self.model.cfg
+        robot = RobotCfg.create(self.robot_cfg, device_cfg=self.args)
+        parameters = robot.kinematics.kinematics_config
+        for solver in (self.motion.ik_solver, self.motion.trajopt_solver):
+            for rollout in solver.core.get_all_rollout_instances():
+                rollout.transition_model.robot_model.update_kinematics_config(parameters)
+        self.motion.kinematics.update_kinematics_config(parameters)
+        lm = self.motion.ik_solver.seed_ik_solver
+        if lm is not None:
+            lm._robot_model.update_kinematics_config(parameters)
+            lm._aux_robot_model.update_kinematics_config(parameters)
+            margin = (lm.joint_limits.position[1] - lm.joint_limits.position[0]) * lm.config.joint_limit_margin
+            lm.action_min.copy_(lm.joint_limits.position[0] + margin)
+            lm.action_max.copy_(lm.joint_limits.position[1] - margin)
+            lm.action_step_max.copy_(lm.config.max_step_size * (lm.action_max - lm.action_min).abs())
+        if self.motion.graph_planner is not None:
+            for rollout in self.motion.graph_planner.get_all_rollout_instances():
+                rollout.transition_model.robot_model.update_kinematics_config(parameters)
+            sampler = self.motion.graph_planner.sampling_strategy.action_sample_generator
+            sampler.range_b.copy_(self.motion.graph_planner.action_bound_highs - self.motion.graph_planner.action_bound_lows)
+            sampler.low_bounds.copy_(self.motion.graph_planner.action_bound_lows)
+            sampler.up_bounds.copy_(self.motion.graph_planner.action_bound_highs)
+        center, radius = workspace
+        local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
+        self.context.update(local_center=self.args.to_device(local), radius=radius,
+                            movable_base=self.model.movable_base, contact_allowed=False)
+        self.world_range = 2 * radius + 1.
+        self.phases, self.single_phase, self.on_query = None, 'pose', None
+        self.query_log.clear()
+        self.solver_log.clear()
+        self.fov_log.clear()
+        self.initial_model, self.initial_state = sim.model, sim.state_vector().copy()
+        if hasattr(self, '_carried_fit') and self._fit_model is not sim.model:
+            del self._carried_fit
+            self._fit_model = None
+        self.refresh_world(self.path)
+        self.check_fk()
+        reset_motion_seed(self.motion, config.seed)
+        write_json(self.path / 'planner_reuse.json', {'resource_path': str(self.resource_path),
+            'solver_reused': True, 'measured_locks_and_world_updated': True,
+            'reference_world': self.base.tolist(), 'joint_names': list(self.names)})
 
     def current_joints(self):
         return self.model.current_joints()
 
-    def state(self):
+    def state(self, batch_size=1):
         from curobo.types import JointState
         values = ordered_points(self.current_joints(), list(self.names), self.motion.joint_names)
-        return JointState.from_position(self.args.to_device(values).view(1, -1), joint_names=self.motion.joint_names)
+        return JointState.from_position(self.args.to_device(values).view(1, -1).repeat(batch_size, 1),
+                                        joint_names=self.motion.joint_names)
 
     def goals(self, matrices):
+        return self.batch_goals([matrices])
+
+    def batch_goals(self, matrix_batches):
         from curobo.types import GoalToolPose
-        values = np.array([pose7(np.linalg.solve(self.base, matrix)) for matrix in matrices])
+        values = np.array([[pose7(np.linalg.solve(self.base, matrix)) for matrix in matrices]
+                           for matrices in matrix_batches])
+        batch_size, count = values.shape[:2]
         return GoalToolPose(tool_frames=self.motion.tool_frames,
-            position=self.args.to_device(values[:, :3]).view(1, 1, 1, len(values), 3),
-            quaternion=self.args.to_device(values[:, 3:]).view(1, 1, 1, len(values), 4))
+            position=self.args.to_device(values[..., :3]).view(batch_size, 1, 1, count, 3),
+            quaternion=self.args.to_device(values[..., 3:]).view(batch_size, 1, 1, count, 4))
 
     def base_target_world(self, point):
         return self.model.base_target_world(point)
@@ -289,15 +525,59 @@ class V2Planner:
                                                getattr(result, field+'_interpolated_last_tstep'))
             index = int(result.goalset_index.reshape(-1)[0].item()) if result.goalset_index is not None else None
             diagnostic = {'status': result.status, 'queries': list(self.query_log), 'grasp_index': index,
+                          'reference_world': self.base.tolist(),
+                          'control_dt_s': 1 / self.sim.robot.config.control_hz,
+                          'time_dilation': self.config.time_dilation,
                           'native_plan_grasp': True, 'native_full_plan_grasp': bool(lift), 'solver_trace': list(self.solver_log), 'joint_names': list(self.names),
                           'head_fov': list(self.fov_log), 'finite_budget_not_impossibility': True,
                           'constrained_planning': self.config.head_fov_enabled,
                           'failure_reason': ('fov_constraint_failed' if any(not r['valid'] for r in self.fov_log)
                                              else 'constrained_planning_failure' if not success and self.config.head_fov_enabled else None)}
             write_json(self.path/'grasp_result.json', {**diagnostic, 'success': success, 'stages': stages})
+            write_json(self.path/'solver_trace.json', self.solver_log)
             return success, index, stages, diagnostic
         finally:
             self.phases = None; self.on_query = None; self.context['contact_allowed'] = False
+            self.detach()
+            from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
+            self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
+
+    def grasp_batch(self, matrix_batches, seeds, on_query):
+        """Same prepared world, independent seeds and pre-close results per lane."""
+        bind_batch_seeds(self.motion, seeds)
+        self.phases = iter(('goalset', 'pregrasp', 'grasp'))
+        self.on_query = on_query
+        started = time.monotonic()
+        try:
+            result = self.motion.plan_grasp(self.batch_goals(matrix_batches), self.state(len(seeds)),
+                grasp_approach_offset=-.08, plan_approach_to_grasp=True,
+                plan_grasp_to_lift=False, disable_collision_links=[])
+            elapsed = time.monotonic() - started
+            lanes = []
+            for slot, seed in enumerate(seeds):
+                success = bool(result.success[slot].item())
+                index = int(result.goalset_index[slot].reshape(-1)[0].item()) if result.goalset_index is not None else None
+                stages = {}
+                if success:
+                    for name, field in (('pregrasp', 'approach'), ('approach', 'grasp')):
+                        trajectory = getattr(result, field + '_interpolated_trajectory')[slot:slot + 1]
+                        last = getattr(result, field + '_interpolated_last_tstep')
+                        stages[name] = self.points(trajectory, None if last is None else last[slot:slot + 1])
+                diagnostic = {'status': result.status, 'seed': seed, 'batch_slot': slot,
+                              'batch_seeds': list(seeds), 'queries': list(self.query_log),
+                              'planning_s': elapsed, 'native_max_attempts': self.config.max_attempts,
+                              'joint_names': list(self.names), 'reference_world': self.base.tolist(),
+                              'control_dt_s': 1 / self.sim.robot.config.control_hz,
+                              'time_dilation': self.config.time_dilation, 'multi_env': False}
+                lanes.append({'success': success, 'index': index, 'stages': stages,
+                              'diagnostics': diagnostic})
+            write_json(self.path / 'batch_grasp_result.json', lanes)
+            write_json(self.path / 'solver_trace.json', self.solver_log)
+            return lanes
+        finally:
+            self.phases = None
+            self.on_query = None
+            self.context['contact_allowed'] = False
             self.detach()
             from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
             self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
@@ -320,15 +600,21 @@ class V2Planner:
         # invalidating the lift's start state. Use native mesh/SDF sphere fitting
         # instead, in the existing 40 allocated slots. No geometry is welded in
         # MuJoCo; this is the carried-object planning approximation only.
-        if not hasattr(self, '_carried_fit'):
+        target_pose = np.linalg.solve(self.base, body_pose(self.sim, self.sim.target_id))
+        reused = hasattr(self, '_carried_fit') and self._fit_model is self.sim.model
+        if not reused:
             mesh = self.context['target_checker'].scene_model.mesh[0]
-            geometry = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, process=False)
+            vertices = (np.asarray(mesh.vertices) - target_pose[:3, 3]) @ target_pose[:3, :3]
+            geometry = trimesh.Trimesh(vertices=vertices, faces=mesh.faces, process=False)
             self._carried_fit = fit_spheres_to_mesh(geometry, num_spheres=40,
                 fit_type=SphereFitType.VOXEL, compute_metrics=True, device_cfg=self.args)
+            self._fit_model = self.sim.model
         fit = self._carried_fit
         if fit.num_spheres == 0:
             raise ValueError('empty carried-object fit')
-        spheres = torch.cat((fit.centers, fit.radii[:, None]), dim=-1)
+        transform = self.args.to_device(target_pose)
+        centers = fit.centers @ transform[:3, :3].T + transform[:3, 3]
+        spheres = torch.cat((centers, fit.radii[:, None]), dim=-1)
         state = self.state() if state is None else state
         self.attachment.update(spheres, state, link_name=self.model.attached_link,
             world_objects_pose_offset=Pose.from_list([0,0,0,1,0,0,0], device_cfg=self.args))
@@ -340,6 +626,7 @@ class V2Planner:
             self.context['fov_attached_offset'] = offset.detach().reshape(3)
             self.fov_validator.attached_offset = offset.detach().cpu().numpy().reshape(3)
         info = {'physics_attachment':False, 'sphere_count':fit.num_spheres,
+                'fit_frame': 'target_body_local', 'fit_reused': reused,
                 'fit_type':'native_voxel_mesh_sdf', 'fit_time_s':fit.fit_time_s,
                 'fit_debug':fit.debug_info, 'metrics':asdict(fit.metrics) if fit.metrics is not None else None}
         write_json(self.path/'carried_geometry.json', info)
@@ -368,7 +655,6 @@ class V2Planner:
         for checker in (self.motion.scene_collision_checker, self.context['target_checker']):
             for data in checker.data.get_valid_data():
                 if hasattr(data, 'wp_cache'): data.wp_cache.clear()
-        if hasattr(self, '_carried_fit'): del self._carried_fit
         self.motion.update_world(collision_world(self.sim, Path(path), self.world_range, reference_base=self.base))
         self.context['target_checker'].load_collision_model(collision_world(
             self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True))
@@ -385,6 +671,8 @@ class V2Planner:
         fov_failed = result is not None and getattr(result, 'status', None) == 'FOV_CONSTRAINT_FAILED'
         return PlanResult('success' if points else 'fov_constraint_failed' if fov_failed else 'no_solution', self.names, points,
             {'status': 'success' if points else 'FOV_CONSTRAINT_FAILED' if fov_failed else 'V2_POSE_FAIL',
+             'reference_world': self.base.tolist(), 'control_dt_s': 1 / self.sim.robot.config.control_hz,
+             'time_dilation': self.config.time_dilation,
              'failure_reason': ('fov_constraint_failed' if fov_failed else
                                 'constrained_planning_failure' if not points and self.config.head_fov_enabled else None),
              'head_fov': list(self.fov_log), 'queries': list(self.query_log),

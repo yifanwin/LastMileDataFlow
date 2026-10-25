@@ -59,8 +59,45 @@ def load_spec(path):
         try:
             expand(root, path)
         except NativeRequired:
-            return mujoco.MjSpec.from_file(str(path))
+            return absolute_assets(mujoco.MjSpec.from_file(str(path)), path.parent)
         xml = ET.tostring(root, encoding='unicode')
     spec = mujoco.MjSpec.from_string(xml, include=includes or None)
     spec.modelfiledir = str(path.parent)
+    return absolute_assets(spec, path.parent)
+
+
+def absolute_assets(spec, root):
+    """Keep each source's resource directory when specs are attached/exported."""
+    def resolve(filename, directory=''):
+        if not filename:
+            return filename
+        if spec.strippath:
+            filename = os.path.basename(filename)
+        return os.path.abspath(Path(root) / directory / filename)
+
+    for mesh in spec.meshes:
+        mesh.file = resolve(mesh.file, spec.compiler.meshdir)
+    for texture in spec.textures:
+        texture.file = resolve(texture.file, spec.compiler.texturedir)
+        for index, filename in enumerate(texture.cubefiles):
+            texture.cubefiles[index] = resolve(filename, spec.compiler.texturedir)
+    for hfield in spec.hfields:
+        hfield.file = resolve(hfield.file)
+    spec.strippath = False
     return spec
+
+
+def save_spec(spec, path):
+    """Export reloadable MuJoCo 3.5 XML after attaching scene/robot specs."""
+    xml = ET.fromstring(spec.to_xml())
+    for texture in xml.findall('./asset/texture'):
+        if 'gridlayout' in texture.attrib:
+            rows, columns = map(int, texture.get('gridsize', '1 1').split())
+            texture.set('gridlayout', texture.get('gridlayout')[:rows * columns])
+    defaults = xml.find('default')
+    if defaults is not None:
+        for child in list(defaults):
+            if child.tag == 'default' and not child.get('class'):
+                defaults.remove(child)
+                defaults.extend(list(child))
+    Path(path).write_text(ET.tostring(xml, encoding='unicode'))

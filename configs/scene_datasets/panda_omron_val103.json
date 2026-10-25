@@ -54,5 +54,6 @@
     "navigation_whole_body": true,
     "require_target_visibility": false,
     "require_navigation_clearance": false
-  }
+  },
+  "local_task_models": true
 }

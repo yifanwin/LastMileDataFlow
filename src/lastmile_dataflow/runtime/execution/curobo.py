@@ -1,5 +1,6 @@
 """One cuRobo attempt: preparation, navigation, operation and result."""
 import logging
+import os
 from dataclasses import asdict
 import time
 import traceback
@@ -11,7 +12,7 @@ from ...data.recorder import AttemptRecorder
 from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.evaluation import attribute
 from ..outcomes.contacts import SIMULATION_FAILURES, CONTACT_POLICY
-from .checks import EXECUTION_SEMANTICS, PickEvidenceComplete, resolve_timeout, timed
+from .checks import EXECUTION_SEMANTICS, SPLIT_EXECUTION_SEMANTICS, PickEvidenceComplete, resolve_timeout, timed
 
 from .context import ContinuousContext, clone_sim, OperationFailure
 from .navigation import navigate
@@ -20,16 +21,27 @@ from .manipulation import manipulate_v2 as manipulate
 logger = logging.getLogger(__name__)
 
 @isolated_episode
-def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None):
-    sim=clone_sim(baseline,target=task['target_body']); place_frozen_station(sim,station)
+def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None,planner_cache=None,prepared=None,planning_client=None):
+    sim=clone_sim(baseline,target=task['target_body'])
+    if prepared is None:
+        place_frozen_station(sim,station)
+    else:
+        prepared.state.initialize(sim)
     if config.third_person_enabled: sim.enable_third_person()
     # One live recorder; optional diagnostic streams share this rollout.
-    packet={'execution_semantics_version':EXECUTION_SEMANTICS,'robot':asdict(sim.robot.config),'collection':asdict(collection),
+    semantics = EXECUTION_SEMANTICS if planning_client is None else SPLIT_EXECUTION_SEMANTICS
+    packet={'execution_semantics_version':semantics,'robot':asdict(sim.robot.config),'collection':asdict(collection),
             'task':task,'station':station,'protocol':asdict(config),'contact_policy':CONTACT_POLICY,'seed':seed,'path':path,'goal':goal,
             'scene':getattr(baseline, 'scene_id', None)}
+    if prepared is not None:
+        packet['preparation'] = {'path': prepared.path, 'actual_base': prepared.actual_base,
+                                 'requested_station': station, 'elapsed_s': prepared.elapsed_s}
     recorder=AttemptRecorder(root,packet,attempt_id=attempt_id)
     recorder.bind_simulation(sim, width=config.width, height=config.height)
-    ctx=ContinuousContext(sim,recorder,config)
+    ctx=ContinuousContext(sim,recorder,config, budget=None if planning_client is None else planning_client.budget)
+    ctx.planner_cache=planner_cache
+    if planning_client is not None:
+        planning_client.bind(ctx)
     if config.third_person_enabled:
         from ...data.rendering.analysis_video import AnalysisVideo
         from ...scenes.tasks.discovery import robot_footprint
@@ -50,12 +62,13 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
     try:
         if path:
             navigation=navigate(ctx,path,goal)
-        elif config.initial_settle_s:
+        elif config.initial_settle_s and prepared is None:
             from ..control.interface import RobotCommand
             ctx.phase = 'settle'
             for _ in range(int(np.ceil(config.initial_settle_s*sim.robot.config.control_hz))):
                 ctx.tick(RobotCommand())
-        ctx.plan_count=0
+        if ctx.budget is None:
+            ctx.plan_count=0
         for retry in range((config.operation_retries if path else 0)+1):
             try:
                 verdict,control=manipulate(ctx,task,candidates,assets_dir,seed+retry,winning_control)
@@ -120,12 +133,16 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
             observed=verdict
             task_outcome=observed if observed and observed.get('status')==status else None
             task_outcome=task_outcome or {'status':status if status in ('success','failure','simulation_failure') else 'unknown','reason':reason}
-        diagnostics={'schema_version':EXECUTION_SEMANTICS,'wall_elapsed_s':time.monotonic()-ctx.started_at,
+        diagnostics={'schema_version':semantics,'wall_elapsed_s':time.monotonic()-ctx.started_at,
                      'attempt_wall_budget_s':config.attempt_timeout_s,
                      'simulation_elapsed_s':float(sim.data.time)-ctx.initial_sim_time,
                      'timings':ctx.timings, 'timing_scope':'context lifetime; simulation includes physics monitor/trace; initialization excluded; recorder finalization reported separately'}
-        write_json(recorder.path/'execution_diagnostics.json',diagnostics)
-        result={'execution_semantics_version':EXECUTION_SEMANTICS,'execution_termination':execution_termination,
+        if ctx.budget is not None:
+            diagnostics.update(active_budget=asdict(ctx.budget), remaining_active_s=ctx.budget.remaining_s,
+                               execution_worker={'pid': os.getpid(), 'worker': planning_client.worker,
+                                                 'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES')},
+                               timing_scope='active budget: GPU planning calls + measured physical execution; queue and I/O excluded')
+        result={'execution_semantics_version':semantics,'execution_termination':execution_termination,
                 'task_outcome':task_outcome,'execution_diagnostics':diagnostics,
                 'status':status,'reason':reason,'attribution':attribution,'control':control,
                 'exception_detail':exception_detail,
@@ -141,8 +158,13 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
         recorder.finish(status, reason)
         diagnostics['recorder_finalize_wall_s']=time.monotonic()-finish_started
         diagnostics['wall_including_recorder_finalize_s']=time.monotonic()-ctx.started_at
+        if ctx.budget is not None:
+            diagnostics['trial_wall_s'] = time.monotonic() - ctx.budget.created_at
+        write_json(recorder.path/'execution_diagnostics.json',diagnostics)
     result['status'] = recorder.result['status']
     return {**result, 'station_id': station['station_id'], 'attempt': str(recorder.path),
             'rollout_id': recorder.attempt_id, 'seed': seed, 'executed_steps': recorder.steps,
-            'recording_complete': recorder.result['recording_complete']}
+            'recording_complete': recorder.result['recording_complete'],
+            'observation_complete': recorder.result['observation_complete'],
+            'replay_complete': recorder.result['replay_complete']}
 

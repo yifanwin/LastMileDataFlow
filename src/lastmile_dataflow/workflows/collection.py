@@ -6,6 +6,8 @@ import os
 from itertools import count
 from pathlib import Path
 import time
+import multiprocessing
+from queue import Empty
 
 from ..config import read_config
 from ..config import RobotConfig
@@ -21,6 +23,7 @@ from ..data.evaluation.statistics import aggregate
 from ..data.export.lastmile_dataset import successful, training_record
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
 from ..planning.astar import scene_grid, search, task_support_obstacles
+from ..planning.curobo_v2 import StationPlannerCache
 from ..data.visualization.heatmap import export_heatmap
 
 logger = logging.getLogger(__name__)
@@ -29,13 +32,14 @@ logger = logging.getLogger(__name__)
 def _trial_record(result, scene, station, trial, seed):
     """提取执行结果，补齐场景、站位、试验序号和随机种子。"""
     record = {key: result.get(key) for key in ('status', 'reason', 'execution_termination',
-        'task_outcome', 'recording_complete', 'executed_steps', 'navigation', 'error', 'failure_scope')}
+        'task_outcome', 'recording_complete', 'replay_complete', 'observation_complete',
+        'executed_steps', 'navigation', 'error', 'failure_scope')}
     record.update(scene_id=scene['scene_id'], station_id=station['station_id'], trial=trial, seed=seed,
                   rollout_id=result.get('rollout_id'), task_id=scene['task']['task_id'])
     return record
 
 
-def _execute(baseline, scene, station, assets_dir, config, collection, root, seed, policy=None, path=None, goal=None, *, attempt_ids):
+def _execute(baseline, scene, station, assets_dir, config, collection, root, seed, policy=None, path=None, goal=None, *, attempt_ids, planner_cache=None, prepared=None):
     # 分配本次运行内唯一的试验编号。
     """调用指定后端执行一次试验，共用试验编号和记录链路。"""
     attempt_id = f'r{next(attempt_ids):06d}'
@@ -49,7 +53,8 @@ def _execute(baseline, scene, station, assets_dir, config, collection, root, see
                                seed=seed, policy=policy, path=path, goal=goal)
     else:
         result = run_curobo_attempt(baseline, task, station, grasp_candidates(task, assets_dir), assets_dir,
-                           config, collection, root=root, attempt_id=attempt_id, seed=seed, path=path, goal=goal)
+                           config, collection, root=root, attempt_id=attempt_id, seed=seed, path=path, goal=goal,
+                           planner_cache=planner_cache, prepared=prepared)
     # 根据执行状态选择日志级别，不改变原始结果。
     log_result = logger.debug
     if result.get('status') in ('initialization_error', 'episode_error', 'recording_error', 'simulation_failure', 'infrastructure_error'):
@@ -61,7 +66,139 @@ def _execute(baseline, scene, station, assets_dir, config, collection, root, see
     return result
 
 
-def _station_trials(baseline, scene, assets_dir, config, collection, root, policy=None, budget=None, *, attempt_ids):
+def _station_records(baseline, scene, index, trial_count, assets_dir, config, collection, root,
+                     policy=None, *, attempt_ids, reuse_planners=True, stop=None):
+    station = scene['stations'][index]
+    cache = StationPlannerCache() if reuse_planners and getattr(config, 'operation_backend', None) == 'curobo' else None
+    prepared = None
+    if getattr(config, 'shared_station_preparation', False) and config.operation_backend == 'curobo':
+        from ..runtime.execution.preparation import prepare_station
+        from ..runtime.execution.lifecycle import classify_episode_exception
+        directory = Path(root) / 'preparations' / scene['scene_id'] / station['station_id']
+        try:
+            prepared = prepare_station(baseline, station, config, directory)
+        except Exception as exc:
+            failure = classify_episode_exception(exc, 'initialize')
+            write_json(directory / 'preparation.json', failure)
+            if failure['failure_scope'] == 'shared':
+                raise
+            return  # Preparation failure is one station result, never three trial failures.
+    try:
+        for trial in range(trial_count):
+            if stop is not None and stop.is_set():
+                break
+            seed = config.seed + index * config.trials_per_station + trial
+            label = f"scene={scene['scene_id']} station={station['station_id']} trial={trial + 1}/{config.trials_per_station}"
+            with trial_logging(label, Progress(logger)):
+                result = _execute(baseline, scene, station, assets_dir, config, collection, root,
+                                  seed, policy, attempt_ids=attempt_ids, planner_cache=cache, prepared=prepared)
+            record = _trial_record(result, scene, station, trial, seed)
+            record['station_index'] = index
+            if _shared_failure(record) and stop is not None:
+                stop.set()
+            yield record
+            if _shared_failure(record):
+                break
+    finally:
+        if cache is not None:
+            cache.close()
+
+
+def _station_worker(worker, gpu, egl_device, requests, results, stop, scene,
+                    assets_dir, config, collection, root, reuse_planners):
+    from ..utils.logging_config import setup_logging
+    setup_logging()
+    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu), MUJOCO_EGL_DEVICE_ID=str(egl_device), MUJOCO_GL='egl')
+    sim = None
+    try:
+        sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
+        sim.scene_id = scene['scene_id']
+        while True:
+            job = requests.get()
+            if job is None:
+                break
+            index, ids = job
+            for record in _station_records(sim, scene, index, len(ids), assets_dir, config, collection, root,
+                    attempt_ids=iter(ids), reuse_planners=reuse_planners, stop=stop):
+                results.put(('trial', worker, record))
+            results.put(('done', worker, None))
+    except Exception as exc:
+        stop.set()
+        results.put(('error', worker, f'{type(exc).__name__}: {exc}'))
+    finally:
+        if sim is not None:
+            sim.close()
+
+
+def _parallel_station_records(scene, assets_dir, config, collection, root, planned, *,
+                              attempt_ids, workers, gpu_ids, egl_devices, reuse_planners):
+    """Bounded station queue; only the parent writes the canonical trials.jsonl."""
+    jobs = []
+    for index in range(len(scene['stations'])):
+        size = min(config.trials_per_station, planned - index * config.trials_per_station)
+        if size <= 0:
+            break
+        jobs.append((index, [next(attempt_ids) for _ in range(size)]))
+    if not jobs:
+        return
+    ctx = multiprocessing.get_context('spawn')
+    stop, results = ctx.Event(), ctx.Queue()
+    processes, queues = [], []
+    pending = iter(jobs)
+    active = set()
+    failure = None
+    try:
+        for worker in range(min(workers, len(jobs))):
+            requests = ctx.Queue()
+            queues.append(requests)
+            slot = worker % len(gpu_ids)
+            process = ctx.Process(target=_station_worker, args=(worker, gpu_ids[slot], egl_devices[slot],
+                requests, results, stop, scene, assets_dir, config, collection, root, reuse_planners))
+            process.start()
+            processes.append(process)
+            requests.put(next(pending))
+            active.add(worker)
+        while active:
+            try:
+                kind, worker, payload = results.get(timeout=1.)
+            except Empty:
+                for worker in list(active):
+                    code = processes[worker].exitcode
+                    if code is not None:
+                        stop.set()
+                        active.remove(worker)
+                        failure = failure or f'station worker exited with code {code}'
+                continue
+            if kind == 'error':
+                stop.set()
+                active.remove(worker)
+                failure = failure or f'station worker {worker}: {payload}'
+            elif kind == 'trial':
+                yield payload
+            else:
+                active.remove(worker)
+                job = next(pending, None) if not stop.is_set() else None
+                if job is not None:
+                    queues[worker].put(job)
+                    active.add(worker)
+    finally:
+        stop.set()
+        for requests in queues:
+            requests.put(None)
+        for process in processes:
+            process.join()
+        for queue in [*queues, results]:
+            queue.close()
+            queue.join_thread()
+    if failure:
+        raise RuntimeError(failure)
+    for process in processes:
+        if process.exitcode != 0:
+            raise RuntimeError(f'station worker exited with code {process.exitcode}')
+
+
+def _station_trials(baseline, scene, assets_dir, config, collection, root, policy=None, budget=None, *,
+                    attempt_ids, workers=1, gpu_ids=None, egl_devices=None, reuse_planners=True):
     """逐站位重复标定，达到预算或发生共享资源故障时停止。"""
     trials = []
     total = len(scene['stations']) * config.trials_per_station
@@ -69,34 +206,34 @@ def _station_trials(baseline, scene, assets_dir, config, collection, root, polic
     started = time.monotonic()
     progress = Progress(logger)
     outcomes, valid_points, reasons = Counter(), Counter(), Counter()
+    def serial():
+        for index in range(len(scene['stations'])):
+            size = min(config.trials_per_station, planned - len(trials))
+            if size <= 0:
+                break
+            yield from _station_records(baseline, scene, index, size, assets_dir, config, collection, root,
+                policy, attempt_ids=attempt_ids, reuse_planners=reuse_planners)
+
+    records = serial() if workers == 1 else _parallel_station_records(
+        scene, assets_dir, config, collection, root, planned, attempt_ids=attempt_ids,
+        workers=workers, gpu_ids=gpu_ids, egl_devices=egl_devices, reuse_planners=reuse_planners)
     try:
-        for index, station in enumerate(scene['stations']):
-            for trial in range(config.trials_per_station):
-                if budget is not None and len(trials) >= budget:
-                    logger.warning('scene=%s 标定达到预算=%s，停止新增 trial', scene['scene_id'], budget)
-                    return trials
-                seed = config.seed + index * config.trials_per_station + trial
-                label = f"scene={scene['scene_id']} station={station['station_id']} trial={trial + 1}/{config.trials_per_station}"
-                with trial_logging(label, progress):
-                    result = _execute(baseline, scene, station, assets_dir, config, collection, root,
-                                      seed, policy, attempt_ids=attempt_ids)
-                record = _trial_record(result, scene, station, trial, seed)
-                append_row(root / 'trials.jsonl', record)
-                trials.append(record)
-                outcomes[record['status']] += 1
-                if evaluable(record):
-                    valid_points[station['station_id']] += 1
-                if record['status'] != 'success':
-                    reasons[record['reason']] += 1
-                progress.update(
-                    'scene=%s 已处理站位=%s/%s trial=%s/%s 当前站位=%s 重复=%s/%s 成功=%s 耗时=%.1fs',
-                    scene['scene_id'], len(trials) // config.trials_per_station, len(scene['stations']),
-                    len(trials), planned, station['station_id'], trial + 1, config.trials_per_station,
-                    outcomes['success'], time.monotonic() - started)
-                if result.get('failure_scope') == 'shared' or record['status'] == 'infrastructure_error':
-                    logger.error('scene=%s 标定因共享资源故障提前结束：%s', scene['scene_id'], record['reason'])
-                    return trials
+        for record in records:
+            append_row(root / 'trials.jsonl', record)
+            trials.append(record)
+            outcomes[record['status']] += 1
+            if evaluable(record):
+                valid_points[record['station_id']] += 1
+            if record['status'] != 'success':
+                reasons[record['reason']] += 1
+            progress.update(
+                'scene=%s trial=%s/%s 当前站位=%s 重复=%s/%s 成功=%s 耗时=%.1fs',
+                scene['scene_id'], len(trials), planned, record['station_id'], record['trial'] + 1,
+                config.trials_per_station, outcomes['success'], time.monotonic() - started)
+            if _shared_failure(record) and workers == 1:
+                break
     finally:
+        records.close()
         # 试验记录数不等于有效试验数；仅有效次数齐全的站位计为有效完成。
         valid = sum(valid_points.values())
         progress.update(
@@ -131,7 +268,7 @@ def _plan_collection(scenes, trials, config, root, source):
                           'euclidean_distance_m': distance, 'astar_path_length_m': None,
                           'navigation_steps': 0, 'rollout_id': None})
         for row in current:
-            if successful(row) and row['rollout_id'] not in seen:
+            if successful(row, observations=True) and row['rollout_id'] not in seen:
                 training.append(training_record(row, source, 's1_direct_operation'))
                 seen.add(row['rollout_id'])
     write_rows(root / 'pair_index.jsonl', pairs)
@@ -170,7 +307,7 @@ def _recovery_trials(baseline, scene, pairs, assets_dir, config, collection, roo
                     pair.update(_trial_record(result, scene, start, None, pair['seed']))
                     pair['navigation_steps'] = (result.get('navigation') or {}).get(
                         'steps', 0 if result.get('executed_steps') == 0 else None)
-                    if successful(pair, continuous=True):
+                    if successful(pair, continuous=True, observations=True):
                         append_row(root / 'train_index.jsonl', training_record(pair, '.', 's0_to_s1_continuous'))
             processed.append(pair)
             write_rows(root / 'pair_index.jsonl', pairs)
@@ -208,9 +345,11 @@ def _station_summary(sim, scene, trials, config, root):
     return summary
 
 
-def _evaluate_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids):
+def _evaluate_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids, station_options=None):
     """完成单个场景的站位标定和汇总，不执行连续采集。"""
-    trials = _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials, attempt_ids=attempt_ids)
+    trials = ([r for r in prior if r['scene_id'] == scene['scene_id']] if prior is not None else
+              _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials,
+                              attempt_ids=attempt_ids, **(station_options or {})))
     summary = _station_summary(sim, scene, trials, config, root)
     summary['shared_failure'] = any(_shared_failure(row) for row in trials)
     return summary
@@ -226,7 +365,7 @@ def _collect_scene(sim, scene, assets_dir, config, collection, root, policy, pri
     return summary
 
 
-def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, calibration):
+def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, calibration, *, resources=None):
     """对齐场景与执行配置，检查标定复用条件并创建运行目录。"""
     # 沿用数据集生成时的几何和传感器尺寸，保持采样与执行一致。
     geometry = read_config(Path(dataset) / 'config.json').get('geometry', {})
@@ -257,33 +396,66 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     # 保存本次运行实际使用的配置及输入引用。
     root = create_run(Path(output_dir) / run_id, {
         'dataset': str(Path(dataset).resolve()), 'config': asdict(config), 'collection': asdict(collection),
-        'profiles': profiles, 'gpu': gpu, 'seed': config.seed, 'calibration': str(Path(calibration).resolve()) if calibration else None})
+        'profiles': profiles, 'gpu': gpu, 'seed': config.seed, 'calibration': str(Path(calibration).resolve()) if calibration else None,
+        'resources': resources})
+    if resources and resources.get('split_planning'):
+        from ..runtime.resources import calibration_recording
+        saved = read_config(root / 'config.json')
+        saved['calibration_collection'] = asdict(calibration_recording(collection, resources['recording_mode']))
+        write_json(root / 'config.json', saved)
     return root, scenes, config, collection, prior
 
 
 def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_scene, *, run_id,
-                 gpu_ids, samples=None, calibration=None, max_trials=None):
+                 gpu_ids, samples=None, calibration=None, max_trials=None, station_workers=1,
+                 egl_devices=None, reuse_planners=True, cpu_workers=60, preparation_workers=12,
+                 recording_mode='numerical'):
     """统一准备运行、遍历场景，并关闭资源和保存汇总结果。"""
     # 设置计算与渲染设备，再准备场景和运行目录。
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]), MUJOCO_GL='egl')
+    started = time.monotonic()
+    split = config.operation_backend == 'curobo' and config.shared_station_preparation
+    if station_workers < 1:
+        raise ValueError('station_workers must be positive')
+    if station_workers > 1 and config.operation_backend != 'curobo':
+        raise ValueError('parallel station evaluation currently uses cuRobo')
+    egl_devices = list(gpu_ids) if egl_devices is None else egl_devices
+    if len(egl_devices) != len(gpu_ids):
+        raise ValueError('provide one EGL device index per GPU')
+    resources = {'station_workers': station_workers, 'gpu_ids': list(gpu_ids),
+                 'egl_devices': list(egl_devices), 'reuse_planners': reuse_planners}
+    split_resources = None
+    if split:
+        from ..runtime.resources import RunResources
+        split_resources = RunResources(tuple(gpu_ids), cpu_workers, preparation_workers, recording_mode, reuse_planners)
+        resources.update(asdict(split_resources), split_planning=True)
+    station_options = dict(workers=station_workers, gpu_ids=gpu_ids, egl_devices=egl_devices,
+                           reuse_planners=reuse_planners)
+    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(egl_devices[0]), MUJOCO_GL='egl')
     root, scenes, config, collection, prior = _prepare_run(
-        dataset, config, collection, output_dir, run_id, gpu_ids[0], samples, calibration)
+        dataset, config, collection, output_dir, run_id, gpu_ids[0], samples, calibration, resources=resources)
     logger.info('运行=%s scene数=%s backend=%s GPU=%s 每点重复=%s 每场景预算=%s 标定来源=%s',
                 root, len(scenes), config.operation_backend, gpu_ids[0], config.trials_per_station,
                 max_trials if max_trials is not None else '完整标定', calibration or '当前 run 内执行')
-    started = time.monotonic()
     summaries = []
     attempt_ids = count()
     policy = None
     collecting = process_scene is _collect_scene
     pairs = []
     stopped = False
+    calibration_summary = None
     try:
         if config.operation_backend in ('molmobot', 'pi05'):
             from ..policies.config import create_policy
             logs = Path(output_dir) / 'logs'
             logs.mkdir(parents=True, exist_ok=True)
             policy = create_policy(config.policy_config, logs / f'{run_id}-policy.log')
+        if split and prior is None:
+            from .station_calibration import calibrate_stations
+            from ..runtime.resources import calibration_recording
+            prior, calibration_summary = calibrate_stations(scenes, assets_dir, config,
+                calibration_recording(collection, recording_mode), root, split_resources,
+                attempt_ids=attempt_ids, max_trials=max_trials)
+            stopped = bool(calibration_summary['failure'])
         # 无外部标定时，先完成全部场景的标定，再生成全量计划。
         if collecting:
             if prior is None:
@@ -293,7 +465,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
                     sim.scene_id = scene['scene_id']
                     try:
                         current = _station_trials(sim, scene, assets_dir, config, collection, root,
-                                                  budget=max_trials, attempt_ids=attempt_ids)
+                                                  budget=max_trials, attempt_ids=attempt_ids, **station_options)
                         prior.extend(current)
                     finally:
                         sim.close()
@@ -304,7 +476,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
                                      os.path.relpath(Path(calibration).resolve(), root.resolve()) if calibration else '.')
         # 策略客户端跨场景复用，仿真实例逐场景创建并关闭。
         for index, scene in enumerate(scenes, 1):
-            if stopped:
+            if stopped and (collecting or not split):
                 break
             logger.info('场景 %s/%s 开始 scene=%s target=%s station数=%s',
                         index, len(scenes), scene['scene_id'], scene['task'].get('asset_id', scene['task']['task_id']),
@@ -314,9 +486,10 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             sim.scene_id = scene['scene_id']
             try:
                 summary = process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials,
-                                        attempt_ids=attempt_ids, **({'pairs': pairs} if collecting else {}))
+                                        attempt_ids=attempt_ids,
+                                        **({'pairs': pairs} if collecting else {'station_options': station_options}))
                 summaries.append(summary)
-                stopped = summary.get('shared_failure', False)
+                stopped = stopped or summary.get('shared_failure', False)
                 logger.info('场景结束 %s', scene['scene_id'], extra={'progress': True})
             finally:
                 sim.close()
@@ -334,6 +507,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
         write_json(root / 'summary.json', {
             'status': 'completed' if len(summaries) == len(scenes) and not stopped else 'incomplete',
             'scenes': summaries, 'elapsed_s': time.monotonic() - started,
+            **({'calibration': calibration_summary} if calibration_summary is not None else {}),
             **({'planned_pairs': len(pairs), 'processed_pairs': sum(p['status'] != 'not_executed' for p in pairs),
                 'executed_pairs': executed_pairs, 'execution_coverage': executed_pairs / len(pairs) if pairs else 0.,
                 'pair_status_counts': dict(Counter(p['status'] for p in pairs)),
@@ -346,16 +520,23 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
 
 
 def evaluate_stations(dataset, assets_dir, config, collection, output_dir, *, run_id,
-                      gpu_ids, samples=None, max_trials=None):
+                      gpu_ids, samples=None, max_trials=None, station_workers=1, egl_devices=None, reuse_planners=True,
+                      cpu_workers=60, preparation_workers=12, recording_mode='numerical'):
     """执行逐站位试验并导出热图，不执行 S0→S1 连续采集。"""
     return _run_dataset(dataset, assets_dir, config, collection, output_dir, _evaluate_scene,
-        run_id=run_id, gpu_ids=gpu_ids, samples=samples, max_trials=max_trials)
+        run_id=run_id, gpu_ids=gpu_ids, samples=samples, max_trials=max_trials,
+        station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
+        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode)
 
 
 def collect_lastmile(dataset, assets_dir, config, collection, output_dir, *, run_id,
-                     gpu_ids, samples=None, calibration=None, max_trials=None):
+                     gpu_ids, samples=None, calibration=None, max_trials=None,
+                     station_workers=1, egl_devices=None, reuse_planners=True,
+                     cpu_workers=60, preparation_workers=12, recording_mode='numerical'):
     """复用匹配的标定或先完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
     if config.operation_backend != 'curobo':
         raise ValueError('continuous collection currently uses cuRobo')
     return _run_dataset(dataset, assets_dir, config, collection, output_dir, _collect_scene,
-        run_id=run_id, gpu_ids=gpu_ids, samples=samples, calibration=calibration, max_trials=max_trials)
+        run_id=run_id, gpu_ids=gpu_ids, samples=samples, calibration=calibration, max_trials=max_trials,
+        station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
+        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode)

@@ -1,6 +1,11 @@
 # lastmile-datasets 生成需求
 
-日期：2026-10-16。状态：软件实现已落地，真实采集待验证；实际结果见[交付报告](../delivery/01-implementation.md)。
+- 状态：active
+- 日期：2026-10-24
+- 替代：无
+- 关联：[交付报告](../delivery/01-implementation.md)、[PandaOmron 当前实验需求](../../curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)
+
+2026-10-16 提出的数据集生成需求保留；软件实现已落地，真实采集待验证。当前实验主体与标定次数以 PandaOmron 需求为准，不改变本文的两类示教和物化定义。
 
 **目标：先生成引用型 lastmile-datasets，再通过独立物化处理，将两类成功示教及训练必需数据复制到新的自包含数据集。物化完成后可整体搬迁、发布和直接用于约定的训练读取器，不再依赖 station_evaluations 或原采集目录。**
 

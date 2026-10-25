@@ -28,6 +28,8 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 `helpers.py` 只放共享简化模型、场景 fixture 和合成物理 trace；不放真实资产或运行产物。
 单测按当前模块职责组织，不为旧内部路径、已删除功能或历史交付状态保留测试。
 
+`workflows/test_station_parallel.py` 会启动真实 spawn 进程，使用简化场景与合成执行结果检查 seed、编号、预算和停批；它不验证 GPU 并行性能。`planning/test_planner_reuse.py` 检查资源复用边界、新 seed 管理器及仿真/FOV/日志重绑，不替代真实 GPU planner 验证。
+
 ## 可选真实渲染
 
 增强事务中的分割渲染测试默认跳过。准备好 EGL 后，可选一张空闲卡显式运行：
@@ -64,3 +66,14 @@ pipeline 默认每站位两次试验，仍会遍历所选场景的全部站位�
 `smoke/panda_omron.py` 保留 factory、控制、固定 pick 与对齐；`smoke/panda_omron_flow.py` 提供真实站位输入准备、整机绕障导航和移动参考系对齐。标定、连续采集与物化直接调用现有生产 CLI。命令与数据说明见 [Panda 运行指南](../reports/panda-omron/docs/panda-omron.md)。这些实际 GPU smoke 不随 unittest 自动执行。
 
 `smoke/pi05.py` 提供真权重 model、实际 observation/control/tracking 和固定场景 rollout。合成观测推理与实际策略执行分别标记，命令与已验证边界见 [π0.5 指南](../reports/pi05/docs/01-running.md)。可选 LeRobot 转换测试需要 `pi05-data` extra。
+
+## Panda 双池软件检查
+
+```bash
+LD_LIBRARY_PATH=/data1/wenyifan/opt/lib MUJOCO_GL=egl \
+  .venv/bin/python -m unittest tests.planning.test_batch tests.planning.test_pool \
+  tests.planning.test_resources tests.runtime.test_active_budget \
+  tests.workflows.test_split_calibration tests.workflows.test_split_commands -v
+```
+
+这些检查使用原生 CPU 随机采样、实际 spawn 和简化 MuJoCo；覆盖三次映射、跨场景独立执行、实测后续请求、活跃预算、共享停批与唯一记录，不代表真实 CUDA batch 或 Panda rollout 通过。正式输入按执行计划在软件回归之后运行。

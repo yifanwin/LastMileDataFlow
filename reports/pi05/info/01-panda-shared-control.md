@@ -3,7 +3,7 @@
 状态：draft  
 日期：2026-10-18  
 替代：无  
-关联：[接入需求](../requirement/01-pi05-integration.md)、[profile 差异评估](../info/01-panda-robocasa-alignment.md)、[执行总结](../delivery/01-requirements-review.md)
+关联：[接入需求](../requirement/01-pi05-integration.md)、[profile 差异评估](01-panda-robocasa-alignment.md)、[执行总结](../delivery/01-requirements-review.md)
 
 ## 结论：链路成立，先验证控制一致性与 cuRobo 的实际轨迹
 
