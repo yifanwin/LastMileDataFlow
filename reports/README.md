@@ -35,6 +35,12 @@ reports/
 
 当前主题：`curobo-time-optimization/`（[当前状况](curobo-time-optimization/info/01-current-status.md)、[PandaOmron 加速方案](curobo-time-optimization/plan/01-panda-omron-time-optimization.md)、[整理与迁移结果](curobo-time-optimization/delivery/2026-10-24-document-consolidation.md)）、`build-lastmile-datasets/`（[数据集生成需求](build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[实现交付](build-lastmile-datasets/delivery/01-implementation.md)）、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。加速主题的 `info/` 保存当前状况，`archive/` 保留被新方案接续的历史材料。
 
+- `task-modes/`：[任务模式构建与标定后分类需求](task-modes/requirement/01-task-mode-construction.md)（active）。已按用户选择确定 PandaOmron `robocasa-v1`、不固定底盘，S0 优先 0/3 再 1/3、S1 优先 3/3 再 2/3；全部三相机参与 Visibility，采用几何多标签，Articulated 不要求后抓取失败，其余按初版默认执行。文档包含八类候选构造、诊断、统一 1 m / 0.25 m 采样、资产 role 索引及共享准备加速，尚未修改实现。新的统一采样需求接续下方旧本体采样规则，旧实验参数与结论不改写。
+
+  [完整实施方案](task-modes/plan/01-task-mode-implementation.md)明确目录与单文件组织、必要重构、八类 Builder、物理事务、三相机、采样/操作/导航范围解耦、诊断分类、下游接入和 P0–P6 验收；当前为方案交付，尚无本方案的新实现或真实实验结果。
+
+  [构建计划表](task-modes/plan/02-build-schedule.md)将 P0–P6 拆为 36 项任务，列出涉及文件、前置依赖、验收条件和执行状态；当前代码构建任务均未开始。
+
 - `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
 
   [cuRobo 与 π0.5 共用控制链路](pi05/info/01-panda-shared-control.md)进一步说明动作汇合、轨迹跟踪、控制时序及待验证条件；尚未切换默认 profile。
