@@ -5,6 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import mujoco
@@ -18,6 +19,7 @@ from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.outcomes.contacts import (
     ContactSampler,
     ContactStatistics,
+    NavigationContacts,
     simulation_failure,
 )
 from lastmile_dataflow.runtime.outcomes.evaluation import attribute
@@ -42,6 +44,21 @@ CONTACT = {
 
 
 class ContactPolicyTests(unittest.TestCase):
+    def test_navigation_distinguishes_shallow_contact_from_severe_collision(self):
+        model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
+          <body name="robot_0/arm" pos="0 0 1"><freejoint/><geom type="sphere" size=".1"/></body>
+          <body name="wall" pos=".198 0 1"><geom type="sphere" size=".1"/></body>
+        </worldbody></mujoco>''')
+        sim = SimpleNamespace(model=model, data=mujoco.MjData(model), robot=None)
+        sampler, stats = ContactSampler(sim), NavigationContacts()
+        mujoco.mj_forward(model, sim.data)
+        self.assertFalse(stats.observe(sim, sampler, .005))
+        self.assertAlmostEqual(stats.max_penetration_m, .002)
+        sim.data.qpos[0] = .01
+        mujoco.mj_forward(model, sim.data)
+        self.assertTrue(stats.observe(sim, sampler, .005))
+        self.assertGreater(stats.max_penetration_m, .005)
+
     def pick_sim(self, directory):
         from lastmile_dataflow.runtime.simulation import Simulation
         source, robot = fixtures(directory)

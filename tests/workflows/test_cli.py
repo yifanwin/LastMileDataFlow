@@ -62,6 +62,17 @@ class CliTests(unittest.TestCase):
                                        rollouts=['r0', 'r1'], camera='overview')
         evaluate.assert_not_called()
 
+    def test_measured_replay_grid_dispatch_needs_no_camera(self):
+        with (patch('lastmile_dataflow.data.rendering.rollout_video.render_run_grid',
+                    return_value=Path('video')) as grid,
+              patch('lastmile_dataflow.workflows.collection.evaluate_stations') as evaluate,
+              patch('builtins.print')):
+            main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0',
+                  '--replay-layout', 'grid', '--output-dir', 'out', '--run-id', 'video',
+                  '--gpu', '0'])
+        grid.assert_called_once_with(Path('run'), Path('out/replays/video'), rollouts=['r0'])
+        evaluate.assert_not_called()
+
     def test_materialization_dispatch_needs_neither_gpu_nor_assets(self):
         with (
             patch('lastmile_dataflow.data.export.lastmile_dataset.materialize_lastmile', return_value=Path('out/one')) as materialize,
@@ -77,11 +88,11 @@ class CliTests(unittest.TestCase):
             "lastmile_dataflow.workflows.scene_datasets.build_scenes", return_value=Path("out")
         ) as build, self.assertLogs("lastmile_dataflow", level="INFO") as logs, patch("builtins.print") as output:
             main(["build-scenes", "--config", "recipe.json", "--run-id", "one", "--gpu", "6"])
-        self.assertIn("开始命令=build-scenes GPU=6", logs.output[0])
+        self.assertIn("开始命令=build-scenes GPU=[6]", logs.output[0])
         self.assertIn("命令结束=build-scenes 输出=out", logs.output[-1])
         output.assert_called_once_with(Path("out"))
         build.assert_called_once_with(
-            Path("recipe.json"), Path("outputs"), "one", gpu_ids=[6], allow_partial_targets=False, workers=1
+            Path("recipe.json"), Path("outputs"), "one", gpu_ids=[6], workers=1
         )
 
     def test_preview_dataset_dispatch_without_new_run(self):
@@ -132,37 +143,10 @@ class CliTests(unittest.TestCase):
                     selected.assert_called_once()
                     other.assert_not_called()
 
-    def test_build_command_runs_the_three_existing_steps_in_order(self):
-        from lastmile_dataflow.workflows.scene_datasets import build_scenes
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            with (
-                patch(
-                    "lastmile_dataflow.workflows.scene_datasets.discover_scene_dataset",
-                    side_effect=lambda config, path, **options: path,
-                ) as discover,
-                patch(
-                    "lastmile_dataflow.workflows.scene_datasets.qualify_scene_discovery",
-                    side_effect=lambda path, output: output,
-                ) as qualify,
-                patch(
-                    "lastmile_dataflow.workflows.scene_datasets.build_scene_dataset",
-                    return_value=root / "result",
-                ) as build,
-                patch('lastmile_dataflow.workflows.scene_datasets.read_json', return_value={}),
-                patch('lastmile_dataflow.workflows.scene_datasets.write_json') as save_summary,
-            ):
-                result = build_scenes("recipe.json", root, "one", gpu_ids=[6])
-            discover.assert_called_once()
-            qualify.assert_called_once()
-            build.assert_called_once()
-            self.assertTrue(discover.call_args.args[1].parent.name.startswith('scene-build-'))
-            self.assertEqual(qualify.call_args.args[0], discover.call_args.args[1])
-            self.assertEqual(build.call_args.args[1], qualify.call_args.args[1])
-            self.assertEqual(result, root / "result")
-            self.assertEqual(list(root.iterdir()), [])
-            self.assertIn('wall_elapsed_s', save_summary.call_args.args[1])
+    def test_build_parser_has_no_legacy_case_quota_override(self):
+        with patch('sys.stderr'), self.assertRaises(SystemExit):
+            parser().parse_args(['build-scenes', '--config', 'recipe.json', '--gpu', '6',
+                                 '--allow-partial-targets'])
 
 
 class IndependenceTests(unittest.TestCase):

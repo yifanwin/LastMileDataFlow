@@ -11,7 +11,8 @@ def reference_calibration(stations, trials, expected, binding, backend):
     for row in trials:
         if any(row.get(key) != value for key, value in binding.items()):
             raise ValueError('calibration trial binding mismatch')
-    value = station_calibration(stations, trials, expected, binding, SimpleNamespace(operation_backend=backend))
+    value = station_calibration(stations, trials, expected, binding,
+                                SimpleNamespace(operation_backend=backend, mode_config=None))
     for row in value['stations']:
         row['complete'] = row['trials'] == expected
     return value
@@ -60,20 +61,32 @@ def failure_family(trials):
     return {'failure_family': family, 'failure_reasons': dict(reasons)}
 
 
-def _counts(episodes, results):
+def _counts(episodes, results, *, strict=False):
     expected = {e['episode_id'] for e in episodes}
     relevant = [r for r in results if r['episode_id'] in expected]
     counts = Counter(r['status'] for r in relevant)
-    valid = sum(counts[s] for s in ('success', 'failure', 'timeout'))
+    if strict:
+        from .selection import mode_trial_evaluable
+        valid_counts = Counter(r['status'] for r in relevant if mode_trial_evaluable(r))
+    else:
+        valid_counts = counts
+    valid = sum(valid_counts[s] for s in ('success', 'failure', 'timeout'))
     unknown = len(episodes) - valid
-    return {'scheduled': len(episodes), 'reported': len(relevant), 'valid_task_outcomes': valid,
-            'successes': counts['success'], 'failures': counts['failure'], 'timeouts': counts['timeout'],
+    result = {'scheduled': len(episodes), 'reported': len(relevant), 'valid_task_outcomes': valid,
+            'successes': valid_counts['success'], 'failures': valid_counts['failure'], 'timeouts': valid_counts['timeout'],
             'unknown_or_infra': unknown, 'not_executed': len(episodes) - len(relevant) + counts['unsupported_policy'],
             'status_counts': dict(counts),
             'coverage': valid / len(episodes) if episodes else 0.,
-            'task_success_rate': counts['success'] / len(episodes) if episodes and not unknown else None,
-            'observed_task_success_rate': counts['success'] / valid if valid else None,
+            'task_success_rate': valid_counts['success'] / len(episodes) if episodes and not unknown else None,
+            'observed_task_success_rate': valid_counts['success'] / valid if valid else None,
             'complete': bool(episodes) and not unknown}
+    if strict:
+        result.update(recording_complete=sum(r.get('recording_complete') is True for r in relevant),
+            execution_termination_counts=dict(Counter((r.get('execution_termination') or {}).get('status', 'unknown')
+                                                     for r in relevant)),
+            execution_phase_counts=dict(Counter((r.get('execution_termination') or {}).get('phase', 'unknown')
+                                               for r in relevant)))
+    return result
 
 
 def summarize(episodes, results, groups=None):
@@ -81,17 +94,21 @@ def summarize(episodes, results, groups=None):
     ids = [r['episode_id'] for r in results]
     if len(expected) != len(episodes) or len(ids) != len(set(ids)) or set(ids) - expected:
         raise ValueError('duplicate or foreign benchmark episode/result')
-    summary = _counts(episodes, results)
-    summary['denominator_rule'] = 'full scheduled set; infra/unknown suppress official TSR; timeout is task failure'
     groups = groups or {}
-    for field in ('case', 'task', 'failure_family'):
+    mode_run = any('labels' in groups.get(e['episode_id'], {}) for e in episodes)
+    summary = _counts(episodes, results, strict=mode_run)
+    summary['denominator_rule'] = ('full scheduled set; unknown/infra suppress official TSR; timeout requires a known failure verdict'
+                                 if mode_run else 'full scheduled set; infra/unknown suppress official TSR; timeout is task failure')
+    for field in (('label', 'proposal_intent', 'task', 'failure_family') if mode_run else ('case', 'task', 'failure_family')):
         labels = {}
         for episode in episodes:
             label = groups.get(episode['episode_id'], {}).get(field)
             if label is None:
                 label = episode.get('task', {}).get('operation', 'unknown') if field == 'task' else 'unknown'
-            labels.setdefault(label, []).append(episode)
-        table = {label: _counts(subset, results) for label, subset in sorted(labels.items())}
+            values = groups.get(episode['episode_id'], {}).get('labels', []) if field == 'label' else [label]
+            for value in sorted(set(values)):
+                labels.setdefault(value, []).append(episode)
+        table = {label: _counts(subset, results, strict=mode_run) for label, subset in sorted(labels.items())}
         summary['by_' + field] = table
         values = [row['task_success_rate'] for row in table.values()]
         summary['macro_by_' + field] = float(np.mean(values)) if values and all(v is not None for v in values) else None
@@ -100,7 +117,9 @@ def summarize(episodes, results, groups=None):
                            'coverage': len(recovery) / len(episodes) if episodes else 0.,
                            'success_rate': sum(recovery) / len(episodes) if episodes and len(recovery) == len(episodes) else None,
                            'observed_success_rate': sum(recovery) / len(recovery) if recovery else None}
-    summary['primary_macro'] = 'macro_by_case'
+    summary['primary_macro'] = 'macro_by_label' if mode_run else 'macro_by_case'
+    if mode_run:
+        summary['label_denominator_rule'] = 'unique episodes overall; label groups overlap and must not be summed'
     for subset, selected in [('all', results), ('task_success', [r for r in results if r['status'] == 'success'])]:
         metrics = {}
         for key in ('base_path_length_m', 'final_displacement_m', 'max_displacement_m', 'base_yaw_travel_rad'):

@@ -79,6 +79,7 @@ def navigation(output, robot_config):
     from lastmile_dataflow.runtime.execution.navigation import navigate
     from lastmile_dataflow.scenes.tasks.discovery import robot_footprint
     from lastmile_dataflow.planning.astar import scene_grid, search
+    from lastmile_dataflow.planning.navigation import pose_path
     from lastmile_dataflow.utils.io import write_json
     output.mkdir(parents=True, exist_ok=False)
     scene = output/'navigation.xml'
@@ -97,6 +98,9 @@ def navigation(output, robot_config):
         path = search(grid, [0.,0.], [2.,0.])
         if path is None:
             raise ValueError('navigation validation has no A* path')
+        xy = np.asarray(path['xy'])
+        length = np.r_[0., np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+        path = pose_path(np.column_stack((xy, length / length[-1] * np.pi / 2)))
         result = navigate(ctx,path,{'base':[2.,0.,1.5707963267948966]})
         with_arm = float(np.max(np.abs(sim.robot.arm_positions('right')-initial_arm)))
         result.update(path=path, arm_error_rad=with_arm,
@@ -148,7 +152,7 @@ def main():
     source = SceneSource('val_103', case['scene_xml'], case['metadata'])
     overrides = {key:value for key,value in [('radius_m',args.radius),('spacing_m',args.spacing)] if value is not None}
     width,height = (256,256) if config.control_profile=='robocasa-v1' else (320,240)
-    geometry = SceneStationConfig.from_robot(config, **overrides, operations=['pick'], gripper_width_m=.08,
+    geometry = SceneStationConfig(**overrides, operations=['pick'], gripper_width_m=.08,
         max_pick_object_size_m=.20, navigation_whole_body=True, width=width, height=height)
     args.output.mkdir(parents=True, exist_ok=False)
     sim = Simulation.from_source(source, config, target=target)

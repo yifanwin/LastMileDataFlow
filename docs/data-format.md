@@ -22,45 +22,38 @@
 
 ### 场景库 run（`outputs/scene_datasets/<run>/`）
 
-```
+```text
 <run>/
-├── config.json                  # 生效配方：recipe / robot / geometry / seed，只写一次
-├── scenes.jsonl                 # 主记录：每场景一行，accepted 与 rejected 都保留
-├── summary.json                 # 构建概况：计数、每 house 来源统计、阶段耗时
-├── index.html                   # 只读预览页，引用 previews
-├── previews/<scene_id>.png      # 每场景一张组合图（派生预览，非相机输入）
+├── config.json                  # recipe / robot / geometry / mode_settings / execution / seed
+├── scenes.jsonl                 # 父进程唯一主记录：accepted / rejected / skipped
+├── summary.json                 # 状态、计数、house/task 准备耗时和错误
 └── scene-files/
-    ├── <scene_id>/              # 每场景都建目录；rejected 目录为空
-    │   ├── scene/               # 编辑后场景：model.mjb / initial.npz / config.json / model.xml
-    │   └── before-scene/        # 仅 Case1/Case2（编辑场景）：同步静置、无新增物体的对照，文件同上
-    └── <scene_id>-assets/       # 新增物体资产；只有 Case1/Case2 生成
-        ├── catalog.json         # 资产目录：asset_id / xml_path / root_body / category
-        └── <asset_id>/asset.xml # 单个 THOR 资产
+    ├── <source-task>/baseline/   # 同 task 的 no-edit 与 yaw 候选共享
+    └── <scene_id>/               # 独立对象编辑的真实静置快照
 ```
 
-`scene/` 与 `before-scene/` 内：`model.mjb` 是实际载入来源，`initial.npz` 保存初始 `state/state_spec/control_json/clock_remainder`，`config.json` 是该场景使用的机器人配置，`model.xml` 仅为可读副本。
+每个快照包含 `model.mjb`、`initial.npz`、包含机器人和来源信息的 `config.json` 与可读 `model.xml`。MJB 是实际载入来源，要求匹配 MuJoCo 版本。源资产引用仍有外部路径，不能据此宣称独立可搬迁。
 
-`scenes.jsonl` 记录字段（提前终止的 rejected 记录可能只到 `scene_id/status/reason/...` 为止）：
+`scenes.jsonl` 记录字段：
 
 | 字段 | 含义 |
 |---|---|
-| `scene_id` | 场景 ID，等于 `scene-files/<scene_id>` |
-| `status` | `accepted` / `rejected` |
-| `reason` | rejected 原因（如 `too_few_stations`、预算耗尽） |
-| `seed` | 场景构建种子 |
-| `case` / `house` / `task_id` | Case1/2/3、来源 house、任务 ID |
-| `requested_count` / `actual_count` | 计划放置数 / 实际落地数量 |
-| `candidate_attempts` | 候选放置尝试次数 |
-| `physical_trials` | 物理静置试验次数 |
-| `task` | 任务描述对象，见下表 |
-| `placements[]` | 新增物体放置结果，见下表 |
-| `station_candidates[]` | 全部候选站位（含被过滤项），与 `stations` 同结构 |
-| `stations[]` | 最终采用的站位，采集端直接使用 |
-| `scene` / `before_scene` | 场景目录相对路径 |
-| `before_stations[]` | 对照场景的最终站位 |
-| `build_unit_elapsed_s` | 该场景构建耗时 |
+| `scene_id` | 来源/task/intent/variant 身份；不能从此字段拼快照路径，应读取 scene |
+| `status` / `reason` | accepted、rejected 或 skipped；保留实际拒绝或不适用原因 |
+| `proposal_intent` | 八类构造意图，绝非最终标签 |
+| `house` / `task_id` / `seed` | 原来源、稳定任务身份与任务构建种子 |
+| `source_split` / `dataset_split` | 源场景集合与固定 house train/val 划分 |
+| `task` / `stations[]` | accepted 的实际任务锚点和最终合法姿态，最多 20 个，含 yaw 对照 |
+| `scene` | accepted 快照相对路径；无编辑场景可共享同一路径 |
+| `station_hints` / `proposal_metadata` | 构造对照提示及代理范围 |
+| `edits` | placements 与 target_moves；仅描述实际提案，不生成第二套执行链 |
+| `construction_checks` | 物理、静置、支撑、等时长源场景对照和最终代理证据 |
+| `station_sampling` | 初始化/复用数、实际合法姿态数及未通过的站位 |
+| `build_metrics` | proposals、cheap_rejected、physical_candidates/trials、repairs、asset_compiles、station_initializations；后者含 proxy_initializations 与 final_station_initializations |
+| `task_completion` | 构建时保持 unknown |
+| `last_checks` | rejected 的最近一次检查证据 |
 
-`requested_count/candidate_attempts/physical_trials` 在提前终止的记录中可能缺失；`actual_count`、`placements`、`stations`、`scene` 只出现在完整构建的记录，`before_scene`、`before_stations` 只出现在 Case1/Case2 的编辑场景。
+准备失败与不适用行保留 house/task/intent/status/reason；无合格目标在 summary.sources 标为 no_eligible_tasks，不补造 rollout 或场景行。
 
 `task` 对象：
 
@@ -68,7 +61,7 @@
 |---|---|
 | `instance_id` / `target_body` | 场景内实例 ID / MuJoCo body 名 |
 | `asset_id` / `category` | 资产 ID / 物体类别 |
-| `task_id` / `operation` | 任务 ID（`pick-xxxx` / `open-xxxx`）/ `pick`、`open` |
+| `task_id` / `operation` | 新发现任务为 `pick-<instance>` / `open-<instance>-<joint>`；名称按 URL percent encoding 转义，重编译不依赖数字 body/joint ID；operation 为 `pick`、`open` |
 | `room_id` | 来源房间号 |
 | `dimensions_m` | 物体尺寸（米） |
 | `source_object_id` | 数据集内原始物体 ID |
@@ -77,13 +70,15 @@
 | `instruction` | 任务自然语言描述 |
 | `support_obstacles[]` | 支撑面/障碍 AABB：`body/min/max/kind/evidence` |
 
-`placements[]` 字段：`asset_id`、`category`、`point_id`、`point_xy`、`point_sources[]`（`kind/region_id`）、`pose`（`position` 与 `quaternion_wxyz`）、`yaw_rad`、`kind`（`surface` / `floor` 等）、`support_height_m`、`support_geom`、`support_instance`、`surface_coverage_verified`、`measured_size_m`（`width/depth/height`）、`world_bounds`（`min/max`）、`settled_pose`。
+`edits.placements[]` 字段：`asset_id`、`category`、`point_id`、`point_xy`、`point_sources[]`（`kind/region_id`）、`pose`（`position` 与 `quaternion_wxyz`）、`yaw_rad`、`kind`（`surface` / `floor` 等）、`support_height_m`、`support_geom`、`support_instance`、`surface_coverage_verified`、`measured_size_m`（`width/depth/height`）、`world_bounds`（`min/max`）。
 
-站位记录（`station_candidates` / `stations` / `before_stations` 及准备文件中的 `requested_station` 同结构）：
+站位记录（`stations`、`station_sampling.rejected_stations` 及准备文件中的 `requested_station` 同结构）：
 
 | 字段 | 含义 |
 |---|---|
 | `station_id` | 站位 ID（`S0006`） |
+| `xy_id` | XY lattice 点 ID；同 XY 不同 yaw 共用此字段 |
+| `yaw` / `yaw_source` | 显式初始 yaw（弧度）及来源；显式 yaw 不自动朝向目标，扰动站位 ID 为 `<xy_id>-Y01` 等 |
 | `xy` / `grid_index` / `base` | 平面坐标 / 候选网格下标 / 完整初始 base `[x,y,yaw]` |
 | `observation_camera` | 可见性检查使用的相机 |
 | `initial` | 初始机器人状态：`base_xyyaw`、`lift`、`arm_q`、`gripper_width` |
@@ -100,10 +95,26 @@
 | `reason` | 被过滤原因；`valid` 时为 null |
 
 `collisions[]` 字段：`body_names`、`geom_names`、`geom_ids`、`distance_m`、`position_world`、`normal_force_n`、`time_s`、`robot_contact`、`allowed_floor_base`、`intended_target_contact`、`forbidden`、`kind`。
-`visibility` 字段：`target`、`visible_pixels`、`image_fraction`、`bbox_xyxy`、`method`、`task_feasibility`。
+`visibility.cameras` 各路保存 `visible_pixels/reference_pixels/fraction/status` 与实际相机外参。`value` 仅在全部相机可测时为三路最大值，否则为 null；`known_max` 保存已知可见性下界。参考投影不足记 insufficient_projection，确认出视野记零，渲染失败记 unknown。`roi_geoms` 仅对应本条冻结模型。诊断分割在临时模型副本关闭 MSAA，不修改物理模型或策略渲染配置。
 
-`config.json`：`recipe`（场景发现、Case 规则、采样、增强与预算）、`robot`（本体/控制/相机）、`geometry`、`seed`。
-`summary.json`：`status`、`accepted`、`rejected`、`excluded_targets`、`build_workers`、`gpu_ids`、`wall_elapsed_s`、`phase_wall_s`（`discovery_s/qualification_s/construction_and_previews_s/cleanup_s`）、`sources[]`（每 house 的 `discovered_task_count/eligible_pick/eligible_open/selected_pick/selected_open/pick_pairwise_distances_m/selection_method/elapsed_s`）。
+站位默认采样半径 1 m、间距 0.25 m，与机器人尺寸无关。执行 `radius_m` 是操作工作区，不从 dataset geometry 覆盖；导航地图使用完整来源房间地面，可离开采样圆。删除过物体的 task-local 快照不用于房间范围导航，需以 `local_task_models=false` 重建。
+`summary.json` 保存 status、accepted/rejected/skipped、intent_counts、build_workers、gpu_ids、wall_elapsed_s 和 sources。每 house 保留发现/筛选统计与 task 准备耗时。共享故障为 infrastructure_error，保存已返回真实行，不把未运行的 house 填成任务失败。
+
+### 离线资产索引
+
+内部脚本输出一个 `assets.jsonl`，每资产一条 AssetProfile：`asset_id/source_xml/category`、`width_m/depth_m/height_m/footprint_m2`、`movable/loadable`、`support_kind/compatible_supports/compatible_rooms/roles`、`xml_path/root_body/adapter_version/reason`。尺寸为 y-up→z-up 适配后的碰撞 AABB；不能适配时 loadable=false，未知尺寸为 null，reason 保留原因。
+
+`xml_path` 指向同一次索引运行的 `geometry/<asset>/asset.xml`；来源 XML 与 mesh/texture 不修改。运行时 Selector 只读 profile，真实几何仅按需加载并在 task 内缓存；它不等于最终场景物理或模式验收。
+
+### 模式标定证据
+
+模式执行配置要求每个计划姿态恰好 3 次。trials.jsonl 增加相对标定根目录的 `planning_ref`，引用该 rollout 的 planning.json；缺少规划文件时为 null。实际 trial 仍只有一份，不复制探测为 trial。
+
+原生 grasp 的单站和 batch 摘要均有 `phase_evidence`：实际 phase、query_index、input_eligible、status、failure_component、ik_found/trajopt_found 及 solver_calls。batch_slot/seed/identity 绑定具体 lane；前一阶段失败后的占位目标记录 not_applicable。IK top-k 日志不代表完整分母，ik_feasible_ratio 保持 null。完整求解和输入通过 solver_trace_ref/grasp_inputs_ref 引用，grasp_candidates.json 保存原始 candidate 绑定。
+
+独立 diagnostic_ik 查询只写 planning 内的 ik_probe.json，包含 input_grasps、requested_seeds_per_grasp、observed_evaluation_count、feasible_count/ratio 和 seed_indices。仅完整 seed 覆盖才有比例，超预算保留 unresolved，不创建执行轨迹。父进程每 S0 至多一次 probe；超过 active 预算终止该诊断拥有的 worker，保持 unresolved。最终 diagnosis.jsonl 已接入；下游消费直接引用该分类表。
+
+模式任务资格区分 incomplete、no_success、no_high_rate_s1、eligible。初始化/记录/基础设施错误及 outcome 未知的 timeout 不补进三次失败；S0 按 0/3、1/3 排序，各标签的 S1 先找合格 3/3，再找合格 2/3。
 
 ### 逐点标定 run（`outputs/<calibration-run>/`）
 
@@ -229,7 +240,13 @@ N+1 个边界状态对应 N 个实际控制间隔；没有真实物理步时不�
 - `s1_direct_operation`：所有真实成功且记录完整、有实际控制步的 calibration attempt；不受高率阈值限制，没有 `s0` 或 `navigation`。
 - `s0_to_s1_continuous`：导航成功、操作成功且记录完整的真实连续 attempt；另含 `pair_id`、`s0/s1`、导航结论，以及 `euclidean_distance_m`、`astar_path_length_m`、`navigation_steps`。
 
-距离单位米；A* 长度按发送给跟踪器的完整折线计算；导航步数为实际 `navigation` 控制间隔数，不含 `arrival`、操作或底层物理子步。失败保留已执行步数，未知不填 0。
+距离单位米；`astar_path_length_m` 按发送给跟踪器的完整参考折线计算，路线可能来自站位图或接入全房间 A* 的几何连接。导航步数为实际 `navigation` 控制间隔数，不含 `arrival`、操作或底层物理子步。失败保留已执行步数，未知不填 0。
+
+导航路径的 `poses` 为世界坐标 `[x,y,yaw]`，执行器逐点跟踪这些朝向；`xy` 仅是同一路线的二维投影。`length_m` 是实际平移长度，`yaw_travel_rad` 是转角行程；`route_cost` 为平移/转向基础代价加有限净空惩罚，`clearance_penalty_cost` 单列惩罚部分。`navigation_margin_m` 只作为期望净空，低于该值仍可通行。实际整机在独立准备态中按 ≤1 cm / ≤1° 采样检查；净空查询超过目标值加 0.01 m 时截断，因此 `clearance_lower_bound_m` 是下界。浅接触不自动失败，超过独立穿透阈值才判严重碰撞；正常地面接触单独处理。静态采样通过不表示动态导航成功。
+
+新 run 保存 `navigation_protocol=soft_clearance_v1` 与实际 `navigation_settings`，来源标定配置另存，不重写历史语义。路径 `method=geometry_soft_astar`；`optimization_status=optimal_in_graph` 表示在当前有限候选图中完成择优，`budget_limited` 表示优化预算耗尽但已保留完整可行路线。
+
+`navigation_planning` 保存配对的原因、`expanded_nodes` 和 `conservative_start_blocked`；粗栅格屏蔽起点不影响实际可行资格，不再使用 `endpoint_clearance_below_margin` 拒绝低净空配对。无路线时分别报告初始化非法、严重碰撞、恢复区域为空、离散搜索耗尽或预算耗尽。实际导航另报跟踪超时、严重碰撞或到达误差；导航记录包含 `max_penetration_m`、`max_floor_penetration_m`、`severe_collision`。普通接触次数和 `forbidden_contact_count` 为遥测，不单独决定软净空导航成败。
 
 引用型条目以 `source_run`（相对本数据集 run）与 `rollout_id` 定位源 attempt。
 独立物化将成功轨迹统一复制到新输出的 `rollouts/dXXXXXX/`，训练条目改为 `rollout_path`（相对新数据集根目录），并以 `source.run/rollout_id` 保留历史来源。同一来源只复制一次，不同 run 的相同局部编号不合并。
@@ -265,7 +282,9 @@ PandaOmron 使用语义 `base_xyyaw / lift / arm_q / gripper_width`，在记录�
 
 Benchmark v0.1：每个合格 S0 一条 episode，不按 S0×S1 复制。标定开放底盘仍有效；≤20% / ≥60% 表示从初始站位启动的参考协议任务成功率。区域由高率初始站位构造，不从成功轨迹终点补造高率站位。
 
-`oracle.json` 的 `regions` 按 scene 保存网格、朝向、锚点、原始计数和局部 patch；`episodes` 按 episode ID 保存 case/task/failure_family、S0 计数及 difficulty。difficulty 包含 `path_length_m`、`euclidean_distance_m`、`detour_factor`、`recovery_ratio` 及分子/分母；欧氏距离为零时 detour 为 null。区域近似不是连续空间的实测成功概率图。
+`oracle.json` 的 `regions` 按 episode 保存恢复区域；`episodes` 按 episode ID 引用区域并保存 case/task/failure_family、S0 计数及 difficulty。几何区域方法为 `geometry_sampled_pose_boxes_nearest_measurement_clip`：每个 patch 保存合法实测 `anchor` 和局部 `boxes`。每个 box 为 `[min_x,min_y,min_yaw_offset,max_x,max_y,max_yaw_offset]`，yaw offset 相对该锚点；角点和锚点到中心的连接经过真实几何采样检查。区域只在配置恢复半径及 yaw 容差内展开，并受最近实测站位裁剪；精确锚点可独立于公共保守栅格存在。`goals`、`contains`、保存/重载和离线轨迹统计使用同一表示，无需离线重新仿真。有限采样的区域近似不是连续空间的碰撞证明或实测成功概率图。
+
+difficulty 包含 `path_length_m`、`euclidean_distance_m`、`detour_factor`、`recovery_ratio` 及分子/分母；`path_metric` 描述参考路线方法。几何路线的欧氏距离取到选定目标的距离，`euclidean_distance_scope=selected_reference_goal`；欧氏距离为零时 detour 为 null。不将有限候选图的参考路线称为连续空间最短路。
 
 评测 `results.jsonl` 同时保存任务结论和 `recovery_success/recovery_first_time_s/base_path_length_m/final_displacement_m/max_displacement_m/base_yaw_travel_rad/final_yaw_delta_rad/max_yaw_delta_rad/effective_adjustment/diagnostic_status`。恢复结果独立于 TSR，轨迹缺失不当作恢复失败。
 
@@ -285,13 +304,7 @@ MolmoBot 转换按需生成 `data.npz`，引用原图像。非原生控制模式
 
 ### 场景库预览
 
-`build-scenes` 的 accepted 场景新增 `before_scene`（相对数据集根目录的同步静置无新增物体对照快照）
-和 `before_stations`（该对照的最终站位，沿用 `stations` 的字段）。仅编辑场景保存这两个字段；
-旧记录可缺失，不重写历史记录。对照使用与编辑后相同的候选网格、初始化/可见性检查和最终选点规则。
-
-`index.html` 引用 `previews/<scene_id>.png`，每个场景一张组合图，不生成散落子图。
-这些是只读派生预览，不是机器人相机输入，也不是操作成败证据。预览错误只在日志和页面展示，
-不改写主记录。补生成可覆盖派生图片和页面，不覆盖场景快照或采样记录。
+可用 `build-scenes --preview-dataset <dataset> --gpu <index>` 生成派生预览。新构建主记录不再保存每候选 before-scene；物理事务的等时长对照证据保存在 construction_checks。预览不作为模式、操作成败或标定证据。
 
 ## Benchmark 可视化与视频
 
@@ -306,3 +319,10 @@ MolmoBot 转换按需生成 `data.npz`，引用原图像。非原生控制模式
 `recording.json` 保存 MuJoCo 版本、`model_dir`、相机别名/名称、尺寸、控制频率和 `replay_complete`。公共准备资料位于 `preparations/<scene>/<station>/`，trial 引用同一准备状态，但独立执行。数值记录完整与视觉示教模态完整分别判定。
 
 离线输出的 `replay.json` 标明 `source=measured_state_replay`、实测时间戳、视频播放时间及原始帧索引。回放只恢复实测状态并调用 `mj_forward`，不积分、不重新判定成败。
+
+模式评测的 diagnosis.jsonl 每 variant/task 一行，保留 calibration_complete、task_eligibility、intent_hit、station_measurements、probe 摘要与原 trials_ref。s0_results 内包含全部八类判定、final_labels、expected/additional labels、每标签证据 S1 和同 tier qualifying_s1_ids；非提示起点的同意图发现标为 additional_discovery。未知测量/阶段不当零，未完整的计划不产生恢复标签。实际完整标定与参数边界见 [标定交付](../reports/task-modes/delivery/02-calibration-delivery.md)。
+
+
+模式采集仅使用 train：pair_index.jsonl 的同一 S0/S1 合并 labels 与 s1_tiers，diagnosis_ref 指向唯一分类来源。模式 benchmark 仅使用已标定的 val：episodes.jsonl 不暴露标签或 S1，oracle.json 按 episode 保存 labels、s1_by_label 与独立 RecoveryRegion。统计 by_label 可重叠，总体计划分母按唯一 episode 计数；unknown 或记录不完整不冒充任务失败。
+
+数值成功轨迹可生成 observations/<rollout_id>/observations.json 与逐边界 PNG/可选深度。元数据标明 measured_state_replay、frames=steps+1、new_physical_steps=0；原 recording.json 与 trial 不变。训练索引通过 observations_ref/observation_source 引用该视图，物化时复制观测并更新导出元数据，保留原轨迹与录制记录。

@@ -13,6 +13,18 @@ from .interface import RobotCommand
 from .panda_omron import PandaOmronAdapter
 
 
+# RoboCasa CAM_CONFIGS['DEFAULT']; wrist optics come from the Panda factory XML.
+# https://github.com/robocasa/robocasa/blob/main/robocasa/utils/camera_utils.py
+ROBOCASA_CAMERAS = {
+    'robot0_agentview_left': ('mobilebase0_support', [-.5, .35, 1.05],
+                            [.55623853, .29935253, -.37678665, -.6775092], 60.),
+    'robot0_agentview_right': ('mobilebase0_support', [-.5, -.35, 1.05],
+                             [.67750918865, .37678667903, -.29935255647, -.55623859167], 60.),
+    'robot0_eye_in_hand': ('robot0_right_hand', [.05, 0., 0.],
+                         [0., .707107, .707107, 0.], 75.),
+}
+
+
 def rotation_vector(matrix):
     quat = np.zeros(4)
     mujoco.mju_mat2Quat(quat, np.asarray(matrix).reshape(9))
@@ -41,13 +53,9 @@ def xyzw(matrix):
 def prepare_spec(spec, config):
     """Keep factory motor/velocity actuators and joint friction intact."""
     ns = config.namespace
-    support = spec.body(ns+'mobilebase0_support')
-    for name, pos, quat in (
-        ('robot0_agentview_left', [-.5,.35,1.05], [.55623853,.29935253,-.37678665,-.6775092]),
-        ('robot0_agentview_right', [-.5,-.35,1.05], [.67750918865,.37678667903,-.29935255647,-.55623859167]),
-    ):
+    for name, (parent, pos, quat, fovy) in ROBOCASA_CAMERAS.items():
         if spec.camera(ns+name) is None:
-            support.add_camera(name=ns+name, pos=pos, quat=quat, fovy=60.)
+            spec.body(ns+parent).add_camera(name=ns+name, pos=pos, quat=quat, fovy=fovy)
     # OSC and torso controllers explicitly compensate bias forces.
     for body in spec.bodies:
         if body.name.startswith(ns):

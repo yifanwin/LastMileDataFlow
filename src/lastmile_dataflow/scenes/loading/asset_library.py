@@ -1,119 +1,68 @@
-"""Bounded THOR category retrieval and derived rigid adapters, no approval whitelist."""
-from pathlib import Path
-import math
-import os
-import time
-import xml.etree.ElementTree as ET
-import mujoco
+"""Role and dimension selection from the offline asset index."""
+from collections import Counter
+from dataclasses import dataclass, field
 import numpy as np
 
-from .assets import EditAssetCatalog
-from ...utils.io import write_json, read_json
 
-from .mjcf import load_spec
+from .asset_profiles import canonical_category, load_asset_profiles
 
 
-class ThorLibrary:
-    """Explicit THOR y-up convention; never applies this transform to Objaverse."""
-    def __init__(self, root=None):
-        self.root = Path(root).resolve() if root else None
-        self.directories = {}
-        if self.root:
-            if not self.root.is_dir():
-                raise FileNotFoundError(self.root)
-            for group in sorted(self.root.iterdir()):
-                if not group.is_dir():
+@dataclass(frozen=True)
+class AssetRequest:
+    role: str
+    size_bounds: dict = field(default_factory=dict)
+    support: str | None = None
+    room: str | None = None
+    excluded_categories: tuple = ()
+    available_size_m: tuple | None = None
+    yaw_rad: float | None = None
+    placement_margin_m: float = .01
+    limit: int = 5
+
+
+class AssetSelector:
+    """Select lightweight profiles only; no source scan or geometry compile."""
+    def __init__(self, index):
+        self.profiles = load_asset_profiles(index)
+        self.category_uses, self.asset_uses = Counter(), Counter()
+
+    def select(self, request, rng):
+        excluded = {canonical_category(c) for c in request.excluded_categories}
+        candidates = []
+        for profile in self.profiles:
+            if not profile.loadable or not profile.movable or profile.category in excluded or request.role not in profile.roles:
+                continue
+            if request.support and request.support not in profile.compatible_supports:
+                continue
+            if request.room and '*' not in profile.compatible_rooms and request.room not in profile.compatible_rooms:
+                continue
+            if any(not bounds[0] <= getattr(profile, key) <= bounds[1]
+                   for key, bounds in request.size_bounds.items()):
+                continue
+            if request.available_size_m is not None:
+                available = np.asarray(request.available_size_m) - 2 * request.placement_margin_m
+                yaws = (0., np.pi / 2) if request.yaw_rad is None else (request.yaw_rad,)
+                fits = False
+                for yaw in yaws:
+                    c, s = abs(np.cos(yaw)), abs(np.sin(yaw))
+                    extent = [c * profile.width_m + s * profile.depth_m,
+                              s * profile.width_m + c * profile.depth_m]
+                    fits |= bool(np.all(np.asarray(extent) <= available))
+                if not fits:
                     continue
-                for category in sorted(group.iterdir()):
-                    if (category/'Prefabs').is_dir():
-                        self.directories.setdefault(category.name, []).append(category/'Prefabs')
+            candidates.append(profile)
+        # Prefer unused categories within each shortlist and previously used
+        # less often in the task. Random ties remain reproducible by worker seed.
+        selected, shortlist_counts = [], Counter()
+        while candidates and len(selected) < min(5, request.limit):
+            scores = [(self.category_uses[p.category] + shortlist_counts[p.category],
+                       self.asset_uses[p.asset_id], rng.random()) for p in candidates]
+            index = min(range(len(scores)), key=scores.__getitem__)
+            profile = candidates.pop(index)
+            selected.append(profile)
+            shortlist_counts[profile.category] += 1
+        return selected
 
-    def categories(self):
-        return sorted(self.directories)
-
-    def retrieve(self, requests, path, *, limit=3, seed=42, deadline=None, registered_only=False):
-        path = Path(path)
-        path.mkdir(parents=True, exist_ok=False)
-        entries, records, seen = [], [], set()
-        rng = np.random.default_rng(seed)
-        types_path = self.root / 'asset_id_to_object_type.json' if self.root else None
-        asset_types = read_json(types_path) if types_path and types_path.is_file() else {}
-        if registered_only and not asset_types:
-            raise ValueError('registered_asset_map_required')
-        for request in requests:
-            for category in request['categories']:
-                candidates = []
-                for directory in self.directories.get(category, []):
-                    # Known THOR names avoid thousands of remote stat calls.
-                    # Only sampled models are opened below; unreadable inputs are skipped there.
-                    if registered_only:
-                        names = sorted(name for name, kind in asset_types.items() if kind == category)
-                    else:
-                        with os.scandir(directory) as directory_entries:
-                            names = sorted(entry.name for entry in directory_entries if entry.is_dir())
-                    candidates.extend(directory / name / (name + '.xml') for name in names)
-                accepted = 0
-                for index in rng.permutation(len(candidates))[:max(limit*4, limit)]:
-                    if deadline is not None and time.monotonic() >= deadline:
-                        raise TimeoutError('asset_retrieval_wall_clock_budget')
-                    source = candidates[int(index)]
-                    asset_id = source.stem
-                    if asset_id in seen:
-                        continue
-                    row = {'asset_id': asset_id, 'category': category, 'source_xml': str(source), 'status': 'loading',
-                           'thor_registered': asset_types.get(asset_id) == category}
-                    records.append(row)
-                    derived = path/asset_id
-                    derived.mkdir(exist_ok=False)
-                    try:
-                        raw = load_spec(source)
-                        roots = list(raw.worldbody.bodies)
-                        if len(roots) != 1 or list(raw.worldbody.geoms) or list(raw.lights) or list(raw.actuators) or list(raw.sensors) or list(raw.equalities):
-                            raise ValueError('one_rigid_asset_without_world_controls_required')
-                        root = roots[0]
-                        for joint in list(raw.joints):
-                            if joint.parent != root or joint.type != mujoco.mjtJoint.mjJNT_FREE:
-                                raise ValueError('articulated_asset_unsupported')
-                        raw.compiler.meshdir = str(source.parent)
-                        raw.compiler.texturedir = str(source.parent)
-                        # Derive XML, not a live-spec reparent/delete: keep native
-                        # joint ownership intact and preserve resolved asset paths.
-                        tree = ET.fromstring(raw.to_xml())
-                        compiler = tree.find('compiler')
-                        compiler.set('fusestatic', 'true')
-                        compiler.set('meshdir', str(source.parent))
-                        compiler.set('texturedir', str(source.parent))
-                        world = tree.find('worldbody')
-                        asset_root = world.find('body')
-                        for joint in list(asset_root):
-                            if joint.tag in ('joint', 'freejoint'):
-                                asset_root.remove(joint)
-                        world.remove(asset_root)
-                        name = asset_id + '_construction_root'
-                        body = ET.SubElement(world, 'body', name=name)
-                        ET.SubElement(body, 'freejoint', name=name + '_free')
-                        frame = ET.SubElement(body, 'frame', quat=f'{math.sqrt(.5)} {math.sqrt(.5)} 0 0')
-                        frame.append(asset_root)
-                        model = mujoco.MjModel.from_xml_string(ET.tostring(tree, encoding='unicode'))
-                        xml = derived/'asset.xml'
-                        mujoco.mj_saveLastXML(str(xml), model)
-                        entry = {'asset_id': asset_id, 'xml_path': str(xml.relative_to(path)), 'root_body': name,
-                                 'category': category, 'type': 'object'}
-                        manifest = derived/'manifest.json'
-                        catalog = EditAssetCatalog(manifest, assets=[{**entry, 'xml_path': str(xml.resolve())}])
-                        _, geometry = catalog.load(asset_id)
-                        if any(not bounds[0] <= geometry['size'][key] <= bounds[1]
-                               for key, bounds in request['size_constraints_m'].items()):
-                            raise ValueError('measured_dimensions_outside_request')
-                        entries.append(entry)
-                        seen.add(asset_id)
-                        row.update(status='loadable', size=geometry['size'],
-                                   adapter='explicit_THOR_y_up_to_z_up_free_root_rigid_fusion', derived_xml=str(xml.resolve()))
-                        accepted += 1
-                    except (ValueError, OSError) as exc:
-                        row.update(status='unsupported', reason=type(exc).__name__ + ':' + str(exc)[:500])
-                    if accepted >= limit:
-                        break
-        manifest = path/'catalog.json'
-        write_json(manifest, {'asset_catalog_version': '0.1', 'assets': entries})
-        return EditAssetCatalog(manifest)
+    def record_use(self, profile):
+        self.category_uses[profile.category] += 1
+        self.asset_uses[profile.asset_id] += 1

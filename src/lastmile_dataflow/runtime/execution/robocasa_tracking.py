@@ -16,6 +16,7 @@ def follow_points(ctx, planner, positions, side, grip, goal=None):
     for point in positions:
         point = np.asarray(point)
         base = planner.base_target_world(point)
+        ctx.manip_base_target = np.asarray(base).copy()
         command = RobotCommand(base_xyyaw=base, arm_q={side: planner.model.arm_target(point)},
                                gripper_width={side: grip})
         # FK is evaluated without mutating live qpos or controller targets.

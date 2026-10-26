@@ -21,11 +21,51 @@ WIDTH, HEIGHT = 640, 480
 TARGET, ADDED, STATION = '#ef4444', '#edaa36', '#38bdf8'
 
 
+def edit_summary(record):
+    """Return (placements, target_moves) for both v2 and legacy records."""
+    edits = record.get('edits') or {}
+    placements = edits.get('placements') or record.get('placements') or []
+    moves = edits.get('target_moves') or record.get('target_moves') or []
+    return placements, moves
+
+
+def before_scene_location(record):
+    """Locate the task baseline for an edited v2 record; never guess for no-edit."""
+    explicit = record.get('before_scene')
+    if explicit:
+        return explicit
+    scene = Path(record['scene'])
+    intent = record.get('proposal_intent')
+    marker = f'-{intent}' if intent else None
+    if not marker or marker not in scene.name:
+        return None
+    # scene-files/<source-task>-<intent>-vNNN -> scene-files/<source-task>/baseline
+    base = scene.name.split(marker, 1)[0]
+    return str(scene.parent / base / 'baseline')
+
+
+
+CJK_FONT_PATHS = (
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+    '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+)
+
+
 def font(size):
-    paths = ('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
-    path = next((p for p in paths if Path(p).exists()), None)
-    return ImageFont.truetype(path, size) if path else ImageFont.load_default()
+    path = next((p for p in CJK_FONT_PATHS if Path(p).exists()),
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
+    return ImageFont.truetype(path, size) if Path(path).exists() else ImageFont.load_default()
+
+
+def cjk_available():
+    return any(Path(p).exists() for p in CJK_FONT_PATHS)
+
+
+def label(chinese, english):
+    """Keep images readable when the host has no CJK font."""
+    return chinese if cjk_available() else english
 
 
 def project(points, calibration):
@@ -104,7 +144,7 @@ def observer(sim, rig, index, target, additions):
         mask = (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(segmentation[:, :, 0], geoms)
     ys, xs = np.nonzero(mask)
     pixels = np.column_stack((xs, ys)) if len(xs) else project(object_points(sim, target), calibration)
-    outline(draw, pixels, '目标' if len(xs) else '目标（遮挡，投影框）', TARGET, dashed=not len(xs))
+    outline(draw, pixels, label('目标', 'Target') if len(xs) else label('目标（遮挡，投影框）', 'Target (occluded, projected box)'), TARGET, dashed=not len(xs))
     calibration['target_visible_pixels'] = int(mask.sum())
     return image, calibration
 
@@ -147,10 +187,11 @@ def station_panel(top, calibration, stations):
 
 
 def render_scene_preview(root, record, destination):
-    """One PNG per accepted scene; legacy missing baselines are explicitly blank."""
+    """One PNG per accepted scene; edited v2 records pair against the task baseline."""
     root = Path(root)
     task = record['task']
-    edited = bool(record.get('placements'))
+    placements, moves = edit_summary(record)
+    edited = bool(placements or moves)
     with ExitStack() as stack:
         def load(location):
             path = root / location
@@ -159,8 +200,9 @@ def render_scene_preview(root, record, destination):
             return stack.enter_context(closing(Simulation.from_snapshot(path, robot, target=task['target_body'])))
 
         after = load(record['scene'])
-        before = load(record['before_scene']) if edited and record.get('before_scene') else None
-        additions = [f'procedural_obstacle_{i}' for i in range(len(record.get('placements', [])))]
+        before_location = before_scene_location(record) if edited else None
+        before = load(before_location) if before_location and (root / before_location).is_dir() else None
+        additions = [f'procedural_obstacle_{i}' for i in range(len(placements))]
         names = [task['target_body']] + additions
         context = [object_points(after, name) for name in names]
         for support in task.get('support_obstacles', []):
@@ -192,16 +234,28 @@ def render_scene_preview(root, record, destination):
         canvas = Image.new('RGB', (WIDTH * 2, header + count * (HEIGHT + label_height) + footer), '#102030')
         draw = ImageDraw.Draw(canvas)
         draw.text((18, 10), record['scene_id'], fill='white', font=font(25))
-        draw.text((18, 49), task.get('instruction', task['operation']), fill='#e2e8f0', font=font(20))
-        draw.text((18, 82), f"{task.get('asset_id', task['category'])} | {record.get('case', '')} | 新增物体 {len(additions)}", fill=ADDED, font=font(17))
-        stages = [(before, record.get('before_stations'), '编辑前（同步静置对照）'),
-                  (after, record['stations'], '编辑后')] if edited else [(after, record['stations'], '未编辑')]
+        instruction = (task.get('instruction') if cjk_available()
+                       else f"{task['operation']} {task.get('asset_id', task['category'])}")
+        draw.text((18, 49), instruction, fill='#e2e8f0', font=font(20))
+        intent = record.get('proposal_intent') or record.get('case') or 'unknown'
+        draw.text((18, 82), label(
+            f"{task.get('asset_id', task['category'])} | 接受意图 {intent} | 新增物体 {len(additions)} | 目标移动 {len(moves)}",
+            f"{task.get('asset_id', task['category'])} | intent {intent} | added {len(additions)} | target moves {len(moves)}"),
+            fill=ADDED, font=font(17))
+        stages = [(before, record.get('before_stations'), label('编辑前（同步静置对照）', 'Before (settled baseline)')),
+                  (after, record['stations'], label('编辑后', 'After'))] if edited else [
+                  (after, record['stations'], label('未编辑（no-edit）', 'No edit'))]
         for row, (sim, stations, stage) in enumerate(stages):
             y = header + row * (HEIGHT + label_height)
-            for col, title in enumerate((f'俯视站位分布（{len(stations)}）' if stations is not None else '俯视站位分布（记录缺失）', '目标局部侧视图')):
+            titles = (label(f'俯视站位分布（{len(stations)}）', f'Top-down stations ({len(stations)})')
+                      if stations is not None else label('俯视站位分布（记录缺失）', 'Top-down stations (not recorded)'),
+                      label('目标局部侧视图', 'Target local view'))
+            for col, title in enumerate(titles):
                 draw.text((col * WIDTH + 14, y + 7), f'{stage} · {title}', fill='white', font=font(19))
             if sim is None:
-                draw.text((24, y + 150), '原始编辑前快照未保存；不重建、不推测。', fill=ADDED, font=font(24))
+                draw.text((24, y + 150), label('原始编辑前快照未保存；不重建、不推测。',
+                                               'Before snapshot not saved; not reconstructed.'),
+                          fill=ADDED, font=font(24))
                 continue
             added = additions if sim is after else []
             top_image, calibration = observer(sim, top, 0, task['target_body'], added)
@@ -210,8 +264,14 @@ def render_scene_preview(root, record, destination):
             for col, panel in enumerate(panels):
                 canvas.paste(panel, (col * WIDTH, y + label_height))
         y = canvas.height - footer
-        draw.text((18, y + 6), '红框：可见目标；红虚框：遮挡目标投影；橙框：新增物体投影；蓝点/箭头：站位/朝向。', fill='#e2e8f0', font=font(17))
-        draw.text((18, y + 35), '仅展示：墙/顶/机器人隐藏，物理场景不变；站位编号最多标20个；站位有效不代表操作成功。', fill='#e2e8f0', font=font(17))
+        draw.text((18, y + 6), label(
+            '红框：可见目标；红虚框：遮挡目标投影；橙框：新增物体投影；蓝点/箭头：站位/朝向。',
+            'Red: visible target; dashed red: occluded target; orange: added object; blue: station/heading.'),
+            fill='#e2e8f0', font=font(17))
+        draw.text((18, y + 35), label(
+            '仅展示：墙/顶/机器人隐藏，物理场景不变；站位编号最多标20个；站位有效不代表操作成功。',
+            'Display only: walls/ceiling/robot hidden; physics unchanged; max 20 station labels; valid station does not mean task success.'),
+            fill='#e2e8f0', font=font(17))
         Path(destination).parent.mkdir(parents=True, exist_ok=True)
         canvas.save(destination)
 
@@ -225,21 +285,30 @@ def export_scene_previews(dataset):
     rendered = failed = 0
     logger.info('开始导出场景预览 记录数=%s 输出=%s', len(records), root / 'index.html', extra={'progress': True})
     for index, record in enumerate(records):
+        name = record.get('scene_id') or record.get('task_id') or f'record-{index}'
         progress.update('场景预览 已处理记录=%s/%s 已生成=%s 失败=%s 当前=%s',
-                        index, len(records), rendered, failed, record['scene_id'])
-        title = escape(record['scene_id'])
+                        index, len(records), rendered, failed, name)
+        title = escape(name)
+        intent = escape(record.get('proposal_intent') or record.get('case') or 'unknown')
         if record['status'] != 'accepted':
-            cards.append(f'<article><h2>{title} · rejected</h2><p>{escape(record.get("reason", "unknown"))}</p></article>')
+            status = escape(record.get('status', 'unknown'))
+            cards.append(f'<article><h2>{title} · {status} · 意图 {intent}</h2>'
+                         f'<p>{escape(record.get("reason", "unknown"))}</p></article>')
             continue
+        placements, moves = edit_summary(record)
+        detail = f'新增物体 {len(placements)} · 目标移动 {len(moves)}'
         relative = Path('previews') / (record['scene_id'] + '.png')
         try:
             render_scene_preview(root, record, root / relative)
             rendered += 1
-            cards.append(f'<article><h2>{title} · accepted</h2><a href="{relative.as_posix()}"><img src="{relative.as_posix()}" alt="{title}"></a></article>')
+            cards.append(f'<article><h2>{title} · accepted · 接受意图 {intent}</h2>'
+                         f'<p>{detail}</p><a href="{relative.as_posix()}">'
+                         f'<img src="{relative.as_posix()}" alt="{title}"></a></article>')
         except Exception as exc:
             failed += 1
             logger.exception('场景预览失败：%s（构建结论不变）', record['scene_id'])
-            cards.append(f'<article><h2>{title} · accepted</h2><p>预览失败：{escape(str(exc))}</p></article>')
+            cards.append(f'<article><h2>{title} · accepted · 接受意图 {intent}</h2>'
+                         f'<p>{detail}</p><p>预览失败：{escape(str(exc))}</p></article>')
     page = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>场景库预览</title>'
     page += '<style>body{font-family:sans-serif;background:#102030;color:#e2e8f0;margin:24px}article{margin:28px 0}img{width:100%;max-width:1280px}a{color:#38bdf8}</style>'
     page += '<h1>场景库预览</h1><p>点击组合图查看原图。仅供场景与采样检查，不代表机器人任务成功。</p>'

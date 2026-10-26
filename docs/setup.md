@@ -44,6 +44,15 @@ scripts/install_pi05.sh        # 需要 π0.5 时
 
 已验证版本：Python 3.11、mujoco 3.5.0、torch 2.7.1、torchvision 0.22.1、transformers 5.4.0、numpy 2.4.6、warp-lang 1.11.1、nvidia-curobo 0.8.0。
 
+当前 Blackwell 服务器需选择 CUDA 12.8 构建；`pyproject.toml` 已将 torch/torchvision 固定到 `+cu128`，安装脚本使用官方 cu128 index。修复已有 cu126 环境可执行：
+
+```bash
+.venv/bin/python -m pip install 'torch==2.7.1+cu128' 'torchvision==0.22.1+cu128' \
+  --index-url https://download.pytorch.org/whl/cu128
+```
+
+版本命令见 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/)。2026-10-26 的真实 cuRobo smoke 已确认 cu126 报 no kernel image；cu128 安装、真实 CUDA 运算与完整规划验证已完成，见[标定交付](../reports/task-modes/delivery/02-calibration-delivery.md)。
+
 `pyproject.toml` 未锁定全部依赖。严格复现时从已知可用环境导出 `pip freeze --exclude-editable`，在新环境 `install.sh` 后安装该清单。
 
 ## 3. 准备数据

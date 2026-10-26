@@ -24,6 +24,8 @@ def training_record(record, source_run, source_type):
               'status', 'task_outcome', 'recording_complete', 'observation_complete', 'executed_steps')
     result = {key: record[key] for key in fields if key in record}
     result.update(source_run=source_run, source_type=source_type)
+    result.update({key: record[key] for key in ('labels', 's1_tiers', 'diagnosis_ref', 'dataset_split',
+                                             'observations_ref', 'observation_source') if key in record})
     if source_type == 's0_to_s1_continuous':
         result.update({key: record[key] for key in ('pair_id', 's0', 's1', 'navigation',
                        'euclidean_distance_m', 'astar_path_length_m', 'navigation_steps')})
@@ -52,18 +54,24 @@ def _copy_rollout(source, target, config, record):
     for filename in ('trajectory.npz', 'recording.json'):
         shutil.copyfile(source / filename, target / filename)
     collection = config['collection']
-    cameras = config['profiles'][record['scene_id']]['robot']['cameras'] if collection['record_images'] else []
+    observation_root = Path(record['observations_ref']) if record.get('observations_ref') else source
+    replayed = read_json(observation_root / 'observations.json') if record.get('observations_ref') else None
+    if replayed and (not replayed['complete'] or replayed['frames'] != n + 1):
+        raise ValueError('incomplete replayed training observations')
+    cameras = (replayed['cameras'] if replayed else
+               config['profiles'][record['scene_id']]['robot']['cameras'] if collection['record_images'] else [])
+    record_depth = replayed['record_depth'] if replayed else collection['record_depth']
     for camera in cameras:
         destination = target / 'images' / camera
         destination.mkdir(parents=True)
         for step in range(n + 1):
             names = [f'{step:06d}.png']
-            if collection['record_depth']:
+            if record_depth:
                 names.append(f'{step:06d}-depth.npy')
             for name in names:
-                shutil.copyfile(source / 'images' / camera / name, destination / name)
+                shutil.copyfile(observation_root / 'images' / camera / name, destination / name)
     # 原配置是来源说明；读取器只消费下面的相机与录制信息，不加载外部资产。
-    write_json(target / 'metadata.json', {'cameras': cameras, 'record_depth': collection['record_depth'],
+    write_json(target / 'metadata.json', {'cameras': cameras, 'record_depth': record_depth,
                'execution': config['config'], 'collection': collection,
                'profile': config['profiles'][record['scene_id']],
                'action_layout': layout.get('action_layout', 'rby1-20d'), 'state_layout': layout.get('state_layout', 'state22'),

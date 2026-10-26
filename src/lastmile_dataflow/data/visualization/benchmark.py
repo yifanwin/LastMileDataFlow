@@ -48,7 +48,7 @@ def _map(ax, episode, evidence, region, trace=None):
                                edgecolor='#a08052', lw=1.2))
     path = np.asarray(evidence['difficulty']['oracle_path']['xy'])
     ax.plot(path[:, 0], path[:, 1], '--', color='#8056ae', lw=2,
-            label='Shortest recovery path', zorder=4)
+            label='Reference recovery route', zorder=4)
     for station in region.measured:
         if not station['high']:
             continue
@@ -94,9 +94,10 @@ def _facts(episode, evidence):
     d = evidence['difficulty']
     return [f"Episode: {episode['episode_id']} / {episode['station']['station_id']}",
             f"Task: {episode['task']['operation']} / {episode['task'].get('category', '')}",
-            f"Case: {evidence['case']} / Family: {evidence['failure_family']}",
+            (f"Modes: {', '.join(evidence['labels'])}" if 'labels' in evidence else f"Case: {evidence['case']}")
+            + f" / Family: {evidence['failure_family']}",
             f"S0 reference success: {evidence['start_successes']}/{evidence['start_trials']}",
-            f"Shortest recovery path: {_number(d['path_length_m'], ' m')}",
+            f"Reference recovery route: {_number(d['path_length_m'], ' m')}",
             f"Recovery ratio: {_number(d['recovery_ratio'])}",
             f"Detour factor: {_number(d['detour_factor'])}"]
 

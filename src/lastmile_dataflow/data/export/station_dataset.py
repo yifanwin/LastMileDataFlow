@@ -1,7 +1,7 @@
 """Check physical stations and select up to 20 coverage stations on frozen scenes."""
 import argparse
 from collections import Counter
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 from ...config import load_robot_config, robot_config
@@ -19,7 +19,7 @@ def resample(dataset, robot_path, output):
     for key in ('radius_m', 'spacing_m'):
         values.pop(key, None)
     values.update(require_target_visibility=False, require_navigation_clearance=False)
-    geometry = SceneStationConfig.from_robot(selected_robot, **values)
+    geometry = SceneStationConfig(**values)
     root = create_run(output, {'source_dataset': str(dataset), 'sampling_robot_config': str(Path(robot_path).resolve()),
         'geometry': asdict(geometry), 'station_selection': 'coverage', 'max_final_stations': 20})
     records, summaries = [], []
@@ -30,9 +30,6 @@ def resample(dataset, robot_path, output):
             raise ValueError('resampling requires a matching robot and control profile')
         sim = Simulation.from_snapshot(path, source_robot, target=scene['task']['target_body'])
         try:
-            # Sampling metadata changes; compiled physics and frozen state stay intact.
-            sim.robot.config = replace(source_robot, arm_working_reach_m=selected_robot.arm_working_reach_m,
-                                       base_radius_m=selected_robot.base_radius_m)
             candidates = sample_stations(sim, scene['task'], geometry)
             stations, selection = select_stations(candidates, scene['task']['anchor_world'], 'coverage', 20)
             relative = Path('scene-files') / scene['scene_id']

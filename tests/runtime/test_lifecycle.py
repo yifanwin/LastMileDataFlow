@@ -182,7 +182,8 @@ class RetryDirectoryTests(unittest.TestCase):
             timings={},
             recorder=SimpleNamespace(path=path),
             config=ExecutionConfig(),
-            sim=SimpleNamespace(model=Mock(), robot=Mock(control_height=Mock(return_value=0.), open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False)),
+            sim=SimpleNamespace(model=Mock(), save_snapshot=Mock(), robot=Mock(control_height=Mock(return_value=0.), open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False)),
+            budget=None,
             plan_count=0,
             plan_serial=0,
             max_plans=10,
@@ -284,6 +285,7 @@ class RetryDirectoryTests(unittest.TestCase):
                 data=SimpleNamespace(qpos=np.zeros(1), xaxis=np.zeros((1, 3)), xanchor=np.zeros(3)),
             )
             ctx.sim.model.jnt_qposadr = np.zeros(1, dtype=int)
+            ctx.sim.save_snapshot = Mock()
             ctx.sim.model.joint = Mock(return_value=SimpleNamespace(id=0))
             closed = path / "v080-closed-1-left"
             world = closed / "world-0"

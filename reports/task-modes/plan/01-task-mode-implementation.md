@@ -1,13 +1,15 @@
 # 任务模式构建、诊断与分类实施方案
 
 - 状态：active
-- 日期：2026-10-25
-- 替代：无；本方案落实已确认需求，尚未修改源码或运行实验
+- 日期：2026-10-26
+- 替代：无；落实已确认需求，本轮按用户最新要求交付至标定完成
 - 关联：[任务模式需求与已确定口径](../requirement/01-task-mode-construction.md)、[构建计划表](02-build-schedule.md)、[当前架构](../../../docs/architecture.md)、[资产资料](../../raw_asserts/)、[cuRobo 加速方案](../../curobo-time-optimization/plan/01-panda-omron-time-optimization.md)
 
 ## 1. 交付目标和固定边界
 
 把现有 Case1/2/3 场景增强改成“候选构建 → 实测标定 → 诊断 → 多标签分类”，并使训练采集与 benchmark 消费同一套结果。
+
+用户于 2026-10-26 将本轮范围收敛为“流程到标定完成即可，后续任务先不用做”。本轮交付 P0–P4（含 S0/S1 与诊断结果）；P5/P6 后续任务暂不推进，已有实现和实验产物保留，不回滚。当前结果见[标定交付](../delivery/02-calibration-delivery.md)。 P0–P4 的构建、完整标定与诊断已完成；六类有真实标签正例，Orientation/Visibility 尚无正例。历史实施方案保留，第 20 节仍为方案编写阶段记录。
 
 固定采用以下口径：
 
@@ -678,22 +680,26 @@ RecoveryRegion 使用该 episode 合格 S1 的实测锚点构建，3/3 优先、
 
 ## 15. 配置、预算和阈值
 
-### 15.1 场景配方（拟新增配置结构）
+### 15.1 场景配方（v2 解析已实现，调度待接入）
 
 ```json
 {
   "schema_version": "scene-dataset-recipe-v2",
   "data_root": "/data1/wenyifan/lmdf/molmospaces_data",
   "dataset_dir": "assets/scenes/procthor-10k-val",
+  "assets_dir": "assets",
   "asset_index": "indexes/thor/assets.jsonl",
   "robot_config": "configs/robots/panda_omron_robocasa.json",
+  "mode_config": "configs/task_modes/mode_defaults.json",
   "houses": [103, 104],
   "operations": ["pick", "open"],
   "modes": ["reachability", "ground_obstacle", "visibility", "arm_path_collision", "approach", "narrow_space", "orientation", "articulated_interaction"],
   "variants_per_intent": 1,
   "station_config": {"radius_m": 1.0, "spacing_m": 0.25},
   "max_final_stations": 20,
-  "split": {"seed": 42, "train_fraction": 0.8},
+  "split_seed": 42,
+  "train_fraction": 0.8,
+  "house_splits": {"103": "train", "104": "val"},
   "seed": 42
 }
 ```

@@ -1,20 +1,20 @@
 """Closed-loop navigation shared by the two execution backends."""
+from dataclasses import asdict
 import numpy as np
 from ..control.interface import RobotCommand
+from ...planning.navigation import yaw_gap
 
 from .context import OperationFailure
 
 def navigate(ctx,path,goal):
     sim=ctx.sim; cfg=ctx.config; ctx.phase='navigation'; ctx.monitor=None; ctx.fingers=set()
     held={side:sim.robot.arm_positions(side).copy() for side in sim.robot.arms}
-    start_yaw=sim.robot.base_pose()[2]; yaw_goal=goal['base'][2]; points=path['xy']; count=0
+    count=0
     # Adapter retains the locked lift/torso and gripper targets across base commands.
-    for index,xy in enumerate(points):
-        fraction=index/max(1,len(points)-1)
-        yaw=start_yaw+fraction*ctx.yaw_gap(yaw_goal,start_yaw)
-        target=np.r_[xy,yaw]
+    for pose in path['poses']:
+        target=np.asarray(pose, float)
         while True:
-            current=sim.robot.base_pose(); delta=target-current; delta[2]=ctx.yaw_gap(target[2],current[2])
+            current=sim.robot.base_pose(); delta=target-current; delta[2]=yaw_gap(target[2],current[2])
             if np.linalg.norm(delta[:2]) <= cfg.arrival_tolerance_m and abs(delta[2]) <= cfg.arrival_tolerance_rad: break
             count+=1
             if count > cfg.max_navigation_steps: raise OperationFailure('navigation_tracking_timeout')
@@ -25,16 +25,17 @@ def navigate(ctx,path,goal):
     ctx.phase='arrival'
     for _ in range(10):
         delta=np.asarray(goal['base'])-sim.robot.base_pose()
-        delta[2]=ctx.yaw_gap(goal['base'][2],sim.robot.base_pose()[2])
+        delta[2]=yaw_gap(goal['base'][2],sim.robot.base_pose()[2])
         if np.linalg.norm(delta[:2]) > sim.robot.config.max_base_delta or abs(delta[2]) > sim.robot.config.max_yaw_delta:
             raise OperationFailure('arrival_tracking_error')
         ctx.tick(RobotCommand(base_xyyaw=sim.robot.base_pose()+delta, arm_q=held))
     actual=sim.robot.base_pose()
     xy_error=float(np.linalg.norm(actual[:2]-np.asarray(goal['base'])[:2]))
-    yaw_error=abs(ctx.yaw_gap(goal['base'][2],actual[2]))
+    yaw_error=abs(yaw_gap(goal['base'][2],actual[2]))
     if xy_error > cfg.arrival_tolerance_m or yaw_error > cfg.arrival_tolerance_rad:
         raise OperationFailure('arrival_tracking_error')
     return {'status':'success','actual_base':actual.tolist(),'steps':count,
+            **asdict(ctx.navigation_contacts),
             'xy_error_m':xy_error,'yaw_error_rad':yaw_error,
             'arrival_tolerance_m':cfg.arrival_tolerance_m,'arrival_tolerance_rad':cfg.arrival_tolerance_rad}
 

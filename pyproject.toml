@@ -9,13 +9,14 @@ description = "Rule-based scene construction, RBY-1 execution and evidence"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26,<3",
+    "scipy>=1.15",
     "mujoco==3.5.0",
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
     "matplotlib>=3.8",
     "Pillow>=10",
-    "torch==2.7.1",
-    "torchvision==0.22.1",
+    "torch==2.7.1+cu128",
+    "torchvision==0.22.1+cu128",
     "transformers==5.4.0",
     "pydantic>=2",
     "einops>=0.8",
@@ -27,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-panda-factory = ["scipy>=1.15", "numba>=0.61", "qpsolvers[quadprog]>=4", "opencv-python-headless>=4.11", "termcolor>=3", "tqdm>=4"]
+panda-factory = ["numba>=0.61", "qpsolvers[quadprog]>=4", "opencv-python-headless>=4.11", "termcolor>=3", "tqdm>=4"]
 pi05-data = ["lerobot==0.3.3", "datasets==3.6.0"]
 
 [project.scripts]

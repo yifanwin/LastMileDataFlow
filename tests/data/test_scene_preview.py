@@ -32,6 +32,7 @@ class ScenePreviewTests(unittest.TestCase):
             sim.freeze(self.root / 'after')
         self.record = {
             'scene_id': 'fixture', 'status': 'accepted', 'scene': 'after',
+            'proposal_intent': 'reachability',
             'task': {'target_body': 'target', 'anchor_world': [2, 0, .15],
                      'category': 'Cup', 'operation': 'pick', 'instruction': '拿起杯子'},
             'placements': [], 'stations': [{'station_id': 'S0001', 'xy': [1, 0], 'base': [1, 0, 0]}],
@@ -49,6 +50,20 @@ class ScenePreviewTests(unittest.TestCase):
     def test_projection_uses_actual_intrinsics_and_ignores_behind_camera(self):
         projected = preview.project([[2, 0, 2], [0, 0, -1]], self.calibration)
         np.testing.assert_allclose(projected, [[330, 240]])
+
+    def test_v2_edits_pair_against_task_baseline(self):
+        record = {
+            'scene': 'scene-files/val0-task-arm_path_collision-v000',
+            'proposal_intent': 'arm_path_collision',
+            'edits': {'placements': [{}], 'target_moves': []},
+        }
+        self.assertEqual(preview.edit_summary(record), ([{}], []))
+        self.assertEqual(preview.before_scene_location(record),
+                         'scene-files/val0-task/baseline')
+        self.assertIsNone(preview.before_scene_location(
+            {**record, 'edits': {}, 'scene': 'scene-files/val0-task/baseline'}))
+        moves = {**record, 'edits': {'placements': [], 'target_moves': [{}]}}
+        self.assertEqual(preview.edit_summary(moves), ([], [{}]))
 
     def test_single_row_and_paired_rows_reuse_camera_rigs(self):
         for edited in (False, True):
@@ -79,13 +94,18 @@ class ScenePreviewTests(unittest.TestCase):
         record_file = self.root / 'scenes.jsonl'
         append_row(record_file, self.record)
         append_row(record_file, {'scene_id': 'rejected', 'status': 'rejected', 'reason': 'budget < limit'})
+        append_row(record_file, {'task_id': 'skipped-task', 'status': 'skipped',
+                                 'reason': 'mode_not_applicable', 'proposal_intent': 'articulated_interaction'})
         original = record_file.read_bytes()
         with patch.object(preview, 'render_scene_preview') as render:
             index = preview.export_scene_previews(self.root)
         self.assertEqual(render.call_count, 1)
         page = index.read_text()
         self.assertIn('previews/fixture.png', page)
+        self.assertIn('接受意图 reachability', page)
         self.assertIn('budget &lt; limit', page)
+        self.assertIn('rejected · 意图 unknown', page)
+        self.assertIn('skipped-task · skipped · 意图 articulated_interaction', page)
         self.assertEqual(record_file.read_bytes(), original)
 
     def test_render_failure_does_not_change_build_status(self):

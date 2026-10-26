@@ -5,6 +5,9 @@ import numpy as np
 from ..runtime.control.action import InvalidAction, validate_action, vector
 
 
+GRASP_APPROACH_DISTANCE_M = .08
+
+
 @dataclass(frozen=True)
 class PlanResult:
     status: str  # success / no_solution / fov_constraint_failed / infrastructure_error / not_tested

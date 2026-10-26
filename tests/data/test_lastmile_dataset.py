@@ -61,6 +61,25 @@ class MaterializationTests(unittest.TestCase):
                           navigation_steps=1, euclidean_distance_m=1.42, astar_path_length_m=2.31)
         return record
 
+    def test_materialization_uses_derived_observations_for_numeric_source(self):
+        observation = self.reference / 'observations/r0'
+        observation.mkdir(parents=True)
+        shutil.move(self.calibration/'rollouts/r0/images', observation/'images')
+        write_json(observation/'observations.json', {'complete': True, 'frames': 4,
+                   'cameras': ['head_camera'], 'record_depth': True})
+        numeric = {**self.config, 'collection': {'record_images': False, 'record_depth': False}}
+        write_json(self.calibration/'config.json', numeric)
+        direct = rows(self.reference/'train_index.jsonl')[0]
+        direct.update(observations_ref=str(observation), observation_source='measured_state_replay', observation_complete=True)
+        write_rows(self.reference/'train_index.jsonl', [direct])
+        output = materialize_lastmile(self.reference, self.root/'numeric-materialized')
+        shutil.rmtree(self.calibration)
+        shutil.rmtree(self.reference)
+        batch = load_training_batch(output, [0], steps=2)
+        self.assertEqual(batch['images']['head_camera'].shape, (1, 2, 8, 8, 3))
+        self.assertEqual(batch['depth']['head_camera'].shape, (1, 2, 8, 8))
+        self.assertEqual(rows(output/'train_index.jsonl')[0]['observation_source'], 'measured_state_replay')
+
     def test_copy_deduplicate_and_load_batch_after_relocation_without_sources(self):
         output = materialize_lastmile(self.reference, self.root / 'materialized')
         training = rows(output / 'train_index.jsonl')

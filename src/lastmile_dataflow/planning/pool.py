@@ -34,14 +34,17 @@ class PlanningService:
         queue_s = started - request.enqueued_at
         inputs = request.inputs
         task, config = inputs['task'], inputs['config']
-        baseline = self.baseline(request)
         directory = Path(inputs['root']) / 'planning' / request.query_id
         directory.mkdir(parents=True, exist_ok=False)
         write_json(directory / 'query.json', {'query_id': request.query_id,
+            'started_at': started,
             'identities': [asdict(identity) for identity in request.identities],
             'budgets': [asdict(budget) for budget in request.budgets], 'stage': request.stage,
             'model_dir': request.model_dir, 'preparation_path': inputs.get('preparation_path'),
             'recording_step': inputs.get('recording_step')})
+        baseline = self.baseline(request)
+        if request.stage == 'diagnostic_ik':
+            return self.diagnostic_ik(request, baseline, directory, started, queue_s)
         max_plans = config.max_open_plans if task['operation'] == 'open' else config.max_operation_plans
 
         def query(phase):
@@ -69,6 +72,9 @@ class PlanningService:
                     if not pools[0]:
                         raise OperationFailure('no_grasp_candidates')
                     goals = [grasp_goals(sim, config, pool, retreat=task['operation'] == 'open') for pool in pools]
+                    write_json(directory / 'grasp_candidates.json', {'lanes': [
+                        {'identity': asdict(identity), 'seed': identity.seed, 'candidates': pool}
+                        for identity, pool in zip(request.identities, pools)]})
                     lanes = planner.grasp_batch(goals, seeds, query)
                     for lane in lanes:
                         lane.update(side=side, joint_names=list(planner.names), reference_world=planner.base.tolist())
@@ -86,6 +92,11 @@ class PlanningService:
         elapsed = time.monotonic() - started
         responses = []
         for index, (identity, lane) in enumerate(zip(request.identities, lanes)):
+            lane.setdefault('diagnostics', {}).update(query_id=request.query_id,
+                identity=asdict(identity), batch_slot=index,
+                query_ref=str((directory / 'query.json').resolve()))
+            if not closed:
+                lane['diagnostics']['planning_state_ref'] = str(Path(inputs['preparation_path']) / 'state.npz')
             success = lane['result']['status'] == 'success' if closed else lane['success']
             status = 'success' if success else 'planning_no_solution'
             if request.budgets[index].remaining_s <= elapsed:
@@ -94,6 +105,45 @@ class PlanningService:
                 request.budgets[index].plan_count, lane,
                 {'stage': request.stage, 'query_path': str(directory)}, queue_s))
         return responses
+
+    def diagnostic_ik(self, request, baseline, directory, started, queue_s):
+        from ..runtime.execution.context import clone_sim, planner_options
+        from ..runtime.execution.manipulation import grasp_goals
+        from ..scenes.mode_config import load_mode_config
+
+        if len(request.identities) != 1:
+            raise ValueError('diagnostic IK owns one S0 identity, separate from raw trials')
+        inputs = request.inputs
+        config, task = inputs['config'], inputs['task']
+        settings = load_mode_config(config.mode_config)
+        identity, budget = request.identities[0], request.budgets[0]
+        limit = min(settings.probe_timeout_s, budget.limit_s)
+        candidates = inputs['candidates'][:settings.probe_grasps]
+        write_json(directory / 'grasp_candidates.json', {'identity': asdict(identity),
+            'candidates': candidates, 'trial_refs': inputs['trial_refs'], 'diagnostic_only': True})
+        evidence = {'status': 'unresolved', 'reason': 'no_diagnostic_grasps'}
+        if candidates:
+            with closing(clone_sim(baseline, target=task['target_body'], handle=task.get('handle_body'))) as sim:
+                request.state.initialize(sim)
+                options = planner_options(replace(config, num_ik_seeds=settings.probe_ik_seeds),
+                                          inputs['assets_dir'], identity.seed)
+                with self.planners.acquire(sim, options, sim.robot.arms[0], directory,
+                        workspace=(task['anchor_world'], config.radius_m),
+                        batch_size=len(candidates), ik_only=True) as planner:
+                    if time.monotonic() - started >= limit:
+                        evidence = {'status': 'unresolved', 'reason': 'probe_active_budget'}
+                    else:
+                        goals = grasp_goals(sim, config, candidates, retreat=task['operation'] == 'open')
+                        evidence = planner.diagnostic_ik(goals, seed=identity.seed,
+                                                        seeds_per_grasp=settings.probe_ik_seeds)
+        elapsed = time.monotonic() - started
+        if elapsed > limit:
+            evidence.update(status='unresolved', reason='probe_active_budget', feasible_ratio=None)
+        evidence.update(active_s=elapsed, queue_s=queue_s, limit_s=limit, diagnostic_only=True,
+                        query_ref=str((directory / 'query.json').resolve()), trial_refs=inputs['trial_refs'])
+        write_json(directory / 'ik_probe.json', evidence)
+        return [PlanningResponse(request.query_id, identity, 'success', elapsed,
+            budget.plan_count, {'probe': evidence}, {'stage': request.stage, 'query_path': str(directory)}, queue_s)]
 
     def close(self):
         self.planners.close()
@@ -149,7 +199,7 @@ class PlanningPool:
             process.start()
 
     def submit(self, request):
-        priority = 0 if request.stage == 'pose' else 1
+        priority = 0 if request.stage == 'pose' else 2 if request.stage == 'diagnostic_ik' else 1
         heapq.heappush(self.pending, (priority, self.serial, request))
         self.serial += 1
 

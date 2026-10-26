@@ -85,7 +85,10 @@ def fixtures(root):
     ET.ElementTree(xml).write(robot_path)
     scene = root / "scene.xml"
     scene.write_text("""<mujoco model="synthetic_scene"><compiler angle="radian"/>
+    <asset><mesh name="room_bounds" vertex="-3 -3 0  5 -3 0  5 3 0  -3 3 0
+        -3 -3 -.02  5 -3 -.02  5 3 -.02  -3 3 -.02"/></asset>
     <worldbody><geom name="floor" type="plane" size="0 0 .01"/>
+    <geom name="room_fixture_floor" type="mesh" mesh="room_bounds" contype="0" conaffinity="0" rgba="0 0 0 0"/>
     <body name="target" pos="2 0 .15"><freejoint name="target_free"/><geom name="target_geom" type="sphere" size=".1" mass=".1"/></body>
     </worldbody></mujoco>""")
     config = RobotConfig(str(robot_path))

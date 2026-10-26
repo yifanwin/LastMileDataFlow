@@ -1,10 +1,11 @@
-"""Strategy-free scene recipes and robot/sensor station geometry."""
+"""Scene recipes and station geometry independent of robot dimensions."""
 from dataclasses import dataclass, field
 import math
 import re
+import numpy as np
 
 from ..config import load_robot_config, read_config
-from .tasks.eligibility import PICK_TYPES, SUPPORT_TYPES
+from .mode_config import MODE_NAMES, load_mode_config
 
 
 def house_number(value):
@@ -19,13 +20,14 @@ def house_number(value):
 
 @dataclass(frozen=True)
 class SceneStationConfig:
-    radius_m: float
-    spacing_m: float
+    radius_m: float = 1.0
+    spacing_m: float = .25
     require_target_visibility: bool = False
     require_navigation_clearance: bool = False
     width: int = 320
     height: int = 240
     min_target_pixels: int = 24
+    min_reference_pixels: int = 24
     map_resolution_m: float = .05
     navigation_margin_m: float = .02
     navigation_whole_body: bool = False
@@ -37,15 +39,6 @@ class SceneStationConfig:
     open_hinge_rad: float = math.pi / 6
     open_slide_m: float = .10
 
-    @classmethod
-    def from_robot(cls, robot, **values):
-        values.setdefault('radius_m', robot.arm_working_reach_m)
-        if 'spacing_m' not in values:
-            values['spacing_m'] = robot.base_radius_m / 4 if robot.base_radius_m is not None else None
-        if values['radius_m'] is None or values['spacing_m'] is None:
-            raise ValueError('configure robot arm_working_reach_m and base_radius_m, or explicit sampling geometry')
-        return cls(**values)
-
     def __post_init__(self):
         for key in ('radius_m', 'spacing_m', 'map_resolution_m', 'gripper_width_m',
                     'open_fraction', 'open_hinge_rad', 'open_slide_m'):
@@ -56,7 +49,7 @@ class SceneStationConfig:
             raise ValueError('invalid open_fraction')
         if not math.isfinite(self.navigation_margin_m) or self.navigation_margin_m < 0:
             raise ValueError('invalid navigation margin')
-        for key in ('width', 'height', 'min_target_pixels'):
+        for key in ('width', 'height', 'min_target_pixels', 'min_reference_pixels'):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError('positive integer required: ' + key)
         if not self.operations or set(self.operations) - {'pick', 'open'}:
@@ -66,93 +59,81 @@ class SceneStationConfig:
 
 
 @dataclass(frozen=True)
-class SceneDatasetRecipe:
+class TaskModeRecipe:
     dataset_dir: str
-    asset_library: str
+    assets_dir: str
+    asset_index: str
     robot_config: str
+    mode_config: str
     houses: list
-    schema_version: str = 'scene-dataset-recipe-v1'
-    rule_version: str = 'scene-cases-v2'
-    targets: dict = field(default_factory=dict)
-    input_snapshots: dict = field(default_factory=dict)
-    categories: list = field(default_factory=list)
-    pick_target_types: list = field(default_factory=list)
-    case1_support_types: list = field(default_factory=lambda: list(SUPPORT_TYPES))
-    cases: list = field(default_factory=lambda: ['Case1', 'Case2', 'Case3'])
-    variants_per_case: int = 5
+    schema_version: str = 'scene-dataset-recipe-v2'
+    execution_config: str = 'configs/task_modes/panda_omron_calibration.json'
+    modes: list = field(default_factory=lambda: list(MODE_NAMES))
+    operations: list = field(default_factory=lambda: ['pick', 'open'])
+    variants_per_intent: int = 1
+    max_final_stations: int = 20
     max_pick_targets_per_house: int = 3
     max_open_targets_per_house: int = 1
-    min_target_separation_m: float = .75
-    min_prefilter_points: int = 5
-    min_final_points: int = 5
-    max_final_stations: int = 20
-    station_selection: str = 'coverage'
+    targets: dict = field(default_factory=dict)
+    input_snapshots: dict = field(default_factory=dict)
     station_config: dict = field(default_factory=dict)
+    house_splits: dict = field(default_factory=dict)
+    split_seed: int = 42
+    train_fraction: float = .8
     seed: int = 42
-    assets_per_category: int = 6
-    max_candidates: int = 2400
-    max_physical_trials: int = 12
-    variant_timeout_s: float = 1800.
-    case1_added_surface_count: list = field(default_factory=lambda: [5, 8])
-    case2_added_surface_count: list = field(default_factory=lambda: [10, 20])
-    case1_surface_categories: list = field(default_factory=lambda: ['Bowl', 'Cup', 'Mug', 'Bottle', 'Plate'])
-    case2_surface_categories: list = field(default_factory=lambda: ['Bowl', 'Cup', 'Mug', 'Bottle', 'SaltShaker', 'Kettle', 'CoffeeMachine', 'Vase'])
-    min_substantial: int = 2
-    settle: dict = field(default_factory=lambda: {'require_source_stability': False})
-    views: dict = field(default_factory=lambda: {'width': 640, 'height': 480})
     local_task_models: bool = False
+    settle: dict = field(default_factory=lambda: {'require_source_stability': False})
 
     def __post_init__(self):
-        if self.schema_version != 'scene-dataset-recipe-v1' or self.rule_version not in ('scene-cases-v2', 'scene-cases-v3'):
-            raise ValueError('unknown scene dataset recipe/rule version')
-        if self.rule_version == 'scene-cases-v3' and (not self.pick_target_types or set(self.pick_target_types)-set(PICK_TYPES)):
-            raise ValueError('v3 requires explicit approved pick target types')
-        if not self.case1_support_types or set(self.case1_support_types)-set(SUPPORT_TYPES):
-            raise ValueError('Case1 supports must be countertops/tables')
-        normalized = [house_number(h) for h in self.houses]
-        if not normalized or len(set(normalized)) != len(normalized):
-            raise ValueError('explicit, unique, nonempty houses required; no implicit full scan')
-        object.__setattr__(self, 'houses', normalized)
-        if not self.cases or set(self.cases) - {'Case1', 'Case2', 'Case3'} or len(set(self.cases)) != len(self.cases):
-            raise ValueError('invalid cases')
-        if self.station_selection not in ('coverage', 'all_valid'):
-            raise ValueError('invalid station selection')
+        if self.schema_version != 'scene-dataset-recipe-v2':
+            raise ValueError('expected task-mode recipe v2')
+        houses = [house_number(h) for h in self.houses]
+        if not houses or len(set(houses)) != len(houses):
+            raise ValueError('explicit unique source houses required')
+        object.__setattr__(self, 'houses', houses)
+        if not self.modes or len(set(self.modes)) != len(self.modes) or set(self.modes) - set(MODE_NAMES):
+            raise ValueError('unknown or duplicate task mode')
+        if not self.operations or set(self.operations) - {'pick', 'open'}:
+            raise ValueError('task modes support Pick/Open')
+        if self.geometry.radius_m != 1. or self.geometry.spacing_m != .25:
+            raise ValueError('task-mode sampling requires 1 m / 0.25 m')
+        if type(self.max_final_stations) is not int or not 1 <= self.max_final_stations <= 20:
+            raise ValueError('task-mode pose budget is at most twenty, including yaw variants')
+        if type(self.variants_per_intent) is not int or self.variants_per_intent < 1:
+            raise ValueError('positive variants_per_intent required')
+        if self.local_task_models:
+            raise ValueError('initial task-mode validation uses complete source models')
         for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
-            value = getattr(self, key)
-            if type(value) is not int or (value != -1 and value <= 0):
-                raise ValueError('target count must be -1 (unlimited) or a positive integer: ' + key)
-        for key in ('variants_per_case',
-                    'min_prefilter_points', 'min_final_points', 'max_final_stations', 'assets_per_category',
-                    'max_candidates', 'max_physical_trials', 'min_substantial'):
-            if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
-                raise ValueError('positive integer required: ' + key)
-        if self.station_selection == 'coverage' and self.min_final_points > self.max_final_stations:
-            raise ValueError('final station limit below minimum count')
-        for name, bounds in (('case1_added_surface_count', (5, 8)), ('case2_added_surface_count', (10, 20))):
-            values = getattr(self, name)
-            if len(values) != 2 or not bounds[0] <= values[0] <= values[1] <= bounds[1]:
-                raise ValueError('invalid ' + name)
-        if any(house_number(k) not in normalized for k in self.targets):
-            raise ValueError('target selectors reference unrequested house')
-        if self.seed < 0 or not math.isfinite(self.variant_timeout_s) or self.variant_timeout_s <= 0:
-            raise ValueError('invalid seed/time budget')
-        if not math.isfinite(self.min_target_separation_m) or self.min_target_separation_m <= 0:
-            raise ValueError('invalid target separation')
+            if type(getattr(self, key)) is not int or getattr(self, key) == 0 or getattr(self, key) < -1:
+                raise ValueError('target limit is -1 or positive: ' + key)
+        if self.seed < 0 or self.split_seed < 0 or not 0 < self.train_fraction < 1:
+            raise ValueError('invalid split or random seed')
+        splits = {str(house_number(h)): split for h, split in self.house_splits.items()}
+        if not splits:
+            order = np.random.default_rng(self.split_seed).permutation(sorted(houses))
+            train = set(order[:int(len(order) * self.train_fraction)])
+            splits = {str(h): 'train' if h in train else 'val' for h in sorted(houses)}
+        if not {str(h) for h in houses} <= splits.keys() or set(splits.values()) - {'train', 'val'}:
+            raise ValueError('source split must cover every requested house with train/val')
+        object.__setattr__(self, 'house_splits', splits)
 
     @property
     def geometry(self):
-        values = {**self.station_config, 'seed': self.seed}
-        if 'radius_m' in values and 'spacing_m' in values:
-            return SceneStationConfig(**values)
-        return SceneStationConfig.from_robot(load_robot_config(self.robot_config), **values)
+        return SceneStationConfig(**{**self.station_config, 'seed': self.seed, 'operations': self.operations})
 
     def selectors(self, house):
         return [t for h, values in self.targets.items() if house_number(h) == house for t in values]
 
 
-def load_scene_recipe(path):
-    return SceneDatasetRecipe(**read_config(path, data_fields=('dataset_dir', 'asset_library', 'input_snapshots'), repo_fields=('robot_config',)))
-
-
-def load_scene_robot(path):
-    return load_robot_config(path)
+def load_task_mode_recipe(path):
+    recipe = TaskModeRecipe(**read_config(path,
+        data_fields=('dataset_dir', 'assets_dir', 'asset_index', 'input_snapshots'),
+        repo_fields=('robot_config', 'mode_config', 'execution_config')))
+    robot = load_robot_config(recipe.robot_config)
+    if robot.name != 'panda_omron' or robot.control_profile != 'robocasa-v1':
+        raise ValueError('task modes require PandaOmron robocasa-v1')
+    from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
+    if set(robot.cameras) != set(ROBOCASA_CAMERAS):
+        raise ValueError('task modes require all three RoboCasa cameras')
+    load_mode_config(recipe.mode_config)
+    return recipe

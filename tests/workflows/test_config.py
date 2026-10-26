@@ -8,7 +8,7 @@ from unittest.mock import patch
 from lastmile_dataflow.config import CollectionConfig, LocalConfig, RobotConfig, load_local_config, read_config
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.policies.molmobot_config import load_policy_config
-from lastmile_dataflow.scenes.dataset_config import load_scene_robot
+from lastmile_dataflow.config import load_robot_config
 
 
 class PathTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class PathTests(unittest.TestCase):
             root = Path(tmp)
             path = root / "configs/nested/robot.json"
             write_json(path, {"data_root": str(root / "assets"), "model_path": "robot.xml"})
-            robot = load_scene_robot(path)
+            robot = load_robot_config(path)
             self.assertEqual(robot.model_path, str(root / "assets/robot.xml"))
 
     def test_missing_data_root_is_not_guessed(self):
@@ -37,7 +37,7 @@ class PathTests(unittest.TestCase):
             path = Path(tmp) / "robot.json"
             write_json(path, {"model_path": "robot.xml"})
             with self.assertRaisesRegex(ValueError, "data_root"):
-                load_scene_robot(path)
+                load_robot_config(path)
 
     def test_repo_paths_preserve_virtual_environment_interpreter(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -70,3 +70,37 @@ def render_run(run, output, *, rollouts, camera):
     for identity in rollouts:
         render_rollout(run / 'rollouts' / identity, output / identity, camera=camera)
     return output
+
+
+def render_observations(rollout, output, *, cameras, depth=False):
+    """Render every recorded boundary for training, with no physics or interpolation."""
+    rollout, output = Path(rollout), Path(output)
+    metadata = read_json(rollout / 'recording.json')
+    if not metadata['replay_complete'] or metadata['steps'] <= 0 or metadata['mujoco_version'] != mujoco.__version__:
+        raise ValueError('training replay requires a complete executed trace and matching MuJoCo')
+    model = mujoco.MjModel.from_binary_path(str(Path(metadata['model_dir']) / 'model.mjb'))
+    data = mujoco.MjData(model)
+    output.mkdir(parents=True, exist_ok=False)
+    width, height = metadata['resolution']
+    started = time.monotonic()
+    for camera in cameras:
+        (output / 'images' / camera).mkdir(parents=True)
+    with (np.load(rollout / 'trajectory.npz', allow_pickle=False) as trajectory,
+          mujoco.Renderer(model, height=height, width=width) as renderer):
+        if len(trajectory['integration_state']) != metadata['steps'] + 1:
+            raise ValueError('training replay has an incomplete measured state sequence')
+        for index in range(metadata['steps'] + 1):
+            restore_frame(model, data, trajectory, index)
+            for camera in cameras:
+                renderer.update_scene(data, camera=metadata['cameras'][camera])
+                imageio.imwrite(output / 'images' / camera / f'{index:06d}.png', renderer.render())
+                if depth:
+                    renderer.enable_depth_rendering()
+                    values = renderer.render().copy()
+                    renderer.disable_depth_rendering()
+                    np.save(output / 'images' / camera / f'{index:06d}-depth.npy', values)
+    result = {'complete': True, 'source': 'measured_state_replay', 'rollout': str(rollout.resolve()),
+              'cameras': list(cameras), 'record_depth': depth, 'frames': metadata['steps'] + 1,
+              'elapsed_s': time.monotonic() - started, 'new_physical_steps': 0}
+    write_json(output / 'observations.json', result)
+    return result

@@ -99,11 +99,14 @@ class ObstacleEditSession:
         self.models[key] = model, catalog, spec
         return self.models[key]
 
-    def candidate(self, placements, *, deadline=None):
+    def candidate(self, placements, *, target_moves=(), deadline=None):
         self.reject()
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError('variant wall-clock budget exhausted')
-        model, catalog, spec = self._model([p['asset_id'] for p in placements])
+        if placements:
+            model, catalog, spec = self._model([p['asset_id'] for p in placements])
+        else:
+            model, catalog, spec = self.baseline.model, self.baseline.catalog, self.baseline.spec
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError('variant wall-clock budget exhausted during model compilation')
         target = self.baseline.model.body(self.baseline.target_id).name if self.baseline.target_id is not None else None
@@ -123,6 +126,14 @@ class ObstacleEditSession:
                 q, v = int(model.jnt_qposadr[j]), int(model.jnt_dofadr[j])
                 new.data.qpos[q:q + 7] = placement['pose']['position'] + placement['pose']['quaternion_wxyz']
                 new.data.qvel[v:v + 6] = 0.
+            for move in target_moves:
+                body = model.body(move['body']).id
+                joint = int(model.body_jntadr[body])
+                if model.body_jntnum[body] != 1 or model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE:
+                    raise ValueError('target relocation requires a free object root')
+                q, v = int(model.jnt_qposadr[joint]), int(model.jnt_dofadr[joint])
+                new.data.qpos[q:q + 7] = move['pose']['position'] + move['pose']['quaternion_wxyz']
+                new.data.qvel[v:v + 6] = 0.
             mujoco.mj_forward(model, new.data)
         except BaseException:
             new.close()
@@ -130,7 +141,7 @@ class ObstacleEditSession:
         self.sim = new
         return new
 
-    def settle(self, *, deadline=None, duration_s=None):
+    def settle(self, *, deadline=None, duration_s=None, moved_bodies=()):
         self.active()
         if self.sim is None:
             raise RuntimeError('no candidate')
@@ -141,6 +152,7 @@ class ObstacleEditSession:
         else:
             config = self.config
         names = {c['instance_id'] for c in self.sim.catalog if c['instance_id'].startswith('procedural_obstacle_')}
+        names.update(moved_bodies)
         return settle_scene(self.sim, config, deadline=deadline, stability_instances=names)
 
     def close(self):

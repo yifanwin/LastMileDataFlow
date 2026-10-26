@@ -122,6 +122,7 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
     finally:
         mark_episode_phase('finalize')
         if path:
+            navigation.update(asdict(ctx.navigation_contacts))
             navigation['steps'] = sum(phase == 'navigation' for phase in recorder.phases)
             if navigation['status'] == 'running':
                 navigation.update(status='unknown', reason=reason)
@@ -163,6 +164,8 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
         write_json(recorder.path/'execution_diagnostics.json',diagnostics)
     result['status'] = recorder.result['status']
     return {**result, 'station_id': station['station_id'], 'attempt': str(recorder.path),
+            'planning_ref': (str(recorder.path.relative_to(recorder.output_root) / 'planning.json')
+                             if (recorder.path / 'planning.json').is_file() else None),
             'rollout_id': recorder.attempt_id, 'seed': seed, 'executed_steps': recorder.steps,
             'recording_complete': recorder.result['recording_complete'],
             'observation_complete': recorder.result['observation_complete'],

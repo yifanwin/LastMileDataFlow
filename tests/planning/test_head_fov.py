@@ -1,6 +1,8 @@
 """视野几何、稀疏路径检查和可微代价。"""
 
 import math
+from pathlib import Path
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -152,7 +154,10 @@ class HeadFOVTests(unittest.TestCase):
             )
         )
         planner.names = joint_names("left")
-        planner.query_log = []
+        planner.query_log, planner.solver_log = [], []
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        planner.path = Path(directory.name)
         planner.fov_log = [{"valid": False}]
         planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
         planner.base = np.eye(4)
@@ -171,7 +176,10 @@ class HeadFOVTests(unittest.TestCase):
         native = SimpleNamespace(success=torch.tensor([True]), get_interpolated_plan=lambda: None)
         planner.motion = SimpleNamespace(plan_pose=lambda *a: native)
         planner.names = joint_names("left")
-        planner.query_log = []
+        planner.query_log, planner.solver_log = [], []
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        planner.path = Path(directory.name)
         planner.fov_log = []
         planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
         planner.base = np.eye(4)

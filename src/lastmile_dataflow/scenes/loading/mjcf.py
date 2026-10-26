@@ -89,7 +89,7 @@ def absolute_assets(spec, root):
 
 def save_spec(spec, path):
     """Export reloadable MuJoCo 3.5 XML after attaching scene/robot specs."""
-    xml = ET.fromstring(spec.to_xml())
+    xml = ET.fromstring(spec.copy().to_xml())
     for texture in xml.findall('./asset/texture'):
         if 'gridlayout' in texture.attrib:
             rows, columns = map(int, texture.get('gridsize', '1 1').split())

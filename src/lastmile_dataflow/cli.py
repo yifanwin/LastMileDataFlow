@@ -21,7 +21,6 @@ def parser():
     source = build.add_mutually_exclusive_group(required=True)
     source.add_argument('--config', type=Path)
     source.add_argument('--preview-dataset', type=Path, help='只补生成已有场景库的组合图和浏览页')
-    build.add_argument('--allow-partial-targets', action='store_true')
     build.add_argument('--build-workers', type=int, default=1, help='房屋发现和任务构建进程数（1–12）')
     for name in ('evaluate-stations', 'collect-lastmile'):
         command = commands.add_parser(name)
@@ -34,7 +33,9 @@ def parser():
             source.add_argument('--dataset', type=Path)
             source.add_argument('--replay-from', type=Path, help='按实测状态离线渲染已有标定 run')
             command.add_argument('--rollouts', nargs='+', help='离线回放的 rollout ID')
-            command.add_argument('--replay-camera', help='recording.json 中的相机别名')
+            command.add_argument('--replay-camera', help='recording.json 中的相机别名；grid 布局不需要')
+            command.add_argument('--replay-layout', choices=('camera', 'grid'), default='camera',
+                                 help='camera: 单相机 mp4；grid: 三相机 + 俯视底盘轨迹 2×2')
         command.add_argument('--assets-dir', type=Path,
                              default=local.assets_dir, help='资产目录；默认读取 configs/local.json')
         command.add_argument('--config', type=Path, default=Path('configs/execution/curobo_v2.json'))
@@ -67,7 +68,7 @@ def parser():
         command.add_argument('--run-id', required=command is not build)
     for name, command in commands.choices.items():
         command.add_argument('--gpu', required=name not in ('collect-lastmile', 'build-bench'), type=int,
-                             **({'nargs': '+'} if name in ('evaluate-stations', 'collect-lastmile') else {}))
+                             **({'nargs': '+'} if name in ('build-scenes', 'evaluate-stations', 'collect-lastmile') else {}))
     return cli
 
 
@@ -78,8 +79,10 @@ def main(argv=None):
         cli.error('build-scenes --config requires --run-id')
     materializing = args.command == 'collect-lastmile' and args.materialize_from is not None
     replaying = args.command == 'evaluate-stations' and args.replay_from is not None
-    if replaying and (not args.rollouts or not args.replay_camera):
-        cli.error('--replay-from requires --rollouts and --replay-camera')
+    if replaying and not args.rollouts:
+        cli.error('--replay-from requires --rollouts')
+    if replaying and args.replay_layout == 'camera' and not args.replay_camera:
+        cli.error('camera replay requires --replay-camera')
     if args.command == 'evaluate-stations' and not replaying and args.assets_dir is None:
         cli.error('evaluate-stations --dataset requires --assets-dir (or local assets_dir)')
     if args.command == 'collect-lastmile' and not materializing and (args.gpu is None or args.assets_dir is None):
@@ -94,9 +97,14 @@ def main(argv=None):
                           MUJOCO_EGL_DEVICE_ID=str(egl_devices[0] if egl_devices else gpu_ids[0]))
         os.environ.setdefault('MUJOCO_GL', 'egl')
     if replaying:
-        from .data.rendering.replay import render_run
-        output = render_run(args.replay_from, args.output_dir / 'replays' / args.run_id,
-                            rollouts=args.rollouts, camera=args.replay_camera)
+        if args.replay_layout == 'grid':
+            from .data.rendering.rollout_video import render_run_grid
+            output = render_run_grid(args.replay_from, args.output_dir / 'replays' / args.run_id,
+                                     rollouts=args.rollouts)
+        else:
+            from .data.rendering.replay import render_run
+            output = render_run(args.replay_from, args.output_dir / 'replays' / args.run_id,
+                                rollouts=args.rollouts, camera=args.replay_camera)
     elif materializing:
         from .data.export.lastmile_dataset import materialize_lastmile
         output = materialize_lastmile(args.materialize_from, args.output_dir / args.run_id)
@@ -106,7 +114,7 @@ def main(argv=None):
     elif args.command == 'build-scenes':
         from .workflows.scene_datasets import build_scenes
         output = build_scenes(args.config, args.output_dir, args.run_id, gpu_ids=gpu_ids,
-                              allow_partial_targets=args.allow_partial_targets, workers=args.build_workers)
+                              workers=args.build_workers)
     elif args.command in ('evaluate-stations', 'collect-lastmile'):
         from .config import CollectionConfig
         from .runtime.execution_config import load_execution_config

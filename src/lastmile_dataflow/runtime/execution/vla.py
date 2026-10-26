@@ -16,7 +16,7 @@ from ...data.rendering.edit_views import ViewConfig
 from ...data.rendering.analysis_video import AnalysisVideo
 from ...policies.task import instruction
 from ...scenes.stations.sampling import place_frozen_station
-from ..outcomes.contacts import ContactStatistics, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
+from ..outcomes.contacts import ContactSampler, ContactStatistics, NavigationContacts, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import torso_tracking_error
 from ..outcomes.vla import constraint, evaluate, PROTOCOL
@@ -58,6 +58,8 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
     for monitor in monitors.values():
         monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=config.radius_m)
     samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples
+    contact_sampler = ContactSampler(sim)
+    navigation_contacts = NavigationContacts()
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
     analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled and collection.video_cameras is None else None
     from ...data.recorder import open_trace
@@ -95,6 +97,8 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
                 recorder.phase=ctx.phase
                 def nav_check():
                     health=simulation_failure(sim)
+                    if ctx.navigation_contacts.observe(sim, contact_sampler, config.navigation_max_penetration_m):
+                        health = 'navigation_severe_collision'
                     contacts=contact_observations(sim,target_bodies=primary_monitor.target_bodies,fingers=all_fingers)
                     contact_stats.update(contacts)
                     physics.write(canonical({'time_s':float(sim.data.time),'phase':'navigation',
@@ -106,7 +110,7 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
                     recorder.video_frame(initial_navigation_video)
                 frames=sim.render(width,height); recorder.video_frame(video(frames))
                 if stop: raise OperationFailure(stop['issues'][0])
-            ctx=SimpleNamespace(sim=sim,config=config,tick=nav_tick,
+            ctx=SimpleNamespace(sim=sim,config=config,tick=nav_tick,navigation_contacts=navigation_contacts,
                 yaw_gap=lambda a,b:float((a-b+np.pi)%(2*np.pi)-np.pi),
                 hold_torso_target=lambda:sim.robot.control_height())
             mark_episode_phase('execution')
@@ -246,7 +250,9 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
         status=classified['status']; reason=classified['reason']
         recorder.event('exception',message=str(exc),error_type=type(exc).__name__)
     finally:
-        if navigation['status']=='running': navigation={'status':'unknown','reason':reason}
+        if path is not None:
+            navigation.update(asdict(navigation_contacts))
+        if navigation['status']=='running': navigation.update(status='unknown',reason=reason)
         mark_episode_phase('finalize')
         physics.close(); actions.close(); requests.close()
         termination = {'status': 'completed' if status in ('success', 'failure') else status, 'reason': reason}

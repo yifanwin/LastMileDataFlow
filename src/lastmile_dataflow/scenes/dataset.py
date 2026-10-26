@@ -15,8 +15,8 @@ def select_stations(stations, anchor, method='coverage', limit=20):
 
 def load_scenes(dataset, samples=None):
     root = Path(dataset).resolve()
-    records = rows(root / 'scenes.jsonl')
+    records = [r for r in rows(root / 'scenes.jsonl') if r['status'] == 'accepted']
     if samples and set(samples) - {r['scene_id'] for r in records}:
         raise ValueError('requested scene not found')
     return [{**r, 'scene_path': str(root / r['scene'])} for r in records
-            if r['status'] == 'accepted' and (not samples or r['scene_id'] in samples)]
+            if not samples or r['scene_id'] in samples]

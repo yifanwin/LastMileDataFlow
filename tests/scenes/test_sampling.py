@@ -7,20 +7,56 @@ import numpy as np
 
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.augmentation.selection import coverage_select
-from lastmile_dataflow.scenes.stations.sampling import disk_samples, sample_stations
-from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
+from lastmile_dataflow.scenes.stations.sampling import disk_samples, sample_stations, yaw_variants
+from lastmile_dataflow.scenes.dataset_config import load_task_mode_recipe
 
 
 class SamplingTests(unittest.TestCase):
+    def test_explicit_yaw_survives_initialization_and_recheck(self):
+        import tempfile
+        from lastmile_dataflow.scenes.stations.sampling import initialize_station
+        from tests.helpers import make_sim
+
+        with tempfile.TemporaryDirectory() as directory:
+            sim, _ = make_sim(directory)
+            try:
+                config = ExecutionConfig(radius_m=1., spacing_m=.25)
+                nominal = {**disk_samples([0, 0, 1], 1., .25)[0],
+                           'base': [0., -1., 0.], 'initial': sim.robot.config.initial}
+                candidates = yaw_variants(nominal)
+                self.assertEqual(len({s['station_id'] for s in candidates}), 3)
+                self.assertEqual(len({s['xy_id'] for s in candidates}), 1)
+                source = sim.data.qpos.copy()
+                target_dof = int(sim.model.jnt_dofadr[sim.model.joint('target_free').id])
+                sim.data.qvel[target_dof:target_dof + 6] = np.arange(6) * .01
+                object_velocity = sim.data.qvel[target_dof:target_dof + 6].copy()
+                with (patch('lastmile_dataflow.scenes.stations.sampling.floor_support', return_value=True),
+                      patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts', return_value=[]),
+                      patch.object(sim.robot, 'aim_station', side_effect=AssertionError('explicit yaw was aimed'))):
+                    rows = sample_stations(sim, {'anchor_world': [1., 0., 1.]}, config,
+                                           frozen_stations=candidates[1:], static_only=True)
+                    for row, candidate in zip(rows, candidates[1:]):
+                        self.assertEqual(row['geometry'], 'valid')
+                        self.assertAlmostEqual(row['base'][2], candidate['yaw'])
+                        rechecked = initialize_station(sim, row, [1., 0., 1.], config, check_visibility=False)
+                        self.assertAlmostEqual(rechecked['base'][2], candidate['yaw'])
+                robot_q = set(sim.robot.addresses.values())
+                object_q = [i for i in range(sim.model.nq) if i not in robot_q]
+                np.testing.assert_array_equal(sim.data.qpos[object_q], source[object_q])
+                np.testing.assert_array_equal(sim.data.qvel[target_dof:target_dof + 6], object_velocity)
+            finally:
+                sim.close()
+
     def test_invisible_physical_station_is_kept_and_visibility_recorded(self):
         from types import SimpleNamespace
         from lastmile_dataflow.scenes.stations.sampling import initialize_station
         sim = SimpleNamespace(started=False, closed=False, target_id=0,
-            data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)), model=SimpleNamespace(nq=1, body=lambda _:SimpleNamespace(name='target')),
+            data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)), model=SimpleNamespace(nq=1, nv=1, jnt_dofadr=[], body=lambda _:SimpleNamespace(name='target')),
             robot=SimpleNamespace(config=SimpleNamespace(initial={'base':[0,0,0]}), initial_base_field='base',
-                addresses={}, aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
+                addresses={}, joints={}, aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
         config = SimpleNamespace(min_target_pixels=24, width=8, height=8, require_target_visibility=False)
         with (patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts',return_value=[]),
+              patch('lastmile_dataflow.scenes.stations.sampling.mujoco.mj_forward'),
               patch('lastmile_dataflow.scenes.stations.sampling.floor_support',return_value=True),
               patch('lastmile_dataflow.scenes.stations.sampling.head_frame',
                     return_value=(None,None,{'visible_pixels':0}))):
@@ -30,18 +66,13 @@ class SamplingTests(unittest.TestCase):
             config.require_target_visibility = True
             self.assertEqual(initialize_station(sim,{'xy':[0,0]},[1,0,1],config)['geometry'],'visibility_filtered')
 
-    def test_embodiments_use_their_own_reach_and_base_quarter(self):
-        from lastmile_dataflow.config import load_robot_config
-        for recipe, robot in [('panda_omron_robocasa_val103','configs/robots/panda_omron_robocasa.json'),
-                              ('val103_cup30_minimal_v3','configs/scene_datasets/rby1_position_head320.json')]:
-            config = load_scene_recipe(f'configs/scene_datasets/{recipe}.json')
-            body = load_robot_config(robot)
-            self.assertEqual(config.geometry.radius_m, body.arm_working_reach_m)
-            self.assertEqual(config.geometry.spacing_m, body.base_radius_m/4)
-            self.assertEqual(config.station_selection, 'coverage')
-            self.assertEqual(config.max_final_stations, 20)
-            self.assertFalse(config.geometry.require_target_visibility)
-            self.assertFalse(config.geometry.require_navigation_clearance)
+    def test_sampling_defaults_are_independent_of_embodiment(self):
+        config = load_task_mode_recipe('configs/task_modes/panda_omron_task_modes.json')
+        self.assertEqual(config.geometry.radius_m, 1.)
+        self.assertEqual(config.geometry.spacing_m, .25)
+        self.assertEqual(config.max_final_stations, 20)
+        self.assertFalse(config.geometry.require_target_visibility)
+        self.assertFalse(config.geometry.require_navigation_clearance)
 
     def test_invalid_parameters_rejected(self):
         for changes in ({"spacing_m": 0}, {"trials_per_station": True}, {"operations": ["place"]}):

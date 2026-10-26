@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from lastmile_dataflow.utils.io import read_json, rows, write_json
-from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
+from lastmile_dataflow.scenes.dataset_config import TaskModeRecipe
 from lastmile_dataflow.workflows import scene_datasets as workflow
 from tests.helpers import DatasetTestCase
 
@@ -54,215 +54,78 @@ class SpatialSelectionTests(unittest.TestCase):
 class SceneDatasetTests(DatasetTestCase):
     def setUp(self):
         super().setUp()
-        self.recipe_path = self.root / "recipe.json"
-        self.robot_path = self.root / "robot.json"
-        write_json(self.robot_path, {"data_root": str(self.root), **asdict(self.robot)})
-        self.baseline = self.root / "baseline"
-        self.sim.freeze(self.baseline)
+        self.recipe = TaskModeRecipe(dataset_dir=str(self.root), assets_dir=str(self.root),
+            asset_index='unused', robot_config='unused', houses=[0, 1],
+            mode_config='configs/task_modes/mode_defaults.json')
 
-    def recipe(self, **overrides):
-        value = {
-            "data_root": str(self.root),
-            "dataset_dir": str(self.root),
-            "asset_library": str(self.root),
-            "robot_config": str(self.robot_path),
-            "houses": [1],
-            "cases": ["Case2"],
-            "rule_version": "scene-cases-v3",
-            "pick_target_types": ["cup"],
-            "max_pick_targets_per_house": 1,
-            "min_prefilter_points": 1,
-            "min_final_points": 1,
-            "station_config": {"radius_m": .8, "spacing_m": .1},
-            "variants_per_case": 1,
-            **overrides,
-        }
-        write_json(self.recipe_path, value)
-        return load_scene_recipe(self.recipe_path)
+    def build(self, name, worker, **kwargs):
+        with (patch.object(workflow, 'load_task_mode_recipe', return_value=self.recipe),
+              patch.object(workflow, 'load_robot_config', return_value=self.robot),
+              patch.object(workflow, '_build_house', side_effect=worker)):
+            return workflow.build_scenes('unused', self.root, name, gpu_ids=[6], **kwargs)
 
-    def plan(self, recipe, selected, exclusions=(), candidates=None):
-        candidates = selected if candidates is None else candidates
-        for row in candidates:
-            row["input_snapshot"] = str(self.baseline)
-        path = self.root / "discovery.json"
-        write_json(
-            path,
-            {
-                "recipe": asdict(recipe),
-                "selected": selected,
-                "candidates": candidates,
-                "exclusions": list(exclusions),
-                "houses": [{"house": 1}],
-                "elapsed_s": 0.0,
-            },
-        )
-        return path
+    def test_parent_writes_one_main_file_and_preserves_negative_results(self):
+        def worker(job):
+            house = job[1]
+            return {'source': {'house': house}, 'records': [
+                {'house': house, 'proposal_intent': 'reachability', 'status': 'rejected',
+                 'reason': 'no_legal_candidate'}]}
+        root = self.build('negative', worker)
+        self.assertEqual(len(rows(root / 'scenes.jsonl')), 2)
+        summary = read_json(root / 'summary.json')
+        self.assertEqual(summary['status'], 'completed')
+        self.assertEqual(summary['rejected'], 2)
+        self.assertEqual(summary['intent_counts'], {'reachability': 2})
+        config = read_json(root / 'config.json')
+        self.assertEqual(config['recipe']['house_splits'], self.recipe.house_splits)
 
-    def test_discovery_keeps_open_independent_of_pick_selectors(self):
-        self.recipe(cases=["Case2", "Case3"], targets={"1": ["pick"]})
-        pick, ignored, opening = [
-            candidate(name, x) for name, x in [("pick", 0.0), ("ignored", 1.0), ("open", 2.0)]
-        ]
-        opening["task"]["operation"] = "open"
-        source = self.sim.source
-        support = SimpleNamespace(support="table", bounds=[0.0, 1.0, 0.0, 1.0])
-        output = self.root / "found.json"
-        with (
-            patch.object(workflow.SceneSource, "procthor", return_value=source),
-            patch.object(workflow, "read_json", return_value={}),
-            patch.object(
-                workflow,
-                "discover_tasks",
-                return_value=([pick["task"], ignored["task"], opening["task"]], []),
-            ),
-            patch.object(workflow, "task_support_obstacles", return_value=[]),
-            patch.object(workflow, "support_regions", return_value=[support]),
-            patch.object(workflow, "sample_stations", return_value=self.points[:1]) as sample,
-        ):
-            workflow.discover_scene_dataset(self.recipe_path, output)
-        plan = read_json(output)
-        self.assertEqual([row["task"]["task_id"] for row in plan["selected"]], ["pick", "open"])
-        self.assertEqual(sample.call_count, 2)
-        self.assertTrue(
-            all(call.kwargs == {"static_only": True, "stop_after_valid": 1} for call in sample.call_args_list)
-        )
-        self.assertEqual(plan["houses"][0]["selected_pick"], 1)
-        self.assertEqual(plan["houses"][0]["selected_open"], 1)
-        self.assertGreaterEqual(plan["elapsed_s"], 0.0)
-        self.assertNotIn("started_at", plan)
-        self.assertNotIn("finished_at", plan)
+    def test_shared_failure_keeps_finished_rows_and_stops_next_house(self):
+        def worker(job):
+            self.assertEqual(job[1], 0)
+            return {'source': {'house': 0, 'error': {'type': 'RuntimeError', 'reason': 'renderer failed'}},
+                    'records': [{'proposal_intent': 'orientation', 'status': 'accepted',
+                                 'task_completion': 'unknown'}]}
+        with self.assertRaisesRegex(RuntimeError, 'renderer failed'):
+            self.build('shared-error', worker)
+        root = self.root / 'scene_datasets/shared-error'
+        self.assertEqual(len(rows(root / 'scenes.jsonl')), 1)
+        summary = read_json(root / 'summary.json')
+        self.assertEqual(summary['status'], 'infrastructure_error')
+        self.assertEqual(summary['accepted'], 1)
+        self.assertEqual(len(summary['sources']), 1)
 
-    def test_discovery_closes_simulation_when_baseline_save_fails(self):
-        self.recipe()
-        sim = Mock()
-        sim.freeze.side_effect = OSError("fixture write failed")
-        with (
-            patch.object(workflow.SceneSource, "procthor", return_value=self.sim.source),
-            patch.object(workflow.Simulation, "from_source", return_value=sim),
-            self.assertRaisesRegex(OSError, "fixture write failed"),
-        ):
-            workflow.discover_scene_dataset(self.recipe_path, self.root / "failed.json")
+    def test_executor_failure_never_saves_completed_status(self):
+        with self.assertRaisesRegex(RuntimeError, 'worker unavailable'):
+            self.build('executor-error', RuntimeError('worker unavailable'))
+        summary = read_json(self.root / 'scene_datasets/executor-error/summary.json')
+        self.assertEqual(summary['status'], 'infrastructure_error')
+        self.assertEqual(summary['accepted'] + summary['rejected'], 0)
+
+    def test_worker_reuses_source_and_prepares_once_per_task(self):
+        task = candidate('one', 0.)['task']
+        sim = Mock(source=self.sim.source)
+        ctx = Mock()
+        ctx.__enter__ = Mock(return_value=ctx)
+        ctx.__exit__ = Mock(return_value=False)
+        ctx.timings = {'prepare_s': 1.}
+        ctx.grasp_evidence = {'data_grasp_count': 1}
+        ctx.assets.compile_count = 0
+        with (patch.object(workflow.SceneSource, 'procthor', return_value=self.sim.source),
+              patch.object(workflow.Simulation, 'from_source', return_value=sim) as load,
+              patch.object(workflow, '_select_tasks', return_value=([task], {})),
+              patch.object(workflow.BuildContext, 'prepare', return_value=ctx) as prepare,
+              patch.object(workflow, 'build_task', return_value=iter([])) as build):
+            result = workflow._build_house((self.recipe, 0, self.robot, self.root, 6))
+        self.assertNotIn('error', result['source'])
+        load.assert_called_once()
+        prepare.assert_called_once_with(sim, task, self.recipe)
+        self.assertEqual(set(build.call_args.args[1]), set(self.recipe.modes))
         sim.close.assert_called_once()
+        ctx.__exit__.assert_called_once()
 
-    def test_qualification_reselects_static_candidates_without_repeating_checks(self):
-        recipe = self.recipe(max_pick_targets_per_house=2)
-        a, b, c = candidate("a", 0.0, area=3.0), candidate("b", 1.0, area=2.0), candidate("c", 2.0)
-        plan = self.plan(
-            recipe,
-            [a, c],
-            [{"house": 1, "task_id": "b", "reason": "eligible_not_selected_by_spatial_coverage"}],
-            candidates=[a, b, c],
-        )
-        checked = []
-
-        def sample(sim, task, geometry, **options):
-            self.assertTrue(options['static_only'])
-            checked.append(task["task_id"])
-            return [] if task["task_id"] == "c" else self.points[:1]
-
-        support = SimpleNamespace(support="table", bounds=[0.0, 1.0, 0.0, 1.0])
-        with (
-            patch.object(workflow.SceneSource, "procthor", return_value=self.sim.source),
-            patch.object(workflow, "read_json", return_value={}),
-            patch.object(workflow, "discover_tasks", side_effect=AssertionError('tasks must not be rediscovered')),
-            patch.object(workflow, "task_support_obstacles", return_value=[]),
-            patch.object(workflow, "support_regions", return_value=[support]),
-            patch.object(workflow, "sample_stations", side_effect=sample),
-        ):
-            result = workflow.qualify_scene_discovery(plan, self.root / "qualified.json")
-        qualified = read_json(result)
-        self.assertEqual({row["task"]["task_id"] for row in qualified["selected"]}, {"a", "b"})
-        self.assertCountEqual(checked, ["a", "b", "c"])
-        self.assertEqual(len(qualified["qualification"]), 3)
-        self.assertEqual(qualified["houses"][0]["pick_pairwise_distances_m"], [1.0])
-        self.assertTrue(any(row["task_id"] == "c" for row in qualified["exclusions"]))
-        self.assertNotIn("finished_at", qualified)
-
-    def test_build_requires_quota_before_creating_output(self):
-        recipe = self.recipe()
-        plan = self.plan(recipe, [])
-        with self.assertRaisesRegex(ValueError, "not enough pick targets"):
-            workflow.build_scene_dataset(self.recipe_path, plan, self.root, "strict", [0])
-        self.assertFalse((self.root / "scene_datasets/strict").exists())
-        root = workflow.build_scene_dataset(
-            self.recipe_path, plan, self.root, "partial", [0], allow_partial_targets=True
-        )
-        self.assertEqual(
-            {k: read_json(root / 'summary.json')[k] for k in ('status', 'accepted', 'rejected')},
-            {"status": "completed", "accepted": 0, "rejected": 0}
-        )
-
-    def test_pick_cases_write_into_parent_dataset_with_correct_counts(self):
-        recipe = self.recipe(cases=["Case1", "Case2"])
-        plan = self.plan(recipe, [candidate("pick", 0.0)])
-        with patch.object(workflow, "augment_obstacles") as augment:
-            root = workflow.build_scene_dataset(self.recipe_path, plan, self.root, "pick", [0])
-        configs = [call.args[0] for call in augment.call_args_list]
-        self.assertEqual([config.obstacle_count for config in configs], [[6, 9], [10, 20]])
-        self.assertEqual([config.mandatory_categories for config in configs], [["Chair"], []])
-        self.assertTrue(all(call.kwargs["dataset_root"] == root for call in augment.call_args_list))
-        self.assertEqual([config.seed for config in configs], [recipe.seed, recipe.seed])
-
-    def test_spawned_build_units_return_independent_rejections_to_one_parent_file(self):
-        recipe = self.recipe(cases=['Case3'], max_open_targets_per_house=2, min_final_points=20,
-                             station_config={'radius_m': .1, 'spacing_m': .2})
-        selected = [candidate('door-a', 2.), candidate('door-b', 2.)]
-        for row in selected:
-            row['task']['operation'] = 'open'
-        plan = self.plan(recipe, selected)
-        root = workflow.build_scene_dataset(self.recipe_path, plan, self.root, 'spawned', [0], workers=2)
-        records = rows(root / 'scenes.jsonl')
-        self.assertEqual(len(records), 2)
-        self.assertEqual({r['task_id'] for r in records}, {'door-a', 'door-b'})
-        self.assertTrue(all(r['status'] == 'rejected' for r in records))
-        self.assertTrue(all(r['reason'] == 'too_few_stations' for r in records))
-        self.assertTrue(all(len(r['station_candidates']) == 1 for r in records))
-
-    def test_open_saves_snapshot_only_when_final_stations_are_sufficient(self):
-        recipe = self.recipe(cases=["Case3"])
-        opening = candidate("open", 0.0)
-        opening["task"]["operation"] = "open"
-        plan = self.plan(recipe, [opening])
-        for name, points, status in [("accepted", self.points[:1], "accepted"), ("rejected", [], "rejected")]:
-            with (self.subTest(status=status), patch.object(workflow, "sample_stations", return_value=points),
-                  patch.object(workflow, 'record_station_visibility')):
-                root = workflow.build_scene_dataset(self.recipe_path, plan, self.root, name, [0])
-                record = rows(root / "scenes.jsonl")[0]
-                self.assertEqual(record["status"], status)
-                if status == "accepted":
-                    self.assertTrue((root / record["scene"] / "model.mjb").is_file())
-                    self.assertEqual(record["placements"], [])
-                else:
-                    self.assertEqual(record["reason"], "too_few_stations")
-
-    def test_probe_closes_clone_when_sampling_raises(self):
-        recipe = self.recipe()
-        probe = workflow.clone_preparation(self.sim)
-        self.addCleanup(probe.close)
-        support = SimpleNamespace(support="table", bounds=[0.0, 1.0, 0.0, 1.0])
-        with (
-            patch.object(workflow, "clone_preparation", return_value=probe),
-            patch.object(workflow, "task_support_obstacles", return_value=[]),
-            patch.object(workflow, "support_regions", return_value=[support]),
-            patch.object(workflow, "sample_stations", side_effect=RuntimeError("sampling failed")),
-            self.assertRaisesRegex(RuntimeError, "sampling failed"),
-        ):
-            workflow._probe_target(self.sim, self.task, recipe, recipe.geometry)
-        self.assertTrue(probe.closed)
-        self.assertFalse(self.sim.closed)
-
-    def test_case1_requires_near_ground_points_even_with_visible_stations(self):
-        recipe = self.recipe(cases=["Case1"])
-        row = candidate("pick", 0.0)
-        existing = {"pick": {"stations": self.points[:1]}}
-        with (
-            patch.object(workflow, "sample_stations") as sample,
-            patch.object(workflow, "station_regions", return_value={"points": []}),
-            patch.object(workflow, "approach_points"),
-        ):
-            evidence = workflow._qualify_target(self.sim, row, recipe, recipe.geometry, existing)
-        sample.assert_not_called()
-        self.assertEqual(evidence["valid_count"], 1)
-        self.assertFalse(evidence["valid"])
-        self.assertEqual(evidence["reason"], "no_measured_near_ground_points_for_mandatory_chair")
-        self.assertFalse(self.sim.closed)
+    def test_preparation_rejections_skip_articulated_pick_and_keep_real_reason(self):
+        records = list(workflow._task_preparation_rejections(candidate('pick', 0.)['task'],
+                       self.recipe, 0, 'missing support'))
+        self.assertEqual(len(records), 8)
+        self.assertEqual(sum(r['status'] == 'skipped' for r in records), 1)
+        self.assertTrue(all(r['reason'] == 'task_preparation_failed' for r in records if r['status'] == 'rejected'))

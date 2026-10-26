@@ -25,13 +25,15 @@ scripts/install.sh
 
 | 命令 | 用途 |
 |---|---|
-| `build-scenes` | 发现任务、资格筛选、场景增强与站位采样，保存场景库 |
+| `build-scenes` | Panda RoboCasa 八类模式候选构造与站位采样，保存场景库 |
 | `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot / π0.5，保存实测率与热图 |
 | `collect-lastmile` | 复用成功标定示教，执行 S0×S1 全组合；支持独立物化为自包含训练数据集 |
-| `build-bench` | 复用已有开放底盘标定，筛选 ≤20% 起点、≥60% 恢复区域与合法路径；可用 CPU |
+| `build-bench` | 复用已有标定；模式数据消费已保存标签及合格 S1；可用 CPU |
 | `evaluate-bench` | 独立 MolmoBot / π0.5 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
 
 ## 当前边界
+
+- 新构建使用 [v2 任务模式配方](configs/task_modes/README.md)，旧 Case 构造入口已退出。场景构建、完整真实标定和多标签诊断已交付；六类有真实正例，Orientation/Visibility 尚无正例。`proposal_intent` 不作为最终标签。按用户最新要求，本轮止于标定，见 [交付记录](reports/task-modes/delivery/02-calibration-delivery.md)。
 
 - 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
 - PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。

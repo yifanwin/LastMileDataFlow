@@ -35,11 +35,11 @@ reports/
 
 当前主题：`curobo-time-optimization/`（[当前状况](curobo-time-optimization/info/01-current-status.md)、[PandaOmron 加速方案](curobo-time-optimization/plan/01-panda-omron-time-optimization.md)、[整理与迁移结果](curobo-time-optimization/delivery/2026-10-24-document-consolidation.md)）、`build-lastmile-datasets/`（[数据集生成需求](build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[实现交付](build-lastmile-datasets/delivery/01-implementation.md)）、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。加速主题的 `info/` 保存当前状况，`archive/` 保留被新方案接续的历史材料。
 
-- `task-modes/`：[任务模式构建与标定后分类需求](task-modes/requirement/01-task-mode-construction.md)（active）。已按用户选择确定 PandaOmron `robocasa-v1`、不固定底盘，S0 优先 0/3 再 1/3、S1 优先 3/3 再 2/3；全部三相机参与 Visibility，采用几何多标签，Articulated 不要求后抓取失败，其余按初版默认执行。文档包含八类候选构造、诊断、统一 1 m / 0.25 m 采样、资产 role 索引及共享准备加速，尚未修改实现。新的统一采样需求接续下方旧本体采样规则，旧实验参数与结论不改写。
+- `task-modes/`：[需求](task-modes/requirement/01-task-mode-construction.md)、[实施方案](task-modes/plan/01-task-mode-implementation.md)、[计划表](task-modes/plan/02-build-schedule.md)、[build-scenes 八模式构造说明](task-modes/info/01-build-scenes-modes.md)。用户最新要求本轮止于标定，P0–P4 已交付，后续采集/导出/benchmark 暂不推进。
 
-  [完整实施方案](task-modes/plan/01-task-mode-implementation.md)明确目录与单文件组织、必要重构、八类 Builder、物理事务、三相机、采样/操作/导航范围解耦、诊断分类、下游接入和 P0–P6 验收；当前为方案交付，尚无本方案的新实现或真实实验结果。
+  [标定交付](task-modes/delivery/02-calibration-delivery.md)：修复后的四批完整标定共 222 条 trial、63 条真实任务成功；六类有实际标签正例，Orientation/Visibility 尚无正例。最新回归 355 项：353 通过、2 跳过。旧 Case 链路退出；Blackwell 环境及 RoboCasa 闭爪底盘保持问题已修复，历史结果保留，见[修复记录](task-modes/delivery/04-mobile-base-hold-fix.md)。全部 60 个 run 的分类、数字与待复核项见[运行产物总览](task-modes/delivery/05-run-inventory.md)；38 个 accepted 构建场景的渲染图见[候选构建场景预览](task-modes/delivery/build-scenes-previews.md)。[Cup 导航复核](navigation/delivery/06-cup-navigation-review.md)确认保守栅格误拒绝；后续[导航修复交付](navigation/delivery/07-navigation-geometry-fix.md)完成源码修复，新 Cup/Open benchmark 为 2/7、7/7，Train 9/13 对找到参考路线，四条实际导航通过；专项回归 367 项，365 通过、2 跳过。没有新增完整连续操作示教或策略任务成功结论。
 
-  [构建计划表](task-modes/plan/02-build-schedule.md)将 P0–P6 拆为 36 项任务，列出涉及文件、前置依赖、验收条件和执行状态；当前代码构建任务均未开始。
+- `navigation/`：[导航专题入口](navigation/README.md)、[软净空需求](navigation/requirement/02-navigation-soft-clearance.md)、[修改方案](navigation/plan/04-navigation-soft-clearance.md)、[实施结果](navigation/delivery/08-navigation-soft-clearance.md)。已取消 20 mm 硬门槛，基准为 20 mm 软目标、权重 2.0、独立 5 mm 穿透判据；Cup/Open 各 7/7、Train 11/13 对有路线，五条实际物理导航通过。最终软件回归 374 项，372 通过、2 跳过；没有新增完整连续操作示教或策略任务成功结论。
 
 - `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
 

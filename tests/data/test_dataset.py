@@ -18,10 +18,18 @@ from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.dataset import load_scenes
+from lastmile_dataflow.utils.io import append_row
 from tests.helpers import DatasetTestCase
 
 
 class DatasetTests(DatasetTestCase):
+    def test_scene_selection_ignores_nonmaterialized_task_mode_records(self):
+        dataset = self.dataset()
+        accepted = load_scenes(dataset)[0]
+        append_row(dataset / 'scenes.jsonl', {'status': 'skipped', 'proposal_intent': 'articulated_interaction'})
+        append_row(dataset / 'scenes.jsonl', {'status': 'rejected', 'reason': 'task_preparation_failed'})
+        self.assertEqual(load_scenes(dataset, [accepted['scene_id']]), [accepted])
+
     def test_scene_roundtrip_and_xml_payload(self):
         dataset = self.dataset()
         record = load_scenes(dataset)[0]

@@ -1,13 +1,17 @@
 # 任务模式构建与标定后分类：需求梳理
 
 - 状态：active
-- 日期：2026-10-25
-- 替代：需求层面接续旧 Case1/2/3 构建方式，并替代按机器人臂展、底盘尺寸确定采样区域的要求；本轮尚未修改实现及旧实验结论
+- 日期：2026-10-26
+- 替代：需求层面接续旧 Case1/2/3 构建方式，并替代按机器人臂展、底盘尺寸确定采样区域的要求；旧实验结论保留
 - 关联：[完整实施方案](../plan/01-task-mode-implementation.md)、[当前架构](../../../docs/architecture.md)、[资产资料](../../raw_asserts/)、[原站位规则](../../pi05/requirement/02-embodiment-full-calibration.md)、[规划失败分析](../../curobo-time-optimization/analyze/2026-10-25-planning-failure-analysis.md)
 
 ## 1. 本轮交付与目标边界
 
-本文为当前实施需求。用户已明确修订 Q1/Q5/Q6/Q7/Q8/Q16，其余问题采用初版默认方案，第 9 节记录最终口径。本轮更新需求文档，不实现 Builder、不修改运行配置、不运行新的构建或标定实验。剩余源码核对、小规模阈值定标属于实施工作，无需再次请求需求确认。
+后续导航需求更新见[净空软目标需求](../../navigation/requirement/02-navigation-soft-clearance.md)：20 mm 从硬性准入门槛改为路线优化的软目标，实际到达且无严重碰撞才是导航通过条件。该项已独立实施并验证，见[软净空交付](../../navigation/delivery/08-navigation-soft-clearance.md)，不改原标定及模式分类结论。
+
+用户于 2026-10-26 将本轮范围收敛为“流程到标定完成即可，后续任务先不用做”。本轮交付 P0–P4（含 S0/S1 与诊断结果）；P5/P6 后续任务暂不推进，已有实现和实验产物保留，不回滚。当前结果见[标定交付](../delivery/02-calibration-delivery.md)。
+
+本文为当前实施需求。用户已明确修订 Q1/Q5/Q6/Q7/Q8/Q16，其余问题采用初版默认方案，第 9 节记录最终口径。需求整理阶段只交付文档；当前已进入实施，实际进度查[构建计划表](../plan/02-build-schedule.md)，首批基础改动查[P0 执行记录](../delivery/01-build-delivery.md)。剩余源码核对、小规模阈值定标属于实施工作，无需再次请求需求确认。
 
 目标流程为：
 
@@ -300,7 +304,7 @@ split 在构造与标定前按来源房屋固定，同一房屋所有 target/int
 | Open 执行 | 有把手接近、关节 waypoint、接触丢失和 open verdict 路径 | 验证完整关节交互成功正例，不能仅由 discovery 支持推断 Articulated 已可用 |
 | 最终模式 | 本轮检查未见八类统一后标定分类、构造命中率或独立 Visibility S0 选择链 | 新增必要分类与下游筛选，复用现有标定/配对/记录链 |
 
-相关实现入口：[场景工作流](../../../src/lastmile_dataflow/workflows/scene_datasets.py)、[增强准备](../../../src/lastmile_dataflow/workflows/obstacle_augmentation.py)、[当前增强器](../../../src/lastmile_dataflow/scenes/augmentation/builder.py)、[构建会话](../../../src/lastmile_dataflow/runtime/construction/session.py)、[站位采样](../../../src/lastmile_dataflow/scenes/stations/sampling.py)、[A*](../../../src/lastmile_dataflow/planning/astar.py)、[标定选择](../../../src/lastmile_dataflow/data/evaluation/selection.py)、[cuRobo](../../../src/lastmile_dataflow/planning/curobo_v2.py)。
+相关实现入口：[场景工作流](../../../src/lastmile_dataflow/workflows/scene_datasets.py)、[增强检查](../../../src/lastmile_dataflow/scenes/augmentation/checks.py)、[模式构造器](../../../src/lastmile_dataflow/scenes/modes/base.py)、[构建编排](../../../src/lastmile_dataflow/scenes/build/builder.py)、[构建会话](../../../src/lastmile_dataflow/runtime/construction/session.py)、[站位采样](../../../src/lastmile_dataflow/scenes/stations/sampling.py)、[A*](../../../src/lastmile_dataflow/planning/astar.py)、[标定选择](../../../src/lastmile_dataflow/data/evaluation/selection.py)、[cuRobo](../../../src/lastmile_dataflow/planning/curobo_v2.py)。
 
 ### 8.1 PandaOmron 相机核对
 

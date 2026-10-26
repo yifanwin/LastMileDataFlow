@@ -15,7 +15,7 @@ from ..control.torso_command import bounded_torso_command, torso_feedback_margin
 from ...scenes.geometry import descendants
 from ..outcomes.evaluation import mobile_constraint_failure, torso_tracking_error
 from ..outcomes.pick import rotation_error
-from ..outcomes.contacts import ContactSampler, ContactStatistics, simulation_failure
+from ..outcomes.contacts import ContactSampler, ContactStatistics, NavigationContacts, simulation_failure
 from ..simulation import Simulation
 from .checks import checkpoint_pick_success, timed
 
@@ -57,6 +57,7 @@ class ContinuousContext:
         )
         self.contact_stats = ContactStatistics()
         self.contact_sampler = ContactSampler(sim)
+        self.navigation_contacts = NavigationContacts()
         self.record_physics = recorder.collection['record_physics']
         self.samples = []
         self.collisions = self.contact_stats.examples
@@ -138,6 +139,9 @@ class ContinuousContext:
             mujoco.mj_forward(self.sim.model,self.sim.data)
             contacts=self.contact_sampler.capture(target_bodies=self.target_bodies,fingers=self.fingers)
             self.contact_stats.update_frame(contacts)
+            if self.phase in ('navigation', 'arrival'):
+                if self.navigation_contacts.observe(self.sim, self.contact_sampler, self.config.navigation_max_penetration_m):
+                    failures.append('navigation_severe_collision')
             row = None
             if self.record_physics:
                 row={'time_s':float(self.sim.data.time),'phase':self.phase,'collisions':contacts.observations()}

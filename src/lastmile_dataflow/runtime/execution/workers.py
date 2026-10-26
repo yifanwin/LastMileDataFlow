@@ -63,6 +63,7 @@ def record_unexecuted(scene, index, prepared, response, budget, config, collecti
             'active_budget': asdict(budget), 'trial_wall_s': time.monotonic() - budget.created_at,
             'recording_wall_s': time.monotonic() - started})
         return {**recorder.result, 'reason': reason, 'rollout_id': identity.attempt_id,
+                'planning_ref': str(recorder.path.relative_to(recorder.output_root) / 'planning.json'),
                 'execution_termination': {'status': 'not_executed', 'reason': reason},
                 'task_outcome': {'status': 'unknown', 'reason': reason}}
 

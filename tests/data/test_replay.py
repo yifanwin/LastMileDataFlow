@@ -65,3 +65,33 @@ class ReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no executed steps'):
                 render_rollout(root, root / 'video', camera='head_camera')
             self.assertFalse((root / 'video').exists())
+
+    def test_training_observations_render_each_measured_boundary_without_physics(self):
+        from lastmile_dataflow.data.rendering.replay import render_observations
+        from lastmile_dataflow.utils.io import read_json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, robot = make_sim(root)
+            self.addCleanup(source.close)
+            source.freeze(root / 'scene')
+            sim = Simulation.from_snapshot(root / 'scene', robot, target='target')
+            self.addCleanup(sim.close)
+            collection = CollectionConfig(record_images=False, record_video=False, width=32, height=32)
+            recorder = AttemptRecorder(root, {'collection': asdict(collection)}, attempt_id='r0')
+            recorder.bind_simulation(sim)
+            sim.begin()
+            sim.step(sim.robot.neutral_action())
+            recorder.finish('failure', 'synthetic_observation_fixture')
+            before = sim.state_vector().copy()
+            renderer = Mock()
+            renderer.__enter__ = Mock(return_value=renderer)
+            renderer.__exit__ = Mock(return_value=False)
+            renderer.render.return_value = np.zeros((32, 32, 3), np.uint8)
+            with (patch('lastmile_dataflow.data.rendering.replay.mujoco.Renderer', return_value=renderer),
+                  patch('mujoco.mj_step', side_effect=AssertionError('observation replay must not integrate'))):
+                observed = render_observations(recorder.path, root/'observations', cameras=list(sim.robot.camera_names))
+            self.assertEqual(observed['frames'], 2)
+            self.assertEqual(observed['new_physical_steps'], 0)
+            self.assertEqual(len(list((root/'observations/images').rglob('*.png'))), 6)
+            self.assertFalse(read_json(recorder.path/'recording.json')['observation_complete'])
+            np.testing.assert_array_equal(sim.state_vector(), before)

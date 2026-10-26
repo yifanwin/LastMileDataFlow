@@ -4,75 +4,15 @@ import numpy as np
 
 from ..geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
 from .regions import ground_coverage
-from .sampling import substantial_asset
 
 
-def case_construction_check(sim, placements, config):
-    """Check requested construction, not grasp difficulty or task completion."""
-    policy = config.case_policy
-    if policy is None:
-        return {'valid': True, 'case': 'legacy', 'scope': 'legacy_no_case_claim'}
-    count = len(placements)
-    reasons = []
-    if policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
-        from ...planning.astar import task_support_obstacles
-        points = body_points(sim, sim.target_id)
-        target = sim.model.body(sim.target_id).name
-        anchor = ((points.min(axis=0) + points.max(axis=0)) / 2).tolist()
-        expected_support = {s['body'] for s in task_support_obstacles(sim,
-            {'instance_id': config.target_instance, 'target_body': target, 'operation': 'pick', 'anchor_world': anchor})}
-        if not expected_support or any(p['support_instance'] not in expected_support for p in placements if p['kind'] == 'surface'):
-            reasons.append('added_objects_not_on_actual_target_support')
-    capacity_shortfall = count < config.obstacle_count[0]
-    if count > config.obstacle_count[1] or capacity_shortfall:
-        reasons.append('object_count_outside_requested_range')
-    substantial_count = 0
-    for i, placement in enumerate(placements):
-        body = sim.model.body(f'procedural_obstacle_{i}').id
-        local = (body_points(sim, body) - sim.data.xpos[body]) @ sim.data.xmat[body].reshape(3, 3)
-        size = dict(zip(('width', 'depth', 'height'), np.ptp(local, axis=0)))
-        substantial_count += substantial_asset({'category': placement['category'], 'size': size}, policy)
-    if policy.case == 'Case1':
-        chairs = [p for p in placements if p['category'] == 'Chair']
-        if len(chairs) != 1 or any(p['kind'] != ('ground' if p['category'] == 'Chair' else 'surface') for p in placements):
-            reasons.append('requires_one_ground_chair_and_surface_remainder')
-        if policy.rule_version in ('scene-cases-v2', 'scene-cases-v3'):
-            surface_count = sum(p['kind'] == 'surface' for p in placements)
-            if surface_count > 8 or surface_count < 5:
-                reasons.append('requires_5_to_8_added_surface_objects')
-            if len({p['support_instance'] for p in placements if p['kind'] == 'surface'}) != 1:
-                reasons.append('requires_single_target_support_surface')
-        if policy.rule_version == 'scene-cases-v3':
-            from ..tasks.eligibility import allowed_case1_support
-            from .regions import support_regions
-            supports = support_regions(sim, {'instance_id': config.target_instance, 'target_body': target,
-                'operation': 'pick', 'anchor_world': anchor, 'support_obstacles': task_support_obstacles(sim,
-                {'instance_id': config.target_instance, 'target_body': target, 'operation': 'pick', 'anchor_world': anchor})})
-            if not supports or not allowed_case1_support(sim, supports[0].support, policy.case1_support_types):
-                reasons.append('case1_support_not_countertop_or_table')
-        anchor = sim.data.xpos[sim.target_id, :2]
-        if any(np.linalg.norm(np.asarray(p['point_xy']) - anchor) > policy.near_target_m + .01 for p in placements if p['kind'] == 'surface'):
-            reasons.append('surface_object_not_near_target')
-    elif policy.case == 'Case2':
-        if any(p['kind'] != 'surface' for p in placements) or len({p['support_instance'] for p in placements}) != 1:
-            reasons.append('requires_single_target_support_surface')
-        if substantial_count < policy.min_substantial:
-            reasons.append('not_enough_measured_large_or_tall_objects')
-    return {'valid': not reasons, 'case': policy.case, 'rule_version': policy.rule_version, 'object_count': count,
-            'added_ground_count': sum(p['kind'] == 'ground' for p in placements),
-            'added_surface_count': sum(p['kind'] == 'surface' for p in placements),
-            'substantial_count': int(substantial_count), 'failure_reasons': reasons,
-            'capacity_shortfall': capacity_shortfall,
-            'scope': 'requested_obstacle_construction_not_task_difficulty'}
-
-
-def collision_pairs(sim, placements, config, *, settled=False):
+def collision_pairs(sim, placements, config, *, settled=False, body_names=None):
     """Narrow phase against EACH geom; never exempt a whole table or all world geoms."""
     m, d = sim.model, sim.data
     added = {}
     owner = {}
     for i, placement in enumerate(placements):
-        name = f'procedural_obstacle_{i}'
+        name = body_names[i] if body_names is not None else f'procedural_obstacle_{i}'
         added[name] = collision_geoms(sim, m.body(name).id)
         for g in added[name]:
             owner[g] = i
@@ -115,11 +55,11 @@ def collision_pairs(sim, placements, config, *, settled=False):
             'scope': 'all_added_collision_geoms_against_full_height_scene_geoms'}
 
 
-def load_support(sim, placements, config):
+def load_support(sim, placements, config, *, body_names=None):
     m, d = sim.model, sim.data
     rows = []
     for i, placement in enumerate(placements):
-        name = f'procedural_obstacle_{i}'
+        name = body_names[i] if body_names is not None else f'procedural_obstacle_{i}'
         body = m.body(name).id
         geoms = set(collision_geoms(sim, body))
         contacts = []
@@ -136,7 +76,8 @@ def load_support(sim, placements, config):
                              'normal_vertical': abs(float(c.frame[2])), 'normal_force_n': float(force[0])})
         points = body_points(sim, body)
         height_error = abs(float(points[:, 2].min()) - placement['support_height_m'])
-        tilt = float(np.arccos(np.clip(d.xmat[body].reshape(3, 3)[2, 2], -1, 1)))
+        expected_up = np.asarray(placement.get('reference_up', [0., 0., 1.]))
+        tilt = float(np.arccos(np.clip(np.dot(d.xmat[body].reshape(3, 3)[:, 2], expected_up), -1, 1)))
         load = any(-config.support_contact_tolerance_m <= c['distance_m'] <= config.support_contact_tolerance_m
                    and c['normal_vertical'] > .7 and c['normal_force_n'] > 1e-8 for c in contacts)
         coverage = ground_coverage(sim, points) if placement['kind'] == 'ground' else False
@@ -169,13 +110,13 @@ def contact_minima(sim):
     return result
 
 
-def matched_source_effects(control, candidate, config):
+def matched_source_effects(control, candidate, config, *, edited_bodies=()):
     if not np.isclose(control.data.time, candidate.data.time, atol=1e-8, rtol=0):
         raise ValueError('matched control must have the same simulation time')
     rows = []
     for entry in control.catalog:
         name = entry['mjcf_body']
-        if name.startswith(control.robot.config.namespace):
+        if name.startswith(control.robot.config.namespace) or name in edited_bodies:
             continue
         b0, b1 = control.model.body(name).id, candidate.model.body(name).id
         if not control.model.body_dofnum[b0]:
@@ -187,7 +128,7 @@ def matched_source_effects(control, candidate, config):
     c0, c1 = contact_minima(control), contact_minima(candidate)
     added_contacts = []
     for key, value in c1.items():
-        if any(name.startswith('procedural_obstacle_') for name, _ in key):
+        if any(name.startswith('procedural_obstacle_') or name in edited_bodies for name, _ in key):
             continue
         if value < -config.collision_tolerance_m and value < c0.get(key, 0.) - config.collision_tolerance_m:
             added_contacts.append({'pair': key, 'candidate_distance_m': value, 'control_distance_m': c0.get(key)})
@@ -195,19 +136,3 @@ def matched_source_effects(control, candidate, config):
             'same_time_s': float(control.data.time), 'source_objects': rows,
             'new_or_worse_source_penetrations': added_contacts,
             'scope': 'unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_unedited_control'}
-
-
-def validate_augmented_scene(sim, placements, settling, control, config):
-    finite = bool(np.isfinite(sim.state_vector()).all())
-    collision = collision_pairs(sim, placements, config, settled=True)
-    support = load_support(sim, placements, config)
-    effects = matched_source_effects(control, sim, config)
-    stable = bool(settling['stable'])
-    healthy = finite and not settling['new_warnings']
-    case = case_construction_check(sim, placements, config)
-    return {'valid': bool(stable and healthy and collision['valid'] and support['valid'] and effects['valid'] and case['valid']),
-            'stability': stable, 'solver_health': healthy, 'settling': settling,
-            'collision': collision, 'support': support, 'source_effects': effects,
-            'source_absolute_penetrations_recorded_not_claimed_absent': settling['severe_penetration'],
-            'case_construction': case, 'case_condition': 'construction_satisfied' if case['valid'] and config.case_policy else 'unknown',
-            'task_completion': 'unknown'}

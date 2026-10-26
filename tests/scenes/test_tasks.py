@@ -12,6 +12,43 @@ from tests.helpers import make_sim
 
 
 class TaskTests(unittest.TestCase):
+    def test_task_identity_survives_body_renumbering(self):
+        import xml.etree.ElementTree as ET
+        from lastmile_dataflow.runtime.simulation import Simulation
+        from tests.helpers import fixtures
+
+        with tempfile.TemporaryDirectory() as directory:
+            source, robot = fixtures(directory)
+            tree = ET.parse(source.xml_path)
+            cabinet = ET.SubElement(tree.getroot().find('worldbody'), 'body', name='cabinet', pos='3 1 .5')
+            drawer = ET.SubElement(cabinet, 'body', name='drawer')
+            ET.SubElement(drawer, 'joint', name='drawer/slide', type='slide', axis='1 0 0', range='0 .4')
+            ET.SubElement(drawer, 'geom', type='box', size='.2 .2 .05')
+            handle = ET.SubElement(drawer, 'body', name='drawer_handle', pos='.2 0 0')
+            ET.SubElement(handle, 'geom', type='box', size='.02 .05 .02')
+            tree.write(source.xml_path)
+            metadata = {'objects': {'cabinet': {'name_map': {'joints': {'drawer/slide': 'drawer'}}}}}
+            identities, body_ids = [], []
+            for edited in (False, True):
+                if edited:
+                    tree = ET.parse(source.xml_path)
+                    tree.getroot().find('worldbody').insert(0, ET.Element('body', name='added_obstacle'))
+                    tree.write(source.xml_path)
+                sim = Simulation.from_source(source, robot, target='target')
+                try:
+                    entry = next(row for row in sim.catalog if row['instance_id'] == 'target')
+                    entry.update(asset_id='fixture', category='Cup', room_id=1)
+                    entry = next(row for row in sim.catalog if row['instance_id'] == 'cabinet')
+                    entry.update(asset_id='drawer_fixture', category='Drawer', room_id=1)
+                    tasks, _ = discover_tasks(sim, metadata, ExecutionConfig(gripper_width_m=.21))
+                    identities.append(sorted(t['task_id'] for t in tasks))
+                    body_ids.append(sim.model.body('target').id)
+                finally:
+                    sim.close()
+            self.assertNotEqual(body_ids[0], body_ids[1])
+            self.assertEqual(identities[0], ['open-cabinet-drawer%2Fslide', 'pick-target'])
+            self.assertEqual(identities[0], identities[1])
+
     def test_actual_free_joint_and_dimensions_not_category_alone(self):
         with tempfile.TemporaryDirectory() as d:
             sim, robot = make_sim(d)

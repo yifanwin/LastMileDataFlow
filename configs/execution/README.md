@@ -13,7 +13,7 @@
 
 ## 数据集参数优先级
 
-`workflows/collection.py` 会用数据集 config.json 的 geometry 覆盖 `radius_m`、`spacing_m`、`width`、`height`、`min_target_pixels`、`map_resolution_m`、`navigation_margin_m`、`navigation_whole_body`（仅覆盖已存在的键）。因此只改执行 JSON 不一定生效；最终以运行保存的有效配置为准。MolmoBot 必须使用 native 控制且几何分辨率匹配的数据集，不能直接对 position/320×240 数据集套用此预设。
+`workflows/collection.py` 仅用数据集 geometry 覆盖 `spacing_m`、`width`、`height`、`min_target_pixels`（仅覆盖已存在的键）。操作范围与导航设置使用执行配置，最终以运行保存的有效配置为准。MolmoBot 必须使用 native 控制且几何分辨率匹配的数据集，不能直接对 position/320×240 数据集套用此预设。
 
 ## 执行预设
 
@@ -54,7 +54,9 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 ## 常用可选项（现有 JSON 未填写）
 
 - `head_fov_enabled=true`：cuRobo 头部视野约束；`head_fov_margin=0.9`、`head_fov_weight=10000`、`head_fov_min_depth_m=0.01` 控制边界、权重和最小深度。
-- `navigation_margin_m=0.02`、`navigation_speed_m_s=0.20`、`navigation_yaw_speed_rad_s=0.4`：A* 导航余量和执行速度。
+- `navigation_margin_m=0.02`：期望净空的软目标，小于该值仍可通行；`navigation_clearance_weight=2.0` 控制有限惩罚，设 0 关闭惩罚。
+- `navigation_max_penetration_m=0.005`：环境/自碰撞超过该穿透量时，导航记严重碰撞失败；普通地面接触另按既有规则处理。它与 20 mm 的软目标分开。
+- `navigation_speed_m_s=0.20`、`navigation_yaw_speed_rad_s=0.4`：导航执行速度，也用于将转向折算为参考路线基础代价。
 - `arrival_tolerance_m=0.015`、`arrival_tolerance_rad=0.025`、`max_navigation_steps=2400`：到达误差与导航预算。
 - 其他规划和打开动作参数直接见 `ExecutionConfig`；改变物理/成功判定参数时需要重新验证，不为凑通过率修改。
 

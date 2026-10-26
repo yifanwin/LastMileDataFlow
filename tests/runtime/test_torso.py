@@ -22,6 +22,7 @@ from lastmile_dataflow.runtime.execution.context import (
     OperationFailure,
 )
 from lastmile_dataflow.runtime.execution.navigation import navigate
+from lastmile_dataflow.runtime.outcomes.contacts import NavigationContacts
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
@@ -155,6 +156,7 @@ class NavigateTorsoLoopTests(unittest.TestCase):
         robot.base_pose = lambda: group('base')
         ctx = SimpleNamespace(
             sim=SimpleNamespace(robot=robot),
+            navigation_contacts=NavigationContacts(),
             config=config,
             yaw_gap=lambda t, c: t - c,
             hold_torso_target=lambda: hold_value,
@@ -173,7 +175,7 @@ class NavigateTorsoLoopTests(unittest.TestCase):
 
     def test_navigation_and_arrival_hold_the_last_legal_torso_target(self):
         ctx, ticks = self.fake_ctx(0.4717424850553562)
-        path = {"xy": [[1.0, 0.0], [2.0, 0.0]]}
+        path = {"poses": [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]}
         goal = {"base": [2.0, 0.0, 0.0]}
         result = navigate(ctx, path, goal)
         self.assertEqual(result["status"], "success")
@@ -181,3 +183,12 @@ class NavigateTorsoLoopTests(unittest.TestCase):
         # neutral_action() echoes ctrl (0.0 here); navigate must override it with
         # the closed-loop hold, not leave the open-loop value.
         self.assertTrue(all(a[19] == 0.4717424850553562 for a in ticks), [a[19] for a in ticks])
+
+    def test_navigation_tracks_explicit_intermediate_yaw(self):
+        ctx, ticks = self.fake_ctx(.4)
+        path = {'poses': [[0., 0., 0.], [.4, 0., .5], [.8, 0., 0.]]}
+        result = navigate(ctx, path, {'base': [.8, 0., 0.]})
+        self.assertEqual(result['status'], 'success')
+        yaw = np.cumsum([tick[2] for tick in ticks])
+        self.assertGreater(yaw.max(), .45)
+        self.assertLess(abs(yaw[-1]), .025)

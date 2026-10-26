@@ -1,9 +1,11 @@
 """Native grasp planning and semantic physical execution; no scene resets."""
 import copy
+from pathlib import Path
 import numpy as np
 from ...utils.io import write_json
 from ...scenes.geometry import body_pose, tcp_pose
 from ...planning.curobo_v2 import V2Planner
+from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import evaluate_open
 from .checks import hold_pick, timed
@@ -79,6 +81,7 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
         write_json(ctx.recorder.path / 'planning.json', ctx.plans)
     try:
         diagnostic = None
+        operation_state = None
         for side in sides:
             ctx.deadline()
             directory = ctx.recorder.path / f'v080-{ctx.plan_serial}-{side}'
@@ -86,8 +89,15 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             with timed(ctx, 'planner_setup'):
                 planner = factory(sim, options, side, directory, workspace=(task['anchor_world'], ctx.config.radius_m))
             goals = grasp_goals(sim, ctx.config, pool, retreat=task['operation'] == 'open')
+            write_json(directory / 'grasp_candidates.json', {'lanes': [{'seed': seed, 'arm': side, 'candidates': pool}]})
             if not goals:
                 raise OperationFailure('no_grasp_candidates')
+            if operation_state is None:
+                if ctx.budget is not None:
+                    operation_state = Path(ctx.recorder.config['preparation']['path']) / 'state.npz'
+                else:
+                    operation_state = ctx.recorder.path / f'operation-state-{ctx.plan_serial}.npz'
+                    sim.save_snapshot(operation_state)
             if task['operation'] == 'pick':
                 with timed(ctx, 'grasp_planning'):
                     success, index, stages, diagnostic = planner.grasp(goals, query, lift=sim.robot.plan_lift_before_close)
@@ -97,7 +107,8 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
                 with timed(ctx, 'grasp_planning'):
                     success, index, stages, diagnostic = planner.grasp(goals, query, lift=False)
             ctx.deadline()
-            ctx.plans.append({'phase': 'native_grasp_result', **diagnostic})
+            ctx.plans.append({'phase': 'native_grasp_result',
+                              'planning_state_ref': str(operation_state.resolve()), **diagnostic})
             if success:
                 break
             release()
@@ -105,7 +116,7 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
             raise OperationFailure((diagnostic or {}).get('failure_reason') or 'planning_no_solution', diagnostic)
         c = pool[index]
         goal = goals[index]
-        pre = goal.copy(); pre[:3, 3] -= goal[:3, 2] * .08
+        pre = goal.copy(); pre[:3, 3] -= goal[:3, 2] * GRASP_APPROACH_DISTANCE_M
         ctx.monitor = PickMonitor(sim, side); ctx.fingers = ctx.monitor.allowed_target_fingers; ctx.samples = []
         ctx.monitor.initial.update(workspace_center_xy=task['anchor_world'][:2], workspace_radius_m=ctx.config.radius_m)
         initial = copy.deepcopy(ctx.monitor.initial)

@@ -13,7 +13,7 @@ from lastmile_dataflow.data.evaluation.selection import (
     generate_pairs,
     station_calibration,
 )
-from lastmile_dataflow.utils.io import read_json, rows
+from lastmile_dataflow.utils.io import read_json, rows, write_json
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.workflows.collection import (
     _execute,
@@ -27,6 +27,25 @@ from tests.helpers import DatasetTestCase
 
 
 class CollectionTests(DatasetTestCase):
+    def test_sampling_geometry_does_not_override_execution_workspace(self):
+        from lastmile_dataflow.workflows.collection import _prepare_run
+
+        dataset = self.dataset()
+        write_json(dataset / 'config.json', {'geometry': {
+            'radius_m': 1., 'spacing_m': .25, 'width': 256, 'height': 256,
+            'navigation_margin_m': .8, 'navigation_whole_body': False}})
+        config = ExecutionConfig(radius_m=2., local_base_radius_m=.35,
+                                 navigation_margin_m=.02, navigation_whole_body=True)
+        root, _, effective, _, _ = _prepare_run(
+            dataset, config, self.collection, self.root, 'geometry', [0], None, None)
+        self.assertEqual(effective.radius_m, 2.)
+        self.assertEqual(effective.local_base_radius_m, .35)
+        self.assertEqual(effective.navigation_margin_m, .02)
+        self.assertTrue(effective.navigation_whole_body)
+        self.assertEqual(effective.spacing_m, .25)
+        self.assertEqual((effective.width, effective.height), (256, 256))
+        self.assertEqual(read_json(root / 'config.json')['config']['radius_m'], 2.)
+
     def test_scene_collector_writes_direct_records_no_child_run(self):
         dataset = self.dataset()
 
@@ -183,7 +202,8 @@ class CollectionTests(DatasetTestCase):
         records = [{**trial, 'scene_id': 'one', 'task_id': 'pick-target'} for trial in trials]
         choices = _plan_collection([self.scene], records, config, self.root, '.')
         with (
-            patch("lastmile_dataflow.workflows.collection.search", return_value=None),
+            patch("lastmile_dataflow.workflows.collection.GeometryNavigation.plan",
+                  return_value={'path': None, 'reason': 'navigation_search_exhausted'}),
             patch("lastmile_dataflow.workflows.collection._execute") as execute,
         ):
             records = _recovery_trials(
@@ -226,7 +246,8 @@ class CollectionTests(DatasetTestCase):
         self.assertIn('s1', {r['station_id'] for r in direct})  # 低率点的单次成功也纳入
         self.assertIn('s5', {r['station_id'] for r in direct})  # 中间成功率点同样纳入
         self.assertTrue(all('navigation' not in r and 's0' not in r for r in direct))
-        path = {'xy': [[0., 0.], [1., 1.], [3., 1.]]}
+        path = {'xy': [[0., 0.], [1., 1.], [3., 1.]],
+                'poses': [[0., 0., 0.], [1., 1., 0.], [3., 1., 0.]]}
         result = {'status': 'success', 'reason': 'synthetic', 'task_outcome': {'status': 'success'},
                   'recording_complete': True, 'observation_complete': True, 'executed_steps': 3, 'rollout_id': 'new',
                   'navigation': {'status': 'success', 'steps': 2}}
@@ -234,10 +255,12 @@ class CollectionTests(DatasetTestCase):
             patch('lastmile_dataflow.workflows.collection.scene_grid'),
             patch('lastmile_dataflow.workflows.collection.robot_footprint', return_value={'radius_m': .1}),
             patch('lastmile_dataflow.workflows.collection.task_support_obstacles'),
-            patch('lastmile_dataflow.workflows.collection.search', side_effect=[None] + [path] * 5),
+            patch('lastmile_dataflow.workflows.collection.GeometryNavigation') as navigator,
             patch('lastmile_dataflow.workflows.collection._execute',
                   side_effect=[{**result, 'rollout_id': f'new{i}'} for i in range(5)]) as execute,
         ):
+            navigator.return_value.plan.side_effect = [
+                {'path': None, 'reason': 'navigation_search_exhausted'}, *[{'path': path, 'reason': 'valid'}] * 5]
             records = _recovery_trials(None, scene, pairs, self.root, config, self.collection, self.root, attempt_ids=count())
         self.assertEqual(len(records), 6)
         self.assertEqual(execute.call_count, 5)
@@ -261,9 +284,11 @@ class CollectionTests(DatasetTestCase):
             patch('lastmile_dataflow.workflows.collection.scene_grid'),
             patch('lastmile_dataflow.workflows.collection.robot_footprint', return_value={'radius_m': .1}),
             patch('lastmile_dataflow.workflows.collection.task_support_obstacles'),
-            patch('lastmile_dataflow.workflows.collection.search', return_value={'xy': [[0, 0], [2, 0]]}),
+            patch('lastmile_dataflow.workflows.collection.GeometryNavigation') as navigator,
             patch('lastmile_dataflow.workflows.collection._execute', return_value=failure) as execute,
         ):
+            navigator.return_value.plan.return_value = {'path': {'xy': [[0, 0], [2, 0]],
+                'poses': [[0, 0, 0], [2, 0, 0]]}, 'reason': 'valid'}
             collect_lastmile('unused', self.root, config, self.collection, self.root,
                              run_id='shared', gpu_ids=[0], calibration=self.root / 'calibration')
         execute.assert_called_once()
@@ -284,7 +309,8 @@ class CollectionTests(DatasetTestCase):
             calibration = evaluate_stations(dataset, self.root, config, self.collection, self.root,
                                             run_id='cal-selection', gpu_ids=[0])
         changed = replace(config, lastmile_low=.1, lastmile_high=.9, start_count=1,
-                          max_s1_candidates=1, lastmile_nearby_m=.01)
+                          max_s1_candidates=1, lastmile_nearby_m=.01, navigation_margin_m=.03,
+                          navigation_clearance_weight=3., navigation_max_penetration_m=.004)
         with (patch('lastmile_dataflow.workflows.collection._execute') as execute,
               patch('lastmile_dataflow.workflows.collection.export_heatmap')):
             collect_lastmile(dataset, self.root, changed, self.collection, self.root,

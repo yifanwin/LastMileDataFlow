@@ -29,16 +29,14 @@ from lastmile_dataflow.scenes.augmentation.checks import (
     load_support,
     matched_source_effects,
 )
-from lastmile_dataflow.scenes.augmentation.config import (
-    ObstacleConfig,
-)
+from lastmile_dataflow.scenes.build.validation import PhysicalLimits
 from lastmile_dataflow.scenes.graph import build_scene_graph
 from lastmile_dataflow.scenes.loading.assets import EditAssetCatalog
 from tests.helpers import fixtures, table_scene
 
 
 def config():
-    return ObstacleConfig("baseline.json", "dataset", "objects", "target")
+    return PhysicalLimits()
 
 
 class TransactionTests(unittest.TestCase):

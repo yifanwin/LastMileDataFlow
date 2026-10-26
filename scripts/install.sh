@@ -6,4 +6,4 @@ if [[ ! -x .venv/bin/python ]]; then
   uv venv --python "${PYTHON_VERSION:-3.11}" .venv
   .venv/bin/python -m ensurepip
 fi
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128

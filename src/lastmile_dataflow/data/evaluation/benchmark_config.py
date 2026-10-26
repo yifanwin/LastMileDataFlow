@@ -13,6 +13,8 @@ class BenchmarkConfig:
     region_yaw_tolerance_rad: float = math.pi / 12
     map_resolution_m: float = .05
     navigation_margin_m: float = .02
+    navigation_clearance_weight: float = 2.
+    navigation_max_penetration_m: float = .005
     navigation_whole_body: bool = True
     local_candidate_radius_m: float | None = None
     max_episodes_per_scene: int = 0
@@ -31,6 +33,9 @@ class BenchmarkConfig:
                 raise ValueError('invalid benchmark parameter: ' + key)
         if not 0 < self.region_yaw_tolerance_rad <= math.pi or self.navigation_margin_m < 0:
             raise ValueError('invalid region yaw tolerance or navigation margin')
+        for key in ('navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'):
+            if not math.isfinite(getattr(self, key)) or getattr(self, key) < 0:
+                raise ValueError('invalid ' + key)
         if self.local_candidate_radius_m is not None and self.local_candidate_radius_m <= 0:
             raise ValueError('local candidate radius must be positive or null')
         if self.max_episodes_per_scene < 0 or self.seed < 0 or self.horizon <= 0:

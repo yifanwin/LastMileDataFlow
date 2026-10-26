@@ -5,7 +5,7 @@ import math
 import mujoco
 import numpy as np
 
-from ...data.rendering.head_views import head_frame
+from ...data.rendering.head_views import head_frame, TaskVisibility
 from ...data.rendering.edit_views import ViewConfig
 from .initialization import floor_support, room_triangles
 from ...runtime.construction.preparation import preparation_guard
@@ -23,8 +23,22 @@ def disk_samples(anchor, radius, spacing):
             if np.dot(delta,delta) > radius**2+1e-9:
                 continue
             xy = np.asarray(anchor[:2])+delta
-            result.append({'station_id': f'S{len(result):04d}', 'xy': xy.tolist(),
-                           'grid_index': [ix,iy]})
+            identity = f'S{len(result):04d}'
+            result.append({'station_id': identity, 'xy_id': identity, 'xy': xy.tolist(),
+                           'grid_index': [ix,iy], 'yaw_source': 'target_facing'})
+    return result
+
+
+def yaw_variants(station, offsets=(-math.pi / 4, math.pi / 4)):
+    """Create explicit initial headings relative to an initialized nominal pose."""
+    xy_id = station['xy_id']
+    result = [station]
+    pose = {key: station[key] for key in ('xy_id', 'xy', 'grid_index', 'initial')}
+    for index, offset in enumerate(offsets, 1):
+        yaw = station['base'][2] + offset
+        yaw = float(math.atan2(math.sin(yaw), math.cos(yaw)))
+        result.append({**pose, 'station_id': f'{xy_id}-Y{index:02d}',
+                       'yaw': yaw, 'yaw_source': 'explicit', 'yaw_offset_rad': offset})
     return result
 
 
@@ -46,10 +60,19 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     if sim.started or sim.closed:
         raise RuntimeError('station initialization only before begin')
     original = sim.data.qpos.copy()
-    initial = copy.deepcopy(sim.robot.config.initial)
+    original_velocity = sim.data.qvel.copy()
+    initial = copy.deepcopy(station.get('initial', sim.robot.config.initial))
     xy = np.asarray(station['xy'])
-    initial[sim.robot.initial_base_field] = [*xy, float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))]
-    yaw_adjustments = sim.robot.aim_station(initial, anchor)
+    explicit_yaw = station.get('yaw')
+    yaw = explicit_yaw if explicit_yaw is not None else float(np.arctan2(anchor[1]-xy[1],anchor[0]-xy[0]))
+    initial[sim.robot.initial_base_field] = [*xy, yaw]
+    if explicit_yaw is None:
+        yaw_adjustments = sim.robot.aim_station(initial, anchor)
+    else:
+        sim.robot.initialize(initial)
+        yaw_adjustments = []
+    _restore_object_velocity(sim, original_velocity)
+    mujoco.mj_forward(sim.model, sim.data)
     robot_q = set(sim.robot.addresses.values())
     mask = [i for i in range(sim.model.nq) if i not in robot_q]
     if not np.array_equal(original[mask],sim.data.qpos[mask]):
@@ -79,6 +102,13 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
     return row
 
 
+def _restore_object_velocity(sim, original_velocity):
+    velocity_mask = np.ones(sim.model.nv, bool)
+    robot_dofs = [int(sim.model.jnt_dofadr[j]) for j in sim.robot.joints.values()]
+    velocity_mask[robot_dofs] = False
+    sim.data.qvel[velocity_mask] = original_velocity[velocity_mask]
+
+
 def place_frozen_station(sim, station):
     if sim.started or sim.closed:
         raise RuntimeError('post-begin station placement prohibited')
@@ -87,10 +117,7 @@ def place_frozen_station(sim, station):
     sim.robot.initialize(copy.deepcopy(station['initial']))
     # initialize() resets all qvel. A frozen station may change only the robot:
     # keep object velocities, including nonzero residual frozen motion.
-    velocity_mask = np.ones(sim.model.nv, bool)
-    robot_dofs = [int(sim.model.jnt_dofadr[j]) for j in sim.robot.joints.values()]
-    velocity_mask[robot_dofs] = False
-    sim.data.qvel[velocity_mask] = old_velocity[velocity_mask]
+    _restore_object_velocity(sim, old_velocity)
     mujoco.mj_forward(sim.model, sim.data)
     mask = np.ones(sim.model.nq,bool)
     mask[list(sim.robot.addresses.values())] = False
@@ -131,7 +158,8 @@ def park_robot(sim, anchor, config):
 def sample_stations(sim, task, config, *, frozen_stations=None, static_only=False, stop_after_valid=None, checked_stations=()):
     stations = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
     if frozen_stations is not None:
-        stations = [{'station_id': s['station_id'], 'xy': s['xy'], 'grid_index': s['grid_index']} for s in frozen_stations]
+        keys = ('station_id', 'xy_id', 'xy', 'grid_index', 'yaw', 'yaw_source', 'yaw_offset_rad', 'initial')
+        stations = [{key: s[key] for key in keys if key in s} for s in frozen_stations]
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     navigation_grid = None
     if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
@@ -194,3 +222,69 @@ def record_station_visibility(sim, stations, config):
                     ViewConfig(width=config.width, height=config.height), renderer=renderer)
                 station['visibility'] = visible
     return stations
+
+
+def select_task_stations(ctx, sim, geometry, proposal):
+    """Hints/explicit yaw first, then coverage; only valid initial poses consume slots."""
+    from ..augmentation.selection import coverage_select
+    candidates = {row['station_id']: row for row in geometry.lattice}
+    if proposal.pose_edit is not None:
+        candidates.update({row['station_id']: row for row in proposal.pose_edit.stations})
+    hinted = [candidates[identity] for identity in proposal.station_hints]
+    if proposal.pose_edit is not None:
+        hinted.extend(proposal.pose_edit.stations)
+    covered, _ = coverage_select([{**row, 'geometry': 'valid'} for row in geometry.lattice],
+                                  geometry.task['anchor_world'], ctx.recipe.max_final_stations)
+    order = hinted + covered + geometry.lattice
+    seen, selected, checked = set(), [], []
+    initializations = 0
+    floor_triangles = room_triangles(sim)
+    cached = ctx.station_checks if sim is ctx.baseline else {}
+    cfg = ctx.station_config
+    with TaskVisibility(sim, geometry.task, cfg) as visibility:
+        for candidate in order:
+            identity = candidate['station_id']
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if identity in cached:
+                row = copy.deepcopy(cached[identity])
+            else:
+                prepared = geometry.pose_checks.get(identity)
+                if prepared is None:
+                    initializations += 1
+                with closing(clone_preparation(sim)) as probe:
+                    warnings = [warning.number for warning in probe.data.warning]
+                    if prepared is not None:
+                        row = copy.deepcopy(prepared)
+                        row.pop('visibility_proxy', None)
+                        if row['geometry'] == 'valid':
+                            place_frozen_station(probe, row)
+                    else:
+                        try:
+                            row = initialize_station(probe, candidate, geometry.task['anchor_world'], cfg,
+                                                     check_visibility=False, floor_triangles=floor_triangles)
+                        except ValueError as exc:
+                            row = {**candidate, 'geometry': 'geometry_filtered', 'reason': str(exc)}
+                    fresh = [{'index': i, 'number': int(w.number)} for i, w in enumerate(probe.data.warning)
+                             if w.number > warnings[i]]
+                    if fresh:
+                        row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
+                    row.update(new_solver_warnings=fresh, independent_simulation=True,
+                               initialization_attempt_id=identity, check_scope='actual_robot_initialization_and_three_camera_roi')
+                    if row['geometry'] == 'valid':
+                        row['visibility'] = visibility.measure(probe)
+                if sim is ctx.baseline:
+                    cached[identity] = copy.deepcopy(row)
+            checked.append(row)
+            if row['geometry'] == 'valid':
+                selected.append(row)
+            if len(selected) == ctx.recipe.max_final_stations:
+                break
+    return selected, {'candidates_checked': len(checked), 'selected_count': len(selected),
+                       'new_initializations': initializations, 'reused_initializations': len(checked) - initializations,
+                       'pose_budget_fraction': len(selected) / ctx.recipe.max_final_stations,
+                       'lattice_count': len(geometry.lattice),
+                       'selected_ids': [row['station_id'] for row in selected],
+                       'priority': 'station_hints_then_explicit_yaw_then_coverage',
+                       'rejected_stations': [row for row in checked if row['geometry'] != 'valid']}

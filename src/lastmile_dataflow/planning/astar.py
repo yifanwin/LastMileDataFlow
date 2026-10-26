@@ -37,6 +37,8 @@ def search(grid, start_xy, goal_xy):
     start,goal = grid.cell(start_xy),grid.cell(goal_xy)
     if start is None or goal is None or not grid.free[start] or not grid.free[goal]:
         return None
+    if not segment_free(grid, start_xy, grid.xy(start)) or not segment_free(grid, grid.xy(goal), goal_xy):
+        return None
     distance = {start: 0.}; parent = {}; queue = [(0.,0.,start)]
     while queue:
         _,cost,node = heapq.heappop(queue)
@@ -47,7 +49,8 @@ def search(grid, start_xy, goal_xy):
             while node in parent:
                 node = parent[node]; cells.append(node)
             xy = [np.asarray(start_xy), *(grid.xy(c) for c in reversed(cells)), np.asarray(goal_xy)]
-            return {'xy': np.asarray(xy).tolist(), 'length_m': cost,
+            length = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
+            return {'xy': np.asarray(xy).tolist(), 'length_m': length,
                     'cells': [list(c) for c in reversed(cells)]}
         for neighbor,step in grid.neighbors(node):
             value = cost+step
@@ -137,42 +140,90 @@ def search_region(grid, start_xy, goals):
             'reachable_goals': [item[2] for item in reachable]}
 
 
-def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=.40):
-    """Conservative PER-GEOM chassis-height raster; physical whole-body checks follow."""
+@dataclass
+class OccupancyMap:
+    origin: np.ndarray
+    resolution: float
+    occupied: np.ndarray
+    obstacle_distance_m: np.ndarray
+    support_obstacles: tuple = ()
+
+    def navigation(self, footprint_radius, margin):
+        free = ~self.occupied & (self.obstacle_distance_m >= footprint_radius + margin)
+        return Grid(self.origin, self.resolution, free, self.support_obstacles)
+
+    def clearance_base(self, chassis_radius):
+        """Physical chassis clearance; navigation margin is not subtracted."""
+        return self.obstacle_distance_m - chassis_radius
+
+
+def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), robot_height=.40):
+    """Rasterize once without inflation, then measure distance to occupied cells.
+
+    radius=None uses the full source floor. D is conservative at raster precision:
+    occupied cells cover their whole square, including thin intersecting geoms.
+    """
     import mujoco
+    from scipy.ndimage import distance_transform_edt
     from ..scenes.geometry import geom_points
-    from ..scenes.stations.initialization import room_triangles, inside_triangles
-    size = int(math.ceil(2*radius/resolution))+1
-    origin = np.asarray(anchor[:2])-radius
-    yy,xx = np.indices((size,size)); xy = origin+np.stack((xx,yy),axis=-1)*resolution
-    free = np.linalg.norm(xy-np.asarray(anchor[:2]),axis=-1) <= radius+1e-9
+    from ..scenes.stations.initialization import room_triangles
     triangles = room_triangles(sim)
+    if radius is None:
+        if getattr(sim, 'local_model', {}).get('removed_roots'):
+            raise ValueError('room navigation requires a full scene; rebuild with local_task_models=false')
+        if not len(triangles):
+            raise ValueError('room navigation requires bounded source floor geometry')
+        points = triangles.reshape(-1, 2)
+        origin = np.floor(points.min(axis=0) / resolution) * resolution
+        nx, ny = np.ceil((points.max(axis=0) - origin) / resolution).astype(int) + 1
+    else:
+        nx = ny = int(math.ceil(2 * radius / resolution)) + 1
+        origin = np.asarray(anchor[:2]) - radius
+    yy, xx = np.indices((ny, nx))
+    xy = origin + np.stack((xx, yy), axis=-1) * resolution
+    allowed = np.ones((ny, nx), dtype=bool) if radius is None else np.linalg.norm(xy - np.asarray(anchor[:2]), axis=-1) <= radius + 1e-9
     if len(triangles):
-        for y,x in np.argwhere(free):
-            free[y,x] = inside_triangles(xy[y,x],triangles)
-    inflation = footprint_radius+margin
+        floor = np.zeros((ny, nx), dtype=bool)
+        for triangle in triangles:
+            u, v = triangle[1] - triangle[0], triangle[2] - triangle[0]
+            p = xy - triangle[0]
+            det = u[0] * v[1] - u[1] * v[0]
+            a = (p[..., 0] * v[1] - p[..., 1] * v[0]) / det
+            b = (u[0] * p[..., 1] - u[1] * p[..., 0]) / det
+            floor |= (a >= -1e-9) & (b >= -1e-9) & (a + b <= 1 + 1e-9)
+        allowed &= floor
+    occupied = ~allowed
+
+    def occupy(lo, hi):
+        # Raster cells intersecting the measured conservative AABB, including
+        # obstacles thinner than one cell. No robot radius/margin enters here.
+        occupied[:] |= ((xy >= np.asarray(lo)[:2] - resolution / 2) &
+                        (xy <= np.asarray(hi)[:2] + resolution / 2)).all(axis=-1)
+
     for g in range(sim.model.ngeom):
-        name = sim.model.geom(g).name; body = sim.model.body(int(sim.model.geom_bodyid[g])).name
+        name = sim.model.geom(g).name
+        body = sim.model.body(int(sim.model.geom_bodyid[g])).name
         if body.startswith('robot_0/') or 'floor' in name.lower():
             continue
         if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]):
             continue
         if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE:
             continue
-        points = geom_points(sim,g); lo,hi = points.min(axis=0),points.max(axis=0)
-        if hi[2] <= .005 or lo[2] >= robot_height:
-            continue
-        dx = np.maximum(np.maximum(lo[0]-xy[:,:,0],xy[:,:,0]-hi[0]),0.)
-        dy = np.maximum(np.maximum(lo[1]-xy[:,:,1],xy[:,:,1]-hi[1]),0.)
-        free[dx**2+dy**2 <= inflation**2] = False
-    # Reserve the entire support footprint, including elevated tabletops whose
-    # legs alone would otherwise leave an apparently navigable interior.
+        points = geom_points(sim, g)
+        lo, hi = points.min(axis=0), points.max(axis=0)
+        if hi[2] > .005 and lo[2] < robot_height:
+            occupy(lo, hi)
     for obstacle in support_obstacles:
-        lo,hi = np.asarray(obstacle['min']),np.asarray(obstacle['max'])
-        dx = np.maximum(np.maximum(lo[0]-xy[:,:,0],xy[:,:,0]-hi[0]),0.)
-        dy = np.maximum(np.maximum(lo[1]-xy[:,:,1],xy[:,:,1]-hi[1]),0.)
-        free[dx**2+dy**2 <= inflation**2] = False
-    return Grid(origin,resolution,free,tuple(support_obstacles))
+        occupy(obstacle['min'], obstacle['max'])
+    distance = distance_transform_edt(np.pad(~occupied, 1, constant_values=False))[1:-1, 1:-1] * resolution
+    distance = np.maximum(0., distance - resolution / math.sqrt(2))
+    return OccupancyMap(origin, resolution, occupied, distance, tuple(support_obstacles))
+
+
+def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=.40):
+    occupancy = scene_occupancy(sim, anchor, radius, resolution,
+                                support_obstacles=support_obstacles, robot_height=robot_height)
+    return occupancy.navigation(footprint_radius, margin)
 
 
 def task_support_obstacles(sim, task):

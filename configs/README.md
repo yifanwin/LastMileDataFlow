@@ -6,7 +6,7 @@
 
 1. 复制 `configs/local.example.json` 为 `configs/local.json`，填写本机 `assets_dir` 和 `output_dir`。该文件已被 Git 忽略；CLI 显式参数优先。
 2. 在场景、机器人和策略配置中填写 `data_root`，确认场景、对象、机器人 XML、权重和 tokenizer 已准备好。
-3. 在场景配方中修改 `houses`、`targets`、`cases` 和目标数/变体数，避免直接启动大规模构造。
+3. 在场景配方中修改 `houses`、`targets`、`modes` 和目标数/变体数，避免直接启动大规模构造。
 4. 选择 cuRobo、MolmoBot 或 π0.5 执行配置；VLA 还要配置权重、tokenizer 和本仓库解释器。
 5. 运行时显式传数据集、唯一 `--run-id` 和 `--gpu`。先查看 GPU 0–7 的利用率和空闲显存，不固定卡号。
 
@@ -21,7 +21,8 @@
 
 | 目录 | 用途与入口 | 说明 |
 |---|---|---|
-| [scene_datasets](scene_datasets/README.md) | `build-scenes --config` | 场景库配方；内含共用机器人配置 |
+| [scene_datasets](scene_datasets/README.md) | 历史 Case JSON | 保留实验输入引用，已退出公开构建 |
+| [task_modes](task_modes/README.md) | 新模式配方、共享阈值与三次标定配置 | 公开 build-scenes v2 八类候选；统一诊断及 train/val 下游消费 |
 | [execution](execution/README.md) | `evaluate-stations / collect-lastmile --config` | 逐站位执行和标定 |
 | [lastmile_datasets](lastmile_datasets/README.md) | `collect-lastmile --config` | S0→S1→操作的连续采集参数 |
 | [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot / π0.5 模型服务 |
@@ -29,7 +30,7 @@
 | [robots](robots/README.md) | 机器人加载器；构造时由场景配方引用具体文件 | 机器人模型与控制；评测读取快照中的机器人配置 |
 | [scene_eval](scene_eval/README.md) | `evaluate-stations --config` | 与 execution/MolmoBot 同参数的预设 |
 | [collection](collection/README.md) | Python `load_config(CollectionConfig, ...)` | 记录配置示例；当前 CLI 不直接加载此 JSON |
-| [case_edits](case_edits/README.md) | Python `load_obstacle_config` → `augment_obstacles` | 独立障碍物实验；不是额外 CLI 命令 |
+| [case_edits](case_edits/README.md) | 历史增强 JSON | 旧增强入口已退出 |
 
 ## 路径规则
 
@@ -47,7 +48,7 @@
 nvidia-smi
 # 将 <空闲GPU> 换成实际编号，run-id 每次使用新名字
 .venv/bin/lastmile-dataflow build-scenes \
-  --config configs/scene_datasets/val103_cup30_minimal_v3.json \
+  --config configs/task_modes/panda_omron_task_modes.json \
   --output-dir outputs --run-id cup30-demo --gpu <空闲GPU>
 ```
 
@@ -55,9 +56,6 @@ nvidia-smi
 
 ## Panda 三次协议
 
-- `scene_datasets/panda_omron_val103.json`：position-v1 首阶段 val103/Cup_30/Case2、1 变体。
-- `scene_datasets/panda_omron_val100.json`：固定 val0–val99，Case1–3，每房最多 1 个 pick/1 个 open，各 1 变体；构建使用 `--allow-partial-targets` 保留缺项。
-- `execution/panda_omron_curobo.json` 与 `lastmile_datasets/panda_omron_curobo.json`：每点 3 次、低 1/3、高 1.0，启用公共准备和独立规划/执行池。
-- `benchmark/panda_omron.json`：匹配三次协议的困难配对阈值。
+新候选使用 `task_modes/panda_omron_task_modes.json` 构建，标定配置为 `task_modes/panda_omron_calibration.json`：每点三次、局部底盘范围 0.35 m、操作半径 2 m。几何阈值尚未经过新模式标定。
 
-资源使用 CLI 的 `--gpu`、`--cpu-workers`、`--preparation-workers`、`--recording-mode`，不混入 ExecutionConfig。构建使用 `--build-workers`；RBY/通用配方及阈值保留。
+`execution/`、`lastmile_datasets/`、`benchmark/` 中的已有协议用于对应历史场景；新模式诊断与下游已通过软件回归，完整真实标定与闭环尚未验证。资源使用 CLI 的 `--gpu`、`--cpu-workers`、`--preparation-workers`、`--recording-mode`，不混入执行配置。构建使用 `--build-workers`。

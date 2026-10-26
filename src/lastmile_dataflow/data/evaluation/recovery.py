@@ -21,10 +21,15 @@ class RecoveryRegion:
         self.distances = [{(y, x): d for y, x, d in patch['cells']} for patch in patches]
 
     @classmethod
-    def build(cls, grid, measured, config):
+    def build(cls, grid, measured, config, navigation=None):
         patches = []
         for station in measured:
             if not station['high']:
+                continue
+            if navigation is not None:
+                patch = navigation.recovery_patch(station, config.region_radius_m, config.region_yaw_tolerance_rad)
+                if patch is not None:
+                    patches.append(patch)
                 continue
             xy = station['xy']
             cell = grid.cell(xy)
@@ -38,9 +43,6 @@ class RecoveryRegion:
         return cls(grid, measured, patches, config.region_radius_m, config.region_yaw_tolerance_rad)
 
     def contains(self, xy, yaw):
-        cell = self.grid.cell(xy)
-        if cell is None or not self.grid.free[cell]:
-            return False
         # Nearest measured non-high stations clip expanded patches. The exact
         # measured position is used, so a low start is never an initial recovery.
         neighbors = [(float(np.linalg.norm(np.asarray(xy) - s['xy'])), s['high'])
@@ -50,6 +52,18 @@ class RecoveryRegion:
         for patch, distances in zip(self.patches, self.distances):
             anchor = patch['anchor']
             if abs(yaw_gap(yaw, anchor['yaw'])) > self.yaw_tolerance_rad + 1e-9:
+                continue
+            if 'boxes' in patch:
+                query = np.r_[xy, yaw_gap(yaw, anchor['yaw'])]
+                if (np.linalg.norm(np.asarray(xy) - anchor['xy']) <= 1e-9
+                        and abs(query[2]) <= 1e-9):
+                    return True
+                if any(np.all(query >= np.asarray(box[:3]) - 1e-9)
+                       and np.all(query <= np.asarray(box[3:]) + 1e-9) for box in patch['boxes']):
+                    return True
+                continue
+            cell = self.grid.cell(xy)
+            if cell is None or not self.grid.free[cell]:
                 continue
             anchor_cell = self.grid.cell(anchor['xy'])
             if cell == anchor_cell and segment_free(self.grid, anchor['xy'], xy):
@@ -65,6 +79,16 @@ class RecoveryRegion:
         seen = set()
         for patch in self.patches:
             anchor = patch['anchor']
+            if 'boxes' in patch:
+                poses = [[*anchor['xy'], anchor['yaw']], *[
+                    [*(np.mean([box[:3], box[3:]], axis=0)[:2]),
+                     anchor['yaw'] + (box[2] + box[5]) / 2] for box in patch['boxes']]]
+                for x, y, yaw in poses:
+                    key = (x, y, yaw)
+                    if key not in seen and self.contains([x, y], yaw):
+                        goals.append({'xy': [x, y], 'yaw': yaw, 'anchor_station_id': anchor['station_id']})
+                        seen.add(key)
+                continue
             points = [anchor['xy'], *(self.grid.xy((y, x)).tolist() for y, x, _ in patch['cells'])]
             for xy in points:
                 key = (*xy, anchor['yaw'])
@@ -74,7 +98,8 @@ class RecoveryRegion:
         return goals
 
     def to_dict(self):
-        return {'method': 'geodesic_patches_nearest_measurement_clip',
+        return {'method': ('geometry_sampled_pose_boxes_nearest_measurement_clip'
+                           if any('boxes' in p for p in self.patches) else 'geodesic_patches_nearest_measurement_clip'),
                 'origin': self.grid.origin.tolist(), 'resolution_m': self.grid.resolution,
                 'free': self.grid.free.tolist(), 'measured': self.measured, 'patches': self.patches,
                 'radius_m': self.radius_m, 'yaw_tolerance_rad': self.yaw_tolerance_rad}
@@ -85,8 +110,8 @@ class RecoveryRegion:
         return cls(grid, value['measured'], value['patches'], value['radius_m'], value['yaw_tolerance_rad'])
 
 
-def difficulty(region, start, candidates, local_radius_m=None):
-    path = search_region(region.grid, start['xy'], region.goals())
+def difficulty(region, start, candidates, local_radius_m=None, *, reference_path=None):
+    path = dict(reference_path) if reference_path is not None else search_region(region.grid, start['xy'], region.goals())
     if path is None:
         return None
     reachable = path.pop('reachable_goals')
@@ -95,6 +120,8 @@ def difficulty(region, start, candidates, local_radius_m=None):
              np.linalg.norm(np.asarray(start['xy']) - s['xy']) <= local_radius_m + 1e-9]
     recovered = sum(region.contains(s['xy'], s['base'][2]) for s in local)
     return {'path_length_m': path['length_m'], 'euclidean_distance_m': euclidean,
+            'path_metric': path.get('method', 'grid_geodesic'),
+            'euclidean_distance_scope': path.get('goal_reachability_scope', 'reachable_goals'),
             'detour_factor': path['length_m'] / euclidean if euclidean > 1e-9 else None,
             'detour_status': 'defined' if euclidean > 1e-9 else 'zero_euclidean_distance',
             'recovery_ratio': recovered / len(local) if local else None,

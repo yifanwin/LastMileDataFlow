@@ -238,3 +238,123 @@ def calibrate_stations(scenes, assets_dir, config, collection, root, resources, 
     return trials, {'planned_trials': planned, 'recorded_trials': len(trials),
         'preparation_failures': preparation_failures, 'failure': failure, 'peaks': peaks,
         'gpu_active_s': gpu_active_s, 'elapsed_s': time.monotonic() - started}
+
+
+def diagnose_stations(scenes, trials, assets_dir, config, root, gpu_ids, *, source_root=None,
+                      allow_probes=True, service_type=None):
+    """Parent-owned diagnosis writer; reuse trials and lazily lease the existing GPU pool."""
+    from collections import Counter
+    from contextlib import closing
+    from .collection import _shared_failure
+    from ..data.evaluation.diagnosis import diagnose_task
+    from ..data.evaluation.diagnosis_inputs import PreparedMeasurements, planning_evidence
+    from ..data.evaluation.selection import mode_calibration
+    from ..runtime.simulation import Simulation
+    from ..scenes.mode_config import ModeConfig
+    from ..utils.io import read_json, write_json
+
+    root = Path(root)
+    source_root = root if source_root is None else Path(source_root)
+    settings = ModeConfig(**read_json(root / 'config.json')['mode_settings'])
+    diagnoses, label_counts = [], Counter()
+    probe_count = 0
+    pool, failure = None, None
+    if (root / 'diagnosis.jsonl').exists():
+        raise FileExistsError(root / 'diagnosis.jsonl')
+    (root / 'diagnosis.jsonl').touch()
+    try:
+        for scene in scenes:
+            current = [row for row in trials if row['scene_id'] == scene['scene_id']]
+            binding = {'scene_id': scene['scene_id'], 'task_id': scene['task']['task_id']}
+            calibration = mode_calibration(scene['stations'], current, binding, config.operation_backend)
+            measurements, planning, probes = {}, {}, {}
+            path = lambda a, b: {'status': 'unresolved', 'reason': 'measurements_not_available'}
+            if calibration['task_eligibility'] == 'eligible':
+                planning = planning_evidence(source_root, current)
+                with closing(Simulation.from_snapshot(scene['scene_path'], scene['robot_config'],
+                             target=scene['task']['target_body'])) as sim:
+                    prepared = PreparedMeasurements(sim, scene, current, planning, config,
+                        min_reference_pixels=read_json(root / 'config.json')['mode_visibility']['min_reference_pixels'])
+                    if allow_probes and failure is None:
+                        measurements = prepared.measure()
+                    path = prepared.path
+                    preliminary = diagnose_task(scene, calibration, current, measurements, planning, probes, path, settings)
+                    for candidate in preliminary['s0_results']:
+                        relation = candidate['labels']['reachability']
+                        if relation['status'] != 'unresolved' or not allow_probes or failure is not None:
+                            continue
+                        if not settings.max_ik_probes_per_s0:
+                            continue
+                        identity = candidate['s0']
+                        state = prepared.states.get(identity)
+                        attempts = [attempt for trial in current if trial['station_id'] == identity
+                                    for attempt in planning.get(trial['rollout_id'], {}).get('attempts', [])]
+                        attempt = next((a for a in attempts if a.get('grasp_inputs_ref')), None)
+                        if state is None or attempt is None:
+                            probes[identity] = {'status': 'unresolved', 'reason': 'missing_probe_inputs'}
+                            continue
+                        candidates_ref = Path(attempt['grasp_inputs_ref']).with_name('grasp_candidates.json')
+                        if not candidates_ref.is_file():
+                            probes[identity] = {'status': 'unresolved', 'reason': 'missing_grasp_candidate_binding'}
+                            continue
+                        lane = read_json(candidates_ref)['lanes'][attempt.get('batch_slot', 0)]
+                        station_index = next(i for i, s in enumerate(scene['stations']) if s['station_id'] == identity)
+                        probe_identity = TrialIdentity(scene['scene_id'], station_index, -1,
+                            f'probe-{scene["scene_id"]}-{identity}', config.seed + 1000000 + station_index)
+                        request = PlanningRequest(probe_identity.attempt_id, scene['scene_path'], [probe_identity], state,
+                            'diagnostic_ik', [TrialBudget(settings.probe_timeout_s)],
+                            {'task': scene['task'], 'robot': scene['robot_config'], 'config': config,
+                             'assets_dir': assets_dir, 'root': root, 'candidates': lane['candidates'],
+                             'trial_refs': [str((source_root / trial['planning_ref']).resolve())
+                                            for trial in current if trial['station_id'] == identity and trial.get('planning_ref')]})
+                        if pool is None:
+                            pool = PlanningPool(gpu_ids, **({'service_type': service_type} if service_type else {}))
+                        pool.submit(request)
+                        probe_count += 1
+                        pool.dispatch()
+                        response = None
+                        timed_out = False
+                        while response is None and pool.failure is None:
+                            observed = pool.poll(.1)
+                            if observed is not None:
+                                response = observed[1][0]
+                            marker = root / 'planning' / request.query_id / 'query.json'
+                            if response is None and marker.is_file():
+                                active = time.monotonic() - read_json(marker)['started_at']
+                                if active > settings.probe_timeout_s:
+                                    pool.failure = {'status': 'timeout', 'reason': 'diagnostic_ik_active_budget'}
+                                    pool.close()
+                                    pool = None
+                                    probe = {'status': 'unresolved', 'reason': 'diagnostic_ik_active_budget',
+                                        'feasible_ratio': None, 'active_s': active,
+                                        'limit_s': settings.probe_timeout_s, 'diagnostic_only': True,
+                                        'result_ref': str(marker.with_name('ik_probe.json').resolve())}
+                                    write_json(marker.with_name('ik_probe.json'), probe)
+                                    probes[identity] = probe
+                                    timed_out = True
+                                    break
+                        if timed_out:
+                            continue
+                        if response is None:
+                            failure = pool.failure
+                            probes[identity] = {'status': 'unresolved', 'reason': failure['reason']}
+                        elif response.status != 'success':
+                            probes[identity] = {'status': 'unresolved', 'reason': response.diagnostics.get('reason', response.status)}
+                            if response.status == 'infrastructure_error':
+                                failure = response.diagnostics
+                        else:
+                            probe = response.plan['probe']
+                            probes[identity] = {k: v for k, v in probe.items() if k not in ('per_seed_success', 'seed_indices', 'sampler_seeds')}
+                            probes[identity]['result_ref'] = str((root / 'planning' / request.query_id / 'ik_probe.json').resolve())
+            diagnosis = diagnose_task(scene, calibration, current, measurements, planning, probes, path, settings)
+            diagnosis.update(trials_ref=str((source_root / 'trials.jsonl').resolve()),
+                calibration_ref=str(source_root.resolve()), station_measurements=measurements, probes=probes)
+            diagnoses.append(diagnosis)
+            label_counts.update(label for row in diagnosis['s0_results'] for label in row['final_labels'])
+            append_row(root / 'diagnosis.jsonl', diagnosis)
+    finally:
+        if pool is not None:
+            pool.close()
+    return diagnoses, {'tasks': len(diagnoses), 'eligibility': dict(Counter(r['task_eligibility'] for r in diagnoses)),
+        'intent_hit': dict(Counter(str(r['intent_hit']) for r in diagnoses)), 'label_counts': dict(label_counts),
+        'probe_count': probe_count, 'failure': failure}

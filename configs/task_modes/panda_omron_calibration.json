@@ -1,0 +1,30 @@
+{
+  "operation_base_mode": "holonomic_joint_planning",
+  "head_fov_enabled": false,
+  "grasp_candidate_order": "tcp_distance",
+  "grasp_roll_rad": 1.5707963267948966,
+  "local_base_radius_m": 0.35,
+  "trials_per_station": 3,
+  "operation_retries": 0,
+  "operations": [
+    "pick",
+    "open"
+  ],
+  "max_grasp_candidates": 16,
+  "num_ik_seeds": 32,
+  "num_trajopt_seeds": 4,
+  "attempt_timeout_s": 300.0,
+  "gripper_width_m": 0.08,
+  "third_person_enabled": false,
+  "initial_settle_s": 1.0,
+  "navigation_whole_body": true,
+  "width": 256,
+  "height": 256,
+  "require_target_visibility": false,
+  "require_navigation_clearance": false,
+  "lastmile_low": 0.3333333333333333,
+  "lastmile_high": 1.0,
+  "shared_station_preparation": true,
+  "mode_config": "configs/task_modes/mode_defaults.json",
+  "radius_m": 2.0
+}

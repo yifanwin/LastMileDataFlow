@@ -2,7 +2,7 @@
 
 由 `policies/config.py` 按 `backend` 分派；推理实现随本仓库安装，不配置外部源码目录。
 
-π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`，其控制 profile、归一化与准备命令见 [π0.5 运行指南](../../reports/pi05/docs/01-running.md)。以下其余字段说明针对 MolmoBot。
+π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`，其控制 profile、归一化与准备命令见 [π0.5 运行指南](../../reports/pi05/docs/01-running.md)。Panda 配置使用当前数据根 `/data1/wenyifan/lmdf/molmospaces_data`，checkpoint、norm_stats 与 tokenizer_path 均按该根解析；换机器时显式修改 data_root。以下其余字段说明针对 MolmoBot。
 
 ## 重点手动配置
 

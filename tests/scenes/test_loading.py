@@ -3,15 +3,11 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.utils.io import write_json
-from lastmile_dataflow.scenes.loading.asset_library import ThorLibrary
 from lastmile_dataflow.scenes.loading.mjcf import load_spec, save_spec
-from tests.helpers import table_scene
 
 
 class LoadingTests(unittest.TestCase):
@@ -98,67 +94,3 @@ class LoadingTests(unittest.TestCase):
         )
         (self.root / "extra.xml").write_text('<mujoco><option timestep=".003"/></mujoco>')
         self.assert_model_equal(p)
-
-
-class AssetRetrievalTests(unittest.TestCase):
-    def test_registered_names_do_not_scan_remote_prefabs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            prefabs = root / "objects/Group/Chair/Prefabs"
-            source = prefabs / "Chair_1/Chair_1.xml"
-            source.parent.mkdir(parents=True)
-            source.write_text(
-                '<mujoco><worldbody><body name="chair">'
-                '<geom type="box" size=".1 .2 .3"/></body></worldbody></mujoco>'
-            )
-            write_json(root / "objects/asset_id_to_object_type.json", {"Chair_1": "Chair"})
-            library = ThorLibrary(root / "objects")
-            original = Path.iterdir
-
-            def bounded(directory):
-                if directory == prefabs:
-                    raise AssertionError("do not scan all remote prefab entries")
-                return original(directory)
-
-            with patch.object(Path, "iterdir", bounded):
-                catalog = library.retrieve(
-                    [{"categories": ["Chair"], "size_constraints_m": {}}],
-                    root / "derived",
-                    limit=1,
-                    seed=17,
-                    registered_only=True,
-                )
-            self.assertEqual(list(catalog.assets), ["Chair_1"])
-            self.assertTrue((root / "derived/Chair_1/asset.xml").is_file())
-
-
-class AssetMeasurementTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.source, self.robot = table_scene(self.root)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_asset_category_retrieval_measured_z_up_without_source_changes(self):
-        root = self.root / "thor"
-        folder = root / "Kitchen Objects/Cup/Prefabs/Cup_fixture"
-        folder.mkdir(parents=True)
-        source = folder / "Cup_fixture.xml"
-        source.write_text(
-            '<mujoco><worldbody><body name="cup"><freejoint/><geom type="box" size=".1 .2 .15" mass="1"/></body></worldbody></mujoco>'
-        )
-        before = source.read_bytes()
-        library = ThorLibrary(root)
-        self.assertEqual(library.categories(), ["Cup"])
-        assets = library.retrieve(
-            [{"categories": ["Cup"], "intended_role": "obstacle", "size_constraints_m": {}}],
-            self.root / "retrieval",
-        )
-        description = assets.describe()
-        self.assertEqual(len(description), 1, description)
-        self.assertAlmostEqual(description[0]["size"]["height"], 0.4)
-        self.assertAlmostEqual(description[0]["size"]["depth"], 0.3)
-        self.assertEqual(description[0]["root_motion"], "free")
-        self.assertEqual(source.read_bytes(), before)

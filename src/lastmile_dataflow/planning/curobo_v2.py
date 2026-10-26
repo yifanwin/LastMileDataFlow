@@ -9,7 +9,8 @@ import numpy as np
 from ..utils.io import write_json
 from ..utils.logging_config import trial_progress
 
-from .waypoints import PlanResult
+from .waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
+from .evidence import lane_success, phase_evidence, solver_evidence, ik_probe_evidence
 from ..scenes.geometry import body_pose, tcp_pose, pose7, descendants
 from .rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world_v2 import collision_world
@@ -122,16 +123,16 @@ class PlannerResources:
         self.planners = OrderedDict()
 
     @contextmanager
-    def acquire(self, sim, config, side, path, *, workspace, batch_size):
+    def acquire(self, sim, config, side, path, *, workspace, batch_size, ik_only=False):
         key = (sim.robot.config.model_path, sim.robot.config.control_profile, side,
                config.operation_base_mode, batch_size, config.num_ik_seeds,
-               config.num_trajopt_seeds, config.max_candidates)
+               config.num_trajopt_seeds, config.max_candidates, ik_only)
         planner = self.planners.get(key) if not config.head_fov_enabled else None
         if planner is None:
             while len(self.planners) >= 2:
                 _, old = self.planners.popitem(last=False)
                 old.close()
-            planner = V2Planner(sim, config, side, path, workspace=workspace, batch_size=batch_size)
+            planner = V2Planner(sim, config, side, path, workspace=workspace, batch_size=batch_size, ik_only=ik_only)
             if not config.head_fov_enabled:
                 self.planners[key] = planner
         else:
@@ -154,7 +155,7 @@ class PlannerResources:
 
 
 class V2Planner:
-    def __init__(self, sim, config, side, path, *, workspace, batch_size=1):
+    def __init__(self, sim, config, side, path, *, workspace, batch_size=1, ik_only=False):
         setup_started = time.monotonic()
         self.progress_ready = False
         import yaml
@@ -224,6 +225,7 @@ class V2Planner:
             def plan_pose(self, goal_tool_poses, current_state, *args, **kwargs):
                 phase = next(owner.phases) if owner.phases is not None else owner.single_phase
                 owner.progress_phase = phase
+                owner.query_index = len(owner.query_log) + 1
                 if owner.on_query is not None:
                     owner.on_query(phase)
                 kwargs.setdefault('max_attempts', owner.config.max_attempts)
@@ -234,10 +236,13 @@ class V2Planner:
                 if owner.progress_ready:
                     trial_progress('Planning phase=%s', phase)
                 result = super().plan_pose(goal_tool_poses, current_state, *args, **kwargs)
+                native_success = lane_success(None if result is None else result.success, owner.evidence_batch_size)
+                fov_rejected = [False] * owner.evidence_batch_size
                 if (owner.config.head_fov_enabled and result is not None
                         and bool(result.success.any().item())):
                     report = owner.validate_fov_result(result, phase)
                     if not report['valid']:
+                        fov_rejected = native_success
                         result.success[:] = False
                         result.status = 'FOV_CONSTRAINT_FAILED'
                 if result is not None and result.js_solution is not None:
@@ -248,11 +253,16 @@ class V2Planner:
                     # state; stage chaining requires position/velocity/acceleration.
                     chain_state(result.js_solution)
                 owner.query_log.append({'phase': phase, 'wall_time_s': time.monotonic()-started,
+                    'query_index': owner.query_index, 'goal_count': goal_tool_poses.num_goalset,
+                    'lane_success': lane_success(None if result is None else result.success, owner.evidence_batch_size),
+                    'fov_rejected_lanes': fov_rejected,
                     'max_attempts': kwargs.get('max_attempts', 5),
                     'success': result is not None and bool(result.success.any().item())})
                 return result
 
         self.phases = None; self.single_phase = 'pose'; self.on_query = None; self.query_log = []
+        self.evidence_batch_size = batch_size
+        self.query_index = 0
         extra_settings = {}
         if config.head_fov_enabled:
             ik_config, trajopt_config, metrics_config = fov_optimizer_configs()
@@ -296,7 +306,8 @@ class V2Planner:
                 'margin': config.head_fov_margin, 'weight': config.head_fov_weight})
             if not sim.started and (camera_translation_error > .001 or camera_angle_error > .001):
                 raise ValueError('cuRobo/MuJoCo head optical FK mismatch')
-        self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
+        if not ik_only:
+            self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
         self.progress_ready = True
         self.query_log.clear()
         self.fov_log.clear()
@@ -321,7 +332,8 @@ class V2Planner:
                 if elapsed >= 2.0:
                     trial_progress('Solver finished solver=%s phase=%s elapsed=%.1fs',
                                       _kind, self.progress_phase, elapsed)
-                row = {'solver': _kind, 'success': result.success.detach().cpu().tolist()}
+                row = solver_evidence(result, _kind, self.progress_phase, self.query_index,
+                                      len(self.solver_log) + 1, self.evidence_batch_size)
                 for field in ('position_error', 'rotation_error', 'feasible'):
                     value = getattr(result, field, None)
                     if value is not None: row[field] = value.detach().cpu().tolist()
@@ -521,10 +533,11 @@ class V2Planner:
         return tuple(tuple(float(v) for v in p) for p in points)
 
     def grasp(self, matrices, on_query, *, lift=True):
+        write_json(self.path / 'grasp_inputs.json', {'seeds': [self.config.seed], 'world_goals': [matrices]})
         self.phases = iter(('goalset', 'pregrasp', 'grasp', 'lift')); self.on_query = on_query
         try:
             result = self.motion.plan_grasp(self.goals(matrices), self.state(),
-                grasp_approach_offset=-.08, grasp_lift_offset=.10,
+                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M, grasp_lift_offset=.10,
                 grasp_lift_in_tool_frame=False, plan_approach_to_grasp=True,
                 plan_grasp_to_lift=lift, disable_collision_links=[])
             success = result.success is not None and bool(result.success.any().item())
@@ -539,7 +552,10 @@ class V2Planner:
                           'reference_world': self.base.tolist(),
                           'control_dt_s': 1 / self.sim.robot.config.control_hz,
                           'time_dilation': self.config.time_dilation,
-                          'native_plan_grasp': True, 'native_full_plan_grasp': bool(lift), 'solver_trace': list(self.solver_log), 'joint_names': list(self.names),
+                          'native_plan_grasp': True, 'native_full_plan_grasp': bool(lift), 'joint_names': list(self.names),
+                          'phase_evidence': phase_evidence(self.query_log, self.solver_log, 0),
+                          'solver_trace_ref': str((self.path / 'solver_trace.json').resolve()),
+                          'grasp_inputs_ref': str((self.path / 'grasp_inputs.json').resolve()),
                           'head_fov': list(self.fov_log), 'finite_budget_not_impossibility': True,
                           'constrained_planning': self.config.head_fov_enabled,
                           'failure_reason': ('fov_constraint_failed' if any(not r['valid'] for r in self.fov_log)
@@ -553,15 +569,48 @@ class V2Planner:
             from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
             self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
 
+    def diagnostic_ik(self, matrices, *, seed, seeds_per_grasp):
+        """One independent IK solve per grasp, all seeds returned, no TrajOpt or stepping."""
+        count = len(matrices)
+        sampler_seeds = [seed + index for index in range(count)]
+        bind_batch_seeds(self.motion, sampler_seeds)
+        self.progress_phase = 'diagnostic_ik'
+        self.query_index = len(self.query_log) + 1
+        self.context['contact_allowed'] = True
+        started = time.monotonic()
+        write_json(self.path / 'grasp_inputs.json', {'seeds': sampler_seeds, 'world_goals': matrices,
+                                                   'purpose': 'diagnostic_ik_not_physical_trial'})
+        try:
+            result = self.motion.ik_solver.solve_pose(self.batch_goals([[matrix] for matrix in matrices]),
+                current_state=static_ik_state(self.state(count)), return_seeds=seeds_per_grasp)
+            evidence = ik_probe_evidence(result, count, seeds_per_grasp)
+            if self.config.head_fov_enabled:
+                success = np.asarray(evidence['per_seed_success'], bool)
+                points = result.solution.detach().cpu().numpy()
+                points = ordered_points(points, list(self.motion.joint_names), list(self.names))
+                for grasp, sample in np.argwhere(success):
+                    success[grasp, sample] = self.fov_validator.project(points[grasp, sample])['valid']
+                evidence.update(per_seed_success=success.tolist(), feasible_count=int(success.sum()),
+                    feasible_ratio=float(success.mean()) if evidence['status'] == 'measured' else None)
+            evidence.update(sampler_seeds=sampler_seeds, planning_s=time.monotonic() - started,
+                grasp_inputs_ref=str((self.path / 'grasp_inputs.json').resolve()),
+                solver_trace_ref=str((self.path / 'solver_trace.json').resolve()))
+            write_json(self.path / 'solver_trace.json', self.solver_log)
+            write_json(self.path / 'ik_probe.json', evidence)
+            return evidence
+        finally:
+            self.context['contact_allowed'] = False
+
     def grasp_batch(self, matrix_batches, seeds, on_query):
         """Same prepared world, independent seeds and pre-close results per lane."""
         bind_batch_seeds(self.motion, seeds)
+        write_json(self.path / 'grasp_inputs.json', {'seeds': list(seeds), 'world_goals': matrix_batches})
         self.phases = iter(('goalset', 'pregrasp', 'grasp'))
         self.on_query = on_query
         started = time.monotonic()
         try:
             result = self.motion.plan_grasp(self.batch_goals(matrix_batches), self.state(len(seeds)),
-                grasp_approach_offset=-.08, plan_approach_to_grasp=True,
+                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M, plan_approach_to_grasp=True,
                 plan_grasp_to_lift=False, disable_collision_links=[])
             elapsed = time.monotonic() - started
             lanes = []
@@ -575,6 +624,9 @@ class V2Planner:
                         last = getattr(result, field + '_interpolated_last_tstep')
                         stages[name] = self.points(trajectory, None if last is None else last[slot:slot + 1])
                 diagnostic = {'status': result.status, 'seed': seed, 'batch_slot': slot,
+                              'phase_evidence': phase_evidence(self.query_log, self.solver_log, slot),
+                              'solver_trace_ref': str((self.path / 'solver_trace.json').resolve()),
+                              'grasp_inputs_ref': str((self.path / 'grasp_inputs.json').resolve()),
                               'batch_seeds': list(seeds), 'queries': list(self.query_log),
                               'planning_s': elapsed, 'native_max_attempts': self.config.max_attempts,
                               'joint_names': list(self.names), 'reference_world': self.base.tolist(),
@@ -688,6 +740,7 @@ class V2Planner:
 
     def plan(self, goal):
         result = self.motion.plan_pose(self.goals([goal]), self.state())
+        write_json(self.path / 'solver_trace.json', self.solver_log)
         success = result is not None and bool(result.success.any().item())
         points = self.points(result.get_interpolated_plan()) if success else ()
         fov_failed = result is not None and getattr(result, 'status', None) == 'FOV_CONSTRAINT_FAILED'
@@ -698,4 +751,6 @@ class V2Planner:
              'failure_reason': ('fov_constraint_failed' if fov_failed else
                                 'constrained_planning_failure' if not points and self.config.head_fov_enabled else None),
              'head_fov': list(self.fov_log), 'queries': list(self.query_log),
+             'phase_evidence': phase_evidence(self.query_log, self.solver_log, 0),
+             'solver_trace_ref': str((self.path / 'solver_trace.json').resolve()),
              'finite_budget_not_impossibility': True, 'constrained_planning': self.config.head_fov_enabled})

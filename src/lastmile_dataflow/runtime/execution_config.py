@@ -10,6 +10,7 @@ from ..policies.config import load_policy_config
 class ExecutionConfig:
     operation_backend: str = 'curobo'
     policy_config: str | None = None
+    mode_config: str | None = None
     lastmile_low: float = .2
     lastmile_high: float = .8
     lastmile_nearby_m: float = 1.
@@ -36,6 +37,8 @@ class ExecutionConfig:
     smoothing_sigma_m: float | None = None
     smoothing_support_distance_m: float = .35
     navigation_margin_m: float = .02
+    navigation_clearance_weight: float = 2.
+    navigation_max_penetration_m: float = .005
     navigation_whole_body: bool = False
     require_target_visibility: bool = False
     require_navigation_clearance: bool = False
@@ -113,8 +116,9 @@ class ExecutionConfig:
         for value in (self.spacing_m, self.smoothing_sigma_m):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError('spacing and smoothing must be positive')
-        if not math.isfinite(self.navigation_margin_m) or self.navigation_margin_m < 0:
-            raise ValueError('invalid navigation margin')
+        for key in ('navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'):
+            if not math.isfinite(getattr(self, key)) or getattr(self, key) < 0:
+                raise ValueError('invalid ' + key)
         for key in ('time_dilation', 'open_fraction'):
             value = getattr(self, key)
             if not 0 < value <= 1:
@@ -130,7 +134,13 @@ class ExecutionConfig:
 
 
 def load_execution_config(path):
-    return ExecutionConfig(**read_config(path, repo_fields=('policy_config',)))
+    config = ExecutionConfig(**read_config(path, repo_fields=('policy_config', 'mode_config')))
+    if config.mode_config:
+        from ..scenes.mode_config import load_mode_config
+        load_mode_config(config.mode_config)
+        if config.trials_per_station != 3 or config.operation_base_mode != 'holonomic_joint_planning':
+            raise ValueError('task-mode calibration requires three trials and mobile base planning')
+    return config
 
 
 def execution_profile(robot, config):
@@ -140,6 +150,7 @@ def execution_profile(robot, config):
 
 def calibration_execution(config):
     """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
-    selection = {'lastmile_low', 'lastmile_high', 'lastmile_nearby_m', 'start_count',
-                 'max_s1_candidates', 'smoothing_sigma_m', 'smoothing_support_distance_m'}
+    selection = {'mode_config', 'lastmile_low', 'lastmile_high', 'lastmile_nearby_m', 'start_count',
+                 'max_s1_candidates', 'smoothing_sigma_m', 'smoothing_support_distance_m',
+                 'navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'}
     return {key: value for key, value in config.items() if key not in selection}

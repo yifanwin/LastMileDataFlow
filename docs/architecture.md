@@ -24,20 +24,20 @@ src/lastmile_dataflow/
 │   ├── io.py                      # 读写与 run 创建
 │   └── logging_config.py          # 统一日志格式与终端颜色
 ├── workflows/                     # 短编排，不放核心算法
-│   ├── scene_datasets.py          # build_scenes：发现、资格检查、构建
-│   ├── obstacle_augmentation.py   # 增强准备，由 scene_datasets 调用
+│   ├── scene_datasets.py          # build_scenes：每任务共享准备与模式循环
 │   ├── collection.py              # evaluate_stations / collect_lastmile
 │   ├── station_calibration.py     # 全 run 标定调度：CPU 准备 / GPU 规划 / CPU trial
 │   └── lastmilebench.py           # build / evaluate
 ├── scenes/                        # 场景、任务与候选站位
 │   ├── dataset.py                 # 场景库读取与站位选择
 │   ├── loading/                   # 场景与资产加载
-│   ├── tasks/                     # discovery.py / eligibility.py
+│   ├── tasks/                     # discovery.py
+│   ├── build/                     # 共享上下文、提案、事务检查与搜索
+│   ├── modes/                     # 八类候选构造与共用几何代理
 │   ├── stations/
 │   │   ├── sampling.py            # sample_stations：初始化与可见性检查
 │   │   └── initialization.py      # 站位初始化
 │   └── augmentation/
-│       ├── builder.py             # build_variant：实际障碍物增强
 │       └── checks.py              # 增强场景物理检查
 ├── planning/                      # 规划，不直接替代真实执行
 │   ├── curobo_v2.py               # cuRobo V2 规划与 planner 复用
@@ -74,10 +74,9 @@ src/lastmile_dataflow/
     └── export/                   # lastmile_dataset 物化/batch 读取、MolmoBot 与 LeRobot/π0.5 导出
 ```
 
-## 四个 workflow
+## 主要 workflow
 
-- `scene_datasets`：发现/资格检查，调用 `scenes.stations.sampling.sample_stations`，pick 构建调用增强器，open 保存场景。
-- `obstacle_augmentation`：准备资产和基线，调用 `scenes.augmentation.builder.build_variant`。真实放置算法不再塞在 workflow。
+- `scene_datasets`：目标粗筛与空间覆盖选择；每任务准备一次 BuildContext，按八类 intent 构造候选，由父进程写唯一主记录。
 - `collection`：`evaluate_stations()` 单独跑逐点 rollout 与热图；`collect_lastmile()` 用匹配标定或在当前 run 标定一次，先落盘全量 S0×S1 计划和已有成功标定示教，再执行连续导航与操作。两个入口共享 run 准备、场景循环和真实执行器，没有 continuous/calibration_only Python 模式开关。
 - `lastmilebench`：由完整标定选择困难 S0，保存 native 场景并独立执行策略。设备/profile 工具来自 `runtime.execution_config`，不依赖采集 workflow。
 
@@ -89,20 +88,19 @@ cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始�
 
 `config.py` 和 `cli.py` 是包根的共用配置和薄入口；`utils/io.py` 管理读写，`utils/logging_config.py` 统一日志配置。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
 
-## 总流程：五个命令如何连接四个 workflow
+## 总流程：五个命令如何连接 workflow
 
 实线表示命令分发或主要处理步骤，虚线表示产物供后续命令读取；不是完整的 Python 导入依赖图。
-`obstacle_augmentation` 是内部编排，没有独立 CLI 命令。图中场景库、标定结果和 benchmark 都是磁盘产物。
+图中场景库、标定结果和 benchmark 都是磁盘产物。
 
 ```mermaid
 flowchart TD
     CLI["cli.py：五个核心命令"]
     CLI -->|build-scenes| BUILD["scene_datasets.build_scenes"]
-    BUILD --> DISC["任务发现、资格检查、站位采样"]
-    DISC --> KIND{"操作类型"}
-    KIND -->|pick| AUG["obstacle_augmentation<br/>→ scenes.augmentation.builder.build_variant"]
-    KIND -->|open| SAVE["保存场景"]
-    AUG --> SAVE
+    BUILD --> DISC["任务发现与空间覆盖选目标"]
+    DISC --> CTX["每 task 共用 BuildContext"]
+    CTX --> MODES["八类候选 → 几何代理 → 物理事务"]
+    MODES --> SAVE["最多 20 合法姿态与三相机 ROI → freeze"]
     SAVE --> DATASET["场景库与候选站位"]
 
     CLI -->|evaluate-stations| EVAL["collection.evaluate_stations"]
@@ -127,143 +125,30 @@ flowchart TD
 热图用于展示；S0/S1 配对和困难 S0 选择读取原始 trial，而不是平滑后的颜色。
 benchmark 按来源计划使用完整站位的原始计数，不重新标定；构建不依赖策略或 native 场景转换。`data/evaluation/recovery.py` 负责共享区域和诊断，路径搜索复用 `planning/astar.py`。策略需要的 native 控制适配在评测初始化阶段进行；隐藏 oracle 不发送到策略进程。
 
-## build-scenes：发现 → 资格检查 → 构建
+## build-scenes：任务共享准备与八类候选
 
-三个阶段顺序执行；发现与资格检查的产物只写临时目录（结束时删除），构建写入 `output_dir`。
-下一阶段通过文件显式读取上一阶段结果，不共享内存状态。
-发现阶段用少量静态站位快速筛选，资格检查才做完整候选站位检查；两者都只判断几何与初始化，不代表实测成功率。
+公开入口读取 `TaskModeRecipe` v2。House worker 只载入一次只读源场景，先按数据 grasp、支撑和地面粗筛目标，再按房间/支撑多样性与 XY 距离选目标。显式 targets 同时约束 Pick/Open。
 
 ```text
-build-scenes (cli.py)
-  |
-  +-- workflows/scene_datasets.build_scenes(config, output_dir, run_id)
-        |
-        |  workers 必须在 1..12；output_dir 不存在则创建
-        |  temporary = mkdtemp(scene-build-*)，发现/资格结果只放这里
-        |
-        +-- [1] discover_scene_dataset   -> temporary/discovery.json
-        |        房屋级并行（ProcessPoolExecutor, spawn）；配方开启
-        |        local_task_models 时按目标切局部模型
-        |
-        +-- [2] qualify_scene_discovery  -> temporary/qualified.json
-        |        顺序逐房屋，消费 discovery 的 candidates
-        |
-        +-- [3] build_scene_dataset      -> output_dir/scene_datasets/<dataset_id>/
-        |        单元级并行；先查配方一致性与目标配额
-        |
-        +-- finally: rmtree(temporary)
-        +-- 回写 summary.json：wall_elapsed_s / phase_wall_s
+父进程 build_scenes → config.json
+  └─ 每 house 一个 worker（spawn，最多 12 个）
+      ├─ Source Simulation → discover_tasks → spatial_select
+      └─ 每 task 一个 BuildContext
+          ├─ clone → 停车/静置一次 → support/lattice/occupancy/clearance
+          ├─ 离线 AssetSelector + 延迟真实几何缓存
+          └─ intent × variant：
+              提案 → cheap proxy → 少量资产 resolve → runtime 事务
+              → 碰撞/静置/等时长对照/支撑 → 重测 proxy
+              → hints/yaw/覆盖补选（最多 20 合法姿态）→ 三相机 ROI
+              → final proxy → freeze / rejected
+父进程唯一追加 scenes.jsonl → summary.json
 ```
 
-### 发现与资格检查：逐目标决策
+`scenes/modes/` 实现 Reachability、Ground、Visibility、Arm-path、Approach、Narrow、Orientation、Articulated。构造器只提供候选与几何代理，不执行 IK/TrajOpt，不写最终标签。共有预算为每变体最多 32 个提案、3 个物理原候选、每个至多一次局部 repair；所有候选都从同一任务基线开始。
 
-```text
-[1] 发现：每个房屋 _discover_house
-  |
-  +-- 基线：SceneSource.procthor 或 recipe.input_snapshots 缓存基线
-  |     （缓存 source/robot 与当前配方不一致 -> ValueError）
-  |
-  +-- discover_tasks -> _filter_tasks
-  |     operation 在配方启用范围 -> categories -> pick_target_types
-  |     -> selectors（只限制 pick）
-  |
-  +-- 每个目标 _probe_target（clone_preparation 独立探测，不改房屋基线）
-  |     |
-  |     +-- pick 且无合格支撑面              -> 排除
-  |     +-- Case1 支撑类型不在白名单         -> 排除
-  |     +-- sample_stations(static_only=True,
-  |     |     stop_after_valid=min_prefilter_points)
-  |     |     有效点 < 下限 -> 排除；否则记录 checked_stations
-  |     |     （提前停止的下界，不是全量候选数）
-  |     |
-  |     +-- 合格目标进入 eligible 池，记录 input_snapshot
-  |           （local_task_models 时先在该目标的局部模型上探测并 freeze）
-  |
-  +-- spatial_select：显式偏好 -> 房间/支撑面多样性 -> 最大最小 XY 距离
-  +-- 未入选的合格目标记 eligible_not_selected_by_spatial_coverage
-  |
-  -> discovery.json：selected / candidates / houses / exclusions
+no-edit/base-pose 复用同一个 baseline 快照；对象编辑保存各自真实静置快照。最终初始化复用已经检查的名义姿态，仍单独测量三相机像素。相机与物理模型不混改；未知可见性保留 unknown。
 
-[2] 资格检查：每个房屋 _select_qualified
-  |
-  +-- spatial_select 选一批 -> 逐目标 from_snapshot 独立仿真 _qualify_target
-  |     |
-  |     +-- sample_stations 全量静态采样（复用 checked_stations）
-  |     +-- valid < min_final_points
-  |     |     -> 未通过，从候选池剔除后重新补选
-  |     +-- Case1 pick：station_regions + approach_points
-  |     |     0.85 m 内无近地面点 -> 未通过 no_measured_near_ground_points
-  |     +-- 已检查目标进 cache，补选不重复采样
-  |
-  +-- 补选直到数量满足或池空；不合格原因并入 exclusions
-  -> qualified.json：覆盖 selected，追加 qualification 证据
-```
-
-### 构建：open 直接保存，pick 走有界增强
-
-```text
-[3] build_scene_dataset
-  |
-  +-- discovery.recipe 必须等于当前配方，否则 ValueError
-  +-- allow_partial_targets=False（默认）-> _check_target_quotas
-  |     每房屋 pick/open 数量不足 -> ValueError
-  +-- create_run(.../scene_datasets/<dataset_id>) -> config.json
-  +-- jobs = selected x cases x variants
-  |     Case3 只配 open 目标；Case1/Case2 配 pick 目标，各 variants_per_case 份
-  |
-  +-- 每个工作单元 _build_unit（workers 并行）
-        |
-        +-- Case3/open ------------------------> _save_open_scene
-        |     sample_stations 全量 -> select_stations(压缩到 max_final_stations)
-        |       |-- 少于 min_final_points -> rejected(too_few_stations)
-        |       +-- record_station_visibility -> freeze(scene-files/<scene_id>)
-        |
-        +-- Case1/Case2/pick ------------------> augment_obstacles
-              -> build_variant（见下图），结果经 emit 收集
-  |
-  +-- 逐结果 append scenes.jsonl（接受与拒绝同表）
-  +-- summary.json（accepted/rejected/sources/excluded_targets）-> 场景预览
-```
-
-```text
-augment_obstacles + build_variant（一个目标、一个变体）
-  |
-  +-- 基线：input_snapshot 优先，否则 SceneSource；target = 目标实例
-  +-- park_robot(anchor) + settle_scene   <- 先停机器人，再让物体静置
-  +-- sample_stations(static_only) + support_regions
-  |     无支撑面或有效站位不足 -> rejected(invalid_baseline)
-  +-- station_regions（地面点与站位网格）；Case1 追加 approach_points
-  +-- environment_pool -> ThorLibrary.retrieve -> asset_geometry
-  +-- surface_points（Case1 只保留 near_target_m 内的台面点）
-  |
-  +-- ObstacleEditSession：每个变体独立 seed，不累加前一个变体
-        |
-        +-- mkdir(path, exist_ok=False)；count = rng(obstacle_count 区间)
-        +-- case_assets 抽资产（类别或台面面积不足 -> rejected）
-        |
-        +-- loop candidate_index < max_candidates:
-              |-- 超 variant_timeout_s -> rejected(variant_timeout)
-              |-- 地面资产随机点 + 随机 yaw；台面资产走
-              |   sample_surface_point（间距/占位约束）
-              |-- sample_placement -> session.candidate(placements + 提案)
-              |     粗碰撞不通过 -> session.reject()，下一个候选
-              |-- 未放满 count -> 继续追加
-              +-- 放满 count -> physical_trials += 1
-                    |-- session.settle + matched_control（同场景无编辑对照）
-                    |-- validate_augmented_scene：碰撞/支撑/源场景影响/
-                    |   Case 构造/静置与求解健康
-                    |     不通过 -> 清空 placements、session.reject()；
-                    |     物理试验预算耗尽 -> rejected
-                    |-- sample_stations(frozen_stations=基线站位)
-                    |   -> select_stations；< min_final_points -> rejected
-                    |-- 回填 settled_pose；可选 record_station_visibility
-                    |-- freeze(scene) 与 freeze(before-scene)；可选 before/after 渲染
-                    +-- accepted
-        |
-        +-- 候选用尽 -> rejected(candidate_budget_exhausted)
-        +-- 每个变体结束都 session.reject()（超时也一样），只释放临时候选，
-            已 freeze 的场景不受影响
-```
+普通候选的支撑/碰撞/无路径等负结果进入主记录。共享模型、渲染、I/O 或 worker 故障停止批次，父进程保存已返回真实记录及 infrastructure_error。旧 Case 构造器、在线 ThorLibrary 和中间 discovery/qualified 文件已退出。
 
 ## 标定：逐站位 rollout → 原始 trial → S0/S1 门槛
 
@@ -398,7 +283,7 @@ flowchart TD
     CALIBRATE --> PAIR
     PAIR --> HASPAIR{"有可用配对？"}
     HASPAIR -->|否| EMPTY["保留无配对结果，不生成恢复 rollout"]
-    HASPAIR -->|是| ASTAR["planning.astar：搜索 S0→S1 路径"]
+    HASPAIR -->|是| ASTAR["planning.navigation：真实几何站位图 + 房间 A* 连接"]
     ASTAR --> PATH{"找到路径？"}
     PATH -->|否| NOPATH["记录 path_unavailable<br/>不生成实际执行轨迹"]
     PATH -->|是| ATTEMPT["run_curobo_attempt<br/>新建 Simulation，在 S0 初始化并绑定 recorder"]
@@ -421,6 +306,7 @@ flowchart TD
 - cuRobo：`runtime.execution.curobo.run_curobo_attempt()`。
 - MolmoBot / π0.5：`runtime.execution.vla.run_vla_attempt()`。
 - 连续上下文与共用导航：`runtime.execution.context`、`runtime.execution.navigation`。
+- 导航几何：`planning.navigation.GeometryNavigation` 在独立准备态中保持源关节姿态，以同一个 A* 搜索站位连接与按需生成的房间 XY/yaw 状态；20 mm 只参与软代价，粗包络栅格不作硬门槛。`NavigationSettings` 集中传递目标、权重、穿透阈值和转向折算比例；`runtime.outcomes.contacts.NavigationContacts` 共用于几何查询和两后端的显式导航判停。执行器直接跟踪 `poses`。`data.evaluation.recovery` 保存同一可行性口径的局部位姿区域，离线恢复统计复用该表示。
 - 两个 attempt 入口显式接收 `root=...`、`attempt_id=...`；其他在用调用方已同步，不保留旧模块转发。
 
 实际轨迹、初始状态与 PNG 由 `Simulation.begin()` / 实际执行回调触发 recorder；执行器在下发前设置 phase，不再组装一份 recorder 不使用的 before/after 状态。
@@ -436,4 +322,4 @@ flowchart TD
 
 `workflows/station_calibration.py` 调度全 run 的有界准备、GPU 查询与 CPU trial 队列，父进程唯一写原始 trial。`planning/pool.py` 的 spawn 进程拥有 CUDA、solver 和规划视图；`planning/remote.py` 在 CPU 侧将实测状态转为后续请求。
 
-`runtime/execution/workers.py` 创建独立 MjData，并继续调用原 `run_curobo_attempt`、`ContinuousContext`、跟踪器和任务判定。`protocol.py` 传递数值状态、身份及累计活跃预算；`SnapshotCache` 仅在进程内保留少量只读模型。`data/rendering/replay.py` 使用独立 MjData 逐帧 mj_forward 回放，不参与任务成败。
+`runtime/execution/workers.py` 创建独立 MjData，并继续调用原 `run_curobo_attempt`、`ContinuousContext`、跟踪器和任务判定。`protocol.py` 传递数值状态、身份及累计活跃预算；`SnapshotCache` 仅在进程内保留少量只读模型。`data/rendering/replay.py` 使用独立 MjData 逐帧 mj_forward 回放，不参与任务成败；`rollout_video.py` 在同一实测边界组合三路相机与俯视底盘轨迹。

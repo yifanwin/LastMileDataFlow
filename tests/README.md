@@ -44,6 +44,17 @@ MUJOCO_GL=egl MUJOCO_EGL_DEVICE_ID=<chosen-index> CASE_EDIT_RENDER_TESTS=1 \
 
 ## 显式真实验证
 
+导航修复的局部软件检查：
+
+```bash
+MUJOCO_GL=disable MPLCONFIGDIR=/tmp/lastmile-mpl \
+  .venv/bin/python -m unittest tests.planning.test_geometry_navigation \
+  tests.data.test_recovery tests.runtime.test_torso tests.workflows.test_collection \
+  tests.workflows.test_mode_downstream -v
+```
+
+这些测试覆盖宽窄路线的软代价择优、低净空通行、旋转与严重碰撞、预算内保留可行路线、显式 yaw 和恢复区域重载，使用简化模型，不代表真实任务成功。原硬门槛版本见[几何修复交付](../reports/navigation/delivery/07-navigation-geometry-fix.md)，当前软目标版本见[软净空交付](../reports/navigation/delivery/08-navigation-soft-clearance.md)。
+
 先按 [setup](../docs/setup.md) 准备对应输入。每个脚本都有 `--help`，输出必须使用新目录；GPU 从 0–7 中按实际利用率和显存选择。
 
 - `smoke/curobo_rollout.py`：指定场景和站位，执行一次真实规划/rollout。

@@ -37,7 +37,7 @@ def inside_triangles(xy, triangles):
     return bool(np.any((a >= 0) & (b >= 0) & (a + b <= 1)))
 
 
-def floor_support(sim, xy, *, triangles=None):
+def floor_height(sim, xy, *, triangles=None):
     """Ray against named collision floor, not robot or room visual occluders.
 
     The room-triangle mask supplies bounded coverage for infinite floor planes.
@@ -55,7 +55,13 @@ def floor_support(sim, xy, *, triangles=None):
             distance = mujoco.mju_rayGeom(sim.data.geom_xpos[g], sim.data.geom_xmat[g],
                 sim.model.geom_size[g], start, direction, sim.model.geom_type[g])
         if 0 <= distance <= .30: distances.append(float(distance))
-    return bool(distances and inside_triangles(np.asarray(xy), room_triangles(sim) if triangles is None else triangles))
+    if distances and inside_triangles(np.asarray(xy), room_triangles(sim) if triangles is None else triangles):
+        return .20 - min(distances)
+    return None
+
+
+def floor_support(sim, xy, *, triangles=None):
+    return floor_height(sim, xy, triangles=triangles) is not None
 
 
 def initialize_robot(sim, collection, *, base=None):

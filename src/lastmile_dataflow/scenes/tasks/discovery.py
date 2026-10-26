@@ -1,5 +1,6 @@
 """Task discovery from the actual exported model, not historical success labels."""
 from pathlib import Path
+from urllib.parse import quote
 import mujoco
 import numpy as np
 
@@ -70,7 +71,7 @@ def discover_tasks(sim, metadata, config):
             task = {**common, 'operation': 'pick', 'target_body': name,
                     'instruction': f'拿起{qualifier}的{label}。', 'anchor_world': center.tolist(),
                     'local_bounds': [lo.tolist(), hi.tolist()]}
-            task['task_id'] = f'pick-{b:04d}'
+            task['task_id'] = f'pick-{quote(name, safe="")}'
             tasks.append(task)
         elif 'pick' in config.operations and min(hi-lo) <= size_limit:
             skipped.append({'instance': name, 'operation': 'pick', 'reason': 'not_free_moving_instance'})
@@ -125,14 +126,14 @@ def discover_tasks(sim, metadata, config):
                     'handle_local_bounds': [hlo.tolist(), hhi.tolist()],
                     'anchor_world': contact.tolist(),
                     'instruction': f'打开{qualifier}的{label}的第{found}个' + ('抽屉。' if unit == 'slide' else '门。')}
-            task['task_id'] = f'open-{b:04d}-{j:04d}'
+            task['task_id'] = f'open-{quote(name, safe="")}-{quote(joint_name, safe="")}'
             tasks.append(task)
         if not found:
             skipped.append({'instance': name, 'operation': 'open', 'reason': 'no_eligible_articulation'})
     return tasks, skipped
 
 
-def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020):
+def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020, *, allow_fallback=True):
     """Read asset grasp poses, or generate bbox pinch poses without modifying assets."""
     asset = task['asset_id']
     if Path(asset).name != asset or asset in ('.', '..'):
@@ -162,6 +163,8 @@ def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020):
                                    'source': str(path), 'row': int(index)})
                 if result:
                     return result
+        if not allow_fallback or task.get('require_data_grasps'):
+            return []
     lo, hi = np.asarray(task.get('handle_local_bounds', task.get('local_bounds')))
     center = (lo+hi)/2; width_axis = int(np.argmin(hi-lo)); size = hi-lo
     # The bbox centre sits inside the handle; the Panda palm is 3.1 cm behind
