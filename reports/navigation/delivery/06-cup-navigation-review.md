@@ -36,7 +36,7 @@
 
 例如 `S0022` 与 `S0021` 的 XY 分别约为 `[6.813457, 2.098837]` 和 `[6.563457, 2.098837]`。桌面左缘为 `x=7.193399`；S0022 的中心距桌面投影约 0.380 m，外接圆模型会拦截它，但实际机器人可向左平移 0.25 m 并小幅调整朝向到达 S0021。
 
-![物理投影与原膨胀栅格对比](../../../outputs/diagnostics/cup-navigation-20261026-r01/result/navigation-comparison.png)
+![物理投影与原膨胀栅格对比](../../../outputs/diagnostics/navigation/cup-navigation-20261026-r01/result/navigation-comparison.png)
 
 橙色为低率 S0，绿色为高率站，蓝线为本次采样路线；右图黑色包含膨胀排除区域，不能当成真实物体轮廓。
 
@@ -51,13 +51,13 @@
 
 ## 4. 执行产物与复现
 
-产物位于 [cup-navigation-20261026-r01](../../../outputs/diagnostics/cup-navigation-20261026-r01)：`probe.py`、`result/summary.json`、`result/navigation-comparison.png`。这是诊断附件，不计入原清单的 60 个数据 run。
+产物位于 [cup-navigation-20261026-r01](../../../outputs/diagnostics/navigation/cup-navigation-20261026-r01)：`probe.py`、`result/summary.json`、`result/navigation-comparison.png`。这是诊断附件，不计入原清单的 60 个数据 run。
 
 在仓库根目录执行，输出使用新的目录：
 
 ```bash
 MUJOCO_GL=disable MPLCONFIGDIR=/tmp/lastmile-mpl \
-  .venv/bin/python outputs/diagnostics/cup-navigation-20261026-r01/probe.py \
+  .venv/bin/python outputs/diagnostics/navigation/cup-navigation-20261026-r01/probe.py \
   --output outputs/diagnostics/cup-navigation-recheck-01
 ```
 

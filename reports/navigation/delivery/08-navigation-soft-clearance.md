@@ -43,9 +43,9 @@ p(d) = clip(1 - max(d, 0) / target, 0, 1)^2
 
 主结果：
 
-- [Cup 新 benchmark](../../../outputs/diagnostics/navigation-soft-cup-bench-20261026-r02/summary.json)：`7 → 7 → 7`，无排除，构建约 102 s。
-- [Open 新 benchmark](../../../outputs/diagnostics/navigation-soft-open-bench-20261026-r01/summary.json)：`7 → 7 → 7`，无排除，构建约 21 s。
-- [Train 规划复核](../../../outputs/diagnostics/navigation-soft-train-plan-20261026-r02/summary.json)：11 对有完整路线；S0000→S0047/S0048 两对在每对 120 s 的预算内未找到完整候选，保留为预算耗尽，不冒充真实空间无路或任务失败。
+- [Cup 新 benchmark](../../../outputs/diagnostics/navigation/navigation-soft-cup-bench-20261026-r02/summary.json)：`7 → 7 → 7`，无排除，构建约 102 s。
+- [Open 新 benchmark](../../../outputs/diagnostics/navigation/navigation-soft-open-bench-20261026-r01/summary.json)：`7 → 7 → 7`，无排除，构建约 21 s。
+- [Train 规划复核](../../../outputs/diagnostics/navigation/navigation-soft-train-plan-20261026-r02/summary.json)：11 对有完整路线；S0000→S0047/S0048 两对在每对 120 s 的预算内未找到完整候选，保留为预算耗尽，不冒充真实空间无路或任务失败。
 
 Cup 原来因净空不足被排除的 S0022、S0030、S0038、S0041 均重新进入搜索并得到路线；S0042 得到约 0.966 m、17 个位姿点的绕行路线。原 Train S0042→S0047/S0048 两对也得到路线。
 
@@ -65,8 +65,8 @@ Cup 原来因净空不足被排除的 S0022、S0030、S0038、S0041 均重新进
 
 **5/5 实际导航到达，479 个实际控制间隔，记录全部完整，无严重碰撞。** Cup 三条和 Open 一条均被离线轨迹统计判为进入保存的恢复区域；Train 检查精确 S1 到达。
 
-- [Cup 三条导航结果](../../../outputs/diagnostics/navigation-soft-cup-navigation-20261026-r01/summary.json)。
-- [Open/Train 两条导航结果](../../../outputs/diagnostics/navigation-soft-extended-navigation-20261026-r01/summary.json)。
+- [Cup 三条导航结果](../../../outputs/diagnostics/navigation/navigation-soft-cup-navigation-20261026-r01/summary.json)。
+- [Open/Train 两条导航结果](../../../outputs/diagnostics/navigation/navigation-soft-extended-navigation-20261026-r01/summary.json)。
 
 物理验证引用首轮软目标规划；最终 Cup r02 的路线与首轮七条完全相同，Train 的被测 p000010 路线在两轮间也相同。运行数据中保留实际来源引用，未重写为新目录。控制间隔数不是底层物理子步数，未记录图像/视频，也不声称实际运动全程保持 20 mm 净空。
 

@@ -27,9 +27,9 @@
 
 产物入口：
 
-- [Cup benchmark](../../../outputs/diagnostics/navigation-geometry-fix-cup-bench-20261026-r01/summary.json)：candidate → eligible → written = **7 → 2 → 2**。
-- [Open benchmark](../../../outputs/diagnostics/navigation-geometry-fix-open-bench-20261026-r01/summary.json)：**7 → 7 → 7**。
-- [Train 规划复核](../../../outputs/diagnostics/navigation-geometry-fix-train-plan-20261026-r01/summary.json)：13 对计划全部保留，仅做规划，`new_physical_steps=0`；具体路径在同目录 `planning.jsonl`。
+- [Cup benchmark](../../../outputs/diagnostics/navigation/navigation-geometry-fix-cup-bench-20261026-r01/summary.json)：candidate → eligible → written = **7 → 2 → 2**。
+- [Open benchmark](../../../outputs/diagnostics/navigation/navigation-geometry-fix-open-bench-20261026-r01/summary.json)：**7 → 7 → 7**。
+- [Train 规划复核](../../../outputs/diagnostics/navigation/navigation-geometry-fix-train-plan-20261026-r01/summary.json)：13 对计划全部保留，仅做规划，`new_physical_steps=0`；具体路径在同目录 `planning.jsonl`。
 
 Cup 四个被排除的 S0 实际净空：S0022 **1.38 mm**、S0030 **19.07 mm**、S0038 **16.18 mm**、S0041 **12.79 mm**。这些站位在原初始化碰撞阈值下合法，但不满足导航 20 mm 余量；上轮“没有接触”的静态检查不能替代此项。S0042 未找到满足当前余量的候选路线，保留负结果。
 
@@ -48,8 +48,8 @@ Train 的 S0042→S0047/S0048 因端点净空不足被排除；S0000→S0047/S00
 
 正式验证 **4/4 导航成功**，共 388 个实际控制间隔，记录全部完整，`forbidden_contact_count=0`。控制间隔数不是底层 MuJoCo 物理子步数；本次不声称测量了动态全过程的 2 cm 净空。
 
-- [Cup 导航主结果](../../../outputs/diagnostics/navigation-geometry-fix-cup-navigation-20261026-r02/summary.json)，两条轨迹在同目录 `rollouts/`。
-- [Open/Train 导航主结果](../../../outputs/diagnostics/navigation-geometry-fix-extended-navigation-20261026-r01/summary.json)，两条轨迹在同目录 `rollouts/`。
+- [Cup 导航主结果](../../../outputs/diagnostics/navigation/navigation-geometry-fix-cup-navigation-20261026-r02/summary.json)，两条轨迹在同目录 `rollouts/`。
+- [Open/Train 导航主结果](../../../outputs/diagnostics/navigation/navigation-geometry-fix-extended-navigation-20261026-r01/summary.json)，两条轨迹在同目录 `rollouts/`。
 
 另保留 `navigation-geometry-fix-cup-navigation-20261026-r01`：首次诊断脚本完成首条导航并保存 46 个控制间隔后，在离线统计时误用了 ExecutionConfig，缺少恢复诊断阈值而退出。该次不计入上述正式四条汇总；修正统计调用后使用新的 r02 完整验证，没有覆盖记录。
 

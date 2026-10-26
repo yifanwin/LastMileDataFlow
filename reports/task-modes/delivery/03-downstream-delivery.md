@@ -71,7 +71,7 @@
 
 策略 smoke 的 `task_success=null` 或固定站位 rollout 不作为困难 benchmark；真实 GPU 运算、真权重推理和任务成功分别报告。
 
-10 段关键轨迹视频已离线渲染：Cup/Open 修复前后各一对、Bottle Ground/Approach、Open Arm-path/Narrow/Articulated 与 Articulated train 对照。均为实测状态回放（`new_physical_steps=0`），清单见[视频索引](../../../outputs/diagnostics/task-modes/p6-videos-20261026-r01/README.md)。新增 `evaluate-stations --replay-layout grid`，可把三路相机与俯视底盘轨迹合成单条 mp4。
+10 段关键轨迹视频已离线渲染：Cup/Open 修复前后各一对、Bottle Ground/Approach、Open Arm-path/Narrow/Articulated 与 Articulated train 对照。均为实测状态回放（`new_physical_steps=0`），清单见[视频索引](../../../outputs/diagnostics/task-modes/p6/analysis/p6-videos-20261026-r01/README.md)。新增 `evaluate-stations --replay-layout grid`，可把三路相机与俯视底盘轨迹合成单条 mp4。
 
 ## 6. P6 补充构建与 Visibility/Open 搜索
 

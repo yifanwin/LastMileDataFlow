@@ -146,6 +146,20 @@
 
 ### 3.5 最终站位与冻结
 
+**proposal 与站位不是一一对应。** `station_hints` 是 `station_id` 字符串列表（如 `S0042`、`S0043-Y01`），不是坐标、不是最终站点全集，也不是机器人执行位置；builder 用它声明“这个构造针对哪些站位”。它是 `BuildProposal` 的字段，由 `select_task_stations()` 解析成真实 lattice 或 `pose_edit` 站点后做初始化和代理复算，并原样写入 accepted 记录的 `station_hints`。各模式的约束不同：
+
+| 意图 | proposal 携带的站位信息 | accepted 对提示站的约束 |
+|---|---|---|
+| reachability | 自然候选 hint=边缘点+最近点；MoveTarget 无 hint | 只要求最终站点中存在距锚点 ≥0.75 m 的点，hint 不强制 |
+| ground_obstacle | hint=[S0, S1] | 两个 hint 必须出现在最终合法站点中，否则最终代理失败 |
+| visibility | hint=[S0, S1] | S0 必须被选中且三相机测量完整低可见；S1 必须被选中 |
+| arm_path_collision / approach | hint=[S0, S1] | 两个 hint 必须有效，通道判据在最终站点上复算 |
+| narrow_space | 天然候选无 hint；编辑候选先 hint=[S0] | 最终在全部 stations 上重新找低/高余量对，并改写 `station_hints` |
+| orientation | hint + `pose_edit` 覆盖同 XY 的全部 yaw | 至少两个同 XY、不同 yaw 的 station 必须被选中 |
+| articulated_interaction | hint=首尾两点 | 只要求最终 stations 非空 |
+
+提示站未通过真实初始化时，Ground/Visibility/Arm 类不会用别的站悄悄满足条件，而是让该 proposal 失败；未写入 hint 的站点仍按 coverage 顺序补齐。
+
 `select_task_stations()`（`scenes/stations/sampling.py:227`）的优先级是：
 
 ```text
@@ -425,14 +439,50 @@ approach = True
 | 站位/最终代理 | `no_valid_initial_stations`、`visibility_hint_initialization_unavailable` 等 |
 | 预算 | `variant_timeout`、`physical_candidate_budget_exhausted`、`proposal_budget_exhausted` |
 
-## 8. 当前验证边界
+## 8. 与标定后分类的职责对照
+
+一句话：**build-scenes 负责“造出合法候选”，标定后的诊断负责“判定模式是否成立”。** 两者以 accepted 场景、`stations[].initial`、`proposal_intent`、`station_hints` 为交界，互不回写。
+
+| 维度 | build-scenes | 标定后诊断/分类 |
+|---|---|---|
+| 输入 | 来源场景、配方、资产索引、模式配置 | build accepted 场景、`stations`、原始 trials、planning/measurement、有界 probe |
+| 主要动作 | 任务发现、共享准备、提案、廉价代理、物理编辑事务、一次 repair、选站冻结 | 真实 cuRobo 标定（每站 3 次）、任务资格、S0/S1 选择、诊断、多标签分类 |
+| 是否执行机器人 | 否：只在未开始仿真的 clone 中初始化测量 | 是：真实规划、执行、任务判定和录制 |
+| 证据类型 | 几何代理、静置后物理检查、站位初始化合法性、三相机代理可见性 | 原始 trial 成败、规划阶段、执行与录制完整性、测量值与 probe |
+| 产出 | `scenes.jsonl`、冻结场景、`proposal_intent`、`station_hints`、构造指标 | `trials.jsonl`、`diagnosis.jsonl`、`final_labels`、`intent_hit`、任务资格 |
+| 状态语义 | `accepted/rejected/skipped` | `eligible/no_success/no_high_rate_s1/incomplete`；标签 `matched/unmatched/unresolved/not_applicable` |
+| 可修改对象 | 场景物体、目标（仅 Reachability 同支撑面）、待冻结初始姿态 | 不修改场景；只新增 trial、测量和诊断记录 |
+| 预算 | 32 提案 / 3 物理候选 / 1 repair / 1800 s | 每站 3 次真实 trial、最多 20 站；每 S0 至多 1 个 IK probe、60 s |
+| 不宣称 | 困难、成功率、可完成任务、模式成立 | 不重新构建、不补造 rollout、不把 unknown 写成失败或成功 |
+
+### 8.1 逐模式的“构造”与“判定”分工
+
+| 模式 | build-scenes 只负责造出 | 分类阶段真正要的证据 |
+|---|---|---|
+| Reachability | 工作空间边缘站位；必要时同支撑面平移目标 | 诊断 IK 可行比例 ≤0.01，且相对目标靠近/侧移 ≥0.2 m；存在高率 S1 |
+| Ground Obstacle | 地面障碍或天然结构，使直线被挡且 A* 绕行 ≥1.2 | 统一导航测量：S0→S1 直线不 free、A* 有路径；高率 S1 |
+| Visibility | 低可见站位 + 可导航的更好视角；S0 不要求低成功率 | S0 三相机完整且 <0.2；S1 `known_max`>0.6 且增益 >0.3；可达；S0 可高操作率 |
+| Arm-path Collision | 名义手臂通道 capsule 被挡，另一站位仍有通道 | 至少一条真实失败 trial：goalset IK 有解、同阶段 TrajOpt 失败 |
+| Approach | 真实数据 pregrasp→grasp corridor 被挡 | goalset 通过，pregrasp/grasp 的 IK 或 TrajOpt 失败 |
+| Narrow Space | 底盘余量 <0.08 m 的站位 + 更宽可达对照 | S0 clearance<0.08，S1−S0>0.10；仍以真实成功率为高低池 |
+| Orientation | 同 XY 的默认 yaw 与 ±45° 显式站 | 同 XY、yaw 不同、非底盘初始相同、可见且初始化合法；成功率差由高低池体现 |
+| Articulated Interaction | 只接 Open 任务，不编辑资产 | S0 有真实任务失败/低率；S1 完成完整关节任务 |
+
+### 8.2 交界处的四个“不等于”
+
+1. **accepted ≠ 困难**：build 通过只说明场景物理合法、构造代理成立；困难必须由真实 trial 判定。
+2. **proposal_intent ≠ final_labels**：分类会把每个候选 S0 对全部八类规则检查一遍，可能出现 additional labels，也可能完全不命中意图；`intent_hit` 只在 hint 站上统计。
+3. **构造被拒 ≠ 任务失败**：`rejected` 只说明这次候选没造出来；`no_success` 是标定完成但零成功；`incomplete` 是记录/基础设施不完整，两者不能互换。
+4. **probe ≠ trial**：诊断 probe 只补缺失的 IK/导航/可见性证据，不计入每站 3 次成功率分母，也不生成执行轨迹。
+
+## 9. 当前验证边界
 
 - 已有 accepted 正例的意图：Reachability、Orientation、Ground、Narrow、Arm-path、Approach、Articulated（见[运行清单](../delivery/05-run-inventory.md)第 3 节）。
 - **Visibility 在 build 阶段仍无 accepted 正例**：多次 run 的 `no_aggregate_visibility_contrast` / 资产不足，不能据此宣称 Visibility 模式已可构造。
 - accepted 数量不等于困难样本数量；例如 Reachability 的边缘站位代理很宽松，最终标签仍依赖标定。
 - 构建期未运行 cuRobo、未跑 rollout、未生成成功率；所有 `task_completion` 与最终模式结论保持 `unknown`。
 
-## 9. 源码地图
+## 10. 源码地图
 
 | 职责 | 文件 |
 |---|---|
