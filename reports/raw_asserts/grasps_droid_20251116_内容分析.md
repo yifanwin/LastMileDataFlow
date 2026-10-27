@@ -1,7 +1,7 @@
 # grasps/droid 20251116 抓取库内容分析报告
 
 - 状态：done
-- 日期：2026-10-25
+- 日期：2026-10-27
 - 替代：无
 - 关联：`reports/raw_asserts/`（本目录）、`reports/raw_asserts/thor_20251117_资产库内容分析.md`、molmo_spaces 文档（Grasp libraries / Asset libraries）
 
@@ -23,6 +23,8 @@
 | NPZ schema | 仅一个键 `transforms`，`(N,4,4) float16`，位姿在物体/关节局部坐标系 |
 | 数值质量 | 非空文件全部有限值；旋转正交误差 ≤ 8.2e-4、det ∈ [0.99913, 1.00089]（float16 精度） |
 | 与当前 thor 库匹配 | thor 1,699 个资产中 800 个有可用抓取；pickup 587 个全部命中，joint 另有 777 个 UID 不在 thor 库内 |
+| 类别统计 | 231 个类别（71 个多实例 + 160 个单实例；722 个哈希 UID 散件合并为 3 族），全量指标见 §6.1 与类别 CSV |
+| 初始白名单 | 抓取 24 类 / 344 UID；Open 115 类 / 941 UID（当前 thor 可加载 181）；其余 92 类 / 374 UID 不入集。主力 `Soap_Bottle`、`Spray_Bottle`（见 §6.2） |
 | 主要问题 | 软链断链、98 个空 NPZ、`Lettuce` 全类无抓取、82 个 UID 无任何有效抓取、未过滤 JSON 占 99% 空间、大量 joint UID 无法通过内置查找命中 |
 
 整体判断：这是一份**由 molmo_spaces 自带 mjcf2grasp 流水线生成、以 UID 为键的离线抓取库**，pickup 与 joint 两类数据格式统一、几何一致性良好，可以直接用于抓取采样。但它与当前安装的 thor 资产库只部分对齐：**pickup 部分对齐良好，joint 部分有约 3/4 的 UID 属于当前 thor 库中不存在的哈希命名资产**；同时存在少量空文件和断链，使用前需要按 §10 的清单做过滤。
@@ -191,39 +193,142 @@ joint 的大 \|t\| 不代表错误：NPZ 在关节体局部系，父体可能离
 
 ## 6. 规模与内容统计
 
-### 6.1 按类别（Top 25，按 UID 数）
+### 6.1 全量类别大表（数据档 + 人工初判 + 白名单）
 
-| 类别 | UID | pickup 文件 | 其中空 | pickup 抓取 | joint 文件 | joint 抓取 |
-|---|---:|---:|---:|---:|---:|---:|
-| Apple | 30 | 30 | 2 | 11,245 | 0 | 0 |
-| Book | 30 | 30 | 0 | 30,000 | 0 | 0 |
-| Bowl | 30 | 30 | 0 | 29,877 | 0 | 0 |
-| Box | 30 | 30 | 7 | 15,032 | 120 | 116,785 |
-| Bread | 30 | 30 | 21 | 4,127 | 0 | 0 |
-| Cup | 30 | 30 | 0 | 29,113 | 0 | 0 |
-| Egg | 30 | 30 | 0 | 29,306 | 0 | 0 |
-| Egg_Cracked | 30 | 30 | 0 | 27,767 | 0 | 0 |
-| Fridge | 30 | 0 | 0 | 0 | 73 | 61,492 |
-| Laptop | 30 | 30 | 8 | 13,019 | 30 | 30,000 |
-| Lettuce | 30 | 30 | **30** | **0** | 0 | 0 |
-| Microwave | 30 | 0 | 0 | 0 | 30 | 26,173 |
-| Pan | 30 | 30 | 0 | 30,000 | 0 | 0 |
-| Plate | 30 | 30 | 0 | 30,000 | 0 | 0 |
-| Pot | 30 | 30 | 0 | 29,465 | 0 | 0 |
-| Potato | 30 | 30 | 1 | 23,719 | 0 | 0 |
-| Soap_Bottle | 30 | 30 | 0 | 30,000 | 0 | 0 |
-| Toaster | 30 | 0 | 0 | 0 | 35 | 14,095 |
-| Alarm_Clock | 29 | 29 | 20 | 31 | 0 | 0 |
-| Tomato | 19 | 19 | 3 | 2,888 | 0 | 0 |
-| Cloth | 12 | 12 | 0 | 12,000 | 0 | 0 |
-| Doorway | 10 | 0 | 0 | 0 | 18 | 14,775 |
-| Doorway_Double | 9 | 0 | 0 | 0 | 30 | 30,000 |
-| Cabinet | 8 | 0 | 0 | 0 | 8 | 7,121 |
-| Cellphone | 8 | 8 | 0 | 8,000 | 0 | 0 |
+下表覆盖**全部 71 个多实例类别**（UID ≥ 2；722 个哈希 UID 散件已合并为 `Cabinet(哈希)`、`Drawer(哈希)`、`ShowerDoor(哈希)` 三族，不再重复计数）。其余 160 个单实例类别及全部 231 行的机器可读版本见 `grasps_droid_20251116_categories.csv`。
 
-全部 940 个“类别前缀”中，774 个只有 1 个实例（大量哈希命名的 Cabinet/Drawer/Dresser）。
+| 类别 | UID | 类型 | pickup 有效 | pickup 中位 | joint 中位 | 抓取跨度 min/中/max (cm) | 分 | 数据档 | 人工初判 | 白名单 |
+|---|---:|---|---:|---:|---:|---|---:|---|---|---|
+| Cup | 30 | 搬运 | 30/30 | 1000 | — | 11/11/17 | 100 | A 高 | 首选 | 抓取 |
+| Soap_Bottle | 30 | 搬运 | 30/30 | 1000 | — | 7/10/23 | 100 | A 高 | 首选 | 抓取 |
+| Spray_Bottle | 8 | 搬运 | 8/8 | 1000 | — | 8/12/26 | 100 | A 高 | 首选 | 抓取 |
+| Vase_Flat | 5 | 搬运 | 5/5 | 1000 | — | 7/15/15 | 100 | A 高 | 首选 | 抓取 |
+| Vase_Medium | 5 | 搬运 | 5/5 | 1000 | — | 4/4/4 | 100 | A 高 | 首选 | 抓取 |
+| Vase_Tall | 5 | 搬运 | 5/5 | 1000 | — | 4/4/12 | 100 | A 高 | 首选 | 抓取 |
+| Dog_Statue | 4 | 搬运 | 4/4 | 1000 | — | 14/21/27 | 100 | A 高 | 首选 | 抓取 |
+| Stone_Statue | 4 | 搬运 | 4/4 | 1000 | — | 5/12/29 | 100 | A 高 | 首选 | 抓取 |
+| Fertility_Statue | 3 | 搬运 | 3/3 | 1000 | — | 16/16/33 | 100 | A 高 | 首选 | 抓取 |
+| Hand_Statue | 3 | 搬运 | 3/3 | 1000 | — | 12/19/37 | 100 | A 高 | 首选 | 抓取 |
+| Mug | 3 | 搬运 | 3/3 | 1000 | — | 9/12/12 | 100 | A 高 | 首选 | 抓取 |
+| Waving_Statue | 3 | 搬运 | 3/3 | 1000 | — | 21/21/35 | 100 | A 高 | 首选 | 抓取 |
+| Pepper_Shaker | 2 | 搬运 | 2/2 | 1000 | — | 6/8/16 | 100 | A 高 | 首选 | 抓取 |
+| Salt_Shaker | 2 | 搬运 | 2/2 | 1000 | — | 7/7/16 | 100 | A 高 | 首选 | 抓取 |
+| Apple | 30 | 搬运 | 28/30 | 66 | — | 5/6/12 | 50 | C 中 | 可选 | 抓取 |
+| Book | 30 | 搬运 | 30/30 | 1000 | — | 1/24/31 | 100 | A 高 | 可选 | 抓取 |
+| Bowl | 30 | 搬运 | 30/30 | 1000 | — | 6/20/20 | 100 | A 高 | 可选 | 抓取 |
+| Plate | 30 | 搬运 | 30/30 | 1000 | — | 2/26/27 | 100 | A 高 | 可选 | 抓取 |
+| Pot | 30 | 搬运 | 30/30 | 1000 | — | 6/26/38 | 100 | A 高 | 可选 | 抓取 |
+| Potato | 30 | 搬运 | 29/30 | 1000 | — | 3/4/6 | 97 | A 高 | 可选 | 抓取 |
+| Tomato | 19 | 搬运 | 16/19 | 23 | — | 2/4/7 | 43 | C 中 | 可选 | 抓取 |
+| Teddy_Bear | 2 | 搬运 | 2/2 | 29 | — | 1/3/4 | 51 | C 中 | 可选 | 抓取 |
+| Pan | 30 | 搬运 | 30/30 | 1000 | — | 8/26/42 | 100 | A 高 | 谨慎 | 抓取 |
+| Candle | 6 | 搬运 | 6/6 | 1000 | — | 8/9/16 | 100 | A 高 | 谨慎 | 抓取 |
+| Cabinet(哈希) | 470 | 关节 | — | — | 1000 | 5/6/19 | — | 关节-易 | 关节-易 | Open |
+| Drawer(哈希) | 235 | 关节 | — | — | 1000 | 5/7/16 | — | 关节-易 | 关节-易 | Open |
+| Fridge | 30 | 关节 | — | — | 1000 | 6/7/78 | — | 关节-易 | 关节-易 | Open |
+| Microwave | 30 | 关节 | — | — | 1000 | 5/32/49 | — | 关节-易 | 关节-易 | Open |
+| Doorway | 10 | 关节 | — | — | 1000 | 7/12/22 | — | 关节-易 | 关节-易 | Open |
+| Doorway_Double | 9 | 关节 | — | — | 1000 | 7/15/22 | — | 关节-易 | 关节-易 | Open |
+| Side_Table_302_1 | 5 | 关节 | — | — | 940 | 2/4/18 | — | 关节-易 | 关节-易 | Open |
+| oven_FP24 | 3 | 关节 | — | — | 1000 | 8/9/57 | — | 关节-易 | 关节-易 | Open |
+| oven_FP6 | 3 | 关节 | — | — | 1000 | 8/9/57 | — | 关节-易 | 关节-易 | Open |
+| Dresser_318 | 2 | 关节 | — | — | 1000 | 3/6/47 | — | 关节-易 | 关节-易 | Open |
+| Safe_18 | 2 | 关节 | — | — | 1000 | 6/40/41 | — | 关节-易 | 关节-易 | Open |
+| Shelving_Unit_206 | 2 | 关节 | — | — | 894 | 2/3/61 | — | 关节-易 | 关节-易 | Open |
+| Shelving_Unit_325 | 2 | 关节 | — | — | 1000 | 2/7/19 | — | 关节-易 | 关节-易 | Open |
+| Side_Table_306 | 2 | 关节 | — | — | 1000 | 2/3/19 | — | 关节-易 | 关节-易 | Open |
+| dishwasher_FP30 | 2 | 关节 | — | — | 1000 | 8/10/53 | — | 关节-易 | 关节-易 | Open |
+| Toaster | 30 | 关节 | — | — | 304 | 3/6/8 | — | 关节-中 | 关节-中 | Open |
+| Side_Table_203 | 3 | 关节 | — | — | 591 | 2/6/57 | — | 关节-中 | 关节-中 | Open |
+| Desk_313 | 2 | 关节 | — | — | 328 | 3/18/28 | — | 关节-中 | 关节-中 | Open |
+| Side_Table_311_2 | 2 | 关节 | — | — | 501 | 3/5/32 | — | 关节-中 | 关节-中 | Open |
+| Dresser_319 | 2 | 关节 | — | — | 25 | 1/2/4 | — | 关节-难 | 关节-难 | Open |
+| Laptop* | 30 | 两者 | 22/30 | 1000 | 1000 | 27/28/36 | 73 | B 中高 +关节 | 可选 | — |
+| Cellphone | 8 | 搬运 | 8/8 | 1000 | — | 6/9/17 | 100 | A 高 | 可选 | — |
+| Remote | 3 | 搬运 | 3/3 | 1000 | — | 7/9/23 | 100 | A 高 | 可选 | — |
+| Vase_Open* | 3 | 搬运 | 3/3 | 113 | — | 4/10/15 | 56 | B 中高 | 可选 | — |
+| Box* | 30 | 两者 | 23/30 | 1000 | 1000 | 16/39/41 | 77 | B 中高 +关节 | 谨慎 | — |
+| Bread* | 30 | 搬运 | 9/30 | 453 | — | 2/14/24 | 22 | D 低 | 谨慎 | — |
+| Egg | 30 | 搬运 | 30/30 | 1000 | — | 4/4/5 | 100 | A 高 | 谨慎 | — |
+| Egg_Cracked | 30 | 搬运 | 30/30 | 1000 | — | 2/14/15 | 100 | A 高 | 谨慎 | — |
+| Tennis_Racquet | 5 | 搬运 | 5/5 | 1000 | — | 7/27/66 | 100 | A 高 | 谨慎 | — |
+| BaseballBat | 4 | 搬运 | 4/4 | 1000 | — | 5/5/94 | 100 | A 高 | 谨慎 | — |
+| Ladle | 3 | 搬运 | 3/3 | 1000 | — | 10/10/30 | 100 | A 高 | 谨慎 | — |
+| Plunger | 3 | 搬运 | 3/3 | 1000 | — | 15/16/55 | 100 | A 高 | 谨慎 | — |
+| Towel_Statue* | 3 | 搬运 | 3/3 | 1000 | — | 13/14/39 | 100 | A 高 | 谨慎 | — |
+| Watch | 2 | 搬运 | 2/2 | 1000 | — | 6/7/10 | 100 | A 高 | 谨慎 | — |
+| Lettuce | 30 | 搬运 | 0/30 | — | — | — | — | 无可用 | 剔除 | — |
+| Alarm_Clock* | 29 | 搬运 | 9/29 | 2.0 | — | — | 16 | D 低 | 剔除 | — |
+| Cloth | 12 | 搬运 | 12/12 | 1000 | — | 9/20/24 | 100 | A 高 | 剔除 | — |
+| Knife | 7 | 搬运 | 7/7 | 1000 | — | 8/8/34 | 100 | A 高 | 剔除 | — |
+| Pencil | 7 | 搬运 | 7/7 | 1000 | — | 9/10/20 | 100 | A 高 | 剔除 | — |
+| CreditCard | 4 | 搬运 | 4/4 | 1000 | — | 4/8/11 | 100 | A 高 | 剔除 | — |
+| Newspaper | 4 | 搬运 | 4/4 | 1000 | — | 3/17/36 | 100 | A 高 | 剔除 | — |
+| Pen | 4 | 搬运 | 4/4 | 1000 | — | 9/10/20 | 100 | A 高 | 剔除 | — |
+| Bath_Towel | 3 | 搬运 | 3/3 | 1000 | — | 5/42/59 | 100 | A 高 | 剔除 | — |
+| Clothes_Dryer | 2 | 搬运 | 0/2 | — | — | — | — | 无可用 | 剔除 | — |
+| Keychain | 2 | 搬运 | 2/2 | 1000 | — | 9/10/15 | 100 | A 高 | 剔除 | — |
+| ShowerDoor(哈希) | 17 | 关节 | — | — | 1000 | 6/17/22 | — | 关节-易 | 关节-易 | — |
+| Laundry_Hamper_1 | 4 | 关节 | — | — | 1000 | 11/37/44 | — | 关节-易 | 关节-易 | — |
 
-### 6.2 空 NPZ 的类别分布（共 98）
+※ 哈希族 UID 不在当前 thor 库内，只能通过 `grasp_libraries=["droid"]` 显式查询（见 §7.1）。
+`*` = 白名单未逐项点名、按同一判据归类的人工初判（只影响“人工初判”列，不影响“白名单”列）。
+
+**三列判据的关系**：`数据档` 只反映离线过滤后的抓取产出（数量与有效率）；`人工初判` 额外考虑可插入性、柔性、滚动、贴桌、尺寸与执行稳定性；`白名单` 是当前项目的**操作性准入**——抓取任务只从“抓取”白名单选，开门/拉抽屉只从“Open”白名单选。三者冲突时**以白名单为准**。
+
+**评级口径（经验性，非物理保证）**
+
+- `pickup 有效` = 有有效 pickup 的 UID / 有 pickup 文件的 UID；
+- `分` = `有效率 × (0.5 + 0.5 × min(中位抓取数, 1000)/1000) × 100`，只在搬运类上计算；
+- `A 高` ≥ 85、`B 中高` ≥ 55、`C 中` ≥ 25、`D 低` > 0；
+- 关节类按 joint 中位抓取数：≥ 800 `关节-易`、≥ 300 `关节-中`、< 300 `关节-难`；
+- `抓取跨度` 是抓取点云平移包围盒三边的中位值（cm），近似“可抓区域尺寸”，**不是物体外形尺寸**：搬运类按 UID 合并 pickup 抓取，关节类按单个关节文件统计（多关节家具不再把不同门/抽屉拼在一起）。例如 Book 的 1/24/31 表示厚度 1 cm、长宽约 24×31 cm。
+
+### 6.2 当前初始白名单（操作性准入）
+
+白名单分两类：`抓取`（pick & place）与 `Open`（开门/拉抽屉/按把手）。§6.1 的 `白名单` 列即此判定；未列入的类别不进入当前初始集。
+
+| 用途 | 类别数 | UID 数 | 类别 |
+|---|---:|---:|---|
+| 抓取 | 24 | 344 | Cup、Mug、Bowl、Soap_Bottle、Spray_Bottle、Plate、Pepper_Shaker、Salt_Shaker、Vase_Flat/Medium/Tall、Apple、Tomato、Potato、Teddy_Bear、Dog_Statue / Stone_Statue / Fertility_Statue / Hand_Statue / Waving_Statue、Book、Candle、Pan、Pot |
+| Open | 115 | 941 | Drawer、Cabinet、Fridge、Microwave、Doorway、Doorway_Double、Dresser_*、Side_Table_*、Safe_*、Shelving_Unit_*、Desk_*、oven_*、dishwasher_*、Toaster |
+| 不在白名单 | 92 | 374 | 其余类别，见下文 |
+
+**覆盖校验**
+
+- **抓取白名单**：344 个 UID 中 **338 个有有效 pickup**（Apple 2、Tomato 3、Potato 1 为空），且 344 个全部能在当前 thor 库加载；空文件在运行时用 `has_valid_pickup_grasps` 跳过即可。
+- **Open 白名单**：941 个 UID 中只有 **181 个**能在当前已安装的 thor 库中找到；其余 760 个是 `Cabinet`(470)、`Drawer`(235) 哈希族与 `oven_FP*` / `dishwasher_FP*` 等未安装资产。若评测只跑已安装 thor，Open 实际可用约 181 个 UID（Fridge 30、Microwave 30、Toaster 30、Doorway 10、Doorway_Double 9，其余为 Dresser/Side_Table/Desk/Safe/Shelving 的单实例类别）。
+- 白名单只定义“允许参与”，不代表每个 UID 都有抓取：`Apple` 28/30、`Tomato` 16/19、`Book`/`Plate` 等仍建议先用 `has_valid_pickup_grasps` 过滤。
+
+**抓取白名单内部分级（执行难度）**
+
+| 子级 | 类别 | 说明 |
+|---|---|---|
+| 主力 | Soap_Bottle、Spray_Bottle | 30/30、8/8 全有效，每物体 1,000 抓取，10–12 cm 圆柱体，失败最易归因到 S0→S1 |
+| 稳定 | Cup、Mug、Salt_Shaker、Pepper_Shaker、Vase_Flat/Medium/Tall、Dog/Stone/Fertility/Hand/Waving_Statue、Potato、Teddy_Bear | 形状规则、抓取充足 |
+| 需姿态控制 | Book、Plate、Bowl | 需要侧立/可抓边缘，不能完全平贴桌面 |
+| 尺寸偏大 | Pot（跨度 26/38 cm）、Pan（8/26/42 cm） | 需先确认工作空间与可达性 |
+| 姿态敏感 | Candle（细长，倒伏时难）、Apple/Tomato（每物体仅约 66/23 个抓取） | 建议单独统计成功率 |
+
+**Open 白名单内部分级**
+
+| 子级 | 类别 | 说明 |
+|---|---|---|
+| 主力（已安装、抓取充足） | Fridge、Microwave、Toaster、Doorway、Doorway_Double | joint 中位 1,000（Toaster 304）；Doorway 手柄跨度 7/12/22 cm |
+| 可用但需抽查 | Dresser_*、Side_Table_*、Safe_*、Shelving_Unit_*、Desk_* | 单实例多，joint 中位差异大（25–1,000）；Dresser_319 仅 25、Desk_301 91、Side_Table_225 83 |
+| 数据充分但资产未安装 | Cabinet（470）、Drawer（235）、oven_FP*、dishwasher_FP* | joint 中位 1,000，但当前 thor 库无对应 XML，需先补资产或忽略 |
+
+**不在白名单的类别（不作为标准集）**
+
+- 柔性/薄片：Cloth、Bath_Towel、Towel_Statue、CreditCard、Newspaper；
+- 细小/易滚：Knife、Pencil、Pen、Keychain、Watch；
+- 长杆/大件：BaseballBat、Tennis_Racquet、Ladle、Plunger、Laptop、Box、Vase_Open、Remote、Cellphone；
+- 易碎/低产出：Egg、Egg_Cracked、Bread、Alarm_Clock、Lettuce、Clothes_Dryer；
+- 有抓取但未列入 Open：ShowerDoor（17）、Laundry_Hamper_1（4），joint 中位均为 1,000，可按需加回。
+
+> 说明：白名单是操作性准入；`人工初判` 与 `数据档` 仅用于在名单内部排序和提示风险。选型后仍应使用 `get_pickup_grasps` / `get_joint_grasps` 在目标场景做世界系可达性检查。
+
+### 6.3 空 NPZ 的类别分布（共 98）
 
 | 类别 | 空文件 / 总文件 |
 |---|---:|
@@ -239,7 +344,7 @@ joint 的大 \|t\| 不代表错误：NPZ 在关节体局部系，父体可能离
 
 这些对象仍有未过滤 JSON（候选抓取存在），说明是**物理/碰撞过滤后全部被拒绝**，不是数据缺失。`Lettuce`、`Bread`、`Alarm_Clock` 这类薄壁/易滑对象过滤通过率极低。
 
-### 6.3 每个 UID 的 joint 文件数
+### 6.4 每个 UID 的 joint 文件数
 
 | joint 文件数 | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 10 | 11 | 12 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -247,7 +352,7 @@ joint 的大 \|t\| 不代表错误：NPZ 在关节体局部系，父体可能离
 
 多关节集中在 Dresser / Desk / Coffee_Table（最多 `Dresser_224_1` 12 个抽屉）。
 
-### 6.4 过滤保留率（抽样 73 个未过滤 JSON）
+### 6.5 过滤保留率（抽样 73 个未过滤 JSON）
 
 - 候选抓取合计 692,719，过滤后 65,202，**保留 9.4%**；
 - 单文件保留率中位数 **27.5%**，P10 3.0%，P90 76.3%，最大 95.0%；
@@ -357,13 +462,14 @@ if has_valid_joint_grasps("Laptop_14", joint):
 ## 10. 使用建议
 
 1. **先修软链**，否则所有内置路径都失效。
-2. **采样前过滤**：`has_valid_pickup_grasps(uid)` / `has_valid_joint_grasps(uid, joint)`；不要假设目录存在就有抓取。
-3. **只依赖 NPZ**：`<joint>.obj`、`main.obj`、未过滤 JSON 都只作调试/回溯，坐标系不完全一致。
-4. **joint 查询显式传库名**：对哈希命名的 Cabinet/Drawer，用 `grasp_libraries=["droid"]` 绕过 UID 定位。
-5. **pickup 与 joint 互斥性**：46 个 UID 两者都有，990 个 UID 只有 joint；对冰箱、微波炉、门等不要期待 pickup 抓取。
-6. **抓取数按需抽样**：绝大多数文件 1,000 个，直接全量加载 2,129 个文件约 1.76M 位姿 × 16 个 float16 ≈ 56 MB 内存，可全量缓存；否则用 `num_grasps` 抽样。
-7. **不要用 `Lettuce`/`Bread`/`Alarm_Clock` 做抓取评测**，这三类通过率接近 0。
-8. **质量重排**需要回读未过滤 JSON 的 `quality`/`contact_depths`（NPZ 未保存）。
+2. **类别选型以 §6.2 初始白名单为准**：抓取任务只用“抓取”24 类，open 任务只用“Open”白名单；`Soap_Bottle`/`Spray_Bottle` 优先，Candle/Pan/Book/Plate 需单独统计成功率。`人工初判` 与 `数据档` 只用于名单内排序。
+3. **采样前过滤**：`has_valid_pickup_grasps(uid)` / `has_valid_joint_grasps(uid, joint)`；不要假设目录存在就有抓取。
+4. **只依赖 NPZ**：`<joint>.obj`、`main.obj`、未过滤 JSON 都只作调试/回溯，坐标系不完全一致。
+5. **joint 查询显式传库名**：对哈希命名的 Cabinet/Drawer，用 `grasp_libraries=["droid"]` 绕过 UID 定位。
+6. **pickup 与 joint 互斥性**：46 个 UID 两者都有，990 个 UID 只有 joint；对冰箱、微波炉、门等不要期待 pickup 抓取。
+7. **抓取数按需抽样**：绝大多数文件 1,000 个，直接全量加载 2,129 个文件约 1.76M 位姿 × 16 个 float16 ≈ 56 MB 内存，可全量缓存；否则用 `num_grasps` 抽样。
+8. **不要用 `Lettuce`/`Bread`/`Alarm_Clock` 做抓取评测**，通过率极低。
+9. **质量重排**需要回读未过滤 JSON 的 `quality`/`contact_depths`（NPZ 未保存）。
 
 ---
 
@@ -395,7 +501,7 @@ print("files",len(ns),"empty",len(empty),"total grasps",sum(ns))
 PY
 ```
 
-逐文件明细见同目录 `grasps_droid_20251116_files.csv`（2,129 行：`uid,file,kind,joint_name,num_grasps,empty,size_bytes`）。
+逐文件明细见同目录 `grasps_droid_20251116_files.csv`（2,129 行：`uid,file,kind,joint_name,num_grasps,empty,size_bytes`）；全量类别指标见 `grasps_droid_20251116_categories.csv`（231 行：含 pickup 有效率、中位抓取数、joint 中位数、抓取跨度、得分与初判）。
 
 ## 附录 B：统计口径
 
