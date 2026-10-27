@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.planning.astar import Grid
+from lastmile_dataflow.planning.navigation.astar import Grid
 from lastmile_dataflow.scenes.build.proposal import BuildProposal
 from lastmile_dataflow.scenes.mode_config import MODE_NAMES, ModeConfig
 from lastmile_dataflow.scenes.modes import create_builders

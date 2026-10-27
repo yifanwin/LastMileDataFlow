@@ -11,8 +11,8 @@ from curobo.types import JointState
 
 from lastmile_dataflow.config import RobotConfig, read_config
 from lastmile_dataflow.utils.io import write_json
-from lastmile_dataflow.planning.curobo_v2 import V2Planner
-from lastmile_dataflow.planning.head_fov import target_camera_torch
+from lastmile_dataflow.planning.curobo.planner import V2Planner
+from lastmile_dataflow.planning.curobo.head_fov import target_camera_torch
 from lastmile_dataflow.runtime.execution.context import planner_options
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.simulation import Simulation
@@ -48,7 +48,7 @@ def main():
             args.output,
             workspace=(task["anchor_world"], cfg.radius_m),
         )
-        fk = Kinematics(planner.context["fov_robot"].kinematics, compute_spheres=False)
+        fk = Kinematics(planner.context.fov_robot.kinematics, compute_spheres=False)
         q = planner.state().reorder(fk.joint_names).position.reshape(1, 1, -1).repeat(2, 3, 1)
         q[..., fk.joint_names.index("base_theta")] = 1.0
         q[..., fk.joint_names.index("torso_1")] = 0.369
@@ -56,7 +56,7 @@ def main():
 
         def loss(values):
             js = JointState.from_position(values, joint_names=fk.joint_names)
-            return planner.context["fov_cost"](target_camera_torch(fk, js, planner.context))
+            return planner.context.fov_cost(target_camera_torch(fk, js, planner.context))
 
         terms = loss(q)
         terms.sum().backward()
@@ -78,7 +78,7 @@ def main():
             assert np.isclose(actual, finite, rtol=0.025, atol=2.0), (name, actual, finite)
             comparisons[name] = {"autograd": actual, "finite_difference": finite}
         # A lifted target moves with the TCP; arm gradients must also survive.
-        planner.context["fov_attached_offset"] = planner.args.to_device([0.02, 0.01, 0.03])
+        planner.context.fov_attached_offset = planner.args.to_device([0.02, 0.01, 0.03])
         q2 = q.detach().clone().requires_grad_(True)
         loss(q2).sum().backward()
         attached = {}
@@ -93,7 +93,7 @@ def main():
             actual = float(q2.grad[0, 1, j].item())
             assert np.isclose(actual, finite, rtol=0.025, atol=2.0), (name, actual, finite)
             attached[name] = {"autograd": actual, "finite_difference": finite}
-        planner.context["fov_attached_offset"] = None
+        planner.context.fov_attached_offset = None
         managers = []
         for solver in (planner.motion.ik_solver, planner.motion.trajopt_solver):
             assert solver.core.metrics_rollout.metrics_constraint_manager.config.head_fov_endpoint_check

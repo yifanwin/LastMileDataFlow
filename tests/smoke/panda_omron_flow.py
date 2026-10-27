@@ -15,7 +15,7 @@ def align_mobile(output, robot_config):
     from curobo._src.robot.kinematics.kinematics import Kinematics
     from curobo._src.types.robot import RobotCfg
     from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.planning.panda_omron import PlanningModel, TCP, configuration
+    from lastmile_dataflow.planning.robots.panda_omron import PlanningModel, TCP, configuration
     from lastmile_dataflow.scenes.geometry import tcp_pose, geom_points, body_pose
     from lastmile_dataflow.utils.io import write_json
     from panda_omron import floor_source, pivot_check, pose_errors
@@ -78,8 +78,8 @@ def navigation(output, robot_config):
     from lastmile_dataflow.runtime.execution.context import ContinuousContext
     from lastmile_dataflow.runtime.execution.navigation import navigate
     from lastmile_dataflow.scenes.tasks.discovery import robot_footprint
-    from lastmile_dataflow.planning.astar import scene_grid, search
-    from lastmile_dataflow.planning.navigation import pose_path
+    from lastmile_dataflow.planning.navigation.astar import scene_grid, search
+    from lastmile_dataflow.planning.navigation.geometry import pose_path
     from lastmile_dataflow.utils.io import write_json
     output.mkdir(parents=True, exist_ok=False)
     scene = output/'navigation.xml'

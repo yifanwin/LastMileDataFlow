@@ -22,9 +22,9 @@ from ..data.evaluation.selection import station_calibration, eligible_stations, 
 from ..data.evaluation.statistics import aggregate
 from ..data.export.lastmile_dataset import successful, training_record
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
-from ..planning.astar import scene_grid, task_support_obstacles
-from ..planning.navigation import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
-from ..planning.curobo_v2 import StationPlannerCache
+from ..planning.navigation.astar import scene_grid, task_support_obstacles
+from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
+from ..planning.curobo.planner import StationPlannerCache
 from ..data.visualization.heatmap import export_heatmap
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,8 @@ def _trial_record(result, scene, station, trial, seed):
     """提取执行结果，补齐场景、站位、试验序号和随机种子。"""
     record = {key: result.get(key) for key in ('status', 'reason', 'execution_termination',
         'task_outcome', 'recording_complete', 'replay_complete', 'observation_complete',
-        'executed_steps', 'navigation', 'error', 'failure_scope', 'planning_ref')}
+        'executed_steps', 'navigation', 'error', 'failure_scope', 'planning_ref',
+        'attribution', 'retry_history', 'exception_detail')}
     record.update(scene_id=scene['scene_id'], station_id=station['station_id'], trial=trial, seed=seed,
                   rollout_id=result.get('rollout_id'), task_id=scene['task']['task_id'])
     return record
@@ -384,20 +385,22 @@ def _station_summary(sim, scene, trials, config, root):
     rates = station_calibration(scene['stations'], trials, config.trials_per_station, binding, config)
     if not rates['complete']:
         logger.warning('scene=%s 标定不完整，不能用于正式困难配对', scene['scene_id'])
-    # 热图仅用于展示；困难配对仍由原始标定结果决定。
-    grid = scene_grid(sim, scene['task']['anchor_world'], config.radius_m, config.map_resolution_m, 0., 0.,
-                      support_obstacles=task_support_obstacles(sim, scene['task']))
-    display = [{**row, 'attempt': row.get('rollout_id')} for row in trials]
-    export_heatmap(root / 'figures' / scene['scene_id'], grid,
-        aggregate(scene['stations'], display, config.trials_per_station), scene['task']['anchor_world'],
-        config.smoothing_sigma_m or config.spacing_m or .1, title=scene['scene_id'])
+    # 热图仅用于展示；困难配对仍由原始标定结果决定。直接标定可关闭以节省时间。
+    if config.export_figures:
+        grid = scene_grid(sim, scene['task']['anchor_world'], config.radius_m, config.map_resolution_m, 0., 0.,
+                          support_obstacles=task_support_obstacles(sim, scene['task']))
+        display = [{**row, 'attempt': row.get('rollout_id')} for row in trials]
+        export_heatmap(root / 'figures' / scene['scene_id'], grid,
+            aggregate(scene['stations'], display, config.trials_per_station), scene['task']['anchor_world'],
+            config.smoothing_sigma_m or config.spacing_m or .1, title=scene['scene_id'])
     if config.mode_config is None:
         starts, goals = eligible_stations(scene['stations'], rates, config)
         pair_count = len(starts) * len(goals)
     else:
         pair_count = None  # Mode relations are computed by the diagnosis stage.
     logger.info('scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s',
-                scene['scene_id'], len(trials), rates['complete'], pair_count, root / 'figures' / scene['scene_id'])
+                scene['scene_id'], len(trials), rates['complete'], pair_count,
+                root / 'figures' / scene['scene_id'] if config.export_figures else 'disabled')
     summary = {'scene_id': scene['scene_id'], 'calibration_complete': rates['complete'],
                'eligible_pairs': pair_count, 'successes': sum(r['successes'] for r in rates['stations'])}
     if config.mode_config is not None:
@@ -488,7 +491,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
 def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_scene, *, run_id,
                  gpu_ids, samples=None, calibration=None, max_trials=None, station_workers=1,
                  egl_devices=None, reuse_planners=True, cpu_workers=60, preparation_workers=12,
-                 recording_mode='numerical'):
+                 recording_mode='numerical', planning_workers_per_gpu=1):
     """统一准备运行、遍历场景，并关闭资源和保存汇总结果。"""
     # 设置计算与渲染设备，再准备场景和运行目录。
     started = time.monotonic()
@@ -505,7 +508,8 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     split_resources = None
     if split:
         from ..runtime.resources import RunResources
-        split_resources = RunResources(tuple(gpu_ids), cpu_workers, preparation_workers, recording_mode, reuse_planners)
+        split_resources = RunResources(tuple(gpu_ids), cpu_workers, preparation_workers,
+                                       recording_mode, reuse_planners, planning_workers_per_gpu)
         resources.update(asdict(split_resources), split_planning=True)
     station_options = dict(workers=station_workers, gpu_ids=gpu_ids, egl_devices=egl_devices,
                            reuse_planners=reuse_planners)
@@ -631,22 +635,39 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
 
 def evaluate_stations(dataset, assets_dir, config, collection, output_dir, *, run_id,
                       gpu_ids, samples=None, max_trials=None, station_workers=1, egl_devices=None, reuse_planners=True,
-                      cpu_workers=60, preparation_workers=12, recording_mode='numerical'):
+                      cpu_workers=60, preparation_workers=12, recording_mode='numerical',
+                      planning_workers_per_gpu=1):
     """执行逐站位试验并导出热图，不执行 S0→S1 连续采集。"""
     return _run_dataset(dataset, assets_dir, config, collection, output_dir, _evaluate_scene,
         run_id=run_id, gpu_ids=gpu_ids, samples=samples, max_trials=max_trials,
         station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
-        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode)
+        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode,
+        planning_workers_per_gpu=planning_workers_per_gpu)
+
+
+def evaluate_recipe(recipe, assets_dir, config, collection, output_dir, *, run_id, gpu_ids,
+                    build_workers=1, exclude_categories=None, **options):
+    """Prepare one-shot no-edit scene inputs from a recipe, then calibrate them."""
+    from .scene_datasets import prepare_scene_inputs
+    input_root = Path(output_dir) / '_calibration_inputs' / run_id
+    logger.info('直接标定准备 recipe=%s 输入=%s build_workers=%s exclude=%s',
+                recipe, input_root, build_workers, exclude_categories or [])
+    prepare_scene_inputs(recipe, input_root, gpu_ids=gpu_ids, workers=build_workers,
+                         exclude_categories=exclude_categories)
+    return evaluate_stations(input_root, assets_dir, config, collection, output_dir,
+                             run_id=run_id, gpu_ids=gpu_ids, **options)
 
 
 def collect_lastmile(dataset, assets_dir, config, collection, output_dir, *, run_id,
                      gpu_ids, samples=None, calibration=None, max_trials=None,
                      station_workers=1, egl_devices=None, reuse_planners=True,
-                     cpu_workers=60, preparation_workers=12, recording_mode='numerical'):
+                     cpu_workers=60, preparation_workers=12, recording_mode='numerical',
+                     planning_workers_per_gpu=1):
     """复用匹配的标定或先完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
     if config.operation_backend != 'curobo':
         raise ValueError('continuous collection currently uses cuRobo')
     return _run_dataset(dataset, assets_dir, config, collection, output_dir, _collect_scene,
         run_id=run_id, gpu_ids=gpu_ids, samples=samples, calibration=calibration, max_trials=max_trials,
         station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
-        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode)
+        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode,
+        planning_workers_per_gpu=planning_workers_per_gpu)

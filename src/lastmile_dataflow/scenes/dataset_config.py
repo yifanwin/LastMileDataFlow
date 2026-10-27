@@ -75,12 +75,17 @@ class TaskModeRecipe:
     max_pick_targets_per_house: int = 3
     max_open_targets_per_house: int = 1
     targets: dict = field(default_factory=dict)
+    exclude_categories: list = field(default_factory=list)
+    include_categories: list = field(default_factory=list)
+    include_assets: dict = field(default_factory=dict)
+    exclude_tasks: list = field(default_factory=list)
     input_snapshots: dict = field(default_factory=dict)
     station_config: dict = field(default_factory=dict)
     house_splits: dict = field(default_factory=dict)
     split_seed: int = 42
     train_fraction: float = .8
     seed: int = 42
+    task_timeout_s: float = 300.
     local_task_models: bool = False
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
 
@@ -91,8 +96,23 @@ class TaskModeRecipe:
         if not houses or len(set(houses)) != len(houses):
             raise ValueError('explicit unique source houses required')
         object.__setattr__(self, 'houses', houses)
-        if not self.modes or len(set(self.modes)) != len(self.modes) or set(self.modes) - set(MODE_NAMES):
+        if len(set(self.modes)) != len(self.modes) or set(self.modes) - set(MODE_NAMES):
             raise ValueError('unknown or duplicate task mode')
+        # Empty modes = natural/no-edit dataset: freeze the raw scene and its valid stations.
+        if not isinstance(self.exclude_categories, list) or any(
+                not isinstance(category, str) or not category for category in self.exclude_categories):
+            raise ValueError('invalid excluded target categories')
+        if not isinstance(self.include_categories, list) or any(
+                not isinstance(category, str) or not category for category in self.include_categories):
+            raise ValueError('invalid included target categories')
+        if not isinstance(self.include_assets, dict) or any(
+                not isinstance(category, str) or not category or not isinstance(prefixes, list)
+                or any(not isinstance(prefix, str) or not prefix for prefix in prefixes)
+                for category, prefixes in self.include_assets.items()):
+            raise ValueError('invalid included target assets')
+        if not isinstance(self.exclude_tasks, list) or any(
+                not isinstance(task, str) or ':' not in task for task in self.exclude_tasks):
+            raise ValueError('invalid excluded house:task entries')
         if not self.operations or set(self.operations) - {'pick', 'open'}:
             raise ValueError('task modes support Pick/Open')
         if self.geometry.radius_m != 1. or self.geometry.spacing_m != .25:
@@ -106,8 +126,10 @@ class TaskModeRecipe:
         for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
             if type(getattr(self, key)) is not int or getattr(self, key) == 0 or getattr(self, key) < -1:
                 raise ValueError('target limit is -1 or positive: ' + key)
-        if self.seed < 0 or self.split_seed < 0 or not 0 < self.train_fraction < 1:
+        if self.seed < 0 or self.split_seed < 0 or not 0 <= self.train_fraction <= 1:
             raise ValueError('invalid split or random seed')
+        if not math.isfinite(self.task_timeout_s) or self.task_timeout_s <= 0:
+            raise ValueError('invalid task timeout')
         splits = {str(house_number(h)): split for h, split in self.house_splits.items()}
         if not splits:
             order = np.random.default_rng(self.split_seed).permutation(sorted(houses))

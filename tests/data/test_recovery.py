@@ -9,7 +9,7 @@ import numpy as np
 from lastmile_dataflow.data.evaluation.benchmark import reference_calibration, select_starts, summarize
 from lastmile_dataflow.data.evaluation.benchmark_config import BenchmarkConfig
 from lastmile_dataflow.data.evaluation.recovery import RecoveryRegion, difficulty, motion_diagnostics
-from lastmile_dataflow.planning.astar import Grid, search_region
+from lastmile_dataflow.planning.navigation.astar import Grid, search_region
 
 
 def measured(sid, xy, high, yaw=0.):

@@ -7,7 +7,7 @@ import numpy as np
 import mujoco
 
 from lastmile_dataflow.data.evaluation.diagnosis_inputs import PreparedMeasurements, planning_evidence
-from lastmile_dataflow.planning.astar import OccupancyMap
+from lastmile_dataflow.planning.navigation.astar import OccupancyMap
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.stations.sampling import place_frozen_station
 from lastmile_dataflow.utils.io import write_json

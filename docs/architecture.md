@@ -40,10 +40,17 @@ src/lastmile_dataflow/
 │   └── augmentation/
 │       └── checks.py              # 增强场景物理检查
 ├── planning/                      # 规划，不直接替代真实执行
-│   ├── curobo_v2.py               # cuRobo V2 规划与 planner 复用
-│   ├── astar.py                   # S0→S1 路径搜索
-│   ├── collision_world_v2.py      # 碰撞世界
-│   ├── head_fov.py                # 头部视野约束
+│   ├── curobo/                    # cuRobo V2 适配
+│   │   ├── planner.py             # V2Planner、PlannerResources、StationPlannerCache
+│   │   ├── context.py             # PlannerContext
+│   │   ├── costs.py               # ContactManager、FOV 代价
+│   │   ├── tracing.py             # solver/phase 追踪
+│   │   ├── collision_world.py     # MuJoCo → cuRobo 碰撞世界
+│   │   └── head_fov.py            # 头部视野约束
+│   ├── robots/                    # PandaOmron / RBY-1 模型与 assets/
+│   ├── navigation/                # 几何导航与 A*
+│   │   ├── geometry.py            # GeometryNavigation
+│   │   └── astar.py               # S0→S1 路径搜索
 │   ├── pool.py                    # 每 GPU 一个常驻规划进程
 │   └── remote.py                  # CPU 侧规划 RPC 客户端
 ├── policies/                      # MolmoBot / π0.5 策略
@@ -123,7 +130,7 @@ flowchart TD
 ```
 
 热图用于展示；S0/S1 配对和困难 S0 选择读取原始 trial，而不是平滑后的颜色。
-benchmark 按来源计划使用完整站位的原始计数，不重新标定；构建不依赖策略或 native 场景转换。`data/evaluation/recovery.py` 负责共享区域和诊断，路径搜索复用 `planning/astar.py`。策略需要的 native 控制适配在评测初始化阶段进行；隐藏 oracle 不发送到策略进程。
+benchmark 按来源计划使用完整站位的原始计数，不重新标定；构建不依赖策略或 native 场景转换。`data/evaluation/recovery.py` 负责共享区域和诊断，路径搜索复用 `planning/navigation/astar.py`。策略需要的 native 控制适配在评测初始化阶段进行；隐藏 oracle 不发送到策略进程。
 
 ## build-scenes：任务共享准备与八类候选
 

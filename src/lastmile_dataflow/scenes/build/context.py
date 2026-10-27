@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 from ...data.rendering.head_views import robocasa_camera_calibration
-from ...planning.astar import scene_occupancy, task_support_obstacles
+from ...planning.navigation.astar import scene_occupancy, task_support_obstacles
 from ...runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
 from ...runtime.construction.session import ObstacleEditSession, clone_preparation
 from ...runtime.simulation import InitializationError

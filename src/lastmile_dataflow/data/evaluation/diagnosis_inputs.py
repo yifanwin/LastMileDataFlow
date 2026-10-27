@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from ...data.rendering.head_views import TaskVisibility
-from ...planning.astar import scene_occupancy, task_support_obstacles, search, segment_free
+from ...planning.navigation.astar import scene_occupancy, task_support_obstacles, search, segment_free
 from ...runtime.execution.context import clone_sim
 from ...runtime.execution.protocol import SimulationState
 from ...scenes.dataset_config import SceneStationConfig

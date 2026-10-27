@@ -183,13 +183,22 @@ def _planning_worker(index, gpu, requests, results, service_type):
 
 
 class PlanningPool:
-    def __init__(self, gpu_ids, *, service_type=PlanningService):
+    def __init__(self, gpu_ids, *, service_type=PlanningService, workers_per_gpu=1):
+        values = (list(workers_per_gpu) if isinstance(workers_per_gpu, (list, tuple))
+                  else [workers_per_gpu])
+        if len(values) == 1:
+            values = values * len(gpu_ids)
+        if len(values) != len(gpu_ids) or any(
+                not isinstance(value, int) or not 1 <= value <= 4 for value in values):
+            raise ValueError('planning workers per GPU must be one value or one 1-4 value per GPU')
         self.context = multiprocessing.get_context('spawn')
         self.results = self.context.Queue()
-        self.requests = [self.context.Queue() for _ in gpu_ids]
+        self.workers_per_gpu = tuple(values)
+        self.worker_gpu = [gpu for gpu, count in zip(gpu_ids, values) for _ in range(count)]
+        self.requests = [self.context.Queue() for _ in self.worker_gpu]
         self.processes = [self.context.Process(target=_planning_worker,
-            args=(index, gpu, self.requests[index], self.results, service_type))
-            for index, gpu in enumerate(gpu_ids)]
+            args=(index, self.worker_gpu[index], self.requests[index], self.results, service_type))
+            for index in range(len(self.requests))]
         self.pending = []
         self.active = {}
         self.models = {}

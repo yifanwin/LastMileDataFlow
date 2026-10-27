@@ -1,6 +1,6 @@
 """Uniform disk samples and pre-begin, robot-only visible initialization."""
 import copy
-from contextlib import closing
+from contextlib import closing, nullcontext
 import math
 import mujoco
 import numpy as np
@@ -163,7 +163,7 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     navigation_grid = None
     if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
-        from ...planning.astar import scene_grid, task_support_obstacles
+        from ...planning.navigation.astar import scene_grid, task_support_obstacles
         from ..tasks.discovery import robot_footprint
         footprint = robot_footprint(sim, whole_body=True)
         navigation_grid = scene_grid(sim, task['anchor_world'], config.radius_m, config.map_resolution_m,
@@ -224,24 +224,29 @@ def record_station_visibility(sim, stations, config):
     return stations
 
 
-def select_task_stations(ctx, sim, geometry, proposal):
+def select_task_stations(ctx, sim, geometry, proposal, *, measure_visibility=True):
     """Hints/explicit yaw first, then coverage; only valid initial poses consume slots."""
     from ..augmentation.selection import coverage_select
+    from ..modes.geometry import lattice_points
     candidates = {row['station_id']: row for row in geometry.lattice}
     if proposal.pose_edit is not None:
         candidates.update({row['station_id']: row for row in proposal.pose_edit.stations})
     hinted = [candidates[identity] for identity in proposal.station_hints]
     if proposal.pose_edit is not None:
         hinted.extend(proposal.pose_edit.stations)
-    covered, _ = coverage_select([{**row, 'geometry': 'valid'} for row in geometry.lattice],
+    # Occupied cells cannot host the robot base; filtering them before real
+    # initialization removes the dominant cost on cluttered scenes.
+    free_lattice = lattice_points(geometry, navigable=False)
+    covered, _ = coverage_select([{**row, 'geometry': 'valid'} for row in free_lattice],
                                   geometry.task['anchor_world'], ctx.recipe.max_final_stations)
-    order = hinted + covered + geometry.lattice
+    order = hinted + covered + free_lattice
     seen, selected, checked = set(), [], []
     initializations = 0
     floor_triangles = room_triangles(sim)
     cached = ctx.station_checks if sim is ctx.baseline else {}
     cfg = ctx.station_config
-    with TaskVisibility(sim, geometry.task, cfg) as visibility:
+    visibility_context = TaskVisibility(sim, geometry.task, cfg) if measure_visibility else nullcontext(None)
+    with visibility_context as visibility:
         for candidate in order:
             identity = candidate['station_id']
             if identity in seen:
@@ -272,7 +277,7 @@ def select_task_stations(ctx, sim, geometry, proposal):
                         row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
                     row.update(new_solver_warnings=fresh, independent_simulation=True,
                                initialization_attempt_id=identity, check_scope='actual_robot_initialization_and_three_camera_roi')
-                    if row['geometry'] == 'valid':
+                    if row['geometry'] == 'valid' and visibility is not None:
                         row['visibility'] = visibility.measure(probe)
                 if sim is ctx.baseline:
                     cached[identity] = copy.deepcopy(row)
@@ -284,7 +289,8 @@ def select_task_stations(ctx, sim, geometry, proposal):
     return selected, {'candidates_checked': len(checked), 'selected_count': len(selected),
                        'new_initializations': initializations, 'reused_initializations': len(checked) - initializations,
                        'pose_budget_fraction': len(selected) / ctx.recipe.max_final_stations,
-                       'lattice_count': len(geometry.lattice),
+                       'lattice_count': len(geometry.lattice), 'free_lattice_count': len(free_lattice),
+                       'visibility_measured': measure_visibility,
                        'selected_ids': [row['station_id'] for row in selected],
                        'priority': 'station_hints_then_explicit_yaw_then_coverage',
                        'rejected_stations': [row for row in checked if row['geometry'] != 'valid']}

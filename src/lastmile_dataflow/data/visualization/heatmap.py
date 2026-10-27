@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from ...utils.io import write_json
-from ...planning.astar import distance_field
+from ...planning.navigation.astar import distance_field
 
 
 def gaussian_map(grid, rows, sigma, *, max_support_distance_m=.35):

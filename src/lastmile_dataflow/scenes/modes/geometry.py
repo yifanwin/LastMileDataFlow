@@ -9,7 +9,7 @@ import mujoco
 import numpy as np
 
 from ...data.rendering.head_views import aggregate_visibility, ray_visibility
-from ...planning.astar import Grid
+from ...planning.navigation.astar import Grid
 from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
 from ...runtime.construction.session import clone_preparation
 from ..augmentation.sampling import sample_placement

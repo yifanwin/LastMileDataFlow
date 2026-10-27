@@ -4,6 +4,7 @@ import unittest
 import torch
 
 from lastmile_dataflow.planning.evidence import lane_success, solver_evidence, phase_evidence
+from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 
 def query(index, phase, values, fov=None):
@@ -94,17 +95,17 @@ class IKProbeEvidenceTests(unittest.TestCase):
         from pathlib import Path
         import tempfile
         from unittest.mock import Mock, patch
-        from lastmile_dataflow.planning.curobo_v2 import V2Planner
+        from lastmile_dataflow.planning.curobo.planner import V2Planner
         planner = V2Planner.__new__(V2Planner)
         planner.motion = SimpleNamespace(ik_solver=SimpleNamespace(solve_pose=Mock(return_value=self.result())),
                                          plan_pose=Mock(), plan_grasp=Mock())
         planner.config = SimpleNamespace(head_fov_enabled=False)
-        planner.query_log, planner.solver_log, planner.context = [], [], {}
+        planner.query_log, planner.solver_log, planner.context = [], [], PlannerContext(target_checker=None)
         planner.batch_goals = Mock(side_effect=lambda values: values)
         planner.state = Mock(return_value=SimpleNamespace(clone=lambda: SimpleNamespace(dt=.1)))
         with tempfile.TemporaryDirectory() as directory:
             planner.path = Path(directory)
-            with patch('lastmile_dataflow.planning.curobo_v2.bind_batch_seeds') as bind:
+            with patch('lastmile_dataflow.planning.curobo.planner.bind_batch_seeds') as bind:
                 observed = planner.diagnostic_ik([torch.eye(4).numpy()] * 2, seed=100, seeds_per_grasp=4)
                 bind.assert_called_once_with(planner.motion, [100, 101])
             self.assertTrue((planner.path / 'ik_probe.json').is_file())
@@ -113,7 +114,7 @@ class IKProbeEvidenceTests(unittest.TestCase):
         self.assertEqual(planner.motion.ik_solver.solve_pose.call_args.kwargs['return_seeds'], 4)
         planner.motion.plan_pose.assert_not_called()
         planner.motion.plan_grasp.assert_not_called()
-        self.assertFalse(planner.context['contact_allowed'])
+        self.assertFalse(planner.context.contact_allowed)
 
 
 class ProbeServiceTests(unittest.TestCase):

@@ -192,7 +192,7 @@ class PandaOmronAdapter:
         return self.flatten_command(command)
 
     def planning_model(self, *args):
-        from ...planning.panda_omron import PlanningModel
+        from ...planning.robots.panda_omron import PlanningModel
         return PlanningModel(*args)
 
     def group(self, name):

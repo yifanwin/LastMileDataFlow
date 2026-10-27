@@ -54,7 +54,7 @@ pi05 = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-"lastmile_dataflow.planning" = ["assets/panda_omron/*"]
+"lastmile_dataflow.planning.robots" = ["assets/panda_omron/*"]
 "lastmile_dataflow.policies.multitask" = ["LICENSE", "NOTICE"]
 "lastmile_dataflow.policies.pi05.core" = ["LICENSE", "NOTICE"]
 "lastmile_dataflow.runtime.control" = ["ROBOSUITE_LICENSE"]

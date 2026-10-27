@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.planning.astar import Grid, search, scene_grid
+from lastmile_dataflow.planning.navigation.astar import Grid, search, scene_grid
 from lastmile_dataflow.planning.waypoints import (
     PlanResult,
     arm_waypoint_action,

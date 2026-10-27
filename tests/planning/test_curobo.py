@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from lastmile_dataflow.planning.rby1m_mobile_torso import (
+from lastmile_dataflow.planning.robots.rby1m_mobile_torso import (
     chain_state,
     derive_urdf,
     joint_names,
@@ -86,7 +86,7 @@ class V2ModelTests(unittest.TestCase):
     def test_target_contact_mask_does_not_disable_environment_geometry(self):
         import torch
 
-        from lastmile_dataflow.planning.curobo_v2_costs import contact_spheres
+        from lastmile_dataflow.planning.curobo.costs import contact_spheres
 
         original = torch.ones((2, 1, 5, 4), requires_grad=True)
         selected = contact_spheres(original, [1, 3], True)
