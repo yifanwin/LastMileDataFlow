@@ -11,9 +11,9 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
   - `StationPlannerCache`：每侧臂至多 1 个预闭合 planner，限同一冻结站位
   - `V2Planner`：规划主类，grasp/diagnostic_ik/grasp_batch/plan 入口
 - **context.py**：PlannerContext
-- **costs.py**：ContactManager，目标/把手接触掩码，FOV 代价
+- **costs.py**：ContactManager，目标/把手接触掩码，FOV 代价；导入即加载 cuRobo，仅由 planner 建 solver 时导入
 - **tracing.py**：solver/phase 追踪
-- **collision_world.py**：MuJoCo → cuRobo 碰撞世界导出，per-geom mesh
+- **collision_world.py**：MuJoCo → cuRobo 碰撞世界导出，per-geom mesh；`exported_geoms()` 是导出与诊断共用的 geom 选择规则
 - **head_fov.py**：head camera FOV 约束与验证，HeadFOVCost、SparseFOVValidator
 
 ### 机器人模型（`robots/`）

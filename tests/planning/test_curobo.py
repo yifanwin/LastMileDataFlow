@@ -97,6 +97,18 @@ class V2ModelTests(unittest.TestCase):
         self.assertTrue(torch.all(original.grad[..., :3] == 1))
         self.assertTrue(torch.equal(contact_spheres(original, [1, 3], False), original))
 
+    def test_cost_manager_type_carries_its_own_planner_context(self):
+        from lastmile_dataflow.planning.curobo.costs import ContactManager, manager_type
+
+        first, second = object(), object()
+        first_type = manager_type(first)
+        config = first_type.create({})
+        # v0.8.0 requires type(cfg) to equal the configured instance type.
+        self.assertIs(type(config), first_type)
+        self.assertIs(config.context, first)
+        self.assertIs(config.class_type, ContactManager)
+        self.assertIs(manager_type(second).create({}).context, second)
+
     def test_version_and_retry_layers(self):
         cfg = ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5)
         self.assertEqual(cfg.operation_retries + 1, 2)
