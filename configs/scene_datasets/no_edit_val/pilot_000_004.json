@@ -1,0 +1,44 @@
+{
+  "schema_version": "scene-dataset-recipe-v2",
+  "data_root": "/data1/wenyifan/lmdf/molmospaces_data",
+  "dataset_dir": "assets/scenes/procthor-10k-val",
+  "assets_dir": "assets",
+  "asset_index": "/data1/wenyifan/lmdf/LastMileDataFlow/outputs/asset_index/task-modes-thor-20261025-r02/assets.jsonl",
+  "robot_config": "configs/robots/panda_omron_robocasa.json",
+  "mode_config": "configs/task_modes/mode_defaults.json",
+  "execution_config": "configs/execution/panda_omron_no_edit_curobo.json",
+  "operations": [
+    "pick",
+    "open"
+  ],
+  "modes": [],
+  "exclude_categories": [],
+  "variants_per_intent": 1,
+  "max_final_stations": 20,
+  "max_pick_targets_per_house": -1,
+  "max_open_targets_per_house": -1,
+  "station_config": {
+    "radius_m": 1.0,
+    "spacing_m": 0.25,
+    "width": 256,
+    "height": 256,
+    "gripper_width_m": 0.08,
+    "max_pick_object_size_m": 0.2,
+    "navigation_whole_body": true
+  },
+  "split_seed": 42,
+  "train_fraction": 0.0,
+  "seed": 42,
+  "task_timeout_s": 300.0,
+  "local_task_models": false,
+  "settle": {
+    "require_source_stability": false
+  },
+  "houses": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ]
+}

@@ -32,10 +32,16 @@ def parser():
             source = command.add_mutually_exclusive_group(required=True)
             source.add_argument('--dataset', type=Path)
             source.add_argument('--replay-from', type=Path, help='按实测状态离线渲染已有标定 run')
+            source.add_argument('--recipe', type=Path,
+                                help='直接从 v2 配方发现任务、采样站位并标定；不产出独立 build run')
             command.add_argument('--rollouts', nargs='+', help='离线回放的 rollout ID')
             command.add_argument('--replay-camera', help='recording.json 中的相机别名；grid 布局不需要')
             command.add_argument('--replay-layout', choices=('camera', 'grid'), default='camera',
                                  help='camera: 单相机 mp4；grid: 三相机 + 俯视底盘轨迹 2×2')
+            command.add_argument('--build-workers', type=int, default=1,
+                                 help='--recipe 时内部场景准备进程数（1 至 CPU 核数，上限 64）')
+            command.add_argument('--exclude-categories', nargs='+', default=None,
+                                 help='--recipe 时跳过的目标类别')
         command.add_argument('--assets-dir', type=Path,
                              default=local.assets_dir, help='资产目录；默认读取 configs/local.json')
         command.add_argument('--config', type=Path, default=Path('configs/execution/curobo_v2.json'))
@@ -45,8 +51,11 @@ def parser():
         command.add_argument('--record-depth', action='store_true')
         command.add_argument('--record-physics', action='store_true')
         command.add_argument('--station-workers', type=int, default=1, help='cuRobo 标定的站位进程数')
-        command.add_argument('--cpu-workers', type=int, default=60, help='独立 trial 执行容量（1–60）')
-        command.add_argument('--preparation-workers', type=int, default=12, help='站位准备并发（1–12）')
+        command.add_argument('--planning-workers-per-gpu', type=int, nargs='+', default=[1],
+                             help='每 GPU 规划 worker 数（1–4）；显存充足时可提高')
+        command.add_argument('--cpu-workers', type=int, default=60, help='独立 trial 执行容量（1 至 CPU 核数）')
+        command.add_argument('--preparation-workers', type=int, default=12,
+                             help='站位准备并发（1 至 CPU 核数，上限 64）')
         command.add_argument('--recording-mode', choices=('numerical', 'visual'),
                              help='Panda 标定默认 numerical；显式图像/视频记录使用 visual')
         command.add_argument('--egl-devices', nargs='+', type=int, help='与 --gpu 对应的 EGL 设备索引')
@@ -118,7 +127,7 @@ def main(argv=None):
     elif args.command in ('evaluate-stations', 'collect-lastmile'):
         from .config import CollectionConfig
         from .runtime.execution_config import load_execution_config
-        from .workflows.collection import evaluate_stations, collect_lastmile
+        from .workflows.collection import evaluate_stations, collect_lastmile, evaluate_recipe
         config = load_execution_config(args.config)
         recording = CollectionConfig(record_video=args.record_video, record_depth=args.record_depth,
                                      record_physics=args.record_physics,
@@ -126,12 +135,17 @@ def main(argv=None):
                                                     or not config.shared_station_preparation or args.record_depth))
         options = dict(run_id=args.run_id, gpu_ids=gpu_ids, samples=args.samples, max_trials=args.max_trials,
                        station_workers=args.station_workers, egl_devices=args.egl_devices,
+                       planning_workers_per_gpu=args.planning_workers_per_gpu,
                        reuse_planners=not args.no_planner_reuse,
                        cpu_workers=args.cpu_workers, preparation_workers=args.preparation_workers,
                        recording_mode=args.recording_mode or ('visual' if args.record_video or args.record_depth else 'numerical'))
         if args.command == 'collect-lastmile':
             output = collect_lastmile(args.dataset, args.assets_dir, config, recording, args.output_dir,
                                       calibration=args.calibration, **options)
+        elif getattr(args, 'recipe', None) is not None:
+            output = evaluate_recipe(args.recipe, args.assets_dir, config, recording, args.output_dir,
+                                     build_workers=args.build_workers,
+                                     exclude_categories=args.exclude_categories, **options)
         else:
             output = evaluate_stations(args.dataset, args.assets_dir, config, recording, args.output_dir, **options)
     elif args.command == 'build-bench':

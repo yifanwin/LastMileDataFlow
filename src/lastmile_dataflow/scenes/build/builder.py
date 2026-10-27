@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 from ..stations.sampling import select_task_stations
+from .proposal import BuildProposal
 from .repair import repair_allowed
 from .validation import proposal_scene
 from ..modes.geometry import resolve_assets
@@ -108,10 +109,63 @@ def search_variant(ctx, builder, mode, root, scene_id, *, rng, task_prefix):
     return {**result, 'reason': last_reason, 'last_checks': last_checks}
 
 
-def build_task(ctx, builders, root, *, house, seed):
+def _freeze_natural_baseline(ctx, root, prefix, baseline_cache):
+    """Reuse one frozen scene per house when only the robot parking differs."""
+    if ctx.baseline_snapshot is not None:
+        return True
+    cached = baseline_cache.get('baseline') if baseline_cache is not None else None
+    mask = np.ones(ctx.baseline.model.nq, bool)
+    mask[list(ctx.baseline.robot.addresses.values())] = False
+    qpos = ctx.baseline.data.qpos[mask].copy()
+    if cached is not None and np.allclose(cached['qpos'], qpos, rtol=0, atol=5e-3):
+        ctx.baseline_snapshot = cached['path']
+        return True
+    ctx.baseline_snapshot = Path('scene-files') / prefix / 'baseline'
+    ctx.baseline.freeze(Path(root) / ctx.baseline_snapshot)
+    if baseline_cache is not None and cached is None:
+        baseline_cache['baseline'] = {'path': ctx.baseline_snapshot, 'qpos': qpos}
+    return False
+
+
+def build_natural_task(ctx, root, *, house, seed, baseline_cache=None):
+    """Freeze the unedited task baseline and its valid stations; no difficulty construction."""
+    prefix = f'{ctx.baseline.source.split}{house}-{ctx.task["task_id"]}'
+    scene_id = f'{prefix}-no_edit-v000'
+    proposal = BuildProposal(proposal_id='no_edit-000', proposal_intent='no_edit')
+    stations, sampling = select_task_stations(ctx, ctx.baseline, ctx.geometry, proposal,
+                                              measure_visibility=False)
+    metrics = {'proposals': 1, 'cheap_rejected': 0, 'physical_candidates': 0,
+               'physical_trials': 0, 'repairs': 0, 'asset_compiles': 0,
+               'station_initializations': sampling['new_initializations'],
+               'proxy_initializations': 0,
+               'final_station_initializations': sampling['new_initializations']}
+    record = {'scene_id': scene_id, 'proposal_intent': 'no_edit', 'build_metrics': metrics,
+              'house': house, 'task_id': ctx.task['task_id'], 'seed': seed,
+              'source_split': ctx.baseline.source.split,
+              'dataset_split': ctx.recipe.house_splits[str(house)]}
+    if not stations:
+        return {**record, 'status': 'rejected', 'reason': 'no_valid_initial_stations',
+                'last_checks': {'station_evidence': sampling['rejected_stations']}}
+    _freeze_natural_baseline(ctx, root, prefix, baseline_cache)
+    reused = baseline_cache is not None and baseline_cache.get('baseline', {}).get('path') == ctx.baseline_snapshot
+    for station in stations:
+        cell = ctx.geometry.navigation.cell(station['xy'])
+        station['clearance_base_m'] = float(ctx.geometry.clearance_base[cell]) if cell is not None else None
+    return {**record, 'status': 'accepted', 'scene': str(ctx.baseline_snapshot),
+            'task': ctx.geometry.task, 'stations': stations, 'station_hints': [],
+            'edits': proposal.runtime_changes(),
+            'proposal_metadata': {'construction': 'no_edit', 'baseline_reused': reused},
+            'construction_checks': {'valid': True, 'path': 'no_edit'},
+            'station_sampling': sampling, 'task_completion': 'unknown'}
+
+
+def build_task(ctx, builders, root, *, house, seed, baseline_cache=None):
     """One context for all applicable intents/variants; caller writes main JSONL."""
     rng = np.random.default_rng(seed)
     prefix = f'{ctx.baseline.source.split}{house}-{ctx.task["task_id"]}'
+    if not ctx.recipe.modes:
+        yield build_natural_task(ctx, root, house=house, seed=seed, baseline_cache=baseline_cache)
+        return
     for mode in ctx.recipe.modes:
         if mode == 'articulated_interaction' and ctx.task['operation'] != 'open':
             yield {'task_id': ctx.task['task_id'], 'house': house, 'proposal_intent': mode,

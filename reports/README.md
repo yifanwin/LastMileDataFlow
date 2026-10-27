@@ -41,6 +41,8 @@ reports/
 
 - `navigation/`：[导航专题入口](navigation/README.md)、[软净空需求](navigation/requirement/02-navigation-soft-clearance.md)、[修改方案](navigation/plan/04-navigation-soft-clearance.md)、[实施结果](navigation/delivery/08-navigation-soft-clearance.md)。已取消 20 mm 硬门槛，基准为 20 mm 软目标、权重 2.0、独立 5 mm 穿透判据；Cup/Open 各 7/7、Train 11/13 对有路线，五条实际物理导航通过。最终软件回归 374 项，372 通过、2 跳过；没有新增完整连续操作示教或策略任务成功结论。
 
+- `no-edit-calibration/`：[需求](no-edit-calibration/requirement/01-requirement.md)、[计划](no-edit-calibration/plan/01-experiment-plan.md)、[实时状态](no-edit-calibration/delivery/status.md)、[成功率归因](no-edit-calibration/analyze/01-low-success-analysis.md)、[全量 trial 统计](no-edit-calibration/analyze/02-all-runs-trial-statistics.md)、[planner 复用缺陷](no-edit-calibration/analyze/03-planner-reuse-target-binding.md)。2026-10-27 16:20 快照覆盖 14 个 run / 58,441 trial；主 cohort 成功率 2.88%，最大失败池是 goalset 的底座-场景碰撞，pick 执行损失与 planner 复用错绑强相关。
+
 - `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
 
   [cuRobo 与 π0.5 共用控制链路](pi05/info/01-panda-shared-control.md)进一步说明动作汇合、轨迹跟踪、控制时序及待验证条件；尚未切换默认 profile。

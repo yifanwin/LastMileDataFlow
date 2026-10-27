@@ -36,7 +36,8 @@ def calibrate_stations(scenes, assets_dir, config, collection, root, resources, 
             results, stop, config, collection, assets_dir, root, resources.reuse_planners)) for index in range(cpu_count)]
     prep = ProcessPoolExecutor(max_workers=resources.preparation_workers, mp_context=context,
                                initializer=initialize_preparation_worker)
-    pool = PlanningPool(resources.gpu_ids, **({'service_type': service_type} if service_type else {}))
+    pool = PlanningPool(resources.gpu_ids, workers_per_gpu=resources.planning_workers_per_gpu,
+                        **({'service_type': service_type} if service_type else {}))
     for process in cpus:
         process.start()
     preparations, batches, recordings, routes = {}, {}, {}, {}
