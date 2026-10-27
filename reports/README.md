@@ -5,6 +5,8 @@
 
 ## 验证边界
 
+- [PandaOmron 标定修复与排查方案](no-edit-calibration/plan/03-calibration-repair-and-diagnosis.md)：按任务绑定修复、碰撞几何对照、残余执行问题和小批次复核推进；采样参数调整不在范围内。当前仅完成方案，尚未实施修复。
+
 - benchmark 静态构建图与评测组合图已解耦，按最新要求输出 PNG；已有 RBY-1 两条 rollout 的 head / 第三人称共四个视频单独保留，见[图片交付](benchmark/delivery/phase_02/2026-10-18-png.md)。
 - lastmile-bench v0.1 已在独立工作区复用 6 组既有标定完成构建；当前 RBY-1 / Panda 输入分别得到 2 / 1 个 episode，实际导航与区域进入检查通过。RBY-1 Full policy TSR=0/2、Recovery=0/2、coverage=100%，见[实施与构建记录](benchmark/delivery/phase_01/2026-10-18-build.md)。来源标定允许底盘移动，没有重新标定；当前没有 Open 来源数据，该轮尚未接入 Panda VLA；新 π0.5 进度见下方独立报告。
 
