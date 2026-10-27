@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from ...utils.io import write_json
 from ...scenes.geometry import body_pose, tcp_pose
-from ...planning.curobo_v2 import V2Planner
+from ...planning.curobo.planner import V2Planner
 from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import evaluate_open

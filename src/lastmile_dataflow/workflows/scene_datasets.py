@@ -30,7 +30,7 @@ from ..scenes.modes import create_builders
 from ..scenes.stations.initialization import inside_triangles, room_triangles
 from ..scenes.stations.sampling import disk_samples
 from ..scenes.tasks.discovery import discover_tasks, grasp_candidates
-from ..planning.astar import task_support_obstacles
+from ..planning.navigation.astar import task_support_obstacles
 from ..utils.io import append_row, create_run, rows, write_json
 from ..utils.logging_config import Progress
 

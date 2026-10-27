@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import yaml
 
-from ..scenes.geometry import body_pose
+from ...scenes.geometry import body_pose
 
 
 ASSETS = Path(__file__).parent / "assets/panda_omron"

@@ -423,102 +423,39 @@ def _reset_trial_state(self):
 
 #### 阶段 4：目录重组（0.5 天）
 
-**目标结构：**
+**目标结构（2026-10-27 按用户要求改为部分分子目录）：**
 
 ```
 src/lastmile_dataflow/planning/
-├── __init__.py              # 保持现有导出
-├── README.md                # 扩展：职责、子目录说明
-├── curobo_v2.py             # V2Planner 主类（保持原位）
-├── curobo_v2_costs.py       # ContactManager（保持原位）
-├── collision_world_v2.py    # collision_world（保持原位）
-├── panda_omron.py           # PandaOmron 模型（保持原位）
-├── rby1m_mobile_torso.py    # RBY1 模型 + 共享工具（保持原位）
-├── head_fov.py              # FOV（保持原位）
-├── pool.py                  # 多进程服务（保持原位）
-├── waypoints.py             # 规划结果（保持原位）
-├── evidence.py              # 证据记录（保持原位）
-├── navigation.py            # 导航（保持原位）
-├── astar.py                 # A*（保持原位）
-├── remote.py                # 远程客户端（保持原位）
-└── assets/                  # 资产（保持原位）
+├── __init__.py
+├── README.md                # 职责与子目录说明
+├── pool.py                  # 多进程规划服务（spawn 入口，保持顶层）
+├── remote.py                # 远程规划客户端
+├── waypoints.py             # PlanResult 等规划结果定义
+├── evidence.py              # solver/phase 证据
+├── curobo/                  # cuRobo V2 适配
+│   ├── planner.py           # V2Planner、PlannerResources、StationPlannerCache（原 curobo_v2.py）
+│   ├── context.py           # PlannerContext
+│   ├── costs.py             # ContactManager（原 curobo_v2_costs.py）
+│   ├── tracing.py           # 规划/solver 追踪（原 curobo_v2_tracing.py）
+│   ├── collision_world.py   # MuJoCo → cuRobo 场景导出（原 collision_world_v2.py）
+│   └── head_fov.py
+├── robots/                  # 规划机器人模型
+│   ├── panda_omron.py
+│   ├── rby1m_mobile_torso.py
+│   └── assets/panda_omron/
+└── navigation/              # 底盘导航
+    ├── geometry.py          # GeometryNavigation（原 navigation.py）
+    └── astar.py
 ```
 
-**理由：**
+**保持兼容的约束：**
 
-1. **子目录移动成本高**：
-   - 13 个外部文件导入 planning 模块（workflows、runtime、data、tests、scripts）
-   - 更新所有导入路径需要验证 multiprocessing pickle、patch 路径、pyproject package-data
-   - 移动 assets 会改变 ASSETS 常量、urdf_path 和冻结输入引用
-
-2. **当前结构可接受**：
-   - 13 个文件规模合理（不是 50+ 文件平铺）
-   - 文件名已经表明职责（curobo_v2、panda_omron、astar）
-   - planning/ 作为一个 cuRobo 适配 + 导航工具的集合包，不需要进一步细分
-
-3. **重点在代码质量**：
-   - 阶段 1–3 已经解决了核心问题（闭包、长函数、重复逻辑）
-   - 目录重组收益小，风险高（破坏现有导入）
-
-**本阶段任务：** 扩展 `planning/README.md`
-
-```markdown
-# planning
-
-cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
-
-## 主要模块
-
-- **curobo_v2.py**：V2Planner 主类，cuRobo 0.8.0 适配
-- **curobo_v2_costs.py**：ContactManager，目标/把手接触掩码
-- **collision_world_v2.py**：MuJoCo → cuRobo 碰撞世界导出
-- **panda_omron.py**：PandaOmron V2 模型（URDF、spheres、FK）
-- **rby1m_mobile_torso.py**：RBY-1 V2 模型 + 轨迹工具（ordered_points、retime_points 等）
-- **head_fov.py**：head camera FOV 约束与验证
-- **pool.py**：多进程规划服务（PlanningPool、PlanningService）
-- **navigation.py**：几何导航（GeometryNavigation）
-- **astar.py**：A* 搜索、占据栅格、距离场
-- **waypoints.py**：PlanResult、GRASP_APPROACH_DISTANCE_M 等规划结果定义
-- **evidence.py**：solver 证据记录（solver_evidence、phase_evidence、ik_probe_evidence）
-- **remote.py**：远程规划客户端（PlanningClient、RemotePlanner）
-
-## 使用示例
-
-```python
-from lastmile_dataflow.planning.curobo_v2 import V2Planner
-from lastmile_dataflow.planning.pool import PlanningPool
-
-# 单 planner
-planner = V2Planner(sim, config, side='right', path=output_dir, workspace=(center, radius))
-success, index, stages, diagnostics = planner.grasp(matrices, on_query=lambda phase: ..., lift=True)
-
-# 多进程服务
-pool = PlanningPool(gpu_ids=[0, 1], workers_per_gpu=1)
-pool.submit(request)
-result = pool.poll(timeout=1.0)
-```
-
-## 测试
-
-```bash
-.venv/bin/python -m unittest discover -s tests/planning -t . -v
-```
-
-## 依赖
-
-- cuRobo 0.8.0（可选，V2Planner 需要）
-- MuJoCo
-- PyTorch（cuRobo 后端）
-
-## 设计原则
-
-- V2 pinned to 0.8.0：不维护多版本 cuRobo 兼容
-- 机器人模型提供 URDF/spheres/bounds，planner 统一调用
-- 碰撞导出 per-geom，不使用家具级 AABB
-- 规划无解/执行失败分开处理，不混淆
-```
-
----
+- `pool.py` 留在顶层：spawn 子进程按模块路径 import，避免改动 worker 入口。
+- `assets/` 随 `panda_omron.py` 进入 `robots/`，`ASSETS = Path(__file__).parent / 'assets/panda_omron'` 不变；`pyproject.toml` package-data 同步改为 `lastmile_dataflow.planning.robots`。
+- 冻结输入与历史 run 只记录解析后的 urdf 绝对路径，不引用模块路径；移动后新 run 的 urdf 路径会变，属预期。
+- 不保留旧模块名的兼容 shim：所有内部 import、测试 patch 路径一次改完，用全量测试验证。
+- 移动时机：正在运行的 GPU 对照结束后执行，避免运行中的进程懒加载到不存在的模块。
 
 #### 阶段 5：collision_world 拆分（可选，0.5 天）
 
@@ -526,7 +463,7 @@ result = pool.poll(timeout=1.0)
 
 **方案：** 提取 `_convert_geom()`、`_should_include()`、`_write_report()` 独立函数，精简主函数至 30 行。
 
----
+
 
 #### 阶段 6：文档与验收（0.5 天）
 
@@ -552,13 +489,14 @@ result = pool.poll(timeout=1.0)
 
 ### 三、总体时间线
 
+
 | 阶段 | 工作量（天） | 里程碑 |
 |---|---:|---|
 | 0. 准备 | 0.5 | 测试基准、README 框架 |
 | 1. P1 修复 | 1.0 | **任务绑定修复，测试通过** |
 | 2. 类提取 | 1.5 | **无闭包依赖，4 个改造** |
 | 3. V2Planner 拆分 | 1.0 | **__init__ < 15 行** |
-| 4. 目录与文档 | 0.5 | **README 扩展** |
+| 4. 目录与文档 | 0.5 | **curobo/ robots/ navigation/ 子目录 + README** |
 | 5. collision 拆分（可选） | 0.5 | collision_world < 40 行 |
 | 6. 验收 | 0.5 | **交付报告** |
 | **总计** | **4.5–5.5 天** | |
@@ -596,7 +534,7 @@ result = pool.poll(timeout=1.0)
 **重点：**
 1. **阶段 1 最高优先级**：修复任务绑定三个缺陷，恢复标定能力
 2. **阶段 2–3 核心重构**：消除闭包依赖、提取类、拆分长函数
-3. **目录不重组**：保持现有结构，降低破坏风险，聚焦代码质量
+3. **部分分子目录**：curobo/、robots/、navigation/；pool/remote/waypoints/evidence 保持顶层
 
 **交付物：**
 - P1 修复 commit + 测试

@@ -4,7 +4,7 @@ import numpy as np
 from .base import ModeBuilder
 from .geometry import asset_candidates, lattice_points, navigation, role_profiles, shift_repair
 from ..build.proposal import BuildProposal, ProbeResult
-from ...planning.astar import search, segment_free
+from ...planning.navigation.astar import search, segment_free
 
 
 class NarrowSpaceBuilder(ModeBuilder):

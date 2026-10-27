@@ -12,7 +12,7 @@ import numpy as np
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 from lastmile_dataflow.data.visualization.heatmap import export_heatmap, gaussian_map
 from lastmile_dataflow.data.visualization.navigation_map import export_navigation_map
-from lastmile_dataflow.planning.astar import (
+from lastmile_dataflow.planning.navigation.astar import (
     Grid,
     distance_field,
     scene_grid,

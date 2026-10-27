@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from ...planning.astar import Grid, distance_field, segment_free, search_region
+from ...planning.navigation.astar import Grid, distance_field, segment_free, search_region
 
 
 def yaw_gap(a, b):

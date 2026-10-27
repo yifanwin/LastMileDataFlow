@@ -29,7 +29,7 @@ class HeadFOVCost:
 def camera_definition(sim, width, height):
     """Reuse the actual MuJoCo optical mount, not base heading."""
     import mujoco
-    from ..scenes.geometry import body_pose, pose7
+    from ...scenes.geometry import body_pose, pose7
     cid = sim.model.camera(sim.robot.camera_names['head_camera']).id
     if sim.model.cam_mode[cid] != int(mujoco.mjtCamLight.mjCAMLIGHT_FIXED):
         raise ValueError('head FOV requires a fixed mounted camera')
@@ -89,10 +89,10 @@ def target_camera_torch(kinematics, joint_state, context):
     """cuRobo FK + torch only; all tensors stay on the optimizer device."""
     poses = kinematics.compute_kinematics(joint_state).tool_poses
     cam_position, cam_rotation = optical_pose_torch(poses, 'head_fov_optical')
-    target = context['fov_target']
-    if context.get('fov_attached_offset') is not None:
-        position, rotation = optical_pose_torch(poses, context['fov_tcp_frame'])
-        target = (rotation @ context['fov_attached_offset'][..., None]).squeeze(-1) + position
+    target = context.fov_target
+    if context.fov_attached_offset is not None:
+        position, rotation = optical_pose_torch(poses, context.fov_tcp_frame)
+        target = (rotation @ context.fov_attached_offset[..., None]).squeeze(-1) + position
     return (cam_rotation.transpose(-1,-2) @ (target-cam_position)[...,None]).squeeze(-1)
 
 
@@ -125,7 +125,7 @@ class SparseFOVValidator:
 
     def project(self, point):
         import mujoco
-        from ..runtime.control.action import torso_joints
+        from ...runtime.control.action import torso_joints
         data, sim = self.scratch, self.sim
         data.qpos[:] = sim.data.qpos
         if sim.model.nmocap:

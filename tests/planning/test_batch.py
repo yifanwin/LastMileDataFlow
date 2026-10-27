@@ -8,7 +8,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 import torch
 
-from lastmile_dataflow.planning.curobo_v2 import V2Planner, bind_batch_seeds
+from lastmile_dataflow.planning.curobo.planner import V2Planner, bind_batch_seeds
+from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 
 class BatchTests(unittest.TestCase):
@@ -63,10 +64,10 @@ class BatchTests(unittest.TestCase):
         planner.config = SimpleNamespace(max_attempts=5, time_dilation=.5)
         planner.names, planner.base = ('a', 'b'), np.eye(4)
         planner.sim = SimpleNamespace(robot=SimpleNamespace(config=SimpleNamespace(control_hz=20)))
-        planner.query_log, planner.solver_log, planner.context = [], [], {}
+        planner.query_log, planner.solver_log, planner.context = [], [], PlannerContext(target_checker=None)
         with tempfile.TemporaryDirectory() as directory:
             planner.path = Path(directory)
-            with (patch('lastmile_dataflow.planning.curobo_v2.bind_batch_seeds'),
+            with (patch('lastmile_dataflow.planning.curobo.planner.bind_batch_seeds'),
                   patch.dict('sys.modules', {'curobo._src.cost.tool_pose_criteria':
                       SimpleNamespace(ToolPoseCriteria=object)})):
                 goals = [np.eye(4) for _ in range(3)]

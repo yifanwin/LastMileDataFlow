@@ -16,6 +16,7 @@ def contact_spheres(spheres, indices, allowed):
 
 
 def manager_type(context):
+    """Cost manager config type whose instances carry the planner context."""
     import torch
     from curobo._src.rollout.cost_manager.cost_manager_robot import RobotCostManager
     from curobo._src.rollout.cost_manager.cost_manager_robot_cfg import RobotCostManagerCfg
@@ -24,30 +25,32 @@ def manager_type(context):
     class ContactManager(RobotCostManager):
         def initialize_from_config(self, config, transition_model, scene_collision_checker=None, **kwargs):
             super().initialize_from_config(config, transition_model, scene_collision_checker, **kwargs)
+            self.context = config.context
             self.target_cost = None
             self.handle_cost = None
             self.head_fk = None
-            if (config.head_fov_cost_enabled or config.head_fov_endpoint_check) and context.get('fov_robot') is not None:
+            if ((config.head_fov_cost_enabled or config.head_fov_endpoint_check)
+                    and self.context.fov_robot is not None):
                 from curobo._src.robot.kinematics.kinematics import Kinematics
-                self.head_fk = Kinematics(context['fov_robot'].kinematics, compute_spheres=False)
+                self.head_fk = Kinematics(self.context.fov_robot.kinematics, compute_spheres=False)
             self.names = transition_model.robot_model.joint_names
             if self.head_fk is not None:
                 self.head_indices = [self.names.index(n) for n in self.head_fk.joint_names]
             if config.scene_collision_cfg is not None:
                 cfg = copy.copy(config.scene_collision_cfg)
-                cfg.scene_collision_checker = context['target_checker']
+                cfg.scene_collision_checker = self.context.target_checker
                 self.target_cost = SceneCollisionCost(cfg)
-                if context.get('handle_checker') is not None:
+                if self.context.handle_checker is not None:
                     cfg = copy.copy(config.scene_collision_cfg)
-                    cfg.scene_collision_checker = context['handle_checker']
+                    cfg.scene_collision_checker = self.context.handle_checker
                     self.handle_cost = SceneCollisionCost(cfg)
             params = transition_model.robot_model.config.kinematics_config
             indices = []
-            for link in context['contact_links']:
+            for link in self.context.contact_links:
                 indices.extend(params.get_sphere_index_from_link_name(link).tolist())
             self.contact_indices = indices
             handle_indices = []
-            for link in context.get('handle_contact_links', ()):
+            for link in self.context.handle_contact_links:
                 handle_indices.extend(params.get_sphere_index_from_link_name(link).tolist())
             self.handle_indices = handle_indices
 
@@ -60,26 +63,29 @@ def manager_type(context):
 
         def compute_costs(self, state, cost_collection=None, goal=None, **kwargs):
             result = super().compute_costs(state, cost_collection, goal, **kwargs)
-            if self.target_cost is not None and not context['attached']:
+            if self.target_cost is not None and not self.context.attached:
                 kin = copy.copy(state.cuda_robot_model_state)
                 # Differentiable copy: no writes into shared FK/robot geometry.
-                kin.robot_spheres = contact_spheres(state.robot_spheres, self.contact_indices, context['contact_allowed'])
+                kin.robot_spheres = contact_spheres(state.robot_spheres, self.contact_indices,
+                                                     self.context.contact_allowed)
                 idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
                 value = self.target_cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
                 result.add(value, 'target_collision')
-            if self.handle_cost is not None and not context['attached']:
+            if self.handle_cost is not None and not self.context.attached:
                 # A pinch on a deep handle puts the palm against it; only the
                 # handle is relaxed, the surrounding body stays a hard obstacle.
                 kin = copy.copy(state.cuda_robot_model_state)
-                kin.robot_spheres = contact_spheres(state.robot_spheres, self.handle_indices, context['contact_allowed'])
+                kin.robot_spheres = contact_spheres(state.robot_spheres, self.handle_indices,
+                                                     self.context.contact_allowed)
                 idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
                 value = self.handle_cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
                 result.add(value, 'handle_contact')
-            if self.config.scene_collision_cfg is not None and context.get("movable_base", True):
+            if self.config.scene_collision_cfg is not None and self.context.movable_base:
                 xy = state.joint_state.position[..., [self.names.index('base_x'), self.names.index('base_y')]]
-                center = context['local_center']
-                gap = torch.clamp(torch.linalg.vector_norm(xy - center, dim=-1) - context['radius'], min=0.)
-                result.add(gap.unsqueeze(-1) * self.config.scene_collision_cfg.weight.reshape(-1)[0], 'workspace_circle')
+                center = self.context.local_center
+                gap = torch.clamp(torch.linalg.vector_norm(xy - center, dim=-1) - self.context.radius, min=0.)
+                result.add(gap.unsqueeze(-1) * self.config.scene_collision_cfg.weight.reshape(-1)[0],
+                           'workspace_circle')
             if self.head_fk is not None:
                 from .head_fov import target_camera_torch
                 from curobo.types import JointState
@@ -92,23 +98,27 @@ def manager_type(context):
                     # so the existing finite retries can choose other seeds.
                     # This is NOT a dense interpolated-trajectory hard check.
                     js = JointState.from_position(q[:, -1:].contiguous(), joint_names=self.head_fk.joint_names)
-                    local = target_camera_torch(self.head_fk, js, context)
+                    local = target_camera_torch(self.head_fk, js, self.context)
                     depth = -local[..., 2]
-                    cost = context['fov_cost']
+                    cost = self.context.fov_cost
                     invalid = ((depth <= cost.min_depth)
                                | (local[..., 0].abs() >= depth*cost.tan_half_x)
                                | (local[..., 1].abs() >= depth*cost.tan_half_y))
                     prefix = torch.zeros((*q.shape[:1], q.shape[1]-1, 1), device=q.device, dtype=q.dtype)
-                    result.add(torch.cat((prefix, invalid.to(q.dtype).unsqueeze(-1)), dim=1), 'head_fov_endpoint')
+                    result.add(torch.cat((prefix, invalid.to(q.dtype).unsqueeze(-1)), dim=1),
+                               'head_fov_endpoint')
                 else:
                     js = JointState.from_position(q, joint_names=self.head_fk.joint_names)
-                    result.add(context['fov_cost'](target_camera_torch(self.head_fk, js, context)), 'head_fov')
+                    result.add(self.context.fov_cost(target_camera_torch(self.head_fk, js, self.context)),
+                               'head_fov')
             return result
 
     @dataclass
     class ContactManagerCfg(RobotCostManagerCfg):
         head_fov_cost_enabled: bool = False
         head_fov_endpoint_check: bool = False
+        # Shared by reference: phase/attach flags change during one query.
+        context: object = None
 
         def __post_init__(self):
             super().__post_init__()
@@ -117,8 +127,10 @@ def manager_type(context):
         @staticmethod
         def create(data_dict, **kwargs):
             original = RobotCostManagerCfg.create(data_dict, **kwargs)
-            return ContactManagerCfg(**vars(original), head_fov_cost_enabled=data_dict.get('head_fov_cost_enabled', False),
-                head_fov_endpoint_check=data_dict.get('head_fov_endpoint_check', False))
+            return ContactManagerCfg(**vars(original),
+                head_fov_cost_enabled=data_dict.get('head_fov_cost_enabled', False),
+                head_fov_endpoint_check=data_dict.get('head_fov_endpoint_check', False),
+                context=context)
 
     return ContactManagerCfg
 

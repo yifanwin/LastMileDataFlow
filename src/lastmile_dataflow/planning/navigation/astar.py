@@ -165,8 +165,8 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     """
     import mujoco
     from scipy.ndimage import distance_transform_edt
-    from ..scenes.geometry import geom_points
-    from ..scenes.stations.initialization import room_triangles
+    from ...scenes.geometry import geom_points
+    from ...scenes.stations.initialization import room_triangles
     triangles = room_triangles(sim)
     if radius is None:
         if getattr(sim, 'local_model', {}).get('removed_roots'):
@@ -233,7 +233,7 @@ def task_support_obstacles(sim, task):
     below the target. Without a hint, search collision surfaces under the target.
     Open tasks reserve their articulated furniture instance instead.
     """
-    from ..scenes.geometry import body_points, collision_geoms, descendants, geom_points
+    from ...scenes.geometry import body_points, collision_geoms, descendants, geom_points
     target = sim.model.body(task['target_body']).id
     target_bodies = descendants(sim.model,target)
     target_lo = body_points(sim,target).min(axis=0)

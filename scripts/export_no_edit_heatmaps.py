@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from lastmile_dataflow.config import read_config, robot_config
 from lastmile_dataflow.data.evaluation.statistics import aggregate
 from lastmile_dataflow.data.visualization.heatmap import export_heatmap
-from lastmile_dataflow.planning.astar import scene_grid, task_support_obstacles
+from lastmile_dataflow.planning.navigation.astar import scene_grid, task_support_obstacles
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.dataset import load_scenes
 from lastmile_dataflow.utils.io import read_json, rows

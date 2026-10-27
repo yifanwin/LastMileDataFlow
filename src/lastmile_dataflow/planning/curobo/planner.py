@@ -6,20 +6,40 @@ from pathlib import Path
 import time
 import numpy as np
 
-from ..utils.io import write_json
-from ..utils.logging_config import trial_progress
+from ...utils.io import write_json
+from ...utils.logging_config import trial_progress
 
-from .waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
-from .evidence import lane_success, phase_evidence, solver_evidence, ik_probe_evidence
-from ..scenes.geometry import body_pose, tcp_pose, pose7, descendants
-from .rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
-from .collision_world_v2 import collision_world
-from .curobo_v2_costs import manager_type, fov_optimizer_configs
+from ..waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
+from ..evidence import lane_success, phase_evidence, solver_evidence, ik_probe_evidence
+from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
+from ..robots.rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
+from .collision_world import collision_world
+from .costs import manager_type, fov_optimizer_configs
+from .context import PlannerContext
+from .tracing import SolverTrace, native_grasp_planner_type
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
 
 
 class PlannerUnavailable(RuntimeError):
     shared_resource = True
+
+
+def _compute_target_bodies(sim):
+    """Target subtree of the current simulation."""
+    return descendants(sim.model, sim.target_id)
+
+
+def _compute_handle_bodies(sim):
+    """Handle subtree of the current simulation; empty for tasks without a handle."""
+    handle_id = getattr(sim, 'handle_id', None)
+    return descendants(sim.model, handle_id) if handle_id else set()
+
+
+def pose_error(a, b):
+    """Translation (m) and rotation angle (rad) between two homogeneous poses."""
+    translation = float(np.linalg.norm(a[:3, 3] - b[:3, 3]))
+    angle = float(np.arccos(np.clip((np.trace(a[:3, :3].T @ b[:3, :3]) - 1) / 2, -1, 1)))
+    return translation, angle
 
 
 def verify_version():
@@ -126,7 +146,10 @@ class PlannerResources:
     def acquire(self, sim, config, side, path, *, workspace, batch_size, ik_only=False):
         key = (sim.robot.config.model_path, sim.robot.config.control_profile, side,
                config.operation_base_mode, batch_size, config.num_ik_seeds,
-               config.num_trajopt_seeds, config.max_candidates, ik_only)
+               config.num_trajopt_seeds, config.max_candidates, ik_only,
+               # ContactManager binds handle_cost at construction; Pick/Open
+               # differ structurally and must not share a cost manager.
+               bool(getattr(sim, 'handle_id', None)))
         planner = self.planners.get(key) if not config.head_fov_enabled else None
         if planner is None:
             while len(self.planners) >= 2:
@@ -158,7 +181,45 @@ class V2Planner:
     def __init__(self, sim, config, side, path, *, workspace, batch_size=1, ik_only=False):
         setup_started = time.monotonic()
         self.progress_ready = False
-        import yaml
+        native = self._native_types()
+        self.identity = verify_version()
+        self.batch_size = self.evidence_batch_size = batch_size
+        self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
+        self.initial_model = sim.model
+        self.initial_state = sim.state_vector().copy() if not sim.started else None
+        self.resource_path = self.path
+        self.args = native['DeviceCfg']()
+        self.on_query = None
+        self.query_index = 0
+        self.query_log, self.solver_log, self.fov_log = [], [], []
+        self._reset_trial_state()
+        self._bind_model(sim, config, path, workspace)
+        self._write_yaml('planner.yml', self.robot_cfg)
+        self.bind_target(sim)
+        self._build_context(native)
+        self.fov_validator = None
+        if config.head_fov_enabled:
+            self._setup_fov(sim, config)
+        self._create_motion(native, batch_size)
+        self.pad_target_query_range()
+        # Validate the real model/frame convention before any physical action.
+        self.check_fk()
+        if config.head_fov_enabled:
+            self._check_head_camera_fk(sim, config)
+        if not ik_only:
+            self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
+        self.progress_ready = True
+        self.query_log.clear()
+        self.fov_log.clear()
+        self.solver_log.clear()
+        # Observe the actual native solves; do not issue additional IK searches.
+        for kind, solver in (('ik', self.motion.ik_solver), ('trajopt', self.motion.trajopt_solver)):
+            SolverTrace.install(self, solver, kind)
+        self._write_identity()
+        trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
+
+    @staticmethod
+    def _native_types():
         try:
             import torch
             if not torch.cuda.is_available():
@@ -169,218 +230,143 @@ class V2Planner:
             from curobo._src.geom.collision.collision_scene import SceneCollision, SceneCollisionCfg
         except ImportError as exc:
             raise PlannerUnavailable(f'cuRobo dependency unavailable: {exc}') from exc
-        self.identity = verify_version()
-        self.batch_size = batch_size
-        self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
-        self.initial_model = sim.model
-        self.initial_state = sim.state_vector().copy() if not sim.started else None
-        self.resource_path = self.path
-        self.model = sim.robot.planning_model(sim, config, side, path, workspace)
-        self.names = self.model.names
-        self.base = self.model.base
-        self.args = DeviceCfg()
+        return dict(MotionPlanner=MotionPlanner, MotionPlannerCfg=MotionPlannerCfg,
+                    BatchMotionPlanner=BatchMotionPlanner, DeviceCfg=DeviceCfg,
+                    SceneCollision=SceneCollision, SceneCollisionCfg=SceneCollisionCfg)
+
+    def _bind_model(self, sim, config, path, workspace):
+        """Measured planning model, locks and circular workspace of the current task."""
         self.workspace = workspace
-        center, radius = workspace
-        local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
-        self.reference_yaw = self.model.reference_yaw
-        self.h_step_limit = self.model.h_step_limit
-        bounds, coupling, cfg = self.model.bounds, self.model.coupling, self.model.cfg
-        self.robot_cfg = cfg
-        (self.path/'planner.yml').write_text(yaml.safe_dump(cfg, sort_keys=False))
-        self.world_range = 2*radius+1.
-        self.target_bodies = descendants(sim.model, sim.target_id)
-        self.handle_bodies = descendants(sim.model, sim.handle_id) if getattr(sim, 'handle_id', None) else set()
-        world = collision_world(sim, self.path, self.world_range, reference_base=self.base)
-        target = collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True,
-                                 bodies=self.target_bodies - self.handle_bodies)
-        handle = (collision_world(sim, self.path, self.world_range, reference_base=self.base, target_only=True,
-                                  bodies=self.handle_bodies, filename='handle_world.json')
+        self.model = sim.robot.planning_model(sim, config, self.side, path, workspace)
+        self.names, self.base = self.model.names, self.model.base
+        self.reference_yaw, self.h_step_limit = self.model.reference_yaw, self.model.h_step_limit
+        self.robot_cfg = self.model.cfg
+        self.world_range = 2 * workspace[1] + 1.
+
+    def _local_center(self):
+        center = self.workspace[0]
+        return self.args.to_device(np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2])
+
+    def _write_yaml(self, name, data):
+        import yaml
+        (self.path / name).write_text(yaml.safe_dump(data, sort_keys=False))
+        return self.path / name
+
+    def _environment_world(self, path):
+        return collision_world(self.sim, Path(path), self.world_range, reference_base=self.base)
+
+    def _target_worlds(self, path):
+        """Target-only (handle excluded) and handle-only worlds of the bound task."""
+        target = collision_world(self.sim, Path(path), self.world_range, reference_base=self.base,
+                                 target_only=True, bodies=self.target_bodies - self.handle_bodies)
+        handle = (collision_world(self.sim, Path(path), self.world_range, reference_base=self.base,
+                                  target_only=True, bodies=self.handle_bodies, filename='handle_world.json')
                   if self.handle_bodies else None)
-        self.context = {'target_checker': SceneCollision.from_config(SceneCollisionCfg(
-            device_cfg=self.args, scene_model=target, cache={'mesh': 2})),
-            'handle_checker': (SceneCollision.from_config(SceneCollisionCfg(
-                device_cfg=self.args, scene_model=handle, cache={'mesh': 2})) if handle is not None else None),
-            'contact_links': self.model.contact_links,
-            'handle_contact_links': getattr(self.model, 'handle_contact_links', self.model.contact_links),
-            'contact_allowed': False, 'attached': False,
-            'local_center': self.args.to_device(local), 'radius': radius, 'movable_base': self.model.movable_base}
-        self.fov_log = []
-        self.fov_validator = None
-        if config.head_fov_enabled:
-            self.fov_definition = camera_definition(sim, config.width, config.height)
-            self.fov_validator = SparseFOVValidator(sim, self.fov_definition, self.base_target_world, self.names,
-                min_depth=config.head_fov_min_depth_m)
-            from curobo._src.types.robot import RobotCfg
-            fov_cfg = camera_robot_config(cfg, self.fov_definition)
-            self.context.update(fov_robot=RobotCfg.create(fov_cfg, device_cfg=self.args),
-                fov_cost=HeadFOVCost(self.fov_definition['tan_half_x'], self.fov_definition['tan_half_y'],
-                    margin=config.head_fov_margin, min_depth=config.head_fov_min_depth_m, weight=config.head_fov_weight),
-                fov_target=self.args.to_device(np.linalg.solve(self.base, np.r_[sim.data.xpos[sim.target_id], 1.])[:3]),
-                fov_tcp_frame=self.model.tcp_link, fov_attached_offset=None)
-        owner = self
+        return target, handle
 
-        native_type = BatchMotionPlanner if batch_size > 1 else MotionPlanner
+    def _build_context(self, native):
+        target, handle = self._target_worlds(self.path)
+        checker = lambda world: native['SceneCollision'].from_config(native['SceneCollisionCfg'](
+            device_cfg=self.args, scene_model=world, cache={'mesh': 2}))
+        self.context = PlannerContext(
+            target_checker=checker(target),
+            handle_checker=checker(handle) if handle is not None else None,
+            contact_links=self.model.contact_links,
+            handle_contact_links=getattr(self.model, 'handle_contact_links', self.model.contact_links),
+            local_center=self._local_center(), radius=self.workspace[1], movable_base=self.model.movable_base)
 
-        class NativeGraspPlanner(native_type):
-            def plan_pose(self, goal_tool_poses, current_state, *args, **kwargs):
-                phase = next(owner.phases) if owner.phases is not None else owner.single_phase
-                owner.progress_phase = phase
-                owner.query_index = len(owner.query_log) + 1
-                if owner.on_query is not None:
-                    owner.on_query(phase)
-                kwargs.setdefault('max_attempts', owner.config.max_attempts)
-                owner.context['contact_allowed'] = phase in ('goalset', 'grasp', 'approach_contact')
-                if phase == 'lift':
-                    owner.attach_target_geometry(current_state)
-                started = time.monotonic()
-                if owner.progress_ready:
-                    trial_progress('Planning phase=%s', phase)
-                result = super().plan_pose(goal_tool_poses, current_state, *args, **kwargs)
-                native_success = lane_success(None if result is None else result.success, owner.evidence_batch_size)
-                fov_rejected = [False] * owner.evidence_batch_size
-                if (owner.config.head_fov_enabled and result is not None
-                        and bool(result.success.any().item())):
-                    report = owner.validate_fov_result(result, phase)
-                    if not report['valid']:
-                        fov_rejected = native_success
-                        result.success[:] = False
-                        result.status = 'FOV_CONSTRAINT_FAILED'
-                if result is not None and result.js_solution is not None:
-                    # v0.8.0 _get_best_result augments position with locked joints
-                    # but then installs ACTIVE-only B-spline knots under FULL joint
-                    # names. Native grasp's get_active_js reindexes those knots and
-                    # can assert on CUDA. Knots are optimizer controls, not measured
-                    # state; stage chaining requires position/velocity/acceleration.
-                    chain_state(result.js_solution)
-                owner.query_log.append({'phase': phase, 'wall_time_s': time.monotonic()-started,
-                    'query_index': owner.query_index, 'goal_count': goal_tool_poses.num_goalset,
-                    'lane_success': lane_success(None if result is None else result.success, owner.evidence_batch_size),
-                    'fov_rejected_lanes': fov_rejected,
-                    'max_attempts': kwargs.get('max_attempts', 5),
-                    'success': result is not None and bool(result.success.any().item())})
-                return result
+    def _fov_target(self):
+        return self.args.to_device(np.linalg.solve(self.base, np.r_[self.sim.data.xpos[self.sim.target_id], 1.])[:3])
 
-        self.phases = None; self.single_phase = 'pose'; self.on_query = None; self.query_log = []
-        self.evidence_batch_size = batch_size
-        self.query_index = 0
+    def _setup_fov(self, sim, config):
+        from curobo._src.types.robot import RobotCfg
+        self.fov_definition = camera_definition(sim, config.width, config.height)
+        self.fov_validator = SparseFOVValidator(sim, self.fov_definition, self.base_target_world, self.names,
+            min_depth=config.head_fov_min_depth_m)
+        self.context.fov_robot = RobotCfg.create(camera_robot_config(self.robot_cfg, self.fov_definition),
+                                                 device_cfg=self.args)
+        self.context.fov_cost = HeadFOVCost(self.fov_definition['tan_half_x'], self.fov_definition['tan_half_y'],
+            margin=config.head_fov_margin, min_depth=config.head_fov_min_depth_m, weight=config.head_fov_weight)
+        self.context.fov_target = self._fov_target()
+        self.context.fov_tcp_frame = self.model.tcp_link
+
+    def _create_motion(self, native, batch_size):
+        config = self.config
         extra_settings = {}
         if config.head_fov_enabled:
             ik_config, trajopt_config, metrics_config = fov_optimizer_configs()
             # v0.8.0 mutates resolved dictionaries while constructing each
             # solver. A local YAML gives IK/TrajOpt fresh metrics configs.
-            metrics_path = self.path/'head_fov_metrics.yml'
-            metrics_path.write_text(yaml.safe_dump(metrics_config, sort_keys=False))
+            metrics_path = self._write_yaml('head_fov_metrics.yml', metrics_config)
             extra_settings = {'ik_optimizer_configs': [ik_config], 'trajopt_optimizer_configs': [trajopt_config],
                               'metrics_rollout': str(metrics_path.resolve())}
-        settings = MotionPlannerCfg.create(**extra_settings, robot=cfg, scene_model=world, device_cfg=self.args,
+        settings = native['MotionPlannerCfg'].create(**extra_settings, robot=self.robot_cfg,
+            scene_model=self._environment_world(self.path), device_cfg=self.args,
             max_batch_size=batch_size, multi_env=False,
             num_ik_seeds=config.num_ik_seeds, num_trajopt_seeds=config.num_trajopt_seeds,
             max_goalset=config.max_candidates, self_collision_check=True,
             optimizer_collision_activation_distance=.01, use_cuda_graph=False,
             random_seed=config.seed, cost_manager_config_instance_type=manager_type(self.context))
-        self.motion = NativeGraspPlanner(settings)
+        base_type = native['BatchMotionPlanner'] if batch_size > 1 else native['MotionPlanner']
+        self.motion = native_grasp_planner_type(base_type)(settings)
+        self.motion.owner = self
         # v0.8.0 MotionPlanner.attachment_manager points to an unimplemented
         # TrajOptSolver attribute. Use the tag's standalone native manager.
         from curobo._src.collision.attachment_manager import AttachmentManager
         self.attachment = AttachmentManager(self.motion.kinematics, self.motion.scene_collision_checker, self.args)
         if set(self.motion.joint_names) != set(self.names) or self.motion.tool_frames != [self.model.tcp_link]:
             raise ValueError('unexpected degrees of freedom or auxiliary pose targets')
-        self.pad_target_query_range()
-        # Validate the real model/frame convention before any physical action.
-        self.check_fk()
-        if config.head_fov_enabled:
-            from curobo._src.robot.kinematics.kinematics import Kinematics
-            head_fk = Kinematics(self.context['fov_robot'].kinematics, compute_spheres=False)
-            js = self.state().reorder(head_fk.joint_names)
-            pose = head_fk.compute_kinematics(js).tool_poses.get_link_pose('head_fov_optical').get_numpy_matrix().reshape(4, 4)
-            cid = self.fov_definition['camera_id']
-            actual_camera = np.eye(4)
-            actual_camera[:3, 3] = sim.data.cam_xpos[cid]
-            actual_camera[:3, :3] = sim.data.cam_xmat[cid].reshape(3, 3)
-            actual_camera = np.linalg.solve(self.base, actual_camera)
-            camera_translation_error = float(np.linalg.norm(pose[:3, 3]-actual_camera[:3, 3]))
-            camera_angle_error = float(np.arccos(np.clip((np.trace(pose[:3, :3].T @ actual_camera[:3, :3])-1)/2, -1, 1)))
-            write_json(self.path/'head_camera_fk_check.json', {
-                **self.fov_definition, 'translation_error_m': camera_translation_error,
-                'rotation_error_rad': camera_angle_error, 'head_is_pose_goal': False,
-                'margin': config.head_fov_margin, 'weight': config.head_fov_weight})
-            if not sim.started and (camera_translation_error > .001 or camera_angle_error > .001):
-                raise ValueError('cuRobo/MuJoCo head optical FK mismatch')
-        if not ik_only:
-            self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
-        self.progress_ready = True
-        self.query_log.clear()
-        self.fov_log.clear()
-        self.solver_log = []
-        # Observe the actual native solves; do not issue additional IK searches.
-        for kind, solver in (('ik', self.motion.ik_solver), ('trajopt', self.motion.trajopt_solver)):
-            original = solver.solve_pose
-            def traced(*args, _original=original, _kind=kind, _solver=solver, **kwargs):
-                if _kind == 'ik' and kwargs.get('current_state') is not None:
-                    # Native grasp passes the previous trajectory's sample dt
-                    # into static IK. CSpacePosition then tightens goal bounds
-                    # to a SINGLE sample's velocity reach (e.g. 25 ms), making
-                    # an 8 cm grasp approach falsely infeasible. Static endpoint
-                    # IK has no one-tick duration; trajectory optimization and
-                    # real control retain all velocity/acceleration limits.
-                    kwargs['current_state'] = static_ik_state(kwargs['current_state'])
-                started = time.monotonic()
-                if _kind == 'trajopt':
-                    trial_progress('Optimizing trajectory phase=%s', self.progress_phase)
-                result = _original(*args, **kwargs)
-                elapsed = time.monotonic() - started
-                if elapsed >= 2.0:
-                    trial_progress('Solver finished solver=%s phase=%s elapsed=%.1fs',
-                                      _kind, self.progress_phase, elapsed)
-                row = solver_evidence(result, _kind, self.progress_phase, self.query_index,
-                                      len(self.solver_log) + 1, self.evidence_batch_size)
-                for field in ('position_error', 'rotation_error', 'feasible'):
-                    value = getattr(result, field, None)
-                    if value is not None: row[field] = value.detach().cpu().tolist()
-                metrics = getattr(result, 'metrics', None)
-                if metrics is None and _kind == 'ik' and result.optimized_seeds is not None:
-                    # Evaluation only, using already optimized seeds: no new search.
-                    metrics = _solver.core.metrics_rollout.compute_metrics_from_action(
-                        result.optimized_seeds.reshape(-1, 1, len(self.names)))
-                if metrics is not None and metrics.costs_and_constraints is not None:
-                    row['constraint_terms'] = {}
-                    for category in ('constraints', 'hybrid_costs_constraints'):
-                        terms = getattr(metrics.costs_and_constraints, category)
-                        for name, value in zip(terms.names, terms.values):
-                            row['constraint_terms'][category + '/' + name] = {
-                                'min': float(value.min().item()), 'max': float(value.max().item()),
-                                'positive_count': int((value > 0).sum().item())}
-                            if value.ndim == 3 and value.shape[-1] == self.motion.kinematics.total_spheres:
-                                params = self.motion.kinematics.config.kinematics_config
-                                ids = result.debug_info.get('seed_idx')
-                                if ids is not None:
-                                    selected = value[ids.reshape(-1), 0].detach().cpu().numpy()
-                                    links = {}
-                                    for link in params.link_name_to_idx_map:
-                                        sphere_ids = params.get_sphere_index_from_link_name(link).cpu().numpy()
-                                        costs = selected[:, sphere_ids].sum(axis=-1)
-                                        if (costs > 0).any(): links[link] = costs.tolist()
-                                    row['constraint_terms'][category + '/' + name]['selected_link_costs'] = links
-                self.solver_log.append(row)
-                return result
-            solver.solve_pose = traced
-        write_json(self.path/'planner_identity.json', {**self.identity, **coupling,
+
+    def _check_head_camera_fk(self, sim, config):
+        from curobo._src.robot.kinematics.kinematics import Kinematics
+        head_fk = Kinematics(self.context.fov_robot.kinematics, compute_spheres=False)
+        js = self.state().reorder(head_fk.joint_names)
+        pose = head_fk.compute_kinematics(js).tool_poses.get_link_pose('head_fov_optical').get_numpy_matrix().reshape(4, 4)
+        cid = self.fov_definition['camera_id']
+        actual_camera = np.eye(4)
+        actual_camera[:3, 3] = sim.data.cam_xpos[cid]
+        actual_camera[:3, :3] = sim.data.cam_xmat[cid].reshape(3, 3)
+        actual_camera = np.linalg.solve(self.base, actual_camera)
+        translation_error, angle_error = pose_error(pose, actual_camera)
+        write_json(self.path/'head_camera_fk_check.json', {
+            **self.fov_definition, 'translation_error_m': translation_error,
+            'rotation_error_rad': angle_error, 'head_is_pose_goal': False,
+            'margin': config.head_fov_margin, 'weight': config.head_fov_weight})
+        if not sim.started and (translation_error > .001 or angle_error > .001):
+            raise ValueError('cuRobo/MuJoCo head optical FK mismatch')
+
+    def _write_identity(self):
+        config, (center, radius) = self.config, self.workspace
+        write_json(self.path/'planner_identity.json', {**self.identity, **self.model.coupling,
             'joint_names': list(self.names), 'tool_frames': self.motion.tool_frames,
             'default_plan_pose_attempts': 5, 'self_collision': True,
             'head_fov_enabled': config.head_fov_enabled, 'head_fov_margin': config.head_fov_margin,
             'head_fov_weight': config.head_fov_weight, 'head_fov_fk': 'position_basis_probes',
-            'disabled_collision_links': [], 'target_contact_links': self.context['contact_links'],
-            'handle_contact_links': self.context['handle_contact_links'],
-            'handle_checker': self.context['handle_checker'] is not None})
+            'disabled_collision_links': [], 'target_contact_links': self.context.contact_links,
+            'handle_contact_links': self.context.handle_contact_links,
+            'handle_checker': self.context.handle_checker is not None})
         write_json(self.path/'mobile_base.json', {'reference_world': self.base.tolist(),
-            'joint_bounds_local': bounds, 'workspace_center_world': list(center[:2]), 'workspace_radius_m': radius})
-        trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
+            'joint_bounds_local': self.model.bounds, 'workspace_center_world': list(center[:2]),
+            'workspace_radius_m': radius})
+
+    def _reset_trial_state(self):
+        """Query/solver/FOV state owned by one trial; solver allocations are kept."""
+        self.phases, self.single_phase, self.on_query = None, 'pose', None
+        self.progress_phase = 'pose'
+        if getattr(self, 'context', None) is not None:
+            self.context.contact_allowed = False
+        self.query_log.clear()
+        self.solver_log.clear()
+        self.fov_log.clear()
+
+    def _reset_tool_criteria(self):
+        from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
+        self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
 
     def check_fk(self):
         fk = self.motion.compute_kinematics(self.state()).tool_poses.to_dict()[self.model.tcp_link].get_numpy_matrix().reshape(4, 4)
         actual = np.linalg.solve(self.base, tcp_pose(self.sim, self.side))
-        translation_error = float(np.linalg.norm(fk[:3, 3] - actual[:3, 3]))
-        angle_error = float(np.arccos(np.clip((np.trace(fk[:3, :3].T @ actual[:3, :3])-1)/2, -1, 1)))
+        translation_error, angle_error = pose_error(fk, actual)
         write_json(self.path/'fk_check.json', {'translation_error_m': translation_error, 'rotation_error_rad': angle_error,
             'scope':'initial calibration' if not self.sim.started else 'measured FK alignment with tracking residuals'})
         position_limit, rotation_limit = self.model.fk_limits
@@ -409,8 +395,18 @@ class V2Planner:
         # release so solver tensors do not wait for Python's cyclic collector.
         self.motion = None
         self.attachment = None
-        self.context.clear()
+        self.context = None
         self.sim = self.model.sim = None
+
+    def bind_target(self, sim):
+        """Bind target/handle body sets of the current task, never the first task's ids."""
+        self.target_bodies = _compute_target_bodies(sim)
+        self.handle_bodies = _compute_handle_bodies(sim)
+
+    def fit_matches(self, sim):
+        """The cached carried-object fit belongs to this model object and target body."""
+        return (getattr(self, '_fit_model', None) is sim.model
+                and getattr(self, '_fit_target', None) == sim.target_id)
 
     def matches_initial(self, sim):
         return (not sim.started and sim.model is self.initial_model
@@ -420,20 +416,13 @@ class V2Planner:
         """Reuse static geometry/solvers only at the identical frozen initial state."""
         self.detach()
         self.sim, self.model.sim, self.config, self.path = sim, sim, config, Path(path)
-        self.phases, self.single_phase, self.on_query = None, 'pose', None
-        self.progress_phase = 'pose'
-        self.context['contact_allowed'] = False
-        self.query_log.clear()
-        self.solver_log.clear()
-        self.fov_log.clear()
+        self._reset_trial_state()
         if config.head_fov_enabled:
             self.fov_validator = SparseFOVValidator(
                 sim, self.fov_definition, self.base_target_world, self.names,
                 min_depth=config.head_fov_min_depth_m)
-            self.context['fov_target'] = self.args.to_device(np.linalg.solve(
-                self.base, np.r_[sim.data.xpos[sim.target_id], 1.])[:3])
-        from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
-        self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
+            self.context.fov_target = self._fov_target()
+        self._reset_tool_criteria()
         reset_motion_seed(self.motion, config.seed)
         write_json(self.path / 'planner_reuse.json', {
             'resources_relative_to_run': str(self.resource_path.relative_to(self.path.parents[2])),
@@ -445,11 +434,9 @@ class V2Planner:
         from curobo._src.types.robot import RobotCfg
 
         self.detach()
-        self.sim, self.config, self.path, self.workspace = sim, config, Path(path), workspace
-        self.model = sim.robot.planning_model(sim, config, self.side, path, workspace)
-        self.names, self.base = self.model.names, self.model.base
-        self.reference_yaw, self.h_step_limit = self.model.reference_yaw, self.model.h_step_limit
-        self.robot_cfg = self.model.cfg
+        self.sim, self.config, self.path = sim, config, Path(path)
+        self._bind_model(sim, config, path, workspace)
+        self.bind_target(sim)
         robot = RobotCfg.create(self.robot_cfg, device_cfg=self.args)
         parameters = robot.kinematics.kinematics_config
         for solver in (self.motion.ik_solver, self.motion.trajopt_solver):
@@ -471,19 +458,11 @@ class V2Planner:
             sampler.range_b.copy_(self.motion.graph_planner.action_bound_highs - self.motion.graph_planner.action_bound_lows)
             sampler.low_bounds.copy_(self.motion.graph_planner.action_bound_lows)
             sampler.up_bounds.copy_(self.motion.graph_planner.action_bound_highs)
-        center, radius = workspace
-        local = np.linalg.solve(self.base, np.r_[center[:2], self.base[2, 3], 1.])[:2]
-        self.context.update(local_center=self.args.to_device(local), radius=radius,
-                            movable_base=self.model.movable_base, contact_allowed=False)
-        self.world_range = 2 * radius + 1.
-        self.phases, self.single_phase, self.on_query = None, 'pose', None
-        self.query_log.clear()
-        self.solver_log.clear()
-        self.fov_log.clear()
+        self.context.local_center = self._local_center()
+        self.context.radius = workspace[1]
+        self.context.movable_base = self.model.movable_base
+        self._reset_trial_state()
         self.initial_model, self.initial_state = sim.model, sim.state_vector().copy()
-        if hasattr(self, '_carried_fit') and self._fit_model is not sim.model:
-            del self._carried_fit
-            self._fit_model = None
         self.refresh_world(self.path)
         self.check_fk()
         reset_motion_seed(self.motion, config.seed)
@@ -564,10 +543,9 @@ class V2Planner:
             write_json(self.path/'solver_trace.json', self.solver_log)
             return success, index, stages, diagnostic
         finally:
-            self.phases = None; self.on_query = None; self.context['contact_allowed'] = False
+            self.phases = None; self.on_query = None; self.context.contact_allowed = False
             self.detach()
-            from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
-            self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
+            self._reset_tool_criteria()
 
     def diagnostic_ik(self, matrices, *, seed, seeds_per_grasp):
         """One independent IK solve per grasp, all seeds returned, no TrajOpt or stepping."""
@@ -576,7 +554,7 @@ class V2Planner:
         bind_batch_seeds(self.motion, sampler_seeds)
         self.progress_phase = 'diagnostic_ik'
         self.query_index = len(self.query_log) + 1
-        self.context['contact_allowed'] = True
+        self.context.contact_allowed = True
         started = time.monotonic()
         write_json(self.path / 'grasp_inputs.json', {'seeds': sampler_seeds, 'world_goals': matrices,
                                                    'purpose': 'diagnostic_ik_not_physical_trial'})
@@ -599,7 +577,7 @@ class V2Planner:
             write_json(self.path / 'ik_probe.json', evidence)
             return evidence
         finally:
-            self.context['contact_allowed'] = False
+            self.context.contact_allowed = False
 
     def grasp_batch(self, matrix_batches, seeds, on_query):
         """Same prepared world, independent seeds and pre-close results per lane."""
@@ -640,16 +618,15 @@ class V2Planner:
         finally:
             self.phases = None
             self.on_query = None
-            self.context['contact_allowed'] = False
+            self.context.contact_allowed = False
             self.detach()
-            from curobo._src.cost.tool_pose_criteria import ToolPoseCriteria
-            self.motion.update_tool_pose_criteria({self.motion.tool_frames[0]: ToolPoseCriteria()})
+            self._reset_tool_criteria()
 
     def detach(self):
         params = self.motion.kinematics.config.kinematics_config
         params.reset_link_spheres(self.model.attached_link)
-        self.context['attached'] = False
-        self.context['fov_attached_offset'] = None
+        self.context.attached = False
+        self.context.fov_attached_offset = None
         if self.fov_validator is not None:
             self.fov_validator.attached_offset = None
 
@@ -664,29 +641,35 @@ class V2Planner:
         # instead, in the existing 40 allocated slots. No geometry is welded in
         # MuJoCo; this is the carried-object planning approximation only.
         target_pose = np.linalg.solve(self.base, body_pose(self.sim, self.sim.target_id))
-        reused = hasattr(self, '_carried_fit') and self._fit_model is self.sim.model
+        # Target-local fit is valid for the same rigid target across stations;
+        # a different model or target in the same model must refit.
+        reused = self.fit_matches(self.sim)
         if not reused:
-            mesh = self.context['target_checker'].scene_model.mesh[0]
+            if not self.context.target_checker.scene_model.mesh:
+                raise ValueError(f'empty target world for target_id={self.sim.target_id} '
+                                 f'({self.sim.model.body(self.sim.target_id).name})')
+            mesh = self.context.target_checker.scene_model.mesh[0]
             vertices = (np.asarray(mesh.vertices) - target_pose[:3, 3]) @ target_pose[:3, :3]
             geometry = trimesh.Trimesh(vertices=vertices, faces=mesh.faces, process=False)
             self._carried_fit = fit_spheres_to_mesh(geometry, num_spheres=40,
                 fit_type=SphereFitType.VOXEL, compute_metrics=True, device_cfg=self.args)
-            self._fit_model = self.sim.model
+            self._fit_model, self._fit_target = self.sim.model, self.sim.target_id
         fit = self._carried_fit
         if fit.num_spheres == 0:
-            raise ValueError('empty carried-object fit')
+            raise ValueError(f'empty carried-object fit for target_id={self.sim.target_id} '
+                             f'({self.sim.model.body(self.sim.target_id).name})')
         transform = self.args.to_device(target_pose)
         centers = fit.centers @ transform[:3, :3].T + transform[:3, 3]
         spheres = torch.cat((centers, fit.radii[:, None]), dim=-1)
         state = self.state() if state is None else state
         self.attachment.update(spheres, state, link_name=self.model.attached_link,
             world_objects_pose_offset=Pose.from_list([0,0,0,1,0,0,0], device_cfg=self.args))
-        self.context['attached'] = True
+        self.context.attached = True
         if self.config.head_fov_enabled:
             tcp = self.motion.compute_kinematics(state).tool_poses.get_link_pose(self.model.tcp_link, make_contiguous=True).get_matrix()
-            target = self.context['fov_target']
+            target = self.context.fov_target
             offset = (tcp[..., :3, :3].transpose(-1, -2) @ (target-tcp[..., :3, 3])[..., None]).squeeze(-1)
-            self.context['fov_attached_offset'] = offset.detach().reshape(3)
+            self.context.fov_attached_offset = offset.detach().reshape(3)
             self.fov_validator.attached_offset = offset.detach().cpu().numpy().reshape(3)
         info = {'physics_attachment':False, 'sphere_count':fit.num_spheres,
                 'fit_frame': 'target_body_local', 'fit_reused': reused,
@@ -704,7 +687,7 @@ class V2Planner:
         # unchanged. This is conservative, not collision disablement.
         max_radius = float(self.motion.kinematics.config.kinematics_config.link_spheres[..., 3].max().item())
         minimum_dimension = minimum_mesh_query_dimension(max_radius)
-        for checker in (self.context['target_checker'], self.context['handle_checker']):
+        for checker in (self.context.target_checker, self.context.handle_checker):
             if checker is None:
                 continue
             for data in checker.data.get_valid_data():
@@ -718,24 +701,21 @@ class V2Planner:
         import torch
         torch.cuda.synchronize()
         # No graph capture: no outstanding queries may refer to discarded BVHs.
-        checkers = [self.motion.scene_collision_checker, self.context['target_checker']]
-        if self.context['handle_checker'] is not None:
-            checkers.append(self.context['handle_checker'])
+        checkers = [self.motion.scene_collision_checker, self.context.target_checker]
+        if self.context.handle_checker is not None:
+            checkers.append(self.context.handle_checker)
         for checker in checkers:
             for data in checker.data.get_valid_data():
                 if hasattr(data, 'wp_cache'): data.wp_cache.clear()
-        self.motion.update_world(collision_world(self.sim, Path(path), self.world_range, reference_base=self.base))
-        self.context['target_checker'].load_collision_model(collision_world(
-            self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True,
-            bodies=self.target_bodies - self.handle_bodies))
-        if self.context['handle_checker'] is not None:
-            self.context['handle_checker'].load_collision_model(collision_world(
-                self.sim, Path(path), self.world_range, reference_base=self.base, target_only=True,
-                bodies=self.handle_bodies, filename='handle_world.json'))
+        self.motion.update_world(self._environment_world(path))
+        # Reload into the retained checkers: ContactManager cost terms hold them.
+        target, handle = self._target_worlds(path)
+        self.context.target_checker.load_collision_model(target)
+        if self.context.handle_checker is not None:
+            self.context.handle_checker.load_collision_model(handle)
         self.pad_target_query_range()
         if self.config.head_fov_enabled:
-            self.context['fov_target'] = self.args.to_device(np.linalg.solve(
-                self.base, np.r_[self.sim.data.xpos[self.sim.target_id], 1.])[:3])
+            self.context.fov_target = self._fov_target()
             self.fov_validator.target_world = self.sim.data.xpos[self.sim.target_id].copy()
 
     def plan(self, goal):

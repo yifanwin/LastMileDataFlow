@@ -163,7 +163,7 @@ def sample_stations(sim, task, config, *, frozen_stations=None, static_only=Fals
     renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
     navigation_grid = None
     if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
-        from ...planning.astar import scene_grid, task_support_obstacles
+        from ...planning.navigation.astar import scene_grid, task_support_obstacles
         from ..tasks.discovery import robot_footprint
         footprint = robot_footprint(sim, whole_body=True)
         navigation_grid = scene_grid(sim, task['anchor_world'], config.radius_m, config.map_resolution_m,

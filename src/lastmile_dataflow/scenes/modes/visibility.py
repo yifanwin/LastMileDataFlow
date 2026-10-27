@@ -4,7 +4,7 @@ import numpy as np
 from .base import ModeBuilder
 from .geometry import asset_candidates, lattice_points, nominal, proxy_visibility, role_profiles, navigation, shift_repair
 from ..build.proposal import BuildProposal, ProbeResult
-from ...planning.astar import search, segment_free
+from ...planning.navigation.astar import search, segment_free
 
 
 class VisibilityBuilder(ModeBuilder):

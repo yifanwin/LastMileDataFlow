@@ -2,9 +2,9 @@
 import itertools
 import numpy as np
 import mujoco
-from ..utils.io import write_json
-from ..scenes.geometry import descendants
-from ..scenes.geometry import body_pose
+from ...utils.io import write_json
+from ...scenes.geometry import descendants
+from ...scenes.geometry import body_pose
 
 
 _mesh_ids = itertools.count()

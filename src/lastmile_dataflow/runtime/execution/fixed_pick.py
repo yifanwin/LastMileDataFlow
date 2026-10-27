@@ -9,7 +9,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 from ...config import read_config
-from ...planning.curobo_v2 import V2Planner
+from ...planning.curobo.planner import V2Planner
 from ...scenes.geometry import body_pose, tcp_pose
 from ...scenes.loading.source import SceneSource
 from ...scenes.tasks.discovery import grasp_candidates, local_bounds

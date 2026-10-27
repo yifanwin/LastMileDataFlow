@@ -78,7 +78,7 @@ class ContinuousContext:
 
     def deadline(self):
         if self.stop is not None and self.stop.is_set():
-            from ...planning.curobo_v2 import PlannerUnavailable
+            from ...planning.curobo.planner import PlannerUnavailable
             raise PlannerUnavailable('shared planning failure stopped the batch')
         if self.budget is not None:
             self.budget.check()

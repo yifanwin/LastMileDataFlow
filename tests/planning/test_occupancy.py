@@ -5,7 +5,7 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.planning.astar import scene_occupancy, segment_free, search, distance_field
+from lastmile_dataflow.planning.navigation.astar import scene_occupancy, segment_free, search, distance_field
 
 
 class OccupancyTests(unittest.TestCase):

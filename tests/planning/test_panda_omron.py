@@ -2,7 +2,7 @@
 import unittest
 import xml.etree.ElementTree as ET
 
-from lastmile_dataflow.planning.panda_omron import configuration, ASSETS, ARM_NAMES, FULL_NAMES
+from lastmile_dataflow.planning.robots.panda_omron import configuration, ASSETS, ARM_NAMES, FULL_NAMES
 from tests.runtime.test_robot_interface import panda_adapter
 
 

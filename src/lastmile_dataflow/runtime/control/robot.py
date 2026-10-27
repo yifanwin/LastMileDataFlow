@@ -293,7 +293,7 @@ class RBY1Adapter:
         return np.asarray(command, float)
 
     def planning_model(self, *args):
-        from ...planning.rby1m_mobile_torso import PlanningModel
+        from ...planning.robots.rby1m_mobile_torso import PlanningModel
         return PlanningModel(*args)
 
     arms = ("left", "right")

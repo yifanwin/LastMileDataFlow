@@ -80,7 +80,7 @@ def kinematics(robot, fixed=False):
     from curobo._src.robot.kinematics.kinematics import Kinematics
     from curobo._src.types.robot import RobotCfg
     from curobo.types import DeviceCfg
-    from lastmile_dataflow.planning.panda_omron import configuration
+    from lastmile_dataflow.planning.robots.panda_omron import configuration
     device = DeviceCfg()
     cfg = configuration(robot, fixed=fixed)
     cfg["kinematics"]["tool_frames"] += ["panda_finger1", "panda_finger2"]
@@ -89,7 +89,7 @@ def kinematics(robot, fixed=False):
 
 def kinematic_state(kin, device, robot, fixed=False):
     from curobo.types import JointState
-    from lastmile_dataflow.planning.panda_omron import ARM_NAMES, FULL_NAMES
+    from lastmile_dataflow.planning.robots.panda_omron import ARM_NAMES, FULL_NAMES
     values = robot.arm_positions("right").tolist()
     if not fixed:
         values = [*robot.base_pose(), float(robot.group("lift")[0]), *values, *robot.group("gripper")]
@@ -120,7 +120,7 @@ def alignment(sim, output, seed):
     import mujoco
     import numpy as np
     from types import SimpleNamespace
-    from lastmile_dataflow.planning.panda_omron import TCP
+    from lastmile_dataflow.planning.robots.panda_omron import TCP
     from lastmile_dataflow.scenes.geometry import tcp_pose
     pivot = pivot_check(sim)
     kin, device = kinematics(sim.robot)

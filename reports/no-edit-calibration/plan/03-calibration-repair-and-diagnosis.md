@@ -1,6 +1,6 @@
 # PandaOmron 标定：修复与排查实施方案
 
-- 状态：draft（方案已整理，尚未实施）
+- 状态：active（P1 完成；P2 部分完成后暂停；P3–P5 未开始。进度见 [交付报告](../delivery/04-calibration-repair.md)）
 - 日期：2026-10-27
 - 替代：无；补充既有标定方案中的故障修复流程
 - 关联：[问题梳理](../../panda-omron/analyze/2026-10-27-calibration-problem-review.md)、[复用缺陷](../analyze/03-planner-reuse-target-binding.md)、[Cup_30 顺序对照](../analyze/02-cup30-reuse-order-experiment.md)、[全量统计](../analyze/02-all-runs-trial-statistics.md)、[原实验方案](01-experiment-plan.md)

@@ -2,7 +2,7 @@
 from dataclasses import asdict
 import numpy as np
 from ..control.interface import RobotCommand
-from ...planning.navigation import yaw_gap
+from ...planning.navigation.geometry import yaw_gap
 
 from .context import OperationFailure
 

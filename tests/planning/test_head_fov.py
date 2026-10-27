@@ -10,16 +10,17 @@ import mujoco
 import numpy as np
 import torch
 
-from lastmile_dataflow.planning.head_fov import (
+from lastmile_dataflow.planning.curobo.head_fov import (
     HeadFOVCost,
     SparseFOVValidator,
     camera_robot_config,
     knot_sample_indices,
     target_camera_torch,
 )
-from lastmile_dataflow.planning.rby1m_mobile_torso import joint_names
+from lastmile_dataflow.planning.robots.rby1m_mobile_torso import joint_names
 from lastmile_dataflow.planning.waypoints import PlanResult
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 
 def fixture():
@@ -138,14 +139,14 @@ class HeadFOVTests(unittest.TestCase):
             position=positions,
         )
         fk = SimpleNamespace(compute_kinematics=lambda js: SimpleNamespace(tool_poses=poses))
-        context = {"fov_target": torch.tensor([1.0, 0.0, -1.0])}
+        context = PlannerContext(target_checker=None, fov_target=torch.tensor([1.0, 0.0, -1.0]))
         local = target_camera_torch(fk, None, context)
         self.assertEqual(local.shape, (2, 3, 3))
         HeadFOVCost(0.55, 0.414)(local).sum().backward()
         self.assertTrue(torch.all(x.grad < 0))
 
     def test_v2_hard_rejection_returns_no_executable_plan(self):
-        from lastmile_dataflow.planning.curobo_v2 import V2Planner
+        from lastmile_dataflow.planning.curobo.planner import V2Planner
 
         planner = V2Planner.__new__(V2Planner)
         planner.motion = SimpleNamespace(
@@ -170,7 +171,7 @@ class HeadFOVTests(unittest.TestCase):
         self.assertTrue(result.diagnostics["finite_budget_not_impossibility"])
 
     def test_v2_success_result_does_not_require_nonexistent_native_status(self):
-        from lastmile_dataflow.planning.curobo_v2 import V2Planner
+        from lastmile_dataflow.planning.curobo.planner import V2Planner
 
         planner = V2Planner.__new__(V2Planner)
         native = SimpleNamespace(success=torch.tensor([True]), get_interpolated_plan=lambda: None)

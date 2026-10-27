@@ -12,8 +12,8 @@ from ..config import CollectionConfig, robot_config
 from ..data.evaluation.benchmark_config import BenchmarkConfig, load_benchmark_config
 from ..data.evaluation.benchmark import reference_calibration, select_starts, failure_family, summarize
 from ..data.evaluation.recovery import RecoveryRegion, difficulty, motion_diagnostics
-from ..planning.astar import scene_grid, task_support_obstacles
-from ..planning.navigation import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
+from ..planning.navigation.astar import scene_grid, task_support_obstacles
+from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
 from ..runtime.simulation import Simulation
 from ..runtime.execution_config import ExecutionConfig
 from ..runtime.construction.benchmark_scene import native_scene

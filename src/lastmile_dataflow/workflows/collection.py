@@ -22,9 +22,9 @@ from ..data.evaluation.selection import station_calibration, eligible_stations, 
 from ..data.evaluation.statistics import aggregate
 from ..data.export.lastmile_dataset import successful, training_record
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
-from ..planning.astar import scene_grid, task_support_obstacles
-from ..planning.navigation import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
-from ..planning.curobo_v2 import StationPlannerCache
+from ..planning.navigation.astar import scene_grid, task_support_obstacles
+from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
+from ..planning.curobo.planner import StationPlannerCache
 from ..data.visualization.heatmap import export_heatmap
 
 logger = logging.getLogger(__name__)
