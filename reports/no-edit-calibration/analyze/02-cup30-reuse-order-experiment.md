@@ -86,25 +86,25 @@
 
 对照组（61.7%，11 个站位 3/3）：
 
-![对照组 Cup_30 热图](../../../outputs/exp-cup30-only-20261027-1542/figures/val103-pick-cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2-no_edit-v000/success_heatmap_stations.svg)
+![对照组 Cup_30 热图](../../../outputs/experiments/cup30/exp-cup30-only-20261027-1542/figures/val103-pick-cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2-no_edit-v000/success_heatmap_stations.svg)
 
 实验组（0%，最后一个任务）：
 
-![实验组 Cup_30 热图](../../../outputs/exp-cup30-last2-20261027-1600/figures/val103-pick-cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2-no_edit-v000/success_heatmap_stations.svg)
+![实验组 Cup_30 热图](../../../outputs/experiments/cup30/exp-cup30-last2-20261027-1600/figures/val103-pick-cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2-no_edit-v000/success_heatmap_stations.svg)
 
 ### 5.2 实验组前置任务
 
 house 97 soapdispenser（首个，2/3）：
 
-![house 97 热图](../../../outputs/exp-cup30-last2-20261027-1600/figures/val97-pick-soapdispenser_c44a2e4b26bddaf96812e05d7baf4f49_1_0_2-no_edit-v000/success_heatmap_stations.svg)
+![house 97 热图](../../../outputs/experiments/cup30/exp-cup30-last2-20261027-1600/figures/val97-pick-soapdispenser_c44a2e4b26bddaf96812e05d7baf4f49_1_0_2-no_edit-v000/success_heatmap_stations.svg)
 
 house 92 vase（0/36）：
 
-![house 92 热图](../../../outputs/exp-cup30-last2-20261027-1600/figures/val92-pick-vase_492808e89eee9bf3081c206f6cb82173_1_0_2-no_edit-v000/success_heatmap_stations.svg)
+![house 92 热图](../../../outputs/experiments/cup30/exp-cup30-last2-20261027-1600/figures/val92-pick-vase_492808e89eee9bf3081c206f6cb82173_1_0_2-no_edit-v000/success_heatmap_stations.svg)
 
 house 88 peppershaker（0/33）：
 
-![house 88 热图](../../../outputs/exp-cup30-last2-20261027-1600/figures/val88-pick-peppershaker_d3a7b2ab4bd62388f7ea7dd2ef7c1fdc_1_0_6-no_edit-v000/success_heatmap_stations.svg)
+![house 88 热图](../../../outputs/experiments/cup30/exp-cup30-last2-20261027-1600/figures/val88-pick-peppershaker_d3a7b2ab4bd62388f7ea7dd2ef7c1fdc_1_0_6-no_edit-v000/success_heatmap_stations.svg)
 
 热图由 `scripts/export_no_edit_heatmaps.py` 离线导出，没有新增物理步。
 

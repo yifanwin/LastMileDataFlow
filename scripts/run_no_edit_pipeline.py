@@ -58,6 +58,25 @@ def chunks_of(houses, first, rest):
     return chunks
 
 
+def chunk_group(index, size):
+    """Group directory of a chunk when chunks are grouped (`c000-c009` for size 10)."""
+    low = index // size * size
+    return f'c{low:03d}-c{low + size - 1:03d}'
+
+
+def chunk_dirs(output, index, size):
+    """(run parent, input parent) of a chunk; flat legacy layout when size is 0."""
+    if not size:
+        return output, output / '_calibration_inputs'
+    group = chunk_group(index, size)
+    return output / 'runs' / group, output / 'inputs' / group
+
+
+def find_run(output, name):
+    """Run directory in either layout."""
+    return next(iter(sorted((output / 'runs').glob(f'*/{name}'))), output / name)
+
+
 def pipeline_env():
     env = os.environ.copy()
     prefix = '/data1/wenyifan/opt/lib:/data1/wenyifan/opt/cuda-12.8/lib64'
@@ -116,6 +135,8 @@ def main(argv=None):
     parser.add_argument('--skip-heatmaps', action='store_true')
     parser.add_argument('--max-chunks', type=int)
     parser.add_argument('--state', type=Path)
+    parser.add_argument('--group-size', type=int, default=0,
+                        help='>0 时每 N 个 chunk 一组：runs/<组>/<run>、inputs/<组>/<run>，避免单层目录过多')
     args = parser.parse_args(argv)
 
     base = json.loads(args.recipe.read_text())
@@ -127,7 +148,7 @@ def main(argv=None):
     env = pipeline_env()
     if state.get('completed'):
         if not state.get('category_stats'):
-            initial = target_stats([output / item for item in state['completed']],
+            initial = target_stats([find_run(output, item) for item in state['completed']],
                                    min_trials=args.min_trials, min_houses=args.min_houses)
             merge_category_stats(state, initial)
         state['exclude_categories'] = exclusion_from_categories(state, args.min_streak, args.min_success_rate)
@@ -135,7 +156,7 @@ def main(argv=None):
     chunks = chunks_of(houses, args.first_chunk_houses, args.chunk_houses)
     if args.max_chunks:
         chunks = chunks[:args.max_chunks]
-    recipe_dir = output / '_calibration_inputs' / 'recipes'
+    recipe_dir = (output / 'inputs' if args.group_size else output / '_calibration_inputs') / 'recipes'
     log_dir = output / 'logs'
     prepared = {}
     heatmaps = []
@@ -143,7 +164,7 @@ def main(argv=None):
 
     def prepare_command(index, chunk):
         run_id = f'{args.run_prefix}-c{index:03d}'
-        input_root = output / '_calibration_inputs' / run_id
+        input_root = chunk_dirs(output, index, args.group_size)[1] / run_id
         recipe = recipe_for(base, chunk, state['exclude_categories'],
                             recipe_dir / f'{args.run_prefix}-c{index:03d}.json')
         command = [sys.executable, ROOT / 'scripts/prepare_no_edit_inputs.py',
@@ -151,10 +172,11 @@ def main(argv=None):
                    '--build-workers', args.build_workers, '--gpu', *args.gpu]
         return run_id, input_root, command
 
-    def calibration_command(run_id, input_root):
+    def calibration_command(index, run_id, input_root):
         return [sys.executable, '-m', 'lastmile_dataflow.cli', 'evaluate-stations',
                 '--dataset', input_root, '--assets-dir', args.assets_dir,
-                '--config', args.config, '--output-dir', output, '--run-id', run_id,
+                '--config', args.config, '--output-dir', chunk_dirs(output, index, args.group_size)[0],
+                '--run-id', run_id,
                 '--gpu', *args.gpu, '--egl-devices', *args.gpu,
                 '--cpu-workers', args.cpu_workers,
                 '--preparation-workers', args.preparation_workers,
@@ -173,11 +195,12 @@ def main(argv=None):
 
     for index, chunk in enumerate(chunks):
         run_id, input_root, _ = prepare_command(index, chunk)
+        run_dir = chunk_dirs(output, index, args.group_size)[0] / run_id
         prepared[index] = input_root
         calibration = None
         if run_id not in state['completed']:
             print(f'calibrate {run_id} houses={chunk[0]}-{chunk[-1]}', flush=True)
-            calibration = start(calibration_command(run_id, input_root),
+            calibration = start(calibration_command(index, run_id, input_root),
                                 log_dir / f'{run_id}.log', env)
         next_prepare = None
         if index + 1 < len(chunks):
@@ -198,17 +221,17 @@ def main(argv=None):
             state['completed'].append(run_id)
             save_state(state_path, state)
             new_run = True
-        if (not args.skip_heatmaps and (output / run_id / 'trials.jsonl').is_file()
-                and not (output / run_id / 'heatmap_manifest.jsonl').is_file()):
+        if (not args.skip_heatmaps and (run_dir / 'trials.jsonl').is_file()
+                and not (run_dir / 'heatmap_manifest.jsonl').is_file()):
             print(f'heatmaps {run_id} while next chunk runs', flush=True)
             heatmaps.append(start([sys.executable, ROOT / 'scripts/export_no_edit_heatmaps.py',
-                                   '--calibration', output / run_id,
+                                   '--calibration', run_dir,
                                    '--workers', args.heatmap_workers, '--skip-existing'],
                                   log_dir / f'{run_id}-heatmap.log', env))
         if next_prepare is not None:
             wait(next_prepare, f'prepare {next_id}')
         if new_run:
-            stats = target_stats([output / run_id], min_trials=args.min_trials,
+            stats = target_stats([run_dir], min_trials=args.min_trials,
                                  min_houses=args.min_houses)
             merge_category_stats(state, stats)
             state['exclude_categories'] = exclusion_from_categories(state, args.min_streak, args.min_success_rate)

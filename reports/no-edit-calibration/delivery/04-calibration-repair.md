@@ -74,7 +74,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 已完成：
 
-- **12 站诊断集**（`outputs/diagnostics/p2-geometry-20261027/selection.json`），用 `failure_analysis._planning_failure` 从 `no-edit-val-all-c001…c005` 的 6,050+ 站位确定性选出，覆盖 12 个 house：goalset 底座约束主导 6（Pick/Open 各 3）、原成功 2、低目标不可达 2、pregrasp 跟踪超时 2。
+- **12 站诊断集**（`outputs/experiments/diagnostics/p2-geometry-20261027/selection.json`），用 `failure_analysis._planning_failure` 从 `no-edit-val-all-c001…c005` 的 6,050+ 站位确定性选出，覆盖 12 个 house：goalset 底座约束主导 6（Pick/Open 各 3）、原成功 2、低目标不可达 2、pregrasp 跟踪超时 2。
 - **初始站位状态的球距离**（`scripts/experiments/p2_collision_diagnosis.py`，结果 `distances.json`、`summary.json`）：在未 begin 的新 sim 中恢复站位 `state.npz`，按规划参考系（`base_site` 位置 + `mobilebase0_base` 朝向，URDF 偏移 omron_base +0.21 m、panda_link0 +0.70 m）放置 cuRobo 球，与 `collision_world` 导出给 cuRobo 的同一组场景网格求点到网格距离。
   - `omron_base`：4/12 站已有球侵入场景网格（-0.014 至 -0.068 m；val10 椅子、val103 墙、val12 餐桌、val32 抽屉柜），其余 8 站最小净空 +0.02 至 +0.34 m。
   - `panda_link0`：12 站都没有侵入（最小 +0.049 m）。
@@ -93,7 +93,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 ## 5. 复现入口
 
-- GPU run 启动脚本：`outputs/logs/p1fix-run.sh <input-dir> <run-id> <gpu>`。本机 MuJoCo EGL 需要 glvnd 库路径，脚本已设置 `LD_LIBRARY_PATH`（其中 `/tmp/lmdf-egl-libs` 在重启后可能丢失）。
+- GPU run 启动脚本：`outputs/experiments/logs/p1fix-run.sh <input-dir> <run-id> <gpu>`。本机 MuJoCo EGL 需要 glvnd 库路径，脚本已设置 `LD_LIBRARY_PATH`（其中 `/tmp/lmdf-egl-libs` 在重启后可能丢失）。
 - P2：命令已随脚本修正变化，当前入口见 7.5。
 
 ## 6. 方案重梳与严重性判断（2026-10-27，只读复核）
@@ -120,7 +120,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 ### 7.1 N0：环境与局部整理
 
 - **环境**：按用户 2026-10-27 的要求，没有给 worktree 单独下载依赖，改用主仓库 `/data1/wenyifan/lmdf/LastMileDataFlow/.venv`，配合 `PYTHONPATH=<worktree>/src`。已核实 `lastmile_dataflow.__file__` 指向 worktree；版本为 mujoco 3.5.0、torch 2.7.1+cu128、nvidia-curobo 0.8.0、warp-lang 1.11.1。这与方案 N0 原定的“worktree 独立 `.venv`”不同：worktree 的 `.venv` 目前只有 pip/setuptools，不能直接使用。
-  本机 MuJoCo EGL 需要 `LD_LIBRARY_PATH` 包含 `/tmp/lmdf-egl-libs/root/usr/lib/x86_64-linux-gnu`（同 `outputs/logs/p1fix-run.sh`）；少了这项，导入 mujoco 时 OpenGL EGL 初始化失败，测试会成批报错。
+  本机 MuJoCo EGL 需要 `LD_LIBRARY_PATH` 包含 `/tmp/lmdf-egl-libs/root/usr/lib/x86_64-linux-gnu`（同 `outputs/experiments/logs/p1fix-run.sh`）；少了这项，导入 mujoco 时 OpenGL EGL 初始化失败，测试会成批报错。
 - **修复导入回归**：`planning/pool.py`（`PlanningService.__init__`、`execute`）和 `planning/remote.py` 从 `.curobo_v2` 改为 `.curobo.planner`。新增 `tests/planning/test_pool.py::test_resident_service_uses_the_current_planner_module`。用静态扫描检查了 `src/`、`tests/`、`scripts/` 中所有指向本包的 import，没有发现其他不存在的模块。
 - **`costs.py` 规范整理**：`ContactManager`、`ContactManagerCfg` 移到模块顶层，`compute_costs` 拆成目标/把手接触、工作区圆、头部 FOV 三个方法，行为不变。cuRobo 0.8.0 要求 `type(cfg)` 与 `cost_manager_config_instance_type` 完全相同，而且只通过 `type.create(data_dict, ...)` 创建配置，所以 `manager_type(context)` 返回一个只带 `planner_context` 类属性的子类，不再用闭包捕获 context。由于 `costs.py` 现在导入时就加载 cuRobo，`planner.py` 改为在 `_create_motion` 内才导入它，CPU 执行路径不受影响。新增 `test_curobo.py::test_cost_manager_type_carries_its_own_planner_context`。
 - **`collision_world.py`**：把 geom 选择与网格转换抽成 `exported_geoms()`，`collision_world()` 与诊断脚本共用同一套导出规则，输出不变。
@@ -128,7 +128,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 ### 7.2 N1：当前版本 GPU 检查
 
-**Cup_30 真实执行**（`n1-cup30-s0022-s0001-20261027`，GPU 6，单 worker，规划复用开启）。输入只保留原第 8、9 站（S0022、S0001），执行配置只把 seed 改为 66，使 6 个 trial 的种子与 `p1fix-cup30-only-20261027` 的 66–71 完全相同。输入和配置在 `outputs/_calibration_inputs/n1-cup30-s0022-s0001-20261027/`。
+**Cup_30 真实执行**（`n1-cup30-s0022-s0001-20261027`，GPU 6，单 worker，规划复用开启）。输入只保留原第 8、9 站（S0022、S0001），执行配置只把 seed 改为 66，使 6 个 trial 的种子与 `p1fix-cup30-only-20261027` 的 66–71 完全相同。输入和配置在 `outputs/experiments/inputs/n1-cup30-s0022-s0001-20261027/`。
 
 | 站位 | 原结果（P1 修复后、重构前） | 当前代码 |
 |---|---|---|
@@ -137,7 +137,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 第二站 `planner_reuse.json` 为 `solver_reused: true`，run `status=completed`，没有 episode 错误。
 
-**Pick/Open 家族复用**（`scripts/experiments/n1_family_reuse_check.py`，结果 `outputs/diagnostics/n1-family-reuse-20261027-r3/family_reuse_check.json`，GPU 7，只做规划、不执行）。用已有 run 的 `state.npz`、任务、抓取候选和原 trial 种子重建冻结的 pre-close 请求，按 Pick → Open A → Open B → Pick 的顺序发给同一个 `PlanningService`，再把每个请求单独发给 fresh planner（`reuse_planners=False`）作对照。
+**Pick/Open 家族复用**（`scripts/experiments/n1_family_reuse_check.py`，结果 `outputs/experiments/diagnostics/n1-family-reuse-20261027-r3/family_reuse_check.json`，GPU 7，只做规划、不执行）。用已有 run 的 `state.npz`、任务、抓取候选和原 trial 种子重建冻结的 pre-close 请求，按 Pick → Open A → Open B → Pick 的顺序发给同一个 `PlanningService`，再把每个请求单独发给 fresh planner（`reuse_planners=False`）作对照。
 
 | 查询 | 家族 | 实际复用 | 导出世界 = fresh | 规划结果（复用 = fresh） |
 |---|---|---|---|---|
@@ -173,7 +173,7 @@ PYTHONPATH=$PWD/src MPLCONFIGDIR=/tmp/lastmile-mpl \
 - legacy CCD 在这两对上给出约 −0.69 m 的错误穿透，见证线段长度却与返回值一致，所以单靠见证一致性不能证明结果正确。
 - 12 站共 665 个“部件—障碍”对中，有 11 对出现这种不一致的零值，全部改由凸包 QP 给出距离。
 
-**固定 12 站初始状态**（`outputs/diagnostics/p2-geometry-n2-20261027/initial-states.json`，每站一张俯视叠加图 `initial-states-<house>-<station>.png`；val103 的首次单站核验结果在同目录的 `val103.json`）：
+**固定 12 站初始状态**（`outputs/experiments/diagnostics/p2-geometry-n2-20261027/initial-states.json`，每站一张俯视叠加图 `initial-states-<house>-<station>.png`；val103 的首次单站核验结果在同目录的 `val103.json`）：
 
 | house / station | 组 | 底盘球最小（SDF − 半径） | 同障碍实体底盘距离 | planner 判碰撞的球 |
 |---|---|---:|---:|---|
@@ -202,7 +202,7 @@ export PYTHONPATH=$PWD/src MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 PY=/data1/wenyifan/lmdf/LastMileDataFlow/.venv/bin/python
 
 # N1 Cup_30 真实执行（GPU 按实时空闲选择）
-D=$PWD/outputs/_calibration_inputs/n1-cup30-s0022-s0001-20261027
+D=$PWD/outputs/experiments/inputs/n1-cup30-s0022-s0001-20261027
 $PY -m lastmile_dataflow.cli evaluate-stations --dataset $D --config $D/execution_seed66.json \
   --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output-dir $PWD/outputs \
   --run-id <new-run-id> --gpu <gpu> --station-workers 1 --planning-workers-per-gpu 1 \
@@ -214,10 +214,10 @@ $PY scripts/experiments/n1_family_reuse_check.py --gpu <gpu> \
 
 # N2 测距（cuRobo checker 用 CUDA_VISIBLE_DEVICES 指定的卡）
 CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/p2_collision_diagnosis.py \
-  outputs/diagnostics/p2-geometry-20261027/selection.json [--stations val103/S0000] --output <new.json>
+  outputs/experiments/diagnostics/p2-geometry-20261027/selection.json [--stations val103/S0000] --output <new.json>
 ```
 
-日志：`outputs/logs/n1-cup30-s0022-s0001-20261027.log`、`n1-family-reuse-20261027-r3.log`、`p2-geometry-n2-20261027.log`、`n0-unittest-full-20261027.log`。
+日志：`outputs/experiments/logs/n1-cup30-s0022-s0001-20261027.log`、`n1-family-reuse-20261027-r3.log`、`p2-geometry-n2-20261027.log`、`n0-unittest-full-20261027.log`。
 
 ## 8. 基于第 7 节的下一轮建议（仅文档整理）
 
@@ -234,7 +234,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/p2_collision_diagnosis.py \
 
 **建议按几何选方法：机械臂一般 mesh 优先直接调用官方 MORPHIT；当前已证实有问题的规则 chassis box，保留现有 ILP 球作为专项候选，先精简和 A/B，不重新手写 MORPHIT/VOXEL/SURFACE。** 柱体与其他臂 link 尚无本轮同状态故障证据，不因选择拟合工具而全机器人重拟合。
 
-本次读取已有 `outputs/diagnostics/n4-chassis-spheres-20261027/chassis_spheres.json`，没有重新拟合。按该脚本“完整实体覆盖”的比较口径：
+本次读取已有 `outputs/experiments/diagnostics/n4-chassis-spheres-20261027/chassis_spheres.json`，没有重新拟合。按该脚本“完整实体覆盖”的比较口径：
 
 | 方法 | 实际球数 | 原始最大网格覆盖缺口 | 补覆盖的统一半径增量 | 补齐后侧向/顶部外扩估计 |
 |---|---:|---:|---:|---:|
@@ -312,7 +312,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/p2_collision_diagnosis.py \
 - val103 是边界样本：实体距墙 4.2 mm，小于新球 36 mm 的侧向外扩，仍判碰撞。碰撞球数增多是因为单球变小，侵入深度由 70 mm 降到 25 mm。按约定不为这一点牺牲覆盖。
 - 固定柱、升降柱和 link0 的球在 12 站初始状态下仍无侵入。已知检测用例全部通过。
 
-### 10.3 Cup_30 S0022 的拒绝状态（N3，`outputs/diagnostics/n3-rejection-20261027/`）
+### 10.3 Cup_30 S0022 的拒绝状态（N3，`outputs/experiments/diagnostics/n3-rejection-20261027/`）
 
 用原 seeds 66–68 和冻结的 pre-close 输入，在新建 planner 上重放同一请求，只加观察钩子：IK 的起点与返回目标、TrajOpt 每个 seed 每轮优化的逐时间步约束（排序选优前）、PRM 起止检查。
 
@@ -330,7 +330,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/p2_collision_diagnosis.py \
 
 ### 10.4 分层 A/B（受控：每站 A、B 同时运行，各独占一张 GPU）
 
-A 为 HEAD `072e38c` 导出的源码（原球），B 为 worktree（51 球）；输入、种子、预算、单 worker 配置相同。run 为 `n4a-<站>-iso-20261028` / `n4b51-<站>-iso-20261028`，汇总在 `outputs/diagnostics/n4-ab-iso-20261028/ab_summary.json`。
+A 为 HEAD `072e38c` 导出的源码（原球），B 为 worktree（51 球）；输入、种子、预算、单 worker 配置相同。run 为 `n4a-<站>-iso-20261028` / `n4b51-<站>-iso-20261028`，汇总在 `outputs/experiments/diagnostics/n4-ab-iso-20261028/ab_summary.json`。
 
 | 站位 | 假碰撞（初始） | 规划通过 A → B | 执行完成 A → B | 任务成功 A → B | B 失败的位置 |
 |---|---|---|---|---|---|
@@ -372,7 +372,7 @@ A 为 HEAD `072e38c` 导出的源码（原球），B 为 worktree（51 球）；
 - **chassis 修正有效，覆盖无已知缺口**：间隙足够的初始假碰撞（val10 47 mm、val12 37 mm、val32 68 mm）均消除；近接触样本（val103 4.2 mm、S0022 1.4 mm）保留明确的保守拒绝；12 站状态下实体全覆盖；原成功对照无退化；执行回放无新增环境接触。
 - **收益分层**：val10 由假碰撞阻塞变为 pre-close 3/3 可规划执行、任务 1–2/3 成功；val12/val32 假碰撞消除后仍被 goalset IK 阻止（可达性），任务不成功不算作修复失败。
 - **待决定的代价**：同等工作量下 Pick 规划约慢 14%（中位），Open 长任务接近活动预算上限。要不要接受、是否需要减少球数（例如侧向外扩放宽到 40 mm：在 21×15×8 网格上的一次未去重求解为 42 球，或对官方 MORPHIT 做针对性改进），需要用户决定；本轮未调整预算、未扫描参数。
-- 未做：柱体球（S0022 中有 7 mm 假碰撞，外扩约 11–12 cm）、val104 IK 候选、val10 lift 失败与 val108 `open_no_grip` 的归因、固定 12 站的完整 36 trial 扩展、代码未提交。离线回归：`tests/planning` 72/72，全量 396 条通过（跳过 2 条，`outputs/logs/n4-unittest-full-20261028.log`）。
+- 未做：柱体球（S0022 中有 7 mm 假碰撞，外扩约 11–12 cm）、val104 IK 候选、val10 lift 失败与 val108 `open_no_grip` 的归因、固定 12 站的完整 36 trial 扩展、代码未提交。离线回归：`tests/planning` 72/72，全量 396 条通过（跳过 2 条，`outputs/experiments/logs/n4-unittest-full-20261028.log`）。
 - 每站只有 3 个 trial；任务成功率的差异（如 val10 1/3 与 2/3）在这个样本量下不稳定，只作分层结论的证据，不作比例估计。
 
 ### 10.7 复现入口
@@ -386,23 +386,23 @@ PY=/data1/wenyifan/lmdf/LastMileDataFlow/.venv/bin/python
 # 球设计（约 6 分钟；去掉 --skip-curobo-fit 会同时跑官方拟合对比）
 $PY scripts/experiments/n4_chassis_spheres.py --skip-curobo-fit --output <new-dir>
 # 单站输入（以 val10 为例；种子同原 run）
-$PY scripts/experiments/station_subset_input.py --source outputs/_calibration_inputs/no-edit-val-all-c001 \
+$PY scripts/experiments/station_subset_input.py --source outputs/v1-no-edit/inputs/no-edit-val-all-c001 \
   --scene <scene_id> --stations S0000 --seed 42 --output outputs/_calibration_inputs/<new-input>
-# A/B 真实运行：A 用 `git archive 072e38c src` 导出的源码目录，B 用 worktree src；受控对比见 outputs/logs/n4-iso-ab-20261028.sh
-outputs/logs/n4-run.sh <input> <run-id> <gpu> <src-dir>
+# A/B 真实运行：A 用 `git archive 072e38c src` 导出的源码目录，B 用 worktree src；受控对比见 outputs/experiments/logs/n4-iso-ab-20261028.sh
+outputs/experiments/logs/n4-run.sh <input> <run-id> <gpu> <src-dir>
 # N3 拒绝状态（查询格式 run:scene_id:station_id）
 $PY scripts/experiments/n3_rejection_states.py --query <run>:<scene>:S0022 --gpu <gpu> \
   --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output <new.json>
 # 12 站几何
 CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/p2_collision_diagnosis.py \
-  outputs/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
+  outputs/experiments/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
 # 分层汇总与耗时
 $PY scripts/experiments/n4_ab_summary.py --pairs <label>:<A_run>:<B_run> ... \
-  --geometry-a outputs/diagnostics/p2-geometry-n2-20261027/initial-states.json \
-  --geometry-b outputs/diagnostics/n4-geometry-b51-20261028/initial-states.json --output <new.json>
+  --geometry-a outputs/experiments/diagnostics/p2-geometry-n2-20261027/initial-states.json \
+  --geometry-b outputs/experiments/diagnostics/n4-geometry-b51-20261028/initial-states.json --output <new.json>
 ```
 
-A 源码导出在 `outputs/n4-src-head-072e38c/src`，其包根解析相对路径时以导出目录为准，所以诊断脚本读取输入一律用绝对路径。日志在 `outputs/logs/n4*-20261027*.log`、`n4*-20261028*.log`、`n3-rejection-20261027-*.log`。第一次并发运行的 run（`n4a-*-20261027`、`n4b-*-20261027`，55 球）和 55 球单独复测（`*-val108-s0028-iso-20261027`）保留，汇总在 `outputs/diagnostics/n4-ab-20261027/ab_summary.json`；其中 55 球与 51 球的并集相同，几何结论不变。
+A 源码导出在 `outputs/experiments/n4-chassis/src-head-072e38c/src`，其包根解析相对路径时以导出目录为准，所以诊断脚本读取输入一律用绝对路径。日志在 `outputs/logs/n4*-20261027*.log`、`n4*-20261028*.log`、`n3-rejection-20261027-*.log`。第一次并发运行的 run（`n4a-*-20261027`、`n4b-*-20261027`，55 球）和 55 球单独复测（`*-val108-s0028-iso-20261027`）保留，汇总在 `outputs/experiments/diagnostics/n4-ab-20261027/ab_summary.json`；其中 55 球与 51 球的并集相同，几何结论不变。
 
 ## 11. N3/N4 结果判断与 N5 决策（2026-10-28）
 
@@ -436,7 +436,7 @@ A 源码导出在 `outputs/n4-src-head-072e38c/src`，其包根解析相对路�
 
 ### 12.1 固定 12 站（第 11.3 节第 1 项）
 
-复用第 10.4 节 6 站的 51 球受控结果（同版本、输入、seed、预算）；其余 6 站（val100/101/102/104/107/105）按同样方式补跑：A（HEAD 原球）与 B51 同时运行，各独占一张 GPU，单 worker，种子同原 run。run 为 `n4a-<站>-iso-20261028` / `n4b51-<站>-iso-20261028`，汇总 `outputs/diagnostics/n5-fixed12-20261028/ab_summary.json`（逐 trial 分层、耗时、接触回放）。
+复用第 10.4 节 6 站的 51 球受控结果（同版本、输入、seed、预算）；其余 6 站（val100/101/102/104/107/105）按同样方式补跑：A（HEAD 原球）与 B51 同时运行，各独占一张 GPU，单 worker，种子同原 run。run 为 `n4a-<站>-iso-20261028` / `n4b51-<站>-iso-20261028`，汇总 `outputs/experiments/diagnostics/n5-fixed12-20261028/ab_summary.json`（逐 trial 分层、耗时、接触回放）。
 
 | 站位（组） | pre-close 规划并执行 A → B | 任务成功 A → B | B 的失败位置 |
 |---|---|---|---|
@@ -477,7 +477,7 @@ A 源码导出在 `outputs/n4-src-head-072e38c/src`，其包根解析相对路�
 - **val12 S0007**（原归为“低目标不可达”）：新球下起点状态被判 `scene_collision`，涉及 link7、手掌、手指共 10 个球（球 79–88）。planner 合并网格判它们在障碍内部 34–49 cm；同一网格在世界系下判在外部；逐 geom 计算，离最近物体（餐桌）53–62 cm。起点不可行意味着这条查询不可能成功，所以第 10 节“val12 受可达性限制”的归因不成立。
 - **val104 S0000**（Open）：5 次 IK 尝试都没有可行目标；全部 60 个返回目标中，违反 scene_collision 的 50 个、handle_contact 35 个、cspace 59 个。违反最少的目标是手指球侵入抽屉柜 1.4 mm（实体手指距 5.2 mm），属于把手抓取的真实近接触。其余目标中有多少落在误判区，本轮没有逐个核对。
 
-### 12.4 误判的影响面（`n5_sdf_sign_scan.py`，`outputs/diagnostics/n5-sdf-sign-20261028/scan.json`）
+### 12.4 误判的影响面（`n5_sdf_sign_scan.py`，`outputs/experiments/diagnostics/n5-sdf-sign-20261028/scan.json`）
 
 每站在规划系原点周围 1.5 m、高 0–1.6 m 的圆柱内采样 20,000 点，只统计离表面 0.3 m 以内的点。参照为逐 geom 单独建网格后取 SDF 最小值。
 
@@ -517,16 +517,16 @@ A 源码导出在 `outputs/n4-src-head-072e38c/src`，其包根解析相对路�
 
 ```bash
 # 固定 12 站补跑（成对受控）
-outputs/logs/n5-iso-ab-20261028.sh
+outputs/experiments/logs/n5-iso-ab-20261028.sh
 # lift 重放（rollout 取自对应 run）
 $PY scripts/experiments/n3_rejection_states.py --query n4b51-val10-s0000-iso-20261028:<scene_id>:S0000 \
   --pose-rollout r000000 --gpu <gpu> --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output <new.json>
 # SDF 符号扫描
 CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
-  outputs/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
+  outputs/experiments/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
 ```
 
-结果：`outputs/diagnostics/n5-lift-20261028/r2/`、`n5-rejection-20261028/`（val104、val12）、`n5-sdf-sign-20261028/`、`n5-fixed12-20261028/`；日志 `outputs/logs/n5-*.log`。
+结果：`outputs/experiments/diagnostics/n5-lift-20261028/r2/`、`n5-rejection-20261028/`（val104、val12）、`n5-sdf-sign-20261028/`、`n5-fixed12-20261028/`；日志 `outputs/logs/n5-*.log`。
 
 ## 13. 环境 SDF 符号错误的修复（2026-10-28）
 
@@ -543,7 +543,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
 
 先按第 12.5 节实现了“每个 geom 一个 cuRobo mesh”，附带缓存容量与跨站复用重建、所有 checker 的查询范围填充、携带物拟合合并。符号扫描显示它对逐 geom 参照的假碰撞和漏碰撞都是 0，lift 重放也恢复成功；但真实运行中规划耗时急剧上升：val108 pre-close 278 s（原 25 s）、val105 245 s（原 28 s）、Cup_30 S0022 97 s（原 17 s），val108 与 val105 全部 `attempt_active_budget` 超时。原因是 v0.8.0 的内核按“球数 × mesh 数”展开线程，上千个 mesh 乘以 IK/TrajOpt 的全部 seed 与时间步。该运行已中止，相关代码已恢复到 HEAD，部分结果保留在 `outputs/n5c-*-iso-20261028`。
 
-### 13.3 几何验证（`outputs/diagnostics/n5-hull-20261028/`）
+### 13.3 几何验证（`outputs/experiments/diagnostics/n5-hull-20261028/`）
 
 符号扫描（同第 12.4 节的采样点与口径；参照改为逐个凸包取最小 SDF）：
 
@@ -565,7 +565,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
 
 ### 13.4 固定 12 站受控运行（H：51 球 + 凸包网格）
 
-运行方式同第 12.1 节（两张卡各一个队列，每个 run 独占一张 GPU，单 worker，种子同原 run），run 为 `n5h-<站>-iso-20261028`；对照复用 `n4b51-*-iso-20261028`（同版本，只差本修复）。汇总 `outputs/diagnostics/n5-hull-fixed12-20261028/ab_summary.json`。
+运行方式同第 12.1 节（两张卡各一个队列，每个 run 独占一张 GPU，单 worker，种子同原 run），run 为 `n5h-<站>-iso-20261028`；对照复用 `n4b51-*-iso-20261028`（同版本，只差本修复）。汇总 `outputs/experiments/diagnostics/n5-hull-fixed12-20261028/ab_summary.json`。
 
 | 站位 | 规划并执行 B51 → H | 任务成功 B51 → H | H 的失败位置 |
 |---|---|---|---|
@@ -582,7 +582,7 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
 - Cup_30 对照：S0022 0/3、S0001 3/3，与 B51 相同。
 - **耗时**：同等工作量的查询 H/B51 为 0.95–1.09；val108 最高预算占用 89% → 87%。
 - **接触回放**：仅 val107 seed 46 的 `link5`–窗户接触（两组相同，与本修复无关）。
-- **val107 seed 47 的退化已核实来自凸包**：在同一冻结 pre-close 输入上，用 B51 代码（HEAD 源码 + 51 球，`outputs/n5-src-b51/src`）重放成功（抓取候选 7），用凸包代码重放失败；失败的 seed 混合了中段 cspace 与 scene_collision。目标附近被凸包明显填平的是两段 L 形墙（凸包体积比原网格多约 15%），它们在 MuJoCo 中与机器人碰撞。B51 那条轨迹物理执行时没有接触，说明凸包世界中仍存在可行路径，只是规划在新几何下没找到。只有 1 条 lane，未继续追查。（`n3_rejection_states.py` 对 cspace 项仍按“球”标注下标，cspace 的最后一维实际是关节，解读时以项名为准。）
+- **val107 seed 47 的退化已核实来自凸包**：在同一冻结 pre-close 输入上，用 B51 代码（HEAD 源码 + 51 球，`outputs/experiments/n5-hull/src-b51/src`）重放成功（抓取候选 7），用凸包代码重放失败；失败的 seed 混合了中段 cspace 与 scene_collision。目标附近被凸包明显填平的是两段 L 形墙（凸包体积比原网格多约 15%），它们在 MuJoCo 中与机器人碰撞。B51 那条轨迹物理执行时没有接触，说明凸包世界中仍存在可行路径，只是规划在新几何下没找到。只有 1 条 lane，未继续追查。（`n3_rejection_states.py` 对 cspace 项仍按“球”标注下标，cspace 的最后一维实际是关节，解读时以项名为准。）
 
 ### 13.5 结论与限制
 
@@ -596,11 +596,11 @@ CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
 ```bash
 # 符号扫描（修复后）
 CUDA_VISIBLE_DEVICES=<gpu> $PY scripts/experiments/n5_sdf_sign_scan.py \
-  outputs/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
+  outputs/experiments/diagnostics/p2-geometry-20261027/selection.json --output <new.json>
 # 固定 12 站 + Cup_30 受控运行
-outputs/logs/n5h-fixed12-20261028.sh
+outputs/experiments/logs/n5h-fixed12-20261028.sh
 # B51 对照代码重放（HEAD 源码 + 51 球）
-PYTHONPATH=$PWD/outputs/n5-src-b51/src:$PWD/scripts/experiments $PY scripts/experiments/n3_rejection_states.py \
+PYTHONPATH=$PWD/outputs/experiments/n5-hull/src-b51/src:$PWD/scripts/experiments $PY scripts/experiments/n3_rejection_states.py \
   --query n5h-val107-s0004-iso-20261028:<scene_id>:S0004 --gpu <gpu> --assets-dir <assets> --output <new.json>
 ```
 
@@ -629,3 +629,126 @@ PYTHONPATH=$PWD/outputs/n5-src-b51/src:$PWD/scripts/experiments $PY scripts/expe
 只有实际漏判和已知接触得到解释处理、退化可归因后，再扩 8–12 任务。若新增修复影响公共碰撞查询，先跑相关局部测试和代表冻结请求，再按影响范围补固定站位真实对照。当前 8/36 是该固定代表集的观测值，可以报告，不能当作全任务总体成功率估计。
 
 本轮复核第 13 节、生产导出代码与本地 Warp 实现，补充决策并更新方案；未运行新实验、修改生产代码或提交。第 9、11、13 节实验记录未改写。
+
+## 15. 独立几何建图、ESDF 查询的方向评估（2026-10-28）
+
+**建议优先做该方向的小原型。** 保留逐 geom 的封闭物理凸包，建图时组合实体占用，规划时只查询一张局部环境 ESDF；不是为上千个 geom 各建一张 ESDF 再逐个查询，也不是把当前合并 mesh 的错误符号烘焙进栅格。这样有望同时消除合并判内部的语义问题和每次查询遍历上千个 mesh 的开销，但建图时间、分辨率误差和动态更新代价尚未验证。
+
+### 15.1 当前版本可用的官方入口
+
+本地 cuRobo 0.8.0 提供 `curobo.perception.Mapper/MapperCfg`、`Mapper.update_static_obstacles(SceneData)`、`Mapper.compute_esdf()` 返回 `VoxelGrid`，以及支持 voxel 的 `SceneCollision`。官方示例见[volumetric_mapping](https://nvlabs.github.io/curobo/latest/api/curobo.examples.getting_started.volumetric_mapping.html)。已知仿真几何可以直接写入静态几何通道，不需要引入深度相机或感知误差。
+
+本地实现的限制：静态 stamping 对独立障碍 SDF 取最小值，但仍遍历障碍，并只在截断带内写入；`update_static_obstacles` 清空静态通道后重新写全部障碍，不是廉价增量更新。voxel 查询使用三线性插值，越界可能返回正距离。因此必须验证重叠深内部、薄障碍与边界，不能只确认接口能调用。
+
+### 15.2 最小原型边界
+
+- 静态环境采用一个局部 ESDF，使用逐 geom 物理凸包建图。各分量内部距离为负时，取最小值能表达实体并集的占用；它在重叠内部的数值不一定等于并集边界的严格距离，最终 ESDF 的距离和梯度仍需验证。不能退回有重复面/不一致表面的原始 mesh。
+- 目标、把手以及会运动的门/抽屉保留少量独立精细几何，按实际位姿更新；维持当前目标排除、手指接触掩码及携带物挂接语义。不能把会运动的部件永久写进静态图，导致打开后旧障碍残留。首次原型固定任务和站位，不先实现跨任务通用共享地图。
+- 地图坐标系在一次运行内保持稳定，机器人查询点做坐标变换；不用每次重规划都随机器人重新建图。范围覆盖实际底盘/机械臂/携带物的规划空间及查询邻域，出界不当成已知自由空间。
+- 先显式用 1 cm ESDF 做规模和耗时实验，再对误差敏感区域对比 5 mm；不要沿用 `MapperCfg.esdf_voxel_size=0.05` 的默认值。TSDF 分辨率与 ESDF 分辨率分别设置。当前只有 2 mm buffer，不能假定能覆盖厘米级离散误差；先量化表面和间隙误差，不先统一加大 buffer。
+- 示例：4×4×2 m 范围，1 cm 约 3200 万 voxel，单份 FP16 距离约 64 MB；5 mm 约 2.56 亿 voxel、512 MB。该估算不含 TSDF、距离变换中间数组、缓存和多 worker 副本，实际峰值显存需测。
+
+### 15.3 最小验证及采用条件
+
+1. 用已有假内部/假外部点、重叠凸包深内部、薄墙和地图边缘，比较物理几何与 ESDF 的符号、距离、梯度和实际球可行性。至少覆盖 val12（1791 geom）、val107（退化与接触）及 val108（长 Open）；必要时加入 val10 冻结 lift 查询。
+2. 重放相同规划请求，分别计首次几何装载、stamping、ESDF 生成、复用查询和动态部件更新。官方接口只说明实现路径，不证明本场景能实时建图；构图成本必须计入任务活动预算或明确的原有初始化阶段，不能从总成本中消失。
+3. 比较 `建图成本 + 更新次数×更新成本 + 查询次数×ESDF 查询成本` 与当前合并凸包的对应总成本。若收益只在静态 Pick 出现，而 Open 更新频繁，则先保留静态 ESDF 与少量动态 mesh 的混合形式，不强行整屋每步重建。
+4. 只有几何误差可接受、已知漏判得到处理、真实任务没有新增碰撞/预算退化，才进入固定站位对照并决定替换生产。原型独立运行，已有实验结果仍按其实际碰撞表示解释。
+
+本轮只检查本地官方接口和实现、评估方案并更新文档；未构建 ESDF、运行性能实验或更改生产碰撞表示。用户已有 `05-repair-summary.md` 修改保留。
+
+### 15.4 CoACD 是否适用（2026-10-28）
+
+**能用于非凸资产的离线碰撞建模，但不是当前 ESDF 路线的前置条件，也不能直接替代环境查询修复。** CoACD 用碰撞相关凹度、平面切割和多步树搜索，将实体近似为多个凸块，适合保留把手孔洞、凹槽与 L 形内角。依据：[论文全文](https://arxiv.org/html/2205.02961v1)、[官方实现](https://github.com/SarahWeiii/CoACD)。用户提供的 NSF 地址本次返回 502，改查同一论文的 arXiv 全文；未安装或运行 CoACD。
+
+- 当前已有碰撞件多为接近凸块的资产，第 05 号摘要第 6 节的抽查支持这一点；先提取干净凸包即可，不全库重做凸分解。这个抽样不等于每个资产均已证明凸。
+- 若只在 planner 中对原始 L 形 geom 做 CoACD、保留内角，但 MuJoCo 仍使用原 geom 的单凸包，就产生规划/物理不一致。要保留凹处，应在新的派生场景中将每个凸块作为同一 body 下独立 mesh geom，同时给 planner 使用；不得把所有块重新作为一个 MuJoCo mesh geom，否则又会整体凸化。保持原场景只读，这属于物理资产变更的独立实验。
+- CoACD 解决“如何表示形状”，ESDF 解决“如何高频查询场景”。推荐当前先沿用逐 geom 物理凸包验证 ESDF；未来确有凹形资产需求时，CoACD 输出的凸块可作为 ESDF 建图输入。它不自动降低已有上千 geom 的逐次查询开销，也不自动解决不同物体之间的重叠。
+- 论文的无交叠性质针对单个实体的切分构造，不能外推为全场景独立处理后无重叠；共享切割面也不等于实体并集的外边界，不能据此直接恢复大 mesh 拼接判符号。
+- 原型只选已确认的 L 形墙或把手。三角网格输入存在非流形问题时保留官方预处理；记录固定 seed、块数、处理时间、凹槽尺寸与新增/缺失体积。官方当前支持 `real_metric=True` 的米制阈值；默认阈值不是米。阈值不是整个“预处理→分解→简化”链路的无条件逐点误差保证，仍需核对实际间隙。
+- 如做该资产实验，先不强制限制最大凸块数，不开启额外挤出，以免引入新的外扩/重叠；官方说明最大块数限制可能迫使结果超过凹度阈值。按离线步骤保存结果，不在每次规划中运行分解。验证新的物理接触和规划表示一致后，再评估任务收益，不能把物理变更与当前纯 planner 修复混为同一 A/B。
+
+本次仅补充算法适用性判断，不改变 ESDF 原型优先级，未修改生产代码、资产或用户其他报告改动。
+
+### 15.5 原 RBY-1、当前方案、ESDF 与 CoACD 对比（2026-10-28）
+
+本表比较环境表示；若后续移植做 A/B，应固定机器人球、任务、预算和求解参数。CoACD 是几何预处理，必须另配查询后端；这里指离线凸分解并在物理与规划侧同步使用。
+
+**“原 RBY-1”明确指本地上游 MolmoSpaces 的旧 `MotionGen/WorldConfig` 路线。** 它的 `CuroboPlanner.update_world()` 为每个传入场景对象创建 `Cuboid(pose=object.pose, dims=object.aabb_size*2)`，`scene/table` 另有固定尺寸特例；服务端 `_apply_world()` 同样构建 `WorldConfig(cuboid=...)`。虽然配置选择 `CollisionCheckerType.MESH`，实际场景输入仍是 cuboid，不能据枚举名认定它在查询环境三角网格。旧版 mesh checker 包含 primitive checker，见[官方碰撞表示说明](https://nvlabs.github.io/curobo/v0.7.6/get_started/2c_world_collision.html)。
+
+**本仓库当前的 RBY-1 已不同于上述原方案。** `runtime/control/robot.py::planning_model()` 选择 RBY 模型，`planning/pool.py` 使用统一 `V2Planner`，再走同一个 `collision_world`。因此在当前 V2 中，RBY-1 与 PandaOmron 的差别主要在本体模型与运动自由度，环境都使用当前凸包拼接导出，不能拿机器人名字当作两种查询后端。
+
+| 维度 | 原 RBY-1：对象级独立长方体 | 当前：逐 geom 凸包后拼接 mesh | ESDF：独立物理几何建图、局部距离场查询 | CoACD：非凸资产分解为凸块 |
+|---|---|---|---|---|
+| 主要目的 | 用简单包围盒近似环境 | 清理网格表面并减少假碰撞 | 正确组合占用，摊销重复查询 | 保留孔洞、凹槽与内角 |
+| 查询方式 | 球对独立 cuboid 的专用查询 | 单大 mesh 的 BVH 距离/内外查询 | 栅格插值距离和梯度，少量动态几何另查 | 本身不查询，需 mesh/凸体/ESDF 后端 |
+| 网格符号问题 | 不做环境三角网格射线判内部，避开该类错误 | 重叠区域已有内部漏判 | 并集构建正确时可处理，深内部/薄障碍仍需验证 | 不自动解决跨物体重叠或后端符号错误 |
+| 几何细节 | 对象/部件级盒子可能填掉桌下、孔洞等空隙 | 保留不同 geom 之间空隙，单 geom 凹处填平 | 保留输入形状的近似，另有栅格误差 | 可更好保留凹形细节，仍有分解/预处理误差 |
+| 物理一致性 | 包围盒不是实际物理表面；中心/尺寸/对象分组需正确 | mesh 形状向物理凸包对齐，checker 仍有误差 | 沿用物理形状，增加离散误差 | 改形状须同步 MuJoCo 与 planner |
+| 速度 | 单次 primitive 查询通常便宜；无同条件端到端对照 | 已测同工作量为旧 51 球版本的 0.95–1.09 倍 | 预期复用查询更便宜，建图和总成本未测 | 本项目未测，块数与后端决定代价 |
+| 动态更新 | 已有按障碍名字更新 pose、enable 的接口 | 当前重导出流程 | 推荐静态 ESDF + 少量动态精细几何 | 凸块随 body 运动，后端同步位姿 |
+| 显存/准备代价 | pose、尺寸及对象缓存；无需环境网格 BVH | 网格与 BVH | 新增地图及中间数组，分辨率加倍时 dense voxel 数约增 8 倍 | 离线分解和凸块资产，运行成本依后端 |
+| 对当前工程的改动 | 可移植 cuboid 表示，但会降低环境细节，不能直接恢复旧 API | 已实施，最小 | 中等：建图/缓存/动态层/精度 | 同步物理时较大：派生资产和接触验证 |
+| 项目证据 | 已核对上游源码，未与当前 12 站做公平对照 | 17/36 规划执行、8/36 成功，仍有接触/退化 | 尚未实验 | 尚未实验 |
+
+原 RBY 代码依据（只读）：`/data1/wenyifan/lmdf/molmospaces/molmo_spaces/planner/curobo_planner.py:409`、`curobo_planner_server.py:150`、`env/data_views.py:279`。`aabb_size` 来自所选 body BVH 的半尺寸，不等于已核实的整件家具精确几何；此轮没有验证所有对象中心、关节运动覆盖或包围盒保守性。原代码的机器人构型、旧 API 与求解参数也不同，不能直接推导成功率或速度倍数。
+
+结论：借鉴原 RBY 的解析 primitive 查询用于真正的 box geom，不能为了速度把全部家具退化成对象级大盒子。当前凸包方案保留为已测基线，优先验证 ESDF；CoACD 用于确有需求的局部资产变更。可组合为“精确 primitive / 独立物理凸包 → 静态 ESDF + 少量动态精细几何”。此前独立 mesh 的 6–11 倍耗时既不是原 RBY cuboid 的结果，也不是 CoACD 的结果。
+
+本次读取上游原 RBY 路线、本仓库 RBY 模型与统一 V2 调用链，并扩充此表；未导入外部工程、运行新实验或改动生产配置。
+
+## 16. 面向局部站位标定的性能预估（2026-10-28）
+
+### 16.1 应用口径与估算前提
+
+用户明确关注机器人、目标、支撑面及机器人/目标附近物体，用于判断各站位的操作成功率。用户随后澄清：提供应用场景是要求权衡物理精度与运行性能，不是要求重新定义成功率或评价流程。因此本节只比较碰撞表示的精度与代价，不新增成功判据，也不把规划器完成动作擅自改为另一种统计口径。
+
+四种环境处理都移植到同一 PandaOmron/cuRobo V2/51 球条件比较，不直接比较旧 RBY 机器人与当前机器人。局部范围覆盖完整动作中底盘、双臂/躯干与携带物可能经过的区域，不能只按目标距离选最近几个物体。目标/支撑面的必要接触与非允许碰撞分别处理，不能通过删除支撑面提高通过率。
+
+以下是方案选择用的假设估算，非实测结果或置信区间。假设只保留局部操作区域、GPU 独占、已预热、求解轮数相同；局部场景暂按 10–30 个对象、几十至约百个碰撞部件作规模假设，实际筛选数量未测。固定同等求解工作量后，假设环境碰撞查询占当前规划时间的 40%–70%；现有日志没有 profiler 数据证明该占比。
+
+令当前规划时间为 P，碰撞部分占比为 f，新查询成本比为 q，则热态规划耗时比约为 `(1-f)+f*q`。加速只作用于这一部分，不能把单次碰撞查询加速倍数当作整条规划或真实执行的加速倍数。依据仅限：官方说明 cuboid 专用查询较廉价、ESDF 提供定长插值查询；当前合并凸包实测稳定；此前上千独立 mesh 实测严重变慢。
+
+### 16.2 四方案数字对比
+
+| 方案与明确实现 | 假设碰撞查询成本 q（当前=1） | 同工作量热态规划耗时（当前=1） | 假设当前规划需要 20 s 时 | 额外成本/适用限制 |
+|---|---:|---:|---:|---|
+| 原 RBY 思路：局部对象级 cuboid，迁入同一 V2 | 0.25–0.5 | 约 0.5–0.8 | 约 10–16 s | 不含首次配置；盒子可能吞掉操作空隙，不能把提前误拒绝当作加速 |
+| 当前：逐 geom 凸包拼成单 mesh | 1.0 | 1.0 | 20 s（仅换算基准） | 保留现有建图/更新成本；有已知重叠内部漏判 |
+| ESDF：一张局部静态图 + 少量动态精细几何 | 0.1–0.3 | 约 0.4–0.75 | 约 8–15 s，另加建图/更新摊销 | 以地图可复用且精度足够为前提；局部 geom 极少时优势可能消失 |
+| CoACD：离线分解后，每凸块独立 mesh 查询 | 1.5–4 | 约 1.2–3.1 | 约 24–62 s | 低置信度敏感性估算，块数/三角形数决定实际结果；分解成本另计 |
+
+这些 q 是显式建模假设，不是对三个未运行方案的性能测量。官方旧版文档的 cuboid 查询速度提示不能作为本项目固定倍数；ESDF O(1) 查询也不能证明总耗时更短。若 CoACD 输出用于 ESDF，运行时归入 ESDF 行，另计离线分解和新几何引起的求解变化，不存在独立的“CoACD 查询速度”。四种方案的完整任务耗时排序也可能随重试和执行阶段改变。
+
+### 16.3 建图摊销与真实运行时间
+
+对同目标/同静态场景的 K 条完整 station trial，比较 `总准备/建图 + 所有更新 + 所有规划 + 所有物理执行`。ESDF 每条摊销为 `G/K`，仅当几何、目标排除集合与地图范围一致时共享；每条 trial 的物理状态仍按既有独立仿真实验语义运行。
+
+例如，假定一次地图构建 G=30 s（仅用于算账，未实测）：复用 60 条时每条 0.5 s，只用 3 条时每条 10 s。以上 20 s 基准下，ESDF 对应约 8.5–15.5 s 或 18–25 s，加上必要动态更新。若每条重建就是 38–45 s，可能比当前更慢；这说明先实现可靠复用比盲目追求更细分辨率更重要。
+
+若规划只占完整任务时间的 40%，即使规划减至 0.4–0.75 倍，任务总时间也只是约 0.76–0.90 倍，尚未计建图。进入真实执行的 trial 增多还会降低表观 trial/min，不能据此判定修复无价值。吞吐应同时报告完整 trial/h、规划链成功数/h、操作成功数/h与完整计划分母上的成功比例。
+
+### 16.4 对站位成功率判断的影响与建议
+
+- 原 RBY 的对象大盒子偏粗，容易把本可抓取/绕行的空间判成障碍，导致站位成功率偏低。若只用它筛掉站位，最终标定会有选择偏差；可保留作低成本对照，不直接用其失败删除完整评估集合。
+- 当前方案几何比对象盒子细，但内部漏判可能导致规划通过虚高；真实执行检查仍有价值。8/36 等固定代表集结果不用于推算其他方案会提升多少百分点。
+- ESDF 最符合“同一个目标周围评很多站位、重复查询大量次”的摊销模式。推荐支撑面若本来就是 box 则保持精确 primitive，复杂静态邻近障碍建 ESDF，目标/把手/动态部件保持少量精细几何。1 cm 只作性能原型，5 mm 对照近接触误差；不能未经检查就用粗图判定全部站位。
+- CoACD 适合物理资产的孔洞/凹槽本身建模不合理的情况，优先级低于查询后端；多数现有碰撞件已接近凸，不预期全库重分解带来普遍收益。同步修改物理几何后任务本身也变了，结果须作为新场景版本解释。
+
+下一步只选“简单桌面 Pick、复杂邻近障碍 Pick、长 Open”各一个目标，固定站位与 seed，先记录真实局部部件数与当前碰撞耗时占比，再对当前/cuboid/ESDF做同条件检查。CoACD 仅在其中确有凹形资产问题时加入派生资产实验。采用标准是几何判定可解释且完整试验总成本下降，不是单纯成功率更高或更快返回失败。
+
+本次按用户应用口径建立了可核查的性能估算模型，未运行 profiler、ESDF 或 CoACD；相关数字均保留为估算。官方接口依据见第 15 节，生产代码和现有运行未改。
+
+### 16.5 用户澄清后的精度/性能取舍
+
+目标是保留会改变站位可操作性的几何，而非追求整屋几何同等精细。第 16.2 节的速度区间只是条件假设，不能据此认定实际方案优劣；推荐依据是本应用的误差影响位置和可复用计算量。
+
+| 几何范围 | 精度要求 | 建议表示与性能取舍 |
+|---|---|---|
+| 目标、把手、夹爪附近，以及物体起落处支撑面 | 最高：小误差会改变抓取/接触/抬起可行性 | 保留物理一致的局部几何；本来为 box 的支撑面用解析 cuboid，既精确又便宜；不把整张带腿桌子当成一个实心盒 |
+| 底盘、机械臂、携带物运动范围内的邻近静态障碍 | 保留实际间隙、薄壁和实体占用 | ESDF 是主要候选；毫米级间隙/薄件处保留精细几何，不能统一用厘米栅格决定成败。5 mm 可作为对照起点，不是无条件精度保证 |
+| 确实在整段动作范围之外的背景 | 不需要近接触精度 | 可按保守范围筛选或粗包围盒处理；范围须覆盖手肘、躯干、底盘和携带物，不只看 TCP/目标距离 |
+
+四方案取舍：原 RBY 对象包围盒可用于背景，通常不适合目标近场；当前合并凸包是已测的过渡基线，但不能忽略内部漏判；静态 ESDF 配合少量精细近场/动态几何最值得优先验证；CoACD 仅对确实因单凸包填平凹处而影响操作的资产离线使用，且同步物理表示。无需为了采用 ESDF 先重做所有资产，也不要求所有障碍均转入同一种表示。
+
+接受近似的条件是它不改变关键接触关系和可通行间隙；只降低无关背景细节是有价值的提速。由漏碰撞造成的“成功率提高”、由近场大盒子造成的“更快失败”，都不满足这个用途。此澄清仅修正文档重心，未改配置或执行任何实验。

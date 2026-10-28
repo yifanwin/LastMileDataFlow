@@ -77,10 +77,13 @@ def build_jobs(runs, rendered, batch_size, gpus):
     return jobs
 
 
-def render_job(job, output_dir, env, stamp):
+def render_job(job, output_dir, env, stamp, group_by_run=False):
     run, rollouts = job['run'], job['rollouts']
     gpu = job['gpu'] if job['gpu'] is not None else pick_gpu()
     run_id = f"valid-{Path(run).name}-{stamp}-g{gpu}-b{job['index']:03d}"
+    if group_by_run:
+        # Replays land in replays/<run>/<batch> instead of one flat directory.
+        run_id = f'{Path(run).name}/{run_id}'
     if replay(run, rollouts, run_id, output_dir, gpu, env):
         return {rollout: run_id for rollout in rollouts}
     # One bad rollout must not hide the rest of the batch.
@@ -113,6 +116,8 @@ def main(argv=None):
                         help='每个并行任务的 rollout 数')
     parser.add_argument('--runs', nargs='+', type=Path)
     parser.add_argument('--max-runs', type=int)
+    parser.add_argument('--group-by-run', action='store_true',
+                        help='回放写到 replays/<标定 run>/ 下，而不是平铺在 replays/')
     args = parser.parse_args(argv)
     state = json.loads(args.state.read_text())
     runs = args.runs or [args.output_dir / item for item in state.get('completed', [])]
@@ -127,7 +132,7 @@ def main(argv=None):
     if jobs:
         stamp = int(time.time())
         with ThreadPoolExecutor(max_workers=min(len(args.gpus), len(jobs))) as pool:
-            futures = {pool.submit(render_job, job, args.output_dir, env, stamp): job
+            futures = {pool.submit(render_job, job, args.output_dir, env, stamp, args.group_by_run): job
                        for job in jobs}
             for future in as_completed(futures):
                 job = futures[future]
@@ -147,7 +152,7 @@ def main(argv=None):
             rollouts = list(dict.fromkeys(row['rollout_id'] for row in todo))
             gpu = args.gpu if args.gpu is not None else pick_gpu()
             done = render_job({'run': run, 'rollouts': rollouts, 'gpu': gpu, 'index': 0},
-                              args.output_dir, env, int(time.time()))
+                              args.output_dir, env, int(time.time()), args.group_by_run)
             record(manifest_path, todo, done, rendered, state_path)
             total += len(done)
     print(json.dumps({'rendered_this_call': total, 'rendered_total': len(rendered),

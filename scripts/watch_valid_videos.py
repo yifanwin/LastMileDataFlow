@@ -30,6 +30,8 @@ def main(argv=None):
     parser.add_argument('--gpus', nargs='+', type=int, default=list(range(8)))
     parser.add_argument('--interval', type=int, default=300)
     parser.add_argument('--batch-size', type=int, default=8)
+    parser.add_argument('--group-by-run', action='store_true',
+                        help='标定 run 位于 runs/<组>/ 下；回放按 run 分子目录')
     args = parser.parse_args(argv)
     state_path = args.output_dir / 'replays' / 'valid_watch_state.json'
     if state_path.is_file():
@@ -43,10 +45,12 @@ def main(argv=None):
         state = json.loads(args.state.read_text())
         pending = [item for item in state.get('completed', []) if item not in done]
         if pending:
+            runs = [next(iter(sorted((args.output_dir / 'runs').glob(f'*/{item}'))), args.output_dir / item)
+                    for item in pending]
             command = [sys.executable, str(ROOT / 'scripts/render_valid_videos.py'),
                        '--state', str(args.state), '--output-dir', str(args.output_dir),
                        '--gpus', *map(str, args.gpus), '--batch-size', str(args.batch_size),
-                       '--runs', *(str(args.output_dir / item) for item in pending)]
+                       '--runs', *map(str, runs), *(['--group-by-run'] if args.group_by_run else [])]
             print(json.dumps({'rendering': pending}), flush=True)
             code = subprocess.run(command, env=env).returncode
             if code == 0:
