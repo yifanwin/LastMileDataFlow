@@ -40,7 +40,10 @@ scripts/install.sh
 .venv/bin/lastmile-dataflow --help
 
 scripts/install_pi05.sh        # 需要 π0.5 时
+scripts/install_pyrua.sh       # 需要 PyRUA Agent + RLDX-1 时
 ```
+
+`install_pyrua.sh` 把 RPent（`886b3b2`）和 RLDX-1（`ebcfd13`）源码、两个纯 Python 依赖层、RLDX-1 权重（13.8 GB）与 RLDX-1-VLM 支持文件、干净的 Codex home 都放到 `data/`。PyRUA-Lean 源码按 `configs/policies/pyrua_panda_omron.json` 的 `pyrua_root` 读取，不安装。RLDX-1 服务使用项目解释器的 torch 2.7.1，只在服务进程前置 `data/rldx_site`（transformers 4.57 等），仿真进程不受影响；RLDX 上游声明 Python 3.10，这里在 3.11 上加载与推理已实测。HF 直连慢时可设 `HF_ENDPOINT=https://hf-mirror.com`，并去掉代理变量。Agent 的模型访问走 Codex 登录；`data/codex_home/auth.json` 链接到用户自己的 `~/.codex/auth.json`。
 
 已验证版本：Python 3.11、mujoco 3.5.0、torch 2.7.1、torchvision 0.22.1、transformers 5.4.0、numpy 2.4.6、warp-lang 1.11.1、nvidia-curobo 0.8.0。
 

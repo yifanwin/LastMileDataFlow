@@ -18,6 +18,7 @@ from ..runtime.simulation import Simulation
 from ..runtime.execution_config import ExecutionConfig
 from ..runtime.construction.benchmark_scene import native_scene
 from ..runtime.execution.vla import run_vla_attempt
+from ..runtime.execution.agent import run_agent_attempt
 from ..scenes.dataset import load_scenes
 from ..scenes.stations.sampling import place_frozen_station
 from ..runtime.outcomes.contacts import ContactSampler, NavigationContacts
@@ -283,8 +284,12 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
     policy_config = load_policy_config(policy_path)
     selected_backend = backend(policy_path)
     os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
+    agent_budget = ({'control_step_budget': policy_config.control_step_budget,
+                     'attempt_timeout_s': policy_config.attempt_timeout_s, 'max_turns': policy_config.max_turns}
+                    if selected_backend == 'pyrua' else None)
     root = create_run(output, {'benchmark': str(benchmark), 'policy': asdict(policy_config),
                               'seed': settings.seed, 'horizon': settings.horizon, 'wall_timeout_s': settings.wall_timeout_s,
+                              'agent_budget': agent_budget,
                               'reference_calibration': saved['calibration'], 'scene_profiles': {}})
     logs = Path(log_dir)
     logs.mkdir(parents=True, exist_ok=True)
@@ -310,24 +315,28 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
                 if selected_backend == 'molmobot':
                     sim = native_scene(parent)
                 else:
-                    check_profile(robot,'pi05',policy_path)
+                    check_profile(robot,selected_backend,policy_path)
                     sim,parent = parent,None
                 sim.scene_id = episode['scene_id']
                 profiles[episode['scene_id']] = asdict(sim.robot.config)
+                agent = selected_backend == 'pyrua'
                 if policy is None:
                     policy = create_policy(policy_path, logs / f'{root.name}-policy.log')
-                    from dataclasses import replace
-                    policy.config = replace(policy.config, task_horizon=settings.horizon)
+                    if not agent:
+                        from dataclasses import replace
+                        policy.config = replace(policy.config, task_horizon=settings.horizon)
                 width,height = (1024,576) if selected_backend == 'molmobot' else (saved['reference_execution']['width'],saved['reference_execution']['height'])
+                # The agent's control-step and wall budgets are declared in its own policy config.
                 config = ExecutionConfig(operation_backend=selected_backend, operation_base_mode='policy_relative',
                     policy_config=str(policy_path), width=width, height=height, radius_m=saved['reference_execution']['radius_m'],
-                    attempt_timeout_s=settings.wall_timeout_s, third_person_enabled=True,
-                    open_hold_s=saved['reference_execution'].get('open_hold_s', 1.))
+                    attempt_timeout_s=policy.config.attempt_timeout_s if agent else settings.wall_timeout_s,
+                    third_person_enabled=True, open_hold_s=saved['reference_execution'].get('open_hold_s', 1.))
                 collection = CollectionConfig(output_dir=str(root), width=width, height=height, seed=episode['seed'],
                     max_steps=settings.horizon, record_video=True, record_images=False,
                     video_cameras={sim.robot.observation_camera: 'head' if selected_backend=='molmobot' else 'observation', 'third_person_camera': 'third_person'})
                 with trial_logging(f'episode={eid} scene={episode["scene_id"]}', progress):
-                    result = run_vla_attempt(sim, episode['task'], episode['station'], config, collection,
+                    run = run_agent_attempt if agent else run_vla_attempt
+                    result = run(sim, episode['task'], episode['station'], config, collection,
                         root=root, attempt_id=eid, seed=episode['seed'], policy=policy)
                 record = {key: result.get(key) for key in ('status', 'reason', 'executed_steps', 'recording_complete',
                     'rollout_id', 'execution_termination', 'task_outcome', 'failure_scope')}

@@ -8,7 +8,7 @@
 | `scenes/` | 场景/资产加载、任务发现、采样初始化、障碍物放置与场景物理检查；`dataset.py`，以及 `loading/`、`tasks/`、`stations/`、`augmentation/` |
 | `runtime/` | 实际 stepping、机器人动作、构建事务、任务判定；`simulation.py`，以及 `control/`、`construction/`、`execution/`、`outcomes/` |
 | `planning/` | cuRobo V2、碰撞/FOV、A* 和规划结果执行边界 |
-| `policies/` | MolmoBot / π0.5 配置、服务与客户端 |
+| `policies/` | MolmoBot / π0.5 配置、服务与客户端；`pyrua/` 接入 PyRUA 代码 Agent 与 RLDX-1 服务 |
 | `data/` | 根层 `recorder.py`；`rendering/` 图像视频、`evaluation/` 统计与选择、`visualization/` 图表、`export/` 模型导出 |
 | `workflows/` | 场景构建、采集与 benchmark 的短编排 |
 
@@ -53,12 +53,13 @@ src/lastmile_dataflow/
 │   │   └── astar.py               # S0→S1 路径搜索
 │   ├── pool.py                    # 每 GPU 一个常驻规划进程
 │   └── remote.py                  # CPU 侧规划 RPC 客户端
-├── policies/                      # MolmoBot / π0.5 策略
+├── policies/                      # MolmoBot / π0.5 策略与 PyRUA Agent
 │   ├── molmobot_config.py         # 策略配置
 │   ├── molmobot.py                # 客户端
 │   ├── molmobot_service.py        # 推理服务
 │   ├── multitask/                 # MolmoBot 模型与推理实现
-│   └── pi05/                      # 共用 JAX 核心、服务、观测与 RBY 数据配置
+│   ├── pi05/                      # 共用 JAX 核心、服务、观测与 RBY 数据配置
+│   └── pyrua/                     # PyRUA host（RPent Toolkit 接项目 episode）、RLDX-1 服务、配置
 ├── runtime/                       # 仿真、实际动作与判定
 │   ├── simulation.py              # Simulation：生命周期与 stepping
 │   ├── execution_config.py        # 执行配置与 profile
@@ -66,7 +67,8 @@ src/lastmile_dataflow/
 │   ├── construction/             # 构建会话、事务与快照准备
 │   ├── execution/
 │   │   ├── curobo.py             # run_curobo_attempt
-│   │   ├── vla.py                # 两策略共用 run_vla_attempt
+│   │   ├── vla.py                # 两策略共用 run_vla_attempt；OperationEvidence 逐 tick 证据
+│   │   ├── agent.py              # run_agent_attempt：PyRUA episode 与 RoboCasa 原生接口桥
 │   │   ├── context.py            # 连续执行上下文
 │   │   ├── navigation.py         # 路径跟踪与到达检查
 │   │   ├── manipulation.py       # cuRobo 操作执行
@@ -312,6 +314,7 @@ flowchart TD
 
 - cuRobo：`runtime.execution.curobo.run_curobo_attempt()`。
 - MolmoBot / π0.5：`runtime.execution.vla.run_vla_attempt()`。
+- PyRUA：`runtime.execution.agent.run_agent_attempt()`。同一个 Simulation、AttemptRecorder 与 `OperationEvidence`（与 VLA 共用的逐物理步证据和流式 pick/open 判定）；`AgentEnvironment` 提供 RPent RoboCasa 原语读取的原生观测键、12D 动作、相机/深度/world map，`policies.pyrua.host` 让 PyRUA 的 `play_episode` 在其上构建 RPent 自己的 `RoboCasaToolkit`。Agent 工具调用来自服务线程，仿真与渲染统一回到 episode 线程执行。
 - 连续上下文与共用导航：`runtime.execution.context`、`runtime.execution.navigation`。
 - 导航几何：`planning.navigation.GeometryNavigation` 在独立准备态中保持源关节姿态，以同一个 A* 搜索站位连接与按需生成的房间 XY/yaw 状态；20 mm 只参与软代价，粗包络栅格不作硬门槛。`NavigationSettings` 集中传递目标、权重、穿透阈值和转向折算比例；`runtime.outcomes.contacts.NavigationContacts` 共用于几何查询和两后端的显式导航判停。执行器直接跟踪 `poses`。`data.evaluation.recovery` 保存同一可行性口径的局部位姿区域，离线恢复统计复用该表示。
 - 两个 attempt 入口显式接收 `root=...`、`attempt_id=...`；其他在用调用方已同步，不保留旧模块转发。

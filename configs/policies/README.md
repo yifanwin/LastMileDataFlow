@@ -21,4 +21,20 @@
 
 可选字段（当前 JSON 未填）：`load_timeout_s=900` 为模型服务启动加载等待；`rpc_timeout_s=30` 为默认单次 RPC 等待；`service_timeout_s=300` 当前仅在配置类中声明/校验，未接入服务调用，不应靠它调整运行时限。episode 总执行预算使用 execution 的 `attempt_timeout_s`，不能与加载时限混淆。
 
+## PyRUA 代码 Agent
+
+`pyrua_panda_omron.json`（`backend: pyrua`）不是单步策略，而是 episode 级 Agent：PyRUA-Lean 的 `play_episode` + RPent RoboCasa 原语 + RLDX-1 服务，只支持 Panda `robocasa-v1` 场景。
+
+| 字段 | 含义 |
+|---|---|
+| `data_root` | `data`（本 worktree），下列源码、依赖层、权重相对它解析 |
+| `pyrua_root` | PyRUA-Lean 只读源码（相对仓库根目录或绝对路径） |
+| `rpent_root` / `site_packages` | RPent `886b3b2` 源码；RPent/MCP 纯 Python 依赖层（追加在 `.venv` 之后） |
+| `vla_python` / `vla_model_path` / `vla_hf_home` / `vla_site_packages` | RLDX-1 服务进程的解释器、权重、VLM 支持文件缓存，以及只在服务进程前置的依赖层与 RLDX 源码 |
+| `runtime` / `model` / `reasoning_effort` / `codex_home` | Agent 运行时（`codex` 默认）、模型、推理强度、干净的 Codex home |
+| `arm` / `images` / `feedback` / `primitives` | PyRUA 原生选项：`cells`、`on-motion`、`rich`、`full`（`no-vla` 隐藏 RLDX-1） |
+| `task_feedback` | `verdict`：`task_progress` 给出项目判定的实时值（保持时长、抬升或开合进度）；`success_only`：只给成功标志 |
+| `max_turns` / `attempt_timeout_s` / `control_step_budget` | 决策预算（cell 次数）、墙钟上限、实际控制步上限；控制步超限记 failure |
+| `rldx_max_chunks` / `rldx_action_steps_per_chunk` / `rldx_settle_patience` | RLDX 调用协议，同 RPent Target50 取值（40 / 8 / 999） |
+
 相机/控制需匹配 native 策略 profile；不能仅替换权重后复用 position 标定。安装和数据准备见 [setup](../../docs/setup.md)。

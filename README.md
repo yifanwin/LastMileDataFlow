@@ -38,6 +38,7 @@ scripts/install.sh
 - 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
 - PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
 - π0.5 已加入双本体适配与可选评测入口；Panda RoboCasa profile 已验证真权重推理和 cuRobo→FK→共用 controller 固定抓取。策略任务表现、批量 benchmark 与 RBY-1 微调分别验收，见 [π0.5 运行指南](reports/pi05/docs/01-running.md) 和 [构建报告](reports/pi05/delivery/03-implementation.md)。
+- `evaluate-bench` / `evaluate-stations` 可选 PyRUA 代码 Agent（`configs/policies/pyrua_panda_omron.json`）：保留 PyRUA Agent 与 RPent RoboCasa 原语/RLDX-1，环境接口接本项目 Panda `robocasa-v1` 场景；接口实测与真实运行边界见 [交付记录](reports/pyrua/delivery/01-implementation.md)。
 - Panda 已支持从已有标定构建 benchmark；原 position profile 的快照需要按 RoboCasa profile 重建后再供 Panda π0.5 使用。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。
 - 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
 - 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。

@@ -1,4 +1,4 @@
-"""Explicit selection of the two supported local VLA backends."""
+"""Explicit selection of the local VLA backends and the PyRUA code agent."""
 from pathlib import Path
 import json
 
@@ -15,12 +15,17 @@ def load_policy_config(path):
         from .molmobot_config import load_policy_config as load
     elif name == 'pi05':
         from .pi05.config import load_config as load
+    elif name == 'pyrua':
+        from .pyrua.config import load_config as load
     else:
         raise ValueError('unsupported policy backend: '+name)
     return load(path)
 
 
 def create_policy(path, log_path):
+    if backend(path) == 'pyrua':
+        from .pyrua.client import PyruaPolicy
+        return PyruaPolicy(path, log_path)
     if backend(path) == 'pi05':
         from .pi05.client import Pi05Client
         return Pi05Client(path, log_path)
@@ -38,7 +43,7 @@ def check_profile(robot, operation_backend, path=None):
     else:
         config = load_policy_config(path)
         if not hasattr(config,'embodiment') or config.embodiment != robot.name:
-            raise ValueError('π0.5 embodiment does not match scene robot')
+            raise ValueError(f'{operation_backend} embodiment does not match scene robot')
         allowed = ('robocasa-v1',) if robot.name == 'panda_omron' else ('position-v1',)
     if robot.control_profile not in allowed:
         raise ValueError('scene control profile incompatible with requested backend; construct an explicit matching scene')

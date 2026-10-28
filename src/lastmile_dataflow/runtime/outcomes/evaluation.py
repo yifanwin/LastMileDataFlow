@@ -67,25 +67,47 @@ def open_progress(task, joint_value):
     return float(direction*(joint_value-task['joint_initial']))
 
 
-def evaluate_open(task, samples, hold_s):
-    for row in samples:
-        health=next((issue for issue in row.get('illegal',[]) if issue in SIMULATION_FAILURES),None)
-        if health: return {'status':'simulation_failure','reason':health}
-    if len(samples) < 2:
-        return {'status':'failure','reason':'open_missing_hold'}
-    required=abs(task['joint_goal']-task['joint_initial'])
-    start=None; best=0.
-    for row in samples:
+class OpenEvidence:
+    """Streaming open verdict, identical to evaluating the complete sample list."""
+
+    def __init__(self, task, hold_s):
+        self.task, self.hold_s = task, hold_s
+        self.required=abs(task['joint_goal']-task['joint_initial'])
+        self.count=0; self.health=None; self.invalid=False
+        self.start=None; self.best=0.; self.last=None
+
+    def extend(self, samples):
+        for row in samples:
+            self.add(row)
+        return self
+
+    def add(self, row):
+        self.count+=1; self.last=row
+        if self.health is None:
+            self.health=next((issue for issue in row.get('illegal',[]) if issue in SIMULATION_FAILURES),None)
+        if self.invalid:
+            return
         if 'joint_value' not in row or not np.isfinite(row['joint_value']):
-            return {'status':'infrastructure_error','reason':'invalid_open_evidence'}
-        valid=open_progress(task,row['joint_value']) >= required-1e-3 and len(row['finger_forces_n']) == 2
+            self.invalid=True; return
+        valid=open_progress(self.task,row['joint_value']) >= self.required-1e-3 and len(row['finger_forces_n']) == 2
         if valid:
-            if start is None: start=row['time_s']
-            best=max(best,row['time_s']-start)
+            if self.start is None: self.start=row['time_s']
+            self.best=max(self.best,row['time_s']-self.start)
         else:
-            start=None
-    tail=samples[-1]['time_s']-start if start is not None else 0.
-    return {'status':'success' if tail >= hold_s-1e-6 else 'failure',
-            'reason':'physical_open' if tail >= hold_s-1e-6 else 'open_joint_or_contact_hold',
-            'required_progress':required,'final_progress':open_progress(task,samples[-1]['joint_value']),
-            'tail_hold_s':tail,'max_hold_s':best}
+            self.start=None
+
+    def verdict(self):
+        if self.health: return {'status':'simulation_failure','reason':self.health}
+        if self.count < 2:
+            return {'status':'failure','reason':'open_missing_hold'}
+        if self.invalid:
+            return {'status':'infrastructure_error','reason':'invalid_open_evidence'}
+        tail=self.last['time_s']-self.start if self.start is not None else 0.
+        return {'status':'success' if tail >= self.hold_s-1e-6 else 'failure',
+                'reason':'physical_open' if tail >= self.hold_s-1e-6 else 'open_joint_or_contact_hold',
+                'required_progress':self.required,'final_progress':open_progress(self.task,self.last['joint_value']),
+                'tail_hold_s':tail,'max_hold_s':self.best}
+
+
+def evaluate_open(task, samples, hold_s):
+    return OpenEvidence(task, hold_s).extend(samples).verdict()

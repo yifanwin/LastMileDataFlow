@@ -10,7 +10,7 @@ import numpy as np
 from .lifecycle import isolated_episode, track_resource, mark_episode_phase, classify_episode_exception, episode_phase
 from ...utils.logging_config import trial_progress
 from ...utils.io import canonical, write_json
-from ...data.recorder import AttemptRecorder
+from ...data.recorder import AttemptRecorder, NullTrace
 from ...data.rendering.head_views import head_frame
 from ...data.rendering.edit_views import ViewConfig
 from ...data.rendering.analysis_video import AnalysisVideo
@@ -19,7 +19,7 @@ from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.contacts import ContactSampler, ContactStatistics, NavigationContacts, simulation_failure, SIMULATION_FAILURES, CONTACT_POLICY, contact_observations
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import torso_tracking_error
-from ..outcomes.vla import constraint, evaluate, PROTOCOL
+from ..outcomes.vla import constraint, PROTOCOL, TaskEvidence
 from ..control.action import InvalidAction
 from .context import clone_sim, OperationFailure
 from .navigation import navigate
@@ -37,6 +37,62 @@ def first_point(sim, task):
     return {task['instance_id']:{'head_camera':{'points':point,'num_points':np.array([1])}}}, mask
 
 
+class OperationEvidence:
+    """Per-physics-tick facts, constraint checks and the streaming task verdict of one rollout."""
+
+    def __init__(self, sim, task, config, physics, *, phase):
+        self.sim, self.task, self.physics, self.phase = sim, task, physics, phase
+        self.record_physics = not isinstance(physics, NullTrace)   # skip per-tick JSON nobody keeps
+        self.fingers = {body for side in sim.robot.arms for group in sim.robot.finger_bodies(side) for body in group}
+        self.monitors = {side:PickMonitor(sim,side,allowed_target_fingers=self.fingers) for side in sim.robot.arms}
+        self.primary = next(iter(self.monitors.values()))
+        for monitor in self.monitors.values():
+            monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=config.radius_m)
+        self.samples = {side:[] for side in self.monitors}
+        self.contact_stats = ContactStatistics()
+        self.sampler = ContactSampler(sim)
+        self.tasks = TaskEvidence(task, {s:m.initial for s,m in self.monitors.items()}, config.open_hold_s)
+        self.failures = []
+
+    def check(self):
+        sim, task, failures = self.sim, self.task, self.failures
+        health=simulation_failure(sim)
+        if health:
+            failures.append(health)
+            if self.record_physics:
+                self.physics.write(canonical({'time_s':float(sim.data.time),'issue':health,
+                                              'state':sim.observe_state()})+b'\n')
+            return {'valid':False,'issues':[health]}
+        mujoco.mj_forward(sim.model,sim.data)
+        # One contact pass per tick, shared by telemetry and every hand monitor.
+        frame=self.sampler.capture(target_bodies=self.primary.target_bodies,fingers=self.fingers)
+        contacts=frame.observations()
+        self.contact_stats.update(contacts)
+        row={'time_s':float(sim.data.time),'collisions':contacts,'hands':{},'ctrl':sim.data.ctrl.tolist()}
+        for side,monitor in self.monitors.items():
+            monitor.phase=self.phase
+            monitor.command_h=sim.robot.control_height()
+            facts=monitor.sample(frame)
+            if 'torso' in facts:
+                facts['torso_tracking_error_rad'] = torso_tracking_error(facts)
+            else:
+                facts['lift_tracking_error_m'] = abs(facts['lift']-sim.robot.control_height())
+            facts['torso_error_policy'] = 'record_only'
+            if task['operation']=='open':
+                joint=sim.model.joint(task['joint_name']).id
+                facts['joint_value']=float(sim.data.qpos[sim.model.jnt_qposadr[joint]])
+            self.samples[side].append(facts); row['hands'][side]=facts
+            self.tasks.add(side, facts)
+            violation=constraint(facts,monitor.initial)
+            if violation: failures.append(violation)
+        if self.record_physics:
+            self.physics.write(canonical(row)+b'\n')
+        return {'valid':not failures,'issues':sorted(set(failures))}
+
+    def verdict(self):
+        return self.tasks.verdict()
+
+
 @isolated_episode
 def run_vla_attempt(baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None):
     sim = clone_sim(baseline, target=task['target_body'], handle=task.get('handle_body')); place_frozen_station(sim,station)
@@ -52,18 +108,15 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
         'scene':getattr(baseline, 'scene_id', None)}
     recorder = AttemptRecorder(root,packet,attempt_id=attempt_id)
     recorder.bind_simulation(sim, width=width, height=height)
-    all_fingers = {body for side in sim.robot.arms for group in sim.robot.finger_bodies(side) for body in group}
-    monitors = {side:PickMonitor(sim,side,allowed_target_fingers=all_fingers) for side in sim.robot.arms}
-    primary_monitor = next(iter(monitors.values()))
-    for monitor in monitors.values():
-        monitor.initial.update(workspace_center_xy=task['anchor_world'][:2],workspace_radius_m=config.radius_m)
-    samples = {side:[] for side in monitors}; contact_stats=ContactStatistics(); collisions=contact_stats.examples
     contact_sampler = ContactSampler(sim)
     navigation_contacts = NavigationContacts()
     initial_height = float(sim.data.xpos[sim.target_id,2]); frames=None
     analysis = AnalysisVideo(task,station,radius_m=config.radius_m) if config.third_person_enabled and collection.video_cameras is None else None
     from ...data.recorder import open_trace
     physics = track_resource(open_trace(recorder.path/'physics.jsonl.gz', collection.record_physics))
+    evidence = OperationEvidence(sim, task, config, physics, phase='vla_operation')
+    all_fingers, monitors, primary_monitor = evidence.fingers, evidence.monitors, evidence.primary
+    samples, contact_stats = evidence.samples, evidence.contact_stats; collisions=contact_stats.examples
     actions = track_resource(open_trace(recorder.path/'policy_actions.jsonl.gz', collection.record_physics))
     requests = track_resource(open_trace(recorder.path/'policy_requests.jsonl.gz', collection.record_physics))
     status='infrastructure_error'; reason='unfinished'; verdict=None; exception_detail=None
@@ -178,36 +231,8 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
                 action = execution_action(sim.robot, action)
             # Compose initial overlay before physics, with initial facts and clock.
             initial_video = video(frames) if step==0 else None
-            failures=[]
-            def check():
-                health=simulation_failure(sim)
-                if health:
-                    failures.append(health)
-                    physics.write(canonical({'time_s':float(sim.data.time),'issue':health,
-                                             'state':state()})+b'\n')
-                    return {'valid':False,'issues':[health]}
-                mujoco.mj_forward(sim.model,sim.data)
-                contacts=contact_observations(sim,target_bodies=primary_monitor.target_bodies,
-                                        fingers=all_fingers)
-                contact_stats.update(contacts)
-                row={'time_s':float(sim.data.time),'collisions':contacts,'hands':{},'ctrl':sim.data.ctrl.tolist()}
-                for side,monitor in monitors.items():
-                    monitor.phase='vla_operation'
-                    monitor.command_h=sim.robot.control_height()
-                    facts=monitor.sample()
-                    if 'torso' in facts:
-                        facts['torso_tracking_error_rad'] = torso_tracking_error(facts)
-                    else:
-                        facts['lift_tracking_error_m'] = abs(facts['lift']-sim.robot.control_height())
-                    facts['torso_error_policy'] = 'record_only'
-                    if task['operation']=='open':
-                        joint=sim.model.joint(task['joint_name']).id
-                        facts['joint_value']=float(sim.data.qpos[sim.model.jnt_qposadr[joint]])
-                    samples[side].append(facts); row['hands'][side]=facts
-                    violation=constraint(facts,monitor.initial)
-                    if violation: failures.append(violation)
-                physics.write(canonical(row)+b'\n')
-                return {'valid':not failures,'issues':sorted(set(failures))}
+            failures=evidence.failures=[]
+            check=evidence.check
             if not sim.started: sim.begin()
             command,stop=policy_step(action,substep_check=check,command_raw=response['raw_action'])
             actions.write(canonical({'step':step,'time_s':before,
@@ -223,7 +248,7 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
                 status='simulation_failure' if reason in SIMULATION_FAILURES else 'failure'
                 break
             if step%8==7 or step==policy.config.task_horizon-1:
-                verdict=evaluate(task,samples,{s:m.initial for s,m in monitors.items()},config.open_hold_s)
+                verdict=evidence.verdict()
                 if verdict['status'] in ('success','infrastructure_error','simulation_failure'):
                     status=verdict['status']; reason=verdict['reason']; break
         else:
@@ -257,7 +282,7 @@ def run_vla_attempt(baseline, task, station, config, collection, *, root, attemp
         physics.close(); actions.close(); requests.close()
         termination = {'status': 'completed' if status in ('success', 'failure') else status, 'reason': reason}
         if status == 'timeout':
-            verdict = evaluate(task, samples, {side: monitor.initial for side, monitor in monitors.items()}, config.open_hold_s)
+            verdict = evidence.verdict()
             if verdict['status'] == 'success':
                 status, reason = 'success', verdict['reason']
         task_outcome = {'status': status if status in ('success', 'failure') else 'unknown', 'reason': reason}

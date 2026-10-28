@@ -74,9 +74,9 @@ class ExecutionConfig:
     def __post_init__(self):
         if not 0 <= self.lastmile_low < self.lastmile_high <= 1:
             raise ValueError('invalid low/high thresholds')
-        if self.operation_backend not in ('curobo', 'molmobot', 'pi05'):
+        if self.operation_backend not in ('curobo', 'molmobot', 'pi05', 'pyrua'):
             raise ValueError('unknown operation backend')
-        if self.operation_backend in ('molmobot', 'pi05') and not self.policy_config:
+        if self.operation_backend in ('molmobot', 'pi05', 'pyrua') and not self.policy_config:
             raise ValueError('VLA requires a policy config')
         if not 0 < self.head_fov_margin < 1:
             raise ValueError('invalid head FOV margin')
@@ -92,7 +92,7 @@ class ExecutionConfig:
             raise ValueError('S1 permits at most one outer retry')
         if self.max_attempts != 5:
             raise ValueError('V2 uses native plan_pose default max_attempts=5')
-        base_mode = 'policy_relative' if self.operation_backend in ('molmobot','pi05') else 'holonomic_joint_planning'
+        base_mode = 'policy_relative' if self.operation_backend in ('molmobot','pi05','pyrua') else 'holonomic_joint_planning'
         if self.operation_base_mode not in ((base_mode, 'fixed') if self.operation_backend == 'curobo' else (base_mode,)):
             raise ValueError('operation base mode does not match backend')
         if self.operation_backend == 'molmobot' and (self.width, self.height) != (1024, 576):

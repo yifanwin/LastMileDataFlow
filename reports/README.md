@@ -5,6 +5,8 @@
 
 ## 验证边界
 
+- [PyRUA 原生策略接入项目场景与 benchmark](pyrua/plan/01-mobile-policy-integration.md)：在 `exp/pyrua-native` 工作区直接接入本项目场景、S0 和评测，保留 PyRUA Agent 与原生原语算法，适配环境观测、动作和任务反馈；不安排外部 RoboCasa 任务复现。已完成方案修订，尚未实现或运行真实试验。
+
 - [PandaOmron 标定修复与排查方案](no-edit-calibration/plan/03-calibration-repair-and-diagnosis.md)：按任务绑定修复、碰撞几何对照、残余执行问题和小批次复核推进；采样参数调整不在范围内。当前仅完成方案，尚未实施修复。
 
 - benchmark 静态构建图与评测组合图已解耦，按最新要求输出 PNG；已有 RBY-1 两条 rollout 的 head / 第三人称共四个视频单独保留，见[图片交付](benchmark/delivery/phase_02/2026-10-18-png.md)。

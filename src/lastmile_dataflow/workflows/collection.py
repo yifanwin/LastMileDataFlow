@@ -16,6 +16,7 @@ from ..utils.logging_config import Progress, trial_logging
 from ..runtime.simulation import Simulation
 from ..runtime.execution.curobo import run_curobo_attempt
 from ..runtime.execution.vla import run_vla_attempt
+from ..runtime.execution.agent import run_agent_attempt
 from ..scenes.dataset import load_scenes
 from ..runtime.execution_config import execution_profile, calibration_execution
 from ..data.evaluation.selection import station_calibration, eligible_stations, generate_pairs, evaluable
@@ -50,7 +51,12 @@ def _execute(baseline, scene, station, assets_dir, config, collection, root, see
                 attempt_id, scene['scene_id'], station['station_id'], config.operation_backend, seed)
     started = time.monotonic()
     # 按后端选择执行器，导航路径和目标站位沿用同一接口。
-    if config.operation_backend in ('molmobot', 'pi05'):
+    if config.operation_backend == 'pyrua':
+        if path is not None:
+            raise ValueError('the PyRUA agent drives the base itself; no planned navigation path')
+        result = run_agent_attempt(baseline, task, station, config, collection, root=root, attempt_id=attempt_id,
+                                   seed=seed, policy=policy)
+    elif config.operation_backend in ('molmobot', 'pi05'):
         result = run_vla_attempt(baseline, task, station, config, collection, root=root, attempt_id=attempt_id,
                                seed=seed, policy=policy, path=path, goal=goal)
     else:
@@ -529,7 +535,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     calibration_summary = None
     diagnosis_summary = None
     try:
-        if config.operation_backend in ('molmobot', 'pi05'):
+        if config.operation_backend in ('molmobot', 'pi05', 'pyrua'):
             from ..policies.config import create_policy
             logs = Path(output_dir) / 'logs'
             logs.mkdir(parents=True, exist_ok=True)

@@ -132,7 +132,12 @@
 │   ├── task_evidence_initial.json # 初始任务证据（有实际执行时）
 │   ├── attached_object.json       # 抓取几何拟合结果（发生过抓取规划时）
 │   ├── events.jsonl               # 任务判定事件（当前仅成功判定写入）
-│   └── verdict-<n>.json           # 失败判定协议快照（仅部分 attempt）
+│   ├── verdict-<n>.json           # 失败判定协议快照（仅部分 attempt）
+│   └── agent/                     # pyrua 后端：该 rollout 的策略信息，不含第二套物理轨迹
+│       ├── result.json / prompt.txt / card.json  # PyRUA 结果、实际 prompt、step-0 任务卡
+│       ├── tool_turns.json / calls.jsonl         # 每个 cell 与输出；原语调用台账
+│       ├── codex_events.jsonl / last_message.md  # 模型交互与 token
+│       └── rpent/                 # RPent 观测存储：每次原语后的三相机图、深度、world map（最近 25 步）
 ├── planning/<query_id>/           # 规划查询目录：<rollout_id>-batch 或 <rollout_id>-q<n>
 │   ├── query.json                 # 查询身份与预算
 │   ├── batch_grasp_result.json    # 批量抓取结果（-batch）

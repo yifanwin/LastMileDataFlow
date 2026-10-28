@@ -1,0 +1,16 @@
+{
+  "operation_backend": "pyrua",
+  "policy_config": "configs/policies/pyrua_panda_omron.json",
+  "operation_base_mode": "policy_relative",
+  "third_person_enabled": true,
+  "width": 256,
+  "height": 256,
+  "head_fov_enabled": false,
+  "trials_per_station": 1,
+  "attempt_timeout_s": 2400.0,
+  "operations": [
+    "pick",
+    "open"
+  ],
+  "seed": 42
+}

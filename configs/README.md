@@ -25,7 +25,7 @@
 | [task_modes](task_modes/README.md) | 新模式配方、共享阈值与三次标定配置 | 公开 build-scenes v2 八类候选；统一诊断及 train/val 下游消费 |
 | [execution](execution/README.md) | `evaluate-stations / collect-lastmile --config` | 逐站位执行和标定 |
 | [lastmile_datasets](lastmile_datasets/README.md) | `collect-lastmile --config` | S0→S1→操作的连续采集参数 |
-| [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot / π0.5 模型服务 |
+| [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot / π0.5 模型服务；PyRUA 代码 Agent |
 | [benchmark](benchmark/README.md) | `build-bench --config` | 恢复区域、路径、≤20% / ≥60% 阈值及评测预算 |
 | [robots](robots/README.md) | 机器人加载器；构造时由场景配方引用具体文件 | 机器人模型与控制；评测读取快照中的机器人配置 |
 | [scene_eval](scene_eval/README.md) | `evaluate-stations --config` | 与 execution/MolmoBot 同参数的预设 |

@@ -120,6 +120,78 @@ def constraint_failure(row,initial, *, check_base=True,check_torso=True,check_id
     return None
 
 
+class PickEvidence:
+    """逐行累加的 strict-pick 判定；结论与对完整样本列表一次性判定完全相同。
+
+    长 episode 每次查询都重扫全部样本是平方开销；这里只处理新行，
+    并按原判定的优先级（字段缺失 → 时间断裂 → 首个逐行结论 → 保持时长）给结论。
+    """
+
+    def __init__(self, initial, *, constraint_checker=constraint_failure):
+        self.initial, self.constraint_checker = initial, constraint_checker
+        self.required={'time_s','phase','base','target','height_m','support_contact','finger_forces_n','relative_pose','illegal','sampler'}
+        self.required |= {'lift'} if 'lift' in initial else {'command_h','torso','head','idle_arm'}
+        self.count=0; self.missing=False; self.gap=False; self.row_result=None
+        self.last_time=None; self.last_phase=None
+        self.start=None; self.reference=None; self.best=0.; self.max_lift=0.
+
+    def extend(self, samples):
+        for r in samples:
+            self.add(r)
+        return self
+
+    def add(self, r):
+        self.count+=1
+        # 先做“证据完整性”检查：字段缺失或采样器版本不对 → 这是设施问题，不是抓取失败。
+        if self.missing or not self.required<=set(r) or r['sampler']!='force-aware-v3':
+            self.missing=True; return
+        # 时间必须严格递增且采样间隔不过大，否则“保持 2 秒”无从谈起。
+        t=r['time_s']
+        if not np.isfinite(t) or self.last_time is not None and (t-self.last_time<=0 or t-self.last_time>PROTOCOL['max_sample_gap_s']):
+            self.gap=True
+        self.last_time=t; self.last_phase=r['phase']
+        if self.row_result is None:
+            try:
+                self.row_result=self._row(r)
+            except (TypeError,ValueError,KeyError):
+                self.row_result={'status':'infrastructure_error','reason':'malformed_physics_evidence'}
+
+    def _row(self, r):
+        initial=self.initial
+        numeric=np.concatenate([np.atleast_1d(r[key]) for key in ('base','torso','head','idle_arm','lift','height_m','command_h') if key in r])
+        pose=np.asarray(r['relative_pose']); forces={int(k):float(v) for k,v in r['finger_forces_n'].items()}
+        # 数值合法性：四元数/旋转矩阵/力的非有限值或非法值都算证据无效。
+        if (not np.isfinite(numeric).all() or pose.shape!=(4,4) or not np.isfinite(pose).all() or
+            not np.allclose(pose[3],[0,0,0,1]) or not np.allclose(pose[:3,:3].T@pose[:3,:3],np.eye(3),atol=1e-5) or not np.isclose(np.linalg.det(pose[:3,:3]),1) or
+            any(not np.isfinite(v) or v<=PROTOCOL['finger_force_min_n'] for v in forces.values())):
+            return {'status':'infrastructure_error','reason':'invalid_physics_evidence'}
+        fail=self.constraint_checker(r,initial)
+        # 任何一行违约 → 直接 failure，并记录首个违约来自哪个阶段/时刻（便于归因）。
+        if fail: return {'status':'simulation_failure' if fail in ('nonfinite_state','mujoco_warning') else 'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
+        lift=r['height_m']-initial['height_m']; self.max_lift=max(self.max_lift,lift)
+        held=(set(forces)==set(initial['fingers']) and len(forces)==2 and lift>=PROTOCOL['lift_m'] and r['support_contact'] is False)
+        if not held: self.start=None; self.reference=None; return None   # 没抓住的瞬间：清零保持计时
+        if self.start is None: self.start=r['time_s']; self.reference=pose
+        # 相对位姿漂移过大 = 滑了：重开保持计时窗口
+        if np.linalg.norm(pose[:3,3]-self.reference[:3,3])>PROTOCOL['relative_translation_m'] or rotation_error(self.reference[:3,:3],pose[:3,:3])>PROTOCOL['relative_rotation_rad']:
+            self.start=r['time_s']; self.reference=pose
+        self.best=max(self.best,r['time_s']-self.start)
+        return None
+
+    def verdict(self):
+        if not self.count or self.missing:
+            return {'status':'infrastructure_error','reason':'missing_physics_evidence'}
+        if self.count<2 or self.gap:
+            return {'status':'infrastructure_error','reason':'physics_trace_gap'}
+        if self.row_result is not None:
+            return dict(self.row_result)
+        tail=self.last_time-self.start if self.start is not None else 0.
+        ok=tail>=PROTOCOL['hold_s']-1e-9
+        return {'status':'success' if ok else 'failure','reason':'strict_pick' if ok else 'lift_contact_hold_or_slip',
+                'first_failure_phase':None if ok else self.last_phase,'tail_held_s':float(tail),
+                'max_held_s':float(self.best),'max_lift_m':float(self.max_lift),'physics_samples':self.count}
+
+
 def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     """汇总全部物理样本，判定这次抓取尝试的最终结论。
 
@@ -127,40 +199,4 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     判定成功需要**同时满足**：两个指尖都承力、目标抬升 ≥ 5cm、目标已不靠桌面支撑，
     且上述状态连续保持 ≥ 2s（允许期间因滑移重开计时窗口）。
     """
-    required={'time_s','phase','base','target','height_m','support_contact','finger_forces_n','relative_pose','illegal','sampler'}
-    required |= {'lift'} if 'lift' in initial else {'command_h','torso','head','idle_arm'}
-    # 先做“证据完整性”检查：字段缺失或采样器版本不对 → 这是设施问题，不是抓取失败。
-    if not samples or any(not required<=set(r) or r['sampler']!='force-aware-v3' for r in samples):
-        return {'status':'infrastructure_error','reason':'missing_physics_evidence'}
-    times=np.array([r['time_s'] for r in samples])
-    # 时间必须严格递增且采样间隔不过大，否则“保持 2 秒”无从谈起。
-    if len(times)<2 or not np.isfinite(times).all() or np.any(np.diff(times)<=0) or np.max(np.diff(times))>PROTOCOL['max_sample_gap_s']:
-        return {'status':'infrastructure_error','reason':'physics_trace_gap'}
-    start=None; reference=None; best=0.; max_lift=0.
-    try:
-        for r in samples:
-            numeric=np.concatenate([np.atleast_1d(r[key]) for key in ('base','torso','head','idle_arm','lift','height_m','command_h') if key in r])
-            pose=np.asarray(r['relative_pose']); forces={int(k):float(v) for k,v in r['finger_forces_n'].items()}
-            # 数值合法性：四元数/旋转矩阵/力的非有限值或非法值都算证据无效。
-            if (not np.isfinite(numeric).all() or pose.shape!=(4,4) or not np.isfinite(pose).all() or
-                not np.allclose(pose[3],[0,0,0,1]) or not np.allclose(pose[:3,:3].T@pose[:3,:3],np.eye(3),atol=1e-5) or not np.isclose(np.linalg.det(pose[:3,:3]),1) or
-                any(not np.isfinite(v) or v<=PROTOCOL['finger_force_min_n'] for v in forces.values())):
-                return {'status':'infrastructure_error','reason':'invalid_physics_evidence'}
-            fail=constraint_checker(r,initial)
-            # 任何一行违约 → 直接 failure，并记录首个违约来自哪个阶段/时刻（便于归因）。
-            if fail: return {'status':'simulation_failure' if fail in ('nonfinite_state','mujoco_warning') else 'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
-            lift=r['height_m']-initial['height_m']; max_lift=max(max_lift,lift)
-            held=(set(forces)==set(initial['fingers']) and len(forces)==2 and lift>=PROTOCOL['lift_m'] and r['support_contact'] is False)
-            if not held: start=None; reference=None; continue   # 没抓住的瞬间：清零保持计时
-            if start is None: start=r['time_s']; reference=pose
-            # 相对位姿漂移过大 = 滑了：重开保持计时窗口
-            if np.linalg.norm(pose[:3,3]-reference[:3,3])>PROTOCOL['relative_translation_m'] or rotation_error(reference[:3,:3],pose[:3,:3])>PROTOCOL['relative_rotation_rad']:
-                start=r['time_s']; reference=pose
-            best=max(best,r['time_s']-start)
-        tail=times[-1]-start if start is not None else 0.
-        ok=tail>=PROTOCOL['hold_s']-1e-9
-        return {'status':'success' if ok else 'failure','reason':'strict_pick' if ok else 'lift_contact_hold_or_slip',
-                'first_failure_phase':None if ok else samples[-1]['phase'],'tail_held_s':float(tail),
-                'max_held_s':float(best),'max_lift_m':float(max_lift),'physics_samples':len(samples)}
-    except (TypeError,ValueError,KeyError):
-        return {'status':'infrastructure_error','reason':'malformed_physics_evidence'}
+    return PickEvidence(initial,constraint_checker=constraint_checker).extend(samples).verdict()

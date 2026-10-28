@@ -78,6 +78,10 @@ pipeline 默认每站位两次试验，仍会遍历所选场景的全部站位�
 
 `smoke/pi05.py` 提供真权重 model、实际 observation/control/tracking 和固定场景 rollout。合成观测推理与实际策略执行分别标记，命令与已验证边界见 [π0.5 指南](../reports/pi05/docs/01-running.md)。可选 LeRobot 转换测试需要 `pi05-data` extra。
 
+## PyRUA
+
+`policies/test_pyrua.py` 只检查软件边界：配置与 profile、原生 12D 动作到 `robocasa-v1` 的转换（夹爪 sign、底盘稳态速度对齐）、world map 反投影、EGL 线程归属、流式判定与逐行重算一致、prompt 文本替换和 RLDX 动作拼装。`smoke/pyrua.py` 是显式真实入口：默认（P1）在一个 bench episode 上用固定代码依次执行观测、底盘、末端、夹爪和 RLDX-1，报告 world map 射线误差、底盘方向等实测值；`--agent`（P2）改为真实 PyRUA Agent。两者都要求 `scripts/install_pyrua.sh` 准备的源码与权重、GPU 和（P2）可用的 Codex 登录。
+
 ## Panda 双池软件检查
 
 ```bash
