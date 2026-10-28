@@ -108,7 +108,9 @@ planner 统一调用 `robot.planning_model(sim, config, side, path, workspace)`�
 ### 碰撞导出 per-geom
 
 - 不使用家具级 AABB 作为精确几何
-- 导出 MuJoCo 每个 geom 的实际 mesh/primitive
+- 导出 MuJoCo 每个 geom 的碰撞形状：primitive 网格化，mesh geom 取其凸包（与 MuJoCo 物理一致）
+- 每个导出网格都是封闭的：cuRobo 0.8.0 用 Warp 射线奇偶判断内外，只对封闭网格可靠；把不封闭的原始 mesh 合并成整屋网格时，自由空间会被判成障碍内部，且随坐标系变化
+- 凸包重叠的区域内，奇偶会把点判为外部；机器人从外部接近时先触及外表面
 - 目标单独导出为 target-only checker，允许手指接触
 - Open 任务的 handle 单独导出为 handle-only checker
 

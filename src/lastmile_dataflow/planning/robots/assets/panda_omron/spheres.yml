@@ -1,65 +1,62 @@
 collision_spheres:
   omron_base:
-  - center:
-    - -0.42
-    - -0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - -0.42
-    - -0.13
-    - 0.28
-    radius: 0.21
-  - center:
-    - -0.42
-    - 0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - -0.42
-    - 0.13
-    - 0.28
-    radius: 0.21
-  - center:
-    - -0.18
-    - -0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - -0.18
-    - -0.13
-    - 0.28
-    radius: 0.21
-  - center:
-    - -0.18
-    - 0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - -0.18
-    - 0.13
-    - 0.28
-    radius: 0.21
-  - center:
-    - 0.04
-    - -0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - 0.04
-    - -0.13
-    - 0.28
-    radius: 0.21
-  - center:
-    - 0.04
-    - 0.13
-    - 0.1
-    radius: 0.21
-  - center:
-    - 0.04
-    - 0.13
-    - 0.28
-    radius: 0.21
+  # Chassis box (0.70 x 0.50 x 0.38 m, x in [-0.55, 0.15] here) covered by the
+  # circumscribed spheres of cell-aligned sub-blocks (set-cover ILP,
+  # scripts/experiments/n4_chassis_spheres.py; identical spheres written once):
+  # the solid is fully covered and, with the 2 mm buffer, spheres extend <= 3.6 cm
+  # past the sides and <= 6.2 cm above the top (floor side unbounded). The former
+  # 12 r=0.21 spheres extended 10.7 cm and rejected stations 4-7 cm clear of furniture.
+  - {center: [-0.5000, -0.2000, 0.1603], radius: 0.0776}
+  - {center: [-0.5000, -0.2000, 0.2237], radius: 0.0776}
+  - {center: [-0.5000, -0.2000, 0.2870], radius: 0.0775}
+  - {center: [-0.5000, -0.2000, 0.3503], radius: 0.0776}
+  - {center: [-0.5000, 0.2000, 0.1603], radius: 0.0776}
+  - {center: [-0.5000, 0.2000, 0.2237], radius: 0.0776}
+  - {center: [-0.5000, 0.2000, 0.2870], radius: 0.0775}
+  - {center: [-0.5000, 0.2000, 0.3503], radius: 0.0776}
+  - {center: [-0.4875, -0.1875, 0.0337], radius: 0.0940}
+  - {center: [-0.4875, -0.1875, 0.0970], radius: 0.0939}
+  - {center: [-0.4875, 0.1875, 0.0337], radius: 0.0940}
+  - {center: [-0.4875, 0.1875, 0.0970], radius: 0.0939}
+  - {center: [-0.4625, -0.1000, 0.3187], radius: 0.1191}
+  - {center: [-0.4625, 0.0000, 0.3187], radius: 0.1191}
+  - {center: [-0.4625, 0.1000, 0.3187], radius: 0.1191}
+  - {center: [-0.4000, -0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.4000, 0.0125, 0.2553], radius: 0.1837}
+  - {center: [-0.4000, 0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.3750, -0.0750, 0.1762], radius: 0.2063}
+  - {center: [-0.3750, 0.0750, 0.1762], radius: 0.2063}
+  - {center: [-0.3625, -0.0625, 0.1762], radius: 0.2216}
+  - {center: [-0.3625, 0.0625, 0.1762], radius: 0.2216}
+  - {center: [-0.3000, -0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.3000, 0.0000, 0.0495], radius: 0.2836}
+  - {center: [-0.3000, 0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.2000, -0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.2000, 0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.1875, 0.0000, 0.1603], radius: 0.2815}
+  - {center: [-0.1625, 0.0000, 0.1920], radius: 0.2463}
+  - {center: [-0.1000, -0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.1000, 0.0000, 0.0495], radius: 0.2836}
+  - {center: [-0.1000, 0.1625, 0.3187], radius: 0.1191}
+  - {center: [-0.0250, -0.0750, 0.1762], radius: 0.2063}
+  - {center: [-0.0250, 0.0750, 0.1762], radius: 0.2063}
+  - {center: [0.0000, -0.1625, 0.3187], radius: 0.1191}
+  - {center: [0.0000, 0.1625, 0.3187], radius: 0.1191}
+  - {center: [0.0625, -0.1000, 0.3187], radius: 0.1191}
+  - {center: [0.0625, 0.0000, 0.3187], radius: 0.1191}
+  - {center: [0.0625, 0.1000, 0.3187], radius: 0.1191}
+  - {center: [0.0875, -0.1875, 0.0337], radius: 0.0940}
+  - {center: [0.0875, -0.1875, 0.0970], radius: 0.0939}
+  - {center: [0.0875, 0.1875, 0.0337], radius: 0.0940}
+  - {center: [0.0875, 0.1875, 0.0970], radius: 0.0939}
+  - {center: [0.1000, -0.2000, 0.1603], radius: 0.0776}
+  - {center: [0.1000, -0.2000, 0.2237], radius: 0.0776}
+  - {center: [0.1000, -0.2000, 0.2870], radius: 0.0775}
+  - {center: [0.1000, -0.2000, 0.3503], radius: 0.0776}
+  - {center: [0.1000, 0.2000, 0.1603], radius: 0.0776}
+  - {center: [0.1000, 0.2000, 0.2237], radius: 0.0776}
+  - {center: [0.1000, 0.2000, 0.2870], radius: 0.0775}
+  - {center: [0.1000, 0.2000, 0.3503], radius: 0.0776}
   - center:
     - -0.12
     - -0.08

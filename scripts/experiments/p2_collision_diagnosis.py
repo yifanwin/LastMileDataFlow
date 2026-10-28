@@ -35,8 +35,8 @@ from lastmile_dataflow.scenes.geometry import descendants
 # MuJoCo collision geom each group covers. The lift column rides on
 # panda_link0 (torso_height); the fixed column stays on omron_base.
 PARTS = {
-    'chassis': ('omron_base', range(0, 12), 'mobilebase0_pedestal_feet_col'),
-    'fixed_column': ('omron_base', range(12, 20), 'mobilebase0_g0_col'),
+    'chassis': ('omron_base', range(0, 51), 'mobilebase0_pedestal_feet_col'),
+    'fixed_column': ('omron_base', range(51, 59), 'mobilebase0_g0_col'),
     'lift_column': ('panda_link0', range(1, 9), 'mobilebase0_g1_col'),
     'link0': ('panda_link0', range(0, 1), 'robot0_link0_collision'),
 }
@@ -193,7 +193,8 @@ def known_cases(sdf):
 
 
 def load_station(entry):
-    base = Path('outputs/_calibration_inputs') / entry['run']
+    # The run's own input directory, absolute: read_config resolves relative paths against the package root.
+    base = Path(json.loads((Path('outputs') / entry['run'] / 'config.json').read_text())['dataset']).resolve()
     scene = next(json.loads(line) for line in (base / 'scenes.jsonl').read_text().splitlines()
                  if json.loads(line)['scene_id'] == entry['scene'])
     baseline = base / scene['scene']
@@ -219,6 +220,10 @@ def planning_spheres(sim, model, device):
         device.to_device(np.asarray(q, np.float32)).view(1, -1), joint_names=list(kinematics.joint_names)))
     local = state.robot_spheres.reshape(-1, 4).detach().cpu().numpy().astype(float)
     params = kinematics.config.kinematics_config
+    for link in {link for link, _, _ in PARTS.values()}:
+        listed = sorted(i for name, indices, _ in PARTS.values() if name == link for i in indices)
+        if listed != list(range(len(params.get_sphere_index_from_link_name(link)))):
+            raise ValueError(f'PARTS does not split every {link} sphere exactly once; update it with spheres.yml')
     result = {}
     for part, (link, indices, _) in PARTS.items():
         rows = params.get_sphere_index_from_link_name(link).tolist()
@@ -232,6 +237,18 @@ def planning_spheres(sim, model, device):
 def physical_geoms(sim):
     m, ns = sim.model, sim.robot.config.namespace
     return {part: m.geom(ns + name).id for part, (_, _, name) in PARTS.items()}
+
+
+def chassis_uncovered(sim, s, buffer, step=.01):
+    """Largest distance from a point of the physical chassis box (1 cm grid, faces and
+    corners included) to the nearest chassis sphere without the buffer; <= 0 means covered."""
+    m, d = sim.model, sim.data
+    g = physical_geoms(sim)['chassis']
+    axes = [np.linspace(-h, h, int(np.ceil(2 * h / step)) + 1) for h in m.geom_size[g]]
+    local = np.stack(np.meshgrid(*axes, indexing='ij'), -1).reshape(-1, 3)
+    world = local @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
+    gap = np.linalg.norm(world[:, None] - s['centers_world'][None], axis=-1) - (s['radii'] - buffer)[None]
+    return round(float(gap.min(axis=1).max()), 5)
 
 
 def world_verdict(sim, model, sdf, spheres, range_m, directory):
@@ -279,9 +296,9 @@ def pair_rows(sim, sdf, spheres, worlds):
     return rows
 
 
-def pair_row(m, d, sdf, checker, s, part, g_robot, world, g, gap):
+def physical_distance(m, d, g_robot, g):
+    """mj_geomDistance with the hull-QP check; `accepted_m` is None when neither is reliable."""
     physics = geom_distance(m, d, g_robot, g)
-    alternate = with_ccd(m, not native_ccd(m), lambda: geom_distance(m, d, g_robot, g))
     value = physics['signed_distance_m']
     if not physics['witness_consistent'] or (value is not None and value < .1):
         a, b = hull_points(m, d, g_robot), hull_points(m, d, g)
@@ -296,6 +313,12 @@ def pair_row(m, d, sdf, checker, s, part, g_robot, world, g, gap):
     else:
         accepted = value if physics['witness_consistent'] and value is not None and value <= 1e-3 else None
     physics['accepted_m'] = accepted
+    return physics
+
+
+def pair_row(m, d, sdf, checker, s, part, g_robot, world, g, gap):
+    physics = physical_distance(m, d, g_robot, g)
+    alternate = with_ccd(m, not native_ccd(m), lambda: geom_distance(m, d, g_robot, g))
     centers = sdf.center_sdf(checker, s['centers_world'])
     clearance = [None if c is None else round(c - r, 5) for c, r in zip(centers, s['radii'])]
     known = [(c, i) for i, c in enumerate(clearance) if c is not None]
@@ -401,6 +424,8 @@ def main():
             planning_frame_world=model.base.round(5).tolist(), native_ccd=native_ccd(m),
             ccd_iterations=int(m.opt.ccd_iterations), ccd_tolerance=float(m.opt.ccd_tolerance),
             exported_geoms={k: len(v) for k, v in worlds.items()}, planner_world_verdict=verdict,
+            chassis_box_max_uncovered_m=chassis_uncovered(
+                sim, spheres['chassis'], model.cfg['kinematics']['collision_sphere_buffer']),
             spheres={part: {'link': s['link'], 'link_sphere_indices': s['link_sphere_indices'],
                             'centers_world': s['centers_world'].round(4).tolist(), 'radii_m': s['radii'].round(4).tolist()}
                      for part, s in spheres.items()},

@@ -157,3 +157,28 @@ class V2ModelTests(unittest.TestCase):
         self.assertAlmostEqual(actions[-1][0], 0.00125)
         self.assertEqual(actions[-1][10], -0.05)
         np.testing.assert_equal(actions[-1][11:18], 0)
+
+
+class CollisionWorldTests(unittest.TestCase):
+    def test_exported_mesh_geoms_are_closed_convex_hulls_as_mujoco_collides_them(self):
+        import mujoco
+        import trimesh
+        from lastmile_dataflow.planning.curobo.collision_world import exported_geoms
+        # An open L-shaped strip (no caps): ray parity on it is unreliable, its hull is not.
+        m = mujoco.MjModel.from_xml_string("""<mujoco><asset>
+          <mesh name="ell" vertex="0 0 0  1 0 0  1 .2 0  .2 .2 0  .2 1 0  0 1 0
+                                   0 0 .1 1 0 .1 1 .2 .1 .2 .2 .1 .2 1 .1 0 1 .1"/></asset><worldbody>
+          <body name="shelf"><geom name="ell" type="mesh" mesh="ell"/><geom name="leg" type="box" size=".05 .05 .3" pos="2 0 .3"/></body>
+          <body name="cup" pos="0 2 .1"><freejoint/><geom name="cup" type="cylinder" size=".04 .05"/></body>
+          </worldbody></mujoco>""")
+        d = mujoco.MjData(m)
+        mujoco.mj_forward(m, d)
+        sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
+        world = {m.geom(g).name: trimesh.Trimesh(v, f, process=False) for g, v, f in exported_geoms(sim, np.eye(4), 5.)}
+        self.assertEqual(set(world), {"ell", "leg"})
+        self.assertTrue(all(mesh.is_watertight and mesh.is_winding_consistent for mesh in world.values()))
+        self.assertAlmostEqual(world["ell"].volume, trimesh.convex.convex_hull(world["ell"].vertices).volume)
+        # The hull fills the Ls notch, as MuJoCos convex collision does.
+        self.assertTrue(world["ell"].contains([[.6, .6, .05]])[0])
+        target = list(exported_geoms(sim, np.eye(4), 5., target_only=True))
+        self.assertEqual([m.geom(g).name for g, _, _ in target], ["cup"])

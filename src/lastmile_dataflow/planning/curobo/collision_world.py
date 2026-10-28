@@ -15,7 +15,8 @@ def exported_geoms(sim, base, range_m, *, target_only=False, bodies=None):
     The single selection rule shared by `collision_world` and diagnostics:
     robot, floor, non-colliding and out-of-range (XY enclosing radius) geoms
     are skipped; `bodies` (default: target subtree) are excluded, or are the
-    only geoms kept when `target_only`.
+    only geoms kept when `target_only`. Every yielded mesh is closed: primitives
+    are tessellated, mesh geoms are their convex hull as MuJoCo collides them.
     """
     import trimesh
     m,d=sim.model,sim.data
@@ -30,8 +31,13 @@ def exported_geoms(sim, base, range_m, *, target_only=False, bodies=None):
         if g in sim.planning_geometry:
             v, f = sim.planning_geometry[g]
         elif kind==mujoco.mjtGeom.mjGEOM_MESH:
-            mesh=int(m.geom_dataid[g]); va,vn=int(m.mesh_vertadr[mesh]),int(m.mesh_vertnum[mesh]); fa,fn=int(m.mesh_faceadr[mesh]),int(m.mesh_facenum[mesh])
-            v=m.mesh_vert[va:va+vn].copy(); f=m.mesh_face[fa:fa+fn].copy()
+            # MuJoCo collides a mesh geom as its convex hull; export that closed hull.
+            # cuRobo 0.8.0 signs distances with Warp ray parity, reliable only on
+            # watertight meshes: open raw meshes merged into one world turn free
+            # space into deep "inside", depending on the frame.
+            mesh=int(m.geom_dataid[g]); va,vn=int(m.mesh_vertadr[mesh]),int(m.mesh_vertnum[mesh])
+            hull=trimesh.convex.convex_hull(m.mesh_vert[va:va+vn])
+            v,f=np.asarray(hull.vertices),np.asarray(hull.faces)
         else:
             if kind==mujoco.mjtGeom.mjGEOM_BOX: obj=trimesh.creation.box(extents=2*size)
             elif kind in (mujoco.mjtGeom.mjGEOM_SPHERE,mujoco.mjtGeom.mjGEOM_ELLIPSOID):
