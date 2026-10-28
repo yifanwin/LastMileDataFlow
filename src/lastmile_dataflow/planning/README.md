@@ -11,9 +11,9 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
   - `StationPlannerCache`：每侧臂至多 1 个预闭合 planner，限同一冻结站位
   - `V2Planner`：规划主类，grasp/diagnostic_ik/grasp_batch/plan 入口
 - **context.py**：PlannerContext
-- **costs.py**：ContactManager，目标/把手接触掩码，FOV 代价
+- **costs.py**：ContactManager，目标/把手接触掩码，FOV 代价；导入即加载 cuRobo，仅由 planner 建 solver 时导入
 - **tracing.py**：solver/phase 追踪
-- **collision_world.py**：MuJoCo → cuRobo 碰撞世界导出，per-geom mesh
+- **collision_world.py**：MuJoCo → cuRobo 碰撞世界导出，per-geom mesh；`exported_geoms()` 是导出与诊断共用的 geom 选择规则
 - **head_fov.py**：head camera FOV 约束与验证，HeadFOVCost、SparseFOVValidator
 
 ### 机器人模型（`robots/`）
@@ -108,7 +108,9 @@ planner 统一调用 `robot.planning_model(sim, config, side, path, workspace)`�
 ### 碰撞导出 per-geom
 
 - 不使用家具级 AABB 作为精确几何
-- 导出 MuJoCo 每个 geom 的实际 mesh/primitive
+- 导出 MuJoCo 每个 geom 的碰撞形状：primitive 网格化，mesh geom 取其凸包（与 MuJoCo 物理一致）
+- 每个导出网格都是封闭的：cuRobo 0.8.0 用 Warp 射线奇偶判断内外，只对封闭网格可靠；把不封闭的原始 mesh 合并成整屋网格时，自由空间会被判成障碍内部，且随坐标系变化
+- 凸包重叠的区域内，奇偶会把点判为外部；机器人从外部接近时先触及外表面
 - 目标单独导出为 target-only checker，允许手指接触
 - Open 任务的 handle 单独导出为 handle-only checker
 

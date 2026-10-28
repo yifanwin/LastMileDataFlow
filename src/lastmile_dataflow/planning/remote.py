@@ -45,7 +45,7 @@ class PlanningClient:
         self.accept(response)
         self.ctx.plan_count = self.budget.plan_count
         if response.status == 'infrastructure_error':
-            from .curobo_v2 import PlannerUnavailable
+            from .curobo.planner import PlannerUnavailable
             raise PlannerUnavailable(response.diagnostics['reason'])
         if response.status == 'timeout' and 'result' not in response.plan:
             raise TimeoutError(response.diagnostics.get('reason', 'attempt_active_budget'))

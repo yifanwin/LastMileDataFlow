@@ -17,7 +17,7 @@ class PlanningService:
     """GPU-owned planning views; no state is written to a CPU execution instance."""
     def __init__(self):
         from ..runtime.simulation import SnapshotCache
-        from .curobo_v2 import PlannerResources
+        from .curobo.planner import PlannerResources
         self.scenes = SnapshotCache()
         self.planners = PlannerResources()
 
@@ -26,7 +26,7 @@ class PlanningService:
                                request.inputs['task']['target_body'])
 
     def execute(self, request):
-        from .curobo_v2 import V2Planner, bind_batch_seeds
+        from .curobo.planner import V2Planner, bind_batch_seeds
         from ..runtime.execution.context import clone_sim, planner_options, OperationFailure
         from ..runtime.execution.manipulation import candidate_pool, grasp_goals
 

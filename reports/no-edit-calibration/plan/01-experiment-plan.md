@@ -191,7 +191,7 @@ P0 试点完成后，全量从 `val_5` 继续，并复用试点 state：
 .venv/bin/python scripts/run_no_edit_pipeline.py \
   --recipe configs/scene_datasets/no_edit_val/remaining_005_999.json \
   --run-prefix no-edit-val-all \
-  --state outputs/_calibration_inputs/no-edit-pilot-state.json \
+  --state outputs/v1-no-edit/inputs/no-edit-pilot-state.json \
   ...
 ```
 

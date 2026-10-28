@@ -14,7 +14,6 @@ from ..evidence import lane_success, phase_evidence, solver_evidence, ik_probe_e
 from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
 from ..robots.rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world import collision_world
-from .costs import manager_type, fov_optimizer_configs
 from .context import PlannerContext
 from .tracing import SolverTrace, native_grasp_planner_type
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
@@ -291,6 +290,7 @@ class V2Planner:
         self.context.fov_tcp_frame = self.model.tcp_link
 
     def _create_motion(self, native, batch_size):
+        from .costs import manager_type, fov_optimizer_configs
         config = self.config
         extra_settings = {}
         if config.head_fov_enabled:

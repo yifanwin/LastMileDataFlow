@@ -153,11 +153,15 @@ def main(argv=None):
     parser.add_argument('--output-dir', type=Path, default=Path('outputs'))
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--driver-pid', type=int)
+    parser.add_argument('--run-prefix', default='no-edit-val-all',
+                        help='流水线 run 前缀；驱动日志为 logs/<前缀>-driver.log')
+    parser.add_argument('--pilot', help='计入统计的试点 run（墙钟从它的准备开始算）；省略时从首个 chunk 算')
     args = parser.parse_args(argv)
 
     state = json.loads(args.state.read_text())
     completed = state.get('completed', [])
-    driver_log = args.output_dir / 'logs' / 'no-edit-val-all-driver.log'
+    prefix = args.run_prefix
+    driver_log = args.output_dir / 'logs' / f'{prefix}-driver.log'
     total_chunks, house_ranges, order = driver_info(driver_log)
     last_driver = order[-1] if order else None
     current = last_driver if last_driver and last_driver not in completed else None
@@ -167,7 +171,17 @@ def main(argv=None):
     cache = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
     prep = {}
     prep_houses = {}
-    for path in (args.output_dir / '_calibration_inputs').glob('no-edit-*'):
+    inputs = args.output_dir / '_calibration_inputs'
+
+    # Runs/inputs are flat (legacy) or grouped as runs/<group>/<run>, inputs/<group>/<run>.
+    def run_dir(name):
+        return next(iter(sorted(args.output_dir.glob(f'runs/*/{name}'))), args.output_dir / name)
+
+    def input_dir(name):
+        return next(iter(sorted(args.output_dir.glob(f'inputs/*/{name}'))), inputs / name)
+
+    for path in [*inputs.glob(f'{prefix}-c*'), *args.output_dir.glob(f'inputs/*/{prefix}-c*'),
+                 *([inputs / args.pilot] if args.pilot else [])]:
         value = read_summary(path / 'summary.json', 'wall_elapsed_s')
         if value is not None:
             prep[path.name] = value
@@ -184,11 +198,11 @@ def main(argv=None):
     trial_total = tasks_total = stations_total = 0
     cal_completed = 0.0
     for run in completed:
-        cal_s = read_summary(args.output_dir / run / 'summary.json', 'elapsed_s') or 0.0
+        cal_s = read_summary(run_dir(run) / 'summary.json', 'elapsed_s') or 0.0
         cal_completed += cal_s
-        scene_ops = scene_operations(args.output_dir / '_calibration_inputs' / run / 'scenes.jsonl')
+        scene_ops = scene_operations(input_dir(run) / 'scenes.jsonl')
         counts, trials, success_scenes, success_ops, success_scene_ops, trial_ops = trial_counts(
-            args.output_dir / run / 'trials.jsonl', cache, scene_ops)
+            run_dir(run) / 'trials.jsonl', cache, scene_ops)
         trial_ops_total.update(trial_ops)
         task_ops_total.update(Counter(scene_ops.values()))
         status_total.update(counts)
@@ -198,7 +212,7 @@ def main(argv=None):
         success_ops_total.update(success_ops)
         for operation, scene_ids in success_scene_ops.items():
             success_scene_ops_total[operation].update(scene_ids)
-        tasks, stations = scene_counts(args.output_dir / '_calibration_inputs' / run / 'scenes.jsonl')
+        tasks, stations = scene_counts(input_dir(run) / 'scenes.jsonl')
         tasks_total += tasks
         stations_total += stations
         rows.append({'run': run, 'houses': house_ranges.get(run) or house_label(prep_houses.get(run, [])),
@@ -224,9 +238,9 @@ def main(argv=None):
     if current:
         start = timestamp(args.output_dir / 'logs' / f'{current}.log', r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*开始命令')
         current_elapsed = (now - start).total_seconds() if start else None
-        scene_ops = scene_operations(args.output_dir / '_calibration_inputs' / current / 'scenes.jsonl')
+        scene_ops = scene_operations(input_dir(current) / 'scenes.jsonl')
         counts, current_trials, success_scenes, success_ops, success_scene_ops, trial_ops = trial_counts(
-            args.output_dir / current / 'trials.jsonl', cache, scene_ops)
+            run_dir(current) / 'trials.jsonl', cache, scene_ops)
         trial_ops_total.update(trial_ops)
         task_ops_total.update(Counter(scene_ops.values()))
         status_total.update(counts)
@@ -240,7 +254,7 @@ def main(argv=None):
         success_ops_total.update(success_ops)
         for operation, scene_ids in success_scene_ops.items():
             success_scene_ops_total[operation].update(scene_ids)
-        current_tasks, stations = scene_counts(args.output_dir / '_calibration_inputs' / current / 'scenes.jsonl')
+        current_tasks, stations = scene_counts(input_dir(current) / 'scenes.jsonl')
         tasks_total += current_tasks
         stations_total += stations
         current_planned = stations * 3
@@ -264,9 +278,9 @@ def main(argv=None):
                      'state': 'running'})
 
     for name in sorted(prep):
-        if name in completed or name == current or (args.output_dir / name).exists():
+        if name in completed or name == current or run_dir(name).exists():
             continue
-        tasks, stations = scene_counts(args.output_dir / '_calibration_inputs' / name / 'scenes.jsonl')
+        tasks, stations = scene_counts(input_dir(name) / 'scenes.jsonl')
         rows.append({'run': name, 'houses': house_ranges.get(name) or house_label(prep_houses.get(name, [])),
                      'prep': minutes(prep[name]),
                      'cal': None, 'trials': 0, 'tasks': tasks, 'stations': stations,
@@ -275,7 +289,7 @@ def main(argv=None):
                      'success_rate': None, 'scene_rate': None,
                      'pick_rate': None, 'open_rate': None, 'state': 'prepared'})
 
-    pilot = 'no-edit-pilot-c000'
+    pilot = args.pilot or (order[0] if order else f'{prefix}-c000')
     pilot_start = timestamp(args.output_dir / 'logs' / f'{pilot}.log',
                             r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*开始命令')
     experiment_start = (pilot_start - timedelta(seconds=prep.get(pilot, 0))) if pilot_start else None
@@ -289,35 +303,40 @@ def main(argv=None):
     overall_pick_scene_rate = len(success_scene_ops_total.get('pick', set())) / (cal_total / 60) if cal_total else None
     overall_open_scene_rate = len(success_scene_ops_total.get('open', set())) / (cal_total / 60) if cal_total else None
 
+    # The video manifest is shared by all runs; count only rendered rows of the reported runs.
     manifest = args.output_dir / 'replays' / 'incremental_valid_manifest.jsonl'
+    reported = set(completed) | ({current} if current else set())
     videos = Counter()
     video_runs = {}
+    seen_videos = set()
     if manifest.is_file():
         for line in manifest.read_text().splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
-            videos[row.get('kind')] += 1
             name = Path(row.get('calibration', '')).name
+            key = (name, row.get('rollout_id'))
+            if name not in reported or not row.get('rendered') or key in seen_videos:
+                continue
+            seen_videos.add(key)
+            videos[row.get('kind')] += 1
             video_runs.setdefault(name, Counter())[row.get('kind')] += 1
-    rendered = 0
+    rendered = len(seen_videos)
     state_path = args.output_dir / 'replays' / 'incremental_valid_state.json'
-    if state_path.is_file():
-        rendered = len(json.loads(state_path.read_text()).get('rendered', []))
 
     heatmaps = {}
     for run in completed + ([current] if current else []):
-        figures = args.output_dir / run / 'figures'
+        figures = run_dir(run) / 'figures'
         heatmaps[run] = len(list(figures.glob('*/*.svg'))) if figures.is_dir() else 0
 
     driver_alive = os.path.exists(f'/proc/{args.driver_pid}') if args.driver_pid else None
     prepared = [row for row in rows if row['state'] == 'prepared']
     full_chunks = [row['cal'] for row in rows
-                   if row['state'] == 'done' and row['run'].startswith('no-edit-val-all')
+                   if row['state'] == 'done' and row['run'].startswith(prefix)
                    and row['houses'] != '—' and '-' in row['houses']
                    and int(row['houses'].split('-')[-1]) - int(row['houses'].split('-')[0]) >= 20]
     avg_chunk = sum(full_chunks) / len(full_chunks) if full_chunks else None
-    driver_done = len([run for run in completed if run.startswith('no-edit-val-all')])
+    driver_done = len([run for run in completed if run.startswith(prefix)])
     remaining_chunks = max(total_chunks - driver_done - (1 if current else 0), 0)
     eta_chunks = remaining_chunks * avg_chunk if avg_chunk is not None else None
     eta_total = (eta_chunks or 0) + (current_eta or 0) / 60 if eta_chunks is not None else None
@@ -350,13 +369,13 @@ def main(argv=None):
              (f'（PID {args.driver_pid}）' if args.driver_pid else ''), '',
              '## 1. 总体', '',
              '| 指标 | 数值 |', '|---|---:|',
-             f'| 墙钟（试点准备起） | {fmt_hours(wall)} |',
+             f'| 墙钟（{"试点" if args.pilot else "首个 chunk "}准备起） | {fmt_hours(wall)} |',
              f'| 已完成标定 | {fmt_hours(cal_completed)} |',
              f'| 当前 chunk 已跑 | {fmt_hours(current_elapsed)} |',
              f'| 标定累计 | {fmt_hours(cal_total)} |',
              f'| 非标定墙钟 | {fmt_hours(non_cal)} |',
              f'| 累计准备（与标定重叠） | {fmt_hours(sum(prep.values()))} |',
-             f'| 已完成 chunk（不含试点） | {driver_done}/{total_chunks} |',
+             f'| 已完成 chunk{"（不含试点）" if args.pilot else ""} | {driver_done}/{total_chunks} |',
              f'| 当前 chunk | {current or "—"} |',
              f'| 已渲染 S0/S1 视频（task-mode） | {rendered}（S0 {videos["S0"]} / S1 {videos["S1"]}） |',
              f'| 排除目标类别 | {len(state.get("exclude_categories", []))} |', '']

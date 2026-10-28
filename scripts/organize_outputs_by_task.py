@@ -223,12 +223,15 @@ def main(argv=None):
     parser.add_argument('--output-dir', type=Path, default=Path('outputs'))
     parser.add_argument('--runs', nargs='+', type=Path)
     parser.add_argument('--replays', nargs='+', type=Path)
+    parser.add_argument('--replay-view', type=Path,
+                        help='回放分类视图根目录（默认 <output-dir>/replays）；新一轮重跑同一批任务时单独放，避免与旧视图重名')
     args = parser.parse_args(argv)
     runs = args.runs or sorted(path for path in args.output_dir.iterdir()
                                if path.is_dir() and (path / 'trials.jsonl').is_file())
-    base = args.output_dir / 'replays'
-    replays = args.replays or sorted(path for path in base.iterdir()
+    source = args.output_dir / 'replays'
+    replays = args.replays or sorted(path for path in source.iterdir()
                                      if path.is_dir() and path.name not in GROUPS)
+    base = args.replay_view or source
     run_cache = {}
     summary = {}
     for run in runs:

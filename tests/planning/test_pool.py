@@ -84,3 +84,11 @@ class PlanningPoolTests(unittest.TestCase):
         pool.dispatch()
         self.assertEqual(len(pool.pending), 1)
         self.assertEqual(pool.active, {})
+
+    def test_resident_service_uses_the_current_planner_module(self):
+        from lastmile_dataflow.planning.curobo.planner import PlannerResources
+        from lastmile_dataflow.planning.pool import PlanningService
+
+        service = PlanningService()
+        self.addCleanup(service.close)
+        self.assertIsInstance(service.planners, PlannerResources)

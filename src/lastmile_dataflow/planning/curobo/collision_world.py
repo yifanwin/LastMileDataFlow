@@ -9,18 +9,18 @@ from ...scenes.geometry import body_pose
 
 _mesh_ids = itertools.count()
 
-def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False, bodies=None, filename=None):
-    """Per-geom collision mesh, never use furniture-wide AABB as exact geometry.
+def exported_geoms(sim, base, range_m, *, target_only=False, bodies=None):
+    """Yield (geom id, world vertices, faces) of every geom one planner world contains.
 
-    `bodies` restricts `target_only` to a body set (e.g. the handle alone);
-    `filename` names the diagnostic JSON so split worlds do not overwrite.
+    The single selection rule shared by `collision_world` and diagnostics:
+    robot, floor, non-colliding and out-of-range (XY enclosing radius) geoms
+    are skipped; `bodies` (default: target subtree) are excluded, or are the
+    only geoms kept when `target_only`. Every yielded mesh is closed: primitives
+    are tessellated, mesh geoms are their convex hull as MuJoCo collides them.
     """
     import trimesh
-    from curobo._src.geom.types import SceneCfg, Mesh
     m,d=sim.model,sim.data
-    base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
-    inv=np.linalg.inv(base)
-    target=descendants(m,sim.target_id) if bodies is None else bodies; vertices=[]; faces=[]; names=[]; count=0
+    target=descendants(m,sim.target_id) if bodies is None else bodies
     for g in range(m.ngeom):
         b=int(m.geom_bodyid[g]); name=m.geom(g).name
         if m.body(b).name.startswith('robot_0/') or ((b not in target) if target_only else (b in target)) or not (m.geom_contype[g] or m.geom_conaffinity[g]): continue
@@ -31,8 +31,13 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
         if g in sim.planning_geometry:
             v, f = sim.planning_geometry[g]
         elif kind==mujoco.mjtGeom.mjGEOM_MESH:
-            mesh=int(m.geom_dataid[g]); va,vn=int(m.mesh_vertadr[mesh]),int(m.mesh_vertnum[mesh]); fa,fn=int(m.mesh_faceadr[mesh]),int(m.mesh_facenum[mesh])
-            v=m.mesh_vert[va:va+vn].copy(); f=m.mesh_face[fa:fa+fn].copy()
+            # MuJoCo collides a mesh geom as its convex hull; export that closed hull.
+            # cuRobo 0.8.0 signs distances with Warp ray parity, reliable only on
+            # watertight meshes: open raw meshes merged into one world turn free
+            # space into deep "inside", depending on the frame.
+            mesh=int(m.geom_dataid[g]); va,vn=int(m.mesh_vertadr[mesh]),int(m.mesh_vertnum[mesh])
+            hull=trimesh.convex.convex_hull(m.mesh_vert[va:va+vn])
+            v,f=np.asarray(hull.vertices),np.asarray(hull.faces)
         else:
             if kind==mujoco.mjtGeom.mjGEOM_BOX: obj=trimesh.creation.box(extents=2*size)
             elif kind in (mujoco.mjtGeom.mjGEOM_SPHERE,mujoco.mjtGeom.mjGEOM_ELLIPSOID):
@@ -43,8 +48,21 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
             else: raise ValueError(f'unsupported collision geometry {name}')
             v,f=np.asarray(obj.vertices),np.asarray(obj.faces)
         sim.planning_geometry[g] = v, f
-        world=v@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g]
-        vertices.append((np.c_[world,np.ones(len(v))]@inv.T)[:,:3]); faces.append(f+count); count+=len(v); names.append(name)
+        yield g, v@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g], f
+
+
+def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False, bodies=None, filename=None):
+    """Per-geom collision mesh, never use furniture-wide AABB as exact geometry.
+
+    `bodies` restricts `target_only` to a body set (e.g. the handle alone);
+    `filename` names the diagnostic JSON so split worlds do not overwrite.
+    """
+    from curobo._src.geom.types import SceneCfg, Mesh
+    m=sim.model
+    base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
+    inv=np.linalg.inv(base); vertices=[]; faces=[]; names=[]; count=0
+    for g, world, f in exported_geoms(sim, base, range_m, target_only=target_only, bodies=bodies):
+        vertices.append((np.c_[world,np.ones(len(world))]@inv.T)[:,:3]); faces.append(f+count); count+=len(world); names.append(m.geom(g).name)
     report = path/(filename or ('target_world.json' if target_only else 'collision_world.json'))
     if not vertices:
         write_json(report,{'frame':'measured base','geoms':[],
