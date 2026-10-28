@@ -6,7 +6,8 @@ __pycache__/
 .venv-download/
 /data/
 /configs/local.json
-outputs/
+outputs/*
+!outputs/outputs_rules.md
 .pytest_cache/
 reports/logs/
 .claude/

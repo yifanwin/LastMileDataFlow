@@ -7,8 +7,6 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 - 只维护五个 CLI 命令：`build-scenes`、`evaluate-stations`、`collect-lastmile`、`build-bench`、`evaluate-bench`。
 - 规划固定 cuRobo V2（0.8.0），策略为 MolmoBot multitask，导航为 A*。连续采集当前仅支持 cuRobo。
-- 旧五阶段路线已退出当前实现，不自行恢复旧入口、人工审批、审计发布体系或历史格式兼容。
-- 不导入、不调用、不 source `lastmile_pipeline`；相邻工程的资产不是 Python 运行依赖。
 - 当前能力与未验证边界查 README 和 `reports/README.md`；历史局部成功不证明当前主链闭环。
 
 ## 工作方式：最小实现，直接表达
@@ -65,32 +63,24 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 - 根目录 `configs/`：显式 JSON 配置；解析规则见下节。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
 - `tests/`：按 `scenes/runtime/planning/policies/data/workflows` 分组；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
-- `outputs/`：运行产物，默认日志写 `outputs/logs/`，诊断放 `outputs/diagnostics/`；自定义输出根目录时日志放其 `logs/`，不散落在根目录。
-- 不提交环境、缓存、大型资产或运行产物；根目录数据忽略规则保持 `/data/`，不能误忽略源码和测试中的同名目录。
+- `outputs/`：运行产物，细则见 [outputs/outputs_rules.md](outputs/outputs_rules.md)。硬规则：
+  1. 顶层只有 `campaigns/`（按配方批量运行）、`experiments/`（少数「场景 + 目标物体」上的定位与对照；临时试跑放 `experiments/scratch/`，7 天内转为正式主题或删除）、本地索引 `README.md`，以及 `outputs_rules.md`。
+  2. 每个 campaign 或实验主题自成一体，带 `README.md`（用途、状态、代码提交号、对应报告）；子目录只用 `src/ inputs/ runs/ replays/ views/ analysis/ logs/`（campaign 另有 `state.json`），按需创建。
+  3. 每个目录的直接子目录不超过 25 个，超出时按序号（`c000-c009`）或对照组分组；名称只用小写字母、数字、连字符和 `YYYYMMDD`，不复用。
+  4. 运行期间代码不变：先提交并记录提交号，从 `git archive` 导出的 `src/` 或固定在该提交上的 worktree 启动；运行中替换任何文件都要在该单元的 README 登记。
+  5. 结束、作对照保留、被替代，都只改 README 里的状态，不移动目录；有进程在读写时，不移动、改名或删除该单元、它所在的 worktree 以及 `outputs/`；确需搬迁时按细则第 7 节执行。
+  6. 删除前须经用户确认，并记入 `outputs/README.md`；不删被报告引用的结果、对照基线，以及已有 run 依赖的冻结输入。
+- 不提交环境、缓存、大型资产或运行产物（`outputs/outputs_rules.md` 除外）；根目录数据忽略规则保持 `/data/`，不能误忽略源码和测试中的同名目录。
 
 ## 环境与路径
 
-- 使用本仓库 `.venv`，不借相邻 worktree 的环境、Python 包或 `.pth`。依赖统一声明在 `pyproject.toml`。
+- 使用本仓库 `.venv`、Python 包或 `.pth`。依赖统一声明在 `pyproject.toml`。
 - `data_root` 在含数据输入的配置中显式填写，绝对路径或相对仓库根目录均可。
 - 数据、快照、权重、tokenizer 路径相对于 `data_root`；配置文件和解释器路径相对于仓库根目录，也可使用绝对路径。不是相对于当前 JSON 文件位置。
 - CLI 文件系统参数按调用工作目录解释；从其他目录调用时优先传绝对路径。
-- 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位，搬迁后显式调整输入位置并重建环境。
+- 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位；`outputs/` 内的产物搬迁按 `outputs/outputs_rules.md` 第 7 节改写路径，其他位置搬迁后显式调整输入位置并重建环境。
 - MJB 恢复要求匹配生成时的 MuJoCo 版本；不能把可查看的 XML 宣称为已验证的独立可搬迁资产包。
 - GPU 0–7 按实时利用率与空闲显存选择，CLI 显式传 `--gpu <index>`；不在代码中固定卡号，不干预其他进程。
-
-## 必须保持的实验语义
-
-1. 原始 XML、外部资产和既有采集结果只读。每次新建 run/attempt，禁止覆盖，不伪造失败或成功证据。
-2. 机器人位姿只在初始化阶段设置。`Simulation.begin()` 后不恢复快照、重启、重置或传送；独立试验创建新 Simulation 和 attempt。
-3. 场景编辑走构建会话的事务、静置、检查与回滚；保留数量、碰撞、支撑、源场景影响和站位有效性约束，放不下就记 rejected。
-4. RBY-1 20D 动作布局：底盘 `[0:3]`、左臂 `[3:10]`、左夹爪 `[10]`、右臂 `[11:18]`、右夹爪 `[18]`、躯干 `[19]`。
-   底盘/臂为增量；position 控制的夹爪/躯干为绝对目标。native motor 夹爪按实际适配器解释，不把力控值当位置或米。定义见 `runtime/control/`。
-5. position 与 native 控制、相机和标定 profile 不混用。场景采样只检查初始化与可见性，逐点成败必须来自实际 rollout。
-6. 场景构建、导航到达、操作成功、执行终止和记录完整分别报告。未知保持 unknown，退出码 0、文件存在或 `execution_complete` 都不代表任务成功。
-7. 规划无解、超时、初始化/仿真/记录错误与共享模型/GPU 故障分开处理；共享故障停止当前批次，不继续消费失效服务。
-8. 成功率读取原始 trial，不从平滑热图选困难起点。不完整或不匹配的标定不用于困难配对；无配对、无路径是有效负结果，不补造 rollout。
-9. benchmark 同时报告覆盖率与完整计划集合的成功率；基础设施错误或未知结果不能冒充任务失败，未标定 smoke 不能冒充困难 S0 评测。
-10. 每阶段一个主 JSON/JSONL，复用已有标定，不复制第二套 trial；轨迹由实际执行回调记录一次，无真实物理步就不生成执行行。
 
 ## 安装与验证
 
