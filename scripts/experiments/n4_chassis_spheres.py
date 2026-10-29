@@ -66,11 +66,11 @@ def admissible(edges, a, b, beta_side, beta_top):
     return (r - side <= beta_side) & (r - (HI[2] - c[:, 2]) <= beta_top), c, r
 
 
-def block_cover(shape, beta_side, beta_top, time_limit):
-    from scipy.optimize import Bounds, LinearConstraint, milp
-    from scipy.sparse import csr_matrix
+def block_cover(shape, beta_side, beta_top, time_limit, max_span=None):
     edges = [np.linspace(LO[k], HI[k], n + 1) for k, n in enumerate(shape)]
     pairs = [np.triu_indices(n + 1, 1) for n in shape]
+    if max_span:   # bounds the candidate count on fine grids
+        pairs = [(i[j - i <= max_span], j[j - i <= max_span]) for i, j in pairs]
     index = [g.ravel() for g in np.meshgrid(*[np.arange(len(p[0])) for p in pairs], indexing='ij')]
     a = np.stack([pairs[k][0][index[k]] for k in range(3)], 1)
     b = np.stack([pairs[k][1][index[k]] for k in range(3)], 1)
@@ -80,27 +80,37 @@ def block_cover(shape, beta_side, beta_top, time_limit):
     for k in range(3):
         grown_a, grown_b = a.copy(), b.copy()
         grown_a[:, k] = np.maximum(a[:, k] - 1, 0)
-        maximal &= ~((a[:, k] > 0) & admissible(edges, grown_a, b, beta_side, beta_top)[0])
+        maximal &= ~((a[:, k] > 0) & ((b[:, k] - grown_a[:, k] <= max_span) if max_span else True)
+                     & admissible(edges, grown_a, b, beta_side, beta_top)[0])
         grown_b[:, k] = np.minimum(b[:, k] + 1, shape[k])
-        maximal &= ~((b[:, k] < shape[k]) & admissible(edges, a, grown_b, beta_side, beta_top)[0])
+        maximal &= ~((b[:, k] < shape[k]) & ((grown_b[:, k] - a[:, k] <= max_span) if max_span else True)
+                     & admissible(edges, a, grown_b, beta_side, beta_top)[0])
     a, b = a[maximal], b[maximal]
     _, c, r = admissible(edges, a, b, beta_side, beta_top)
     cells = np.arange(np.prod(shape)).reshape(shape)
     members = [cells[a[j, 0]:b[j, 0], a[j, 1]:b[j, 1], a[j, 2]:b[j, 2]].ravel() for j in range(len(a))]
+    chosen, solver = select_cover(members, r, cells.size, time_limit)
+    return c[chosen], r[chosen], solver
+
+
+def select_cover(members, r, n_cells, time_limit):
+    """Fewest candidates whose cell sets cover all `n_cells` cells (radius breaks ties)."""
+    from scipy.optimize import Bounds, LinearConstraint, milp
+    from scipy.sparse import csr_matrix
     cover = csr_matrix((np.ones(sum(map(len, members))),
-                        (np.concatenate(members), np.repeat(np.arange(len(a)), list(map(len, members))))),
-                       shape=(cells.size, len(a)))
-    result = milp(np.ones(len(a)) + 1e-3 * r, constraints=LinearConstraint(cover, lb=1), integrality=np.ones(len(a)),
-                  bounds=Bounds(0, 1), options={'time_limit': time_limit})
+                        (np.concatenate(members), np.repeat(np.arange(len(members)), list(map(len, members))))),
+                       shape=(n_cells, len(members)))
+    result = milp(np.ones(len(members)) + 1e-3 * r, constraints=LinearConstraint(cover, lb=1),
+                  integrality=np.ones(len(members)), bounds=Bounds(0, 1), options={'time_limit': time_limit})
     if result.x is None:
         raise SystemExit(f'no feasible cover within the limit: {result.message}')
     chosen = result.x > .5
     if (cover @ chosen.astype(float)).min() < 1:
-        raise SystemExit('selected sub-blocks leave a cell uncovered')
-    # status 0: optimal over these candidate blocks (not a global minimum sphere count); 1: time limit, feasible only
-    return c[chosen], r[chosen], {'candidates': len(a), 'milp_status': int(result.status),
-                                  'solution': 'optimal_over_candidates' if result.status == 0 else 'feasible',
-                                  'milp_message': result.message, 'selected_blocks': int(chosen.sum())}
+        raise SystemExit('selected candidates leave a cell uncovered')
+    # status 0: optimal over these candidates (not a global minimum sphere count); 1: time limit, feasible only
+    return chosen, {'candidates': len(members), 'milp_status': int(result.status),
+                    'solution': 'optimal_over_candidates' if result.status == 0 else 'feasible',
+                    'milp_message': result.message, 'selected_blocks': int(chosen.sum())}
 
 
 def stored(c, r):
@@ -123,15 +133,16 @@ def main():
     parser.add_argument('--beta-side', type=float, default=.035)
     parser.add_argument('--beta-top', type=float, default=.06)
     parser.add_argument('--time-limit', type=float, default=1200.)
+    parser.add_argument('--max-span', type=int, help='largest sub-block extent in cells per axis')
     parser.add_argument('--skip-curobo-fit', action='store_true')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     shape = tuple(int(v) for v in args.grid.split('x'))
-    c, r, solver = block_cover(shape, args.beta_side, args.beta_top, args.time_limit)
+    c, r, solver = block_cover(shape, args.beta_side, args.beta_top, args.time_limit, args.max_span)
     centers, radii = stored(c, r)
     original = np.array([[x, y, z] for x in (-.42, -.18, .04) for y in (-.13, .13) for z in (.1, .28)])
     report = {'box_omron_base_frame': {'lo': LO.round(4).tolist(), 'hi': HI.round(4).tolist()},
-              'grid': shape, 'beta_side_m': args.beta_side, 'beta_top_m': args.beta_top, 'solver': solver,
+              'grid': shape, 'max_span': args.max_span, 'beta_side_m': args.beta_side, 'beta_top_m': args.beta_top, 'solver': solver,
               'candidates': {'original_12': evaluate(original, np.full(12, .21), False),
                              'block_cover': evaluate(centers, radii, True)}}
     if not args.skip_curobo_fit:

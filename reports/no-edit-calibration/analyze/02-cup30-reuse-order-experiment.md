@@ -3,11 +3,11 @@
 - 状态：done
 - 日期：2026-10-27
 - 替代：无
-- 关联：[成功率归因](../analyze/01-low-success-analysis.md)、[planner 复用缺陷分析](../analyze/03-planner-reuse-target-binding.md)、[全量统计](../analyze/02-all-runs-trial-statistics.md)
+- 关联：[成功率归因](01-low-success-analysis.md)、[planner 复用缺陷分析](03-planner-reuse-target-binding.md)、[全量统计](02-all-runs-trial-statistics.md)
 
 ## 1. 目的
 
-验证 [planner 复用缺陷分析](../analyze/03-planner-reuse-target-binding.md) 的核心假设：
+验证 [planner 复用缺陷分析](03-planner-reuse-target-binding.md) 的核心假设：
 
 > `V2Planner` 跨任务复用时不重算 `target_bodies` / `handle_bodies`，导致后续任务的 target-only 碰撞世界错绑或为空，从而把高成功率任务打成低成功率。
 

@@ -51,24 +51,41 @@ def exported_geoms(sim, base, range_m, *, target_only=False, bodies=None):
         yield g, v@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g], f
 
 
-def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False, bodies=None, filename=None):
+def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=False, bodies=None, filename=None,
+                    cuboids=None, max_cuboids=0):
     """Per-geom collision mesh, never use furniture-wide AABB as exact geometry.
 
     `bodies` restricts `target_only` to a body set (e.g. the handle alone);
     `filename` names the diagnostic JSON so split worlds do not overwrite.
+    `cuboids`: XY reach (m, same enclosing-radius test as `range_m`) within which
+    native box geoms become posed cuRobo cuboids (exact, queried per obstacle, so
+    overlapping boxes keep their own inside); every other geom is still merged
+    into one mesh of closed hulls. Each cuboid costs a query per robot sphere, so
+    only boxes the robot can reach are worth it; beyond the nearest `max_cuboids`
+    of them the rest also stay in the mesh.
     """
-    from curobo._src.geom.types import SceneCfg, Mesh
-    m=sim.model
+    from curobo._src.geom.types import SceneCfg, Mesh, Cuboid
+    m,d=sim.model,sim.data
     base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
-    inv=np.linalg.inv(base); vertices=[]; faces=[]; names=[]; count=0
-    for g, world, f in exported_geoms(sim, base, range_m, target_only=target_only, bodies=bodies):
+    inv=np.linalg.inv(base); vertices=[]; faces=[]; names=[]; count=0; boxes=[]
+    exported=list(exported_geoms(sim, base, range_m, target_only=target_only, bodies=bodies))
+    reach=lambda g: np.linalg.norm(d.geom_xpos[g,:2]-base[:2,3])-m.geom_rbound[g]
+    near=sorted((g for g,_,_ in exported if cuboids is not None and m.geom_type[g]==mujoco.mjtGeom.mjGEOM_BOX
+                 and reach(g)<=cuboids), key=reach)[:max_cuboids]
+    for g, world, f in exported:
+        if g in near:
+            quat=np.zeros(4); mujoco.mju_mat2Quat(quat,(inv[:3,:3]@d.geom_xmat[g].reshape(3,3)).ravel())
+            boxes.append(Cuboid(name=f'cuboid_{g}', pose=[*(inv[:3,:3]@d.geom_xpos[g]+inv[:3,3]), *quat],
+                                dims=(2*m.geom_size[g]).tolist()))
+            continue
         vertices.append((np.c_[world,np.ones(len(world))]@inv.T)[:,:3]); faces.append(f+count); count+=len(world); names.append(m.geom(g).name)
     report = path/(filename or ('target_world.json' if target_only else 'collision_world.json'))
+    cuboid_names = [m.geom(int(b.name.split('_')[1])).name for b in boxes]
     if not vertices:
-        write_json(report,{'frame':'measured base','geoms':[],
+        write_json(report,{'frame':'measured base','geoms':[],'cuboids':cuboid_names,
                    'target_excluded':'separate target-only checker with allowed finger mask'})
-        return SceneCfg()
-    write_json(report,{'frame':'measured base','geoms':names,'vertices':count,
+        return SceneCfg(cuboid=boxes) if boxes else SceneCfg()
+    write_json(report,{'frame':'measured base','geoms':names,'vertices':count,'cuboids':cuboid_names,
                  'target_excluded':'separate target-only checker with allowed finger mask','floor_excluded':'only planner; physics unchanged',
                  'carried_object':'attached geometry during lift; no physical welding; contacts independently checked',
                  'primitive_note':'box/mesh exact; curved primitives tessellated'})
@@ -76,4 +93,5 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
     # V2 caches Warp meshes by name. Geometry baked in this measured frame
     # changes for articulated objects; do not reuse a stale mesh by fixed name.
     name = f"{'target' if target_only else 'environment'}_{next(_mesh_ids)}"
-    return SceneCfg(mesh=[Mesh(name=name,pose=[0,0,0,1,0,0,0],vertices=vertex_array.tolist(),faces=face_array.tolist())])
+    return SceneCfg(mesh=[Mesh(name=name,pose=[0,0,0,1,0,0,0],vertices=vertex_array.tolist(),faces=face_array.tolist())],
+                    cuboid=boxes or None)

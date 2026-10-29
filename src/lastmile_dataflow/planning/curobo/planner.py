@@ -14,6 +14,13 @@ from ..evidence import lane_success, phase_evidence, solver_evidence, ik_probe_e
 from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
 from ..robots.rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world import collision_world
+
+# cuRobo launches spheres x cache-size threads for cuboids (empty slots still cost), so
+# the cache is kept small; boxes past it fall back to the merged hull mesh.
+ENVIRONMENT_CUBOIDS = 128
+# XY reach of the robot around its planning base: arm base 0.21 m ahead, arm reach
+# ~0.86 m, local base travel 0.35 m. Boxes beyond it stay in the merged hull mesh.
+CUBOID_RANGE_M = 1.5
 from .context import PlannerContext
 from .tracing import SolverTrace, native_grasp_planner_type
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
@@ -252,7 +259,9 @@ class V2Planner:
         return self.path / name
 
     def _environment_world(self, path):
-        return collision_world(self.sim, Path(path), self.world_range, reference_base=self.base)
+        return collision_world(self.sim, Path(path), self.world_range, reference_base=self.base,
+                               cuboids=CUBOID_RANGE_M if self.config.environment_representation == 'box_cuboids' else None,
+                               max_cuboids=ENVIRONMENT_CUBOIDS)
 
     def _target_worlds(self, path):
         """Target-only (handle excluded) and handle-only worlds of the bound task."""
@@ -306,6 +315,9 @@ class V2Planner:
             num_ik_seeds=config.num_ik_seeds, num_trajopt_seeds=config.num_trajopt_seeds,
             max_goalset=config.max_candidates, self_collision_check=True,
             optimizer_collision_activation_distance=.01, use_cuda_graph=False,
+            # fixed cuboid slots so retained planners can reload other scenes
+            collision_cache=({'cuboid': ENVIRONMENT_CUBOIDS, 'mesh': 1}
+                             if self.config.environment_representation == 'box_cuboids' else None),
             random_seed=config.seed, cost_manager_config_instance_type=manager_type(self.context))
         base_type = native['BatchMotionPlanner'] if batch_size > 1 else native['MotionPlanner']
         self.motion = native_grasp_planner_type(base_type)(settings)

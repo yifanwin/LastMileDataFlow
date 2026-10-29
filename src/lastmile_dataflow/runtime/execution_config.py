@@ -15,6 +15,9 @@ class ExecutionConfig:
     lastmile_high: float = .8
     lastmile_nearby_m: float = 1.
     planner_backend: str = 'curobo_v2_v080'
+    # merged_hull: every environment geom as a closed hull in one mesh;
+    # box_cuboids: native box geoms within the robot's reach as posed cuboids, the rest still merged
+    environment_representation: str = 'merged_hull'
     operation_base_mode: str = 'holonomic_joint_planning'
     torso_error_policy: str = 'record_only'
     initial_settle_s: float = 0.
@@ -88,6 +91,8 @@ class ExecutionConfig:
             raise ValueError('invalid grasp roll/settling')
         if self.planner_backend != 'curobo_v2_v080':
             raise ValueError('unknown planner backend')
+        if self.environment_representation not in ('merged_hull', 'box_cuboids'):
+            raise ValueError('unknown environment representation')
         if self.operation_retries > 1:
             raise ValueError('S1 permits at most one outer retry')
         if self.max_attempts != 5:
