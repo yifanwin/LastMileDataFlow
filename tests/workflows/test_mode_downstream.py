@@ -67,7 +67,7 @@ class ModeDownstreamWorkflowTests(DatasetTestCase):
                                  diagnoses={'one': self.diagnosis})
         with patch('lastmile_dataflow.workflows.collection._recovery_trials', return_value=[]):
             summary = _collect_scene(self.sim, self.scene, 'assets', self.config, self.collection,
-                root, None, self.raw, None, attempt_ids=iter(()), pairs=pairs)
+                root, self.raw, attempt_ids=iter(()), pairs=pairs)
         self.assertEqual(summary['eligible_pairs'], 2)
 
     def test_missing_observations_do_not_turn_numeric_success_into_training_data(self):

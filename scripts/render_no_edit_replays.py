@@ -23,7 +23,7 @@ def renderable(calibration, rollout):
 
 
 def replay(calibration, rollouts, run_id, output_dir, gpu, env):
-    command = [sys.executable, '-m', 'lastmile_dataflow.cli', 'evaluate-stations',
+    command = [sys.executable, '-m', 'lastmile_dataflow.cli', 'collect-lastmile',
                '--replay-from', calibration, '--rollouts', *rollouts,
                '--replay-layout', 'grid', '--output-dir', output_dir,
                '--run-id', run_id, '--gpu', str(gpu)]

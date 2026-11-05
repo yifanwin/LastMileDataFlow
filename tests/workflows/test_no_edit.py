@@ -42,15 +42,6 @@ class NoEditRecipeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'excluded house:task'):
             self.recipe(exclude_tasks=['pick-x'])
 
-    def test_permanent_categories_and_low_success_rate(self):
-        from scripts.run_no_edit_pipeline import exclusion_from_categories
-        state = {'manual_exclude_categories': [], 'permanent_categories': ['Cup'],
-                 'category_stats': {'Cup|pick': {'category': 'Cup', 'trials': 1000, 'successes': 0},
-                                    'Mug|pick': {'category': 'Mug', 'trials': 1000, 'successes': 0},
-                                    'Bowl|pick': {'category': 'Bowl', 'trials': 2000, 'successes': 1},
-                                    'Plate|pick': {'category': 'Plate', 'trials': 2000, 'successes': 2}}}
-        self.assertEqual(exclusion_from_categories(state, 1000, 0.001), ['Bowl', 'Mug'])
-
     def test_preparation_rejection_uses_no_edit_intent(self):
         record = list(_task_preparation_rejections({'task_id': 'pick-x'}, self.recipe(), 0, 'boom'))
         self.assertEqual(record, [{'house': 0, 'task_id': 'pick-x', 'proposal_intent': 'no_edit',

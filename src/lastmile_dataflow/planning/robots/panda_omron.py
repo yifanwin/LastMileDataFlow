@@ -16,6 +16,14 @@ FINGER_NAMES = ("panda_finger_joint1", "panda_finger_joint2")
 BASE_NAMES = ("base_x", "base_y", "base_theta")
 FULL_NAMES = (*BASE_NAMES, "torso_height", *ARM_NAMES, *FINGER_NAMES)
 TCP = "panda_grip_site"
+SELF_COLLISION_IGNORE = {
+    "omron_base": ["panda_link0", "panda_link1"],
+    **{f"panda_link{i}": [f"panda_link{i+1}", f"panda_link{i+2}"] for i in range(6)},
+    "panda_link6": ["panda_link7", "panda_gripper"],
+    "panda_link7": ["panda_gripper", "panda_finger1", "panda_finger2"],
+    "panda_gripper": ["panda_finger1", "panda_finger2", "attached_object_right"],
+    "panda_finger1": ["panda_finger2", "attached_object_right"],
+    "panda_finger2": ["attached_object_right"]}
 
 
 @lru_cache(maxsize=1)
@@ -23,18 +31,41 @@ def robot_description():
     return ET.parse(ASSETS / 'model.urdf'), yaml.safe_load((ASSETS / 'spheres.yml').read_text())['collision_spheres']
 
 
+def arm_reach_bound(start="panda_link1", tool=TCP):
+    """Upper bound of |TCP - start origin|: sum of the fixed joint offsets on the chain.
+
+    Revolute joints only rotate these offsets, so by the triangle inequality no
+    configuration reaches farther. Conservative distance prefilter, not a workspace.
+    """
+    parents = {}
+    for joint in robot_description()[0].getroot().findall("joint"):
+        origin = joint.find("origin")
+        xyz = (origin.get("xyz") if origin is not None else None) or "0 0 0"
+        parents[joint.find("child").get("link")] = (joint.find("parent").get("link"),
+                                                    np.fromstring(xyz, sep=" "))
+    total, link = 0., tool
+    while link != start:
+        link, offset = parents[link]
+        total += float(np.linalg.norm(offset))
+    return total
+
+
+def self_collision_links(robot):
+    """MuJoCo bodies of each planning link and the planner's self-collision ignore table."""
+    ns = robot.config.namespace
+    bodies = {"omron_base": [ns + n for n in ("mobilebase0_fixed_support", "mobilebase0_support",
+                                                "mobilebase0_wheeled_base")],
+              **{f"panda_link{i}": [f"{ns}robot0_link{i}"] for i in range(8)},
+              "panda_gripper": [ns + "gripper0_right_right_gripper"],
+              "panda_finger1": [ns + "gripper0_right_leftfinger", ns + "gripper0_right_finger_joint1_tip"],
+              "panda_finger2": [ns + "gripper0_right_rightfinger", ns + "gripper0_right_finger_joint2_tip"]}
+    return bodies, SELF_COLLISION_IGNORE
+
 def configuration(robot, *, fixed=True, mobile=False):
     spheres = deepcopy(robot_description()[1])
     spheres["attached_object_right"] = [{"center": [0., 0., 0.], "radius": -.01}] * 40
     links = list(spheres)
-    ignore = {
-        "omron_base": ["panda_link0", "panda_link1"],
-        **{f"panda_link{i}": [f"panda_link{i+1}", f"panda_link{i+2}"] for i in range(6)},
-        "panda_link6": ["panda_link7", "panda_gripper"],
-        "panda_link7": ["panda_gripper", "panda_finger1", "panda_finger2"],
-        "panda_gripper": ["panda_finger1", "panda_finger2", "attached_object_right"],
-        "panda_finger1": ["panda_finger2", "attached_object_right"],
-        "panda_finger2": ["attached_object_right"]}
+    ignore = deepcopy(SELF_COLLISION_IGNORE)
     q = robot.arm_positions("right").tolist()
     fingers = robot.group("gripper").tolist()
     if mobile:

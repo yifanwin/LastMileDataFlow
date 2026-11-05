@@ -1,15 +1,15 @@
-"""Both public workflows consume one run-wide calibration, without repeating trials."""
+"""Collection consumes one run-wide calibration, without repeating trials."""
 from dataclasses import replace
 from unittest.mock import patch
 
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.utils.io import append_row, read_json
-from lastmile_dataflow.workflows.collection import collect_lastmile, evaluate_stations, _plan_collection
+from lastmile_dataflow.workflows.collection import collect_lastmile, _plan_collection
 from tests.helpers import DatasetTestCase
 
 
 class SplitCommandTests(DatasetTestCase):
-    def test_standalone_and_builtin_calibration_share_resources_and_numeric_recording(self):
+    def test_builtin_calibration_shares_resources_and_numeric_recording(self):
         dataset = self.dataset()
         second = {**self.scene, 'scene_id': 'two'}
         append_row(dataset / 'scenes.jsonl', second)
@@ -31,11 +31,10 @@ class SplitCommandTests(DatasetTestCase):
                         append_row(root / 'trials.jsonl', record)
             return records, {'failure': None, 'planned_trials': 12, 'recorded_trials': 12}
 
-        for name, command in [('evaluate', evaluate_stations), ('collect', collect_lastmile)]:
+        for name, command in [('collect', collect_lastmile)]:
             with (self.subTest(command=name),
                   patch('lastmile_dataflow.workflows.station_calibration.calibrate_stations', side_effect=calibrate) as run,
-                  patch('lastmile_dataflow.workflows.collection._station_trials') as old,
-                  patch('lastmile_dataflow.workflows.collection.export_heatmap')):
+                  patch('lastmile_dataflow.workflows.collection._station_trials') as old):
                 output = command(dataset, self.root, config,
                     replace(self.collection, record_images=True), self.root, run_id=name,
                     gpu_ids=[1, 4], cpu_workers=5, preparation_workers=2)

@@ -60,7 +60,7 @@ MUJOCO_GL=disable MPLCONFIGDIR=/tmp/lastmile-mpl \
 - `smoke/curobo_rollout.py`：指定场景和站位，执行一次真实规划/rollout。
 - `smoke/head_fov.py`：真实机器人模型上的 CUDA FOV 梯度与管理器隔离检查，不执行任务。
 - `smoke/multitask.py`：本地真实权重加载、pick/open 动作与 service/client；观测是合成的，不执行机器人。
-- `smoke/pipeline.py`：单场景逐点标定与连续采集；只有显式提供来源 cuRobo 标定才附加 benchmark。没有手工恢复配对、自动降级 smoke 或搬迁探针。
+- `smoke/pipeline.py`：单场景 `collect-lastmile`（内置逐点标定与连续采集）；只有显式提供来源 cuRobo 标定才附加 benchmark。没有手工恢复配对、自动降级 smoke 或搬迁探针。
 
 ```bash
 .venv/bin/python tests/smoke/pipeline.py \

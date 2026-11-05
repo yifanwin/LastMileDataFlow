@@ -43,7 +43,15 @@ class CliTests(unittest.TestCase):
             main(argv + ['--gpu', '6'])
         self.local.return_value = LocalConfig(assets_dir=Path('/shared/assets'))
         with patch('sys.stderr'), self.assertRaises(SystemExit):
-            parser().parse_args(argv)
+            main(argv)
+
+    def test_plotting_an_existing_map_needs_no_gpu(self):
+        with (patch('lastmile_dataflow.workflows.station_map_plot.plot_station_map', return_value=Path('figs')) as plot,
+              patch('lastmile_dataflow.workflows.station_map.build_station_map') as build,
+              patch('builtins.print')):
+            main(['evaluate-stations', '--plot-from', 'run', '--output-dir', 'out', '--run-id', 'figs'])
+        plot.assert_called_once_with(Path('run'), Path('out/figs'), render_examples=False)
+        build.assert_not_called()
 
     def test_core_commands_only(self):
         commands = next(action for action in parser()._actions if action.dest == "command")
@@ -54,9 +62,9 @@ class CliTests(unittest.TestCase):
 
     def test_measured_replay_dispatch_needs_no_planner_or_assets(self):
         with (patch('lastmile_dataflow.data.rendering.replay.render_run', return_value=Path('video')) as replay,
-              patch('lastmile_dataflow.workflows.collection.evaluate_stations') as evaluate,
+              patch('lastmile_dataflow.workflows.collection.collect_lastmile') as evaluate,
               patch('builtins.print')):
-            main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0', 'r1',
+            main(['collect-lastmile', '--replay-from', 'run', '--rollouts', 'r0', 'r1',
                   '--replay-camera', 'overview', '--output-dir', 'out', '--run-id', 'video', '--gpu', '0'])
         replay.assert_called_once_with(Path('run'), Path('out/replays/video'),
                                        rollouts=['r0', 'r1'], camera='overview')
@@ -65,9 +73,9 @@ class CliTests(unittest.TestCase):
     def test_measured_replay_grid_dispatch_needs_no_camera(self):
         with (patch('lastmile_dataflow.data.rendering.rollout_video.render_run_grid',
                     return_value=Path('video')) as grid,
-              patch('lastmile_dataflow.workflows.collection.evaluate_stations') as evaluate,
+              patch('lastmile_dataflow.workflows.collection.collect_lastmile') as evaluate,
               patch('builtins.print')):
-            main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0',
+            main(['collect-lastmile', '--replay-from', 'run', '--rollouts', 'r0',
                   '--replay-layout', 'grid', '--output-dir', 'out', '--run-id', 'video',
                   '--gpu', '0'])
         grid.assert_called_once_with(Path('run'), Path('out/replays/video'), rollouts=['r0'])
@@ -108,13 +116,13 @@ class CliTests(unittest.TestCase):
             config = Path(directory) / "execution.json"
             write_json(config, {})
             for command, target in [
-                ("evaluate-stations", "evaluate_stations"),
+                ("evaluate-stations", "build_station_map"),
                 ("collect-lastmile", "collect_lastmile"),
             ]:
                 with (
                     self.subTest(command=command),
                     patch(
-                        "lastmile_dataflow.workflows.collection.evaluate_stations",
+                        "lastmile_dataflow.workflows.station_map.build_station_map",
                         return_value=Path(directory),
                     ) as stations,
                     patch(
@@ -138,7 +146,7 @@ class CliTests(unittest.TestCase):
                         ]
                     )
                     selected, other = (
-                        (stations, lastmile) if target == "evaluate_stations" else (lastmile, stations)
+                        (stations, lastmile) if target == "build_station_map" else (lastmile, stations)
                     )
                     selected.assert_called_once()
                     other.assert_not_called()

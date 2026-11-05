@@ -137,6 +137,71 @@ class CollectionConfig:
             raise ValueError("invalid penetration interval")
 
 
+@dataclass(frozen=True)
+class BaseMapConfig:
+    """Static base-quality map: fixed base, lift and gripper; 7-joint arm IK and scoring."""
+    seed: int = 42
+    spacing_m: float = 0.10
+    heading_offsets_deg: tuple = (-60., -45., -30., -15., 0., 15., 30., 45., 60.)
+    max_grasps: int = 5
+    grasp_position_scale_m: float = 0.05
+    grasp_rotation_scale_rad: float = math.pi / 2
+    approach_offset_m: float = 0.01
+    grasp_roll_rad: float = math.pi / 2
+    seeds_per_goal: int = 32
+    warm_start_seeds: int = 8
+    warm_start_radius_m: float = 0.15
+    warm_start_yaw_rad: float = math.pi / 6
+    distinct_joint_tolerance_rad: float = 0.001
+    pose_tolerance_m: float = 0.005
+    pose_tolerance_rad: float = 0.05
+    characteristic_length_m: float = 0.9410662914823394
+    collision_alpha: float = 20.0
+    collision_beta: float = 1.0
+    collision_query_m: float = 0.50
+    penalize_support_surface: bool = False
+    scoring_workers: int = 16
+    chunk_stations: int = 128
+    region_m: tuple | None = None  # optional [dx_min, dx_max, dy_min, dy_max] crop around the object centre
+
+    def __post_init__(self):
+        object.__setattr__(self, 'heading_offsets_deg', tuple(float(v) for v in self.heading_offsets_deg))
+        if self.region_m is not None:
+            object.__setattr__(self, 'region_m', tuple(float(v) for v in self.region_m))
+            if len(self.region_m) != 4 or self.region_m[0] > self.region_m[1] or self.region_m[2] > self.region_m[3]:
+                raise ValueError('region_m must be [dx_min, dx_max, dy_min, dy_max]')
+        if not 1 <= self.max_grasps or self.seeds_per_goal < 1 or self.scoring_workers < 1 or self.chunk_stations < 1:
+            raise ValueError('base map counts must be positive')
+        if not 0 <= self.warm_start_seeds < self.seeds_per_goal:
+            raise ValueError('warm-start seeds must leave default seeds in the same budget')
+        for key in ('spacing_m', 'grasp_position_scale_m', 'grasp_rotation_scale_rad', 'warm_start_radius_m',
+                    'pose_tolerance_m', 'pose_tolerance_rad', 'characteristic_length_m', 'collision_alpha',
+                    'collision_beta', 'collision_query_m'):
+            if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
+                raise ValueError(f'invalid {key}')
+
+
+def load_base_map_config(path):
+    return BaseMapConfig(**read_config(path))
+
+
+def load_base_map_scene(path):
+    """Source scene, fixed target and robot of one map; robot assets share the scene data root.
+
+    Robot JSON paths are resolved against this file's data_root, so a robot
+    config written for another data location cannot silently point elsewhere.
+    """
+    scene = read_config(path, data_fields=('scene_xml', 'metadata', 'assets_dir'), repo_fields=('robot_config',))
+    if scene.pop('schema_version', None) != 'base-map-scene-v1':
+        raise ValueError('base map scene requires schema_version base-map-scene-v1')
+    root = Path(repo_path(json.loads(Path(repo_path(path)).read_text())['data_root']))
+    values = json.loads(Path(scene['robot_config']).read_text())
+    values.pop('data_root', None)
+    values['model_path'] = os.path.abspath(root / values['model_path'])
+    scene['robot'] = robot_config(values)
+    return scene
+
+
 REPO_ROOT = Path(__file__).absolute().parents[2]
 
 

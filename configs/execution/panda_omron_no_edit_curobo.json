@@ -22,6 +22,5 @@
   "require_navigation_clearance": false,
   "lastmile_low": 0.3333333333333333,
   "lastmile_high": 1.0,
-  "shared_station_preparation": true,
-  "export_figures": false
+  "shared_station_preparation": true
 }

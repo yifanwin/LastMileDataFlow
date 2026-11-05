@@ -1,6 +1,8 @@
 # 执行与逐点标定配置
 
-用于 `evaluate-stations --config`，也可供 `collect-lastmile --config` 使用。加载器为 `runtime/execution_config.py`。标定使用场景库中已经保存的站位，不在这里重新生成站位。
+用于 `collect-lastmile --config`（内置逐点标定与连续采集），加载器为 `runtime/execution_config.py`。标定使用场景库中已经保存的站位，不在这里重新生成站位。
+
+例外：`panda_omron_base_map.json` 是 `evaluate-stations --config` 的底盘可达质量图参数，由 `config.load_base_map_config` 读取（`BaseMapConfig`），不是 ExecutionConfig；字段见文末。
 
 ## 重点手动配置
 
@@ -35,15 +37,13 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 | `torso_error_policy` | 仅 `record_only`；躯干反馈偏差按该约定记录，不是自动恢复/重置开关 |
 | `third_person_enabled` | 启用第三人称观察及分析视频路径；与原始机器人相机的 record_video 不是同一开关 |
 | `radius_m` | 局部地图/分析范围半径（米）；该配置作为构造 baseline_config 时也供站位采样使用 |
-| `spacing_m` | 站位采样间距（米；构造引用时）；评测不改变已有站位；也作为热图平滑宽度的后备值 |
+| `spacing_m` | 站位采样间距（米；构造引用时）；评测不改变已有站位 |
 | `trials_per_station` | 每站位独立 rollout 数，当前 5；不是同一 episode 内的重试次数 |
 | `start_count` | 不参与 lastmile-datasets 全组合；逐点标定不使用 |
 | `operation_retries` | cuRobo 导航后的操作外层重试次数，0 或 1；逐点无导航时不做该外层重试 |
 | `operations` | 任务类型列表：pick / open；构造引用时用于任务发现，当前 collection 遍历已存场景时不据此过滤，评测子集用 CLI `--samples` |
 | `min_target_pixels` | 目标可见性像素门槛，当前 24；用于任务发现/站位检查，不是任务成功阈值 |
 | `map_resolution_m` | 局部栅格地图单元边长，当前 0.05 m |
-| `smoothing_sigma_m` | 展示热图的平滑尺度（米）；null 时取 spacing_m，再后备 0.1 m；不用于困难点选择 |
-| `smoothing_support_distance_m` | 保留的支持距离参数，当前 0.35 m；当前 collection 热图调用未使用此值，修改不产生该距离限制 |
 | `attempt_timeout_s` | 单 episode 执行时间预算（秒），当前 300；不是模型加载时限 |
 | `width` / `height` | 执行相机图像宽/高（像素）；MolmoBot 当前必须 1024×576 |
 | `seed` | trial 随机种子基础值 |
@@ -60,7 +60,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 - `arrival_tolerance_m=0.015`、`arrival_tolerance_rad=0.025`、`max_navigation_steps=2400`：到达误差与导航预算。
 - 其他规划和打开动作参数直接见 `ExecutionConfig`；改变物理/成功判定参数时需要重新验证，不为凑通过率修改。
 
-成功率读取实际 trial，平滑热图只展示结果。`--max-trials` 截断可导致标定不完整，不能用于正式困难 S0 选择。
+成功率读取实际 trial。`--max-trials` 截断可导致标定不完整，不能用于正式困难 S0 选择。
 
 ## PandaOmron cuRobo
 
@@ -69,3 +69,22 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 Panda 配置的 `shared_station_preparation=true` 表示每站位静置一次，并用全局 GPU 规划池与独立 CPU trial 池标定。`initial_settle_s` 保留为站位准备时长，不再每个 trial 重复。资源和记录模式由 CLI 的 `--gpu`、`--cpu-workers`、`--preparation-workers`、`--recording-mode` 指定；不参与物理配置匹配。Panda 的 3 次、1/3 与 1.0 阈值只在对应配置生效。
 
 `panda_omron_all_cases_curobo.json` 用于百来源 Case1–3 标定，开放 pick/open，其余预算、三次与阈值同主 Panda 配置。
+
+## 底盘可达质量图（panda_omron_base_map.json）
+
+| 字段 | 含义 |
+|---|---|
+| `spacing_m` | 地面网格间距，0.10 m；原点为物体碰撞包围盒中心 |
+| `heading_offsets_deg` | 相对“底盘指向物体中心”的朝向偏角，−60…60 每 15°，共 9 个 |
+| `max_grasps` / `grasp_position_scale_m` / `grasp_rotation_scale_rad` | 最多 5 个 grasp；物体系 TCP 位姿最远点采样的位置/旋转尺度 |
+| `approach_offset_m` / `grasp_roll_rad` | 资产 grasp 到规划 TCP 的偏移与绕接近轴 roll，与固定抓取一致 |
+| `seeds_per_goal` | 每 `(站位, grasp)` 的 IK seeds，32；全部返回并逐个复核 |
+| `warm_start_seeds` / `warm_start_radius_m` / `warm_start_yaw_rad` | 热启动占预算内最多 8 个；邻点 0.15 m、朝向差 30° 内的已完成有效解 |
+| `distinct_joint_tolerance_rad` | 统计不同解时的关节最大差，0.001 rad；不丢弃候选 |
+| `pose_tolerance_m` / `pose_tolerance_rad` | MuJoCo FK 复核目标误差，5 mm / 0.05 rad |
+| `characteristic_length_m` | Jacobian 平移行的特征长度，0.941 m |
+| `collision_alpha` / `collision_beta` / `collision_query_m` | 距离势 $e^{-\alpha d}d^{-\beta}$ 参数（m⁻¹，无量纲）与查询上限 0.5 m |
+| `penalize_support_surface` | 目标支撑物（桌面）是否进入距离惩罚，默认 false；目标物体始终只做硬碰撞检查 |
+| `scoring_workers` / `chunk_stations` | CPU 评分进程数；每个候选文件的最多站位数 |
+| `region_m` | 可选 `[dx_min, dx_max, dy_min, dy_max]`，相对物体中心裁剪试跑区域；null 为全范围 |
+

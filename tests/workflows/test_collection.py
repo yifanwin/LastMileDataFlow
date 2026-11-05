@@ -21,7 +21,6 @@ from lastmile_dataflow.workflows.collection import (
     _plan_collection,
     _station_trials,
     collect_lastmile,
-    evaluate_stations,
 )
 from tests.helpers import DatasetTestCase
 
@@ -46,37 +45,6 @@ class CollectionTests(DatasetTestCase):
         self.assertEqual((effective.width, effective.height), (256, 256))
         self.assertEqual(read_json(root / 'config.json')['config']['radius_m'], 2.)
 
-    def test_scene_collector_writes_direct_records_no_child_run(self):
-        dataset = self.dataset()
-
-        def execute(baseline, scene, station, *args, **kwargs):
-            return {
-                "status": "success",
-                "reason": "mocked",
-                "recording_complete": True, "observation_complete": True,
-                "rollout_id": "mock-" + station["station_id"],
-                "executed_steps": 1,
-            }
-
-        with (
-            patch("lastmile_dataflow.workflows.collection._execute", side_effect=execute),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
-            patch("lastmile_dataflow.workflows.collection._recovery_trials") as recovery,
-        ):
-            output = evaluate_stations(
-                dataset,
-                self.root,
-                ExecutionConfig(trials_per_station=1),
-                self.collection,
-                self.root,
-                run_id="run",
-                gpu_ids=[0],
-            )
-        recovery.assert_not_called()
-        self.assertEqual(len(rows(output / "trials.jsonl")), 2)
-        self.assertEqual({p.name for p in output.iterdir()}, {"config.json", "trials.jsonl", "summary.json"})
-        self.assertTrue(read_json(output / "summary.json")["scenes"][0]["calibration_complete"])
-
     def test_reused_calibration_does_not_repeat_trials(self):
         dataset = self.dataset()
         config = ExecutionConfig(trials_per_station=1)
@@ -93,15 +61,14 @@ class CollectionTests(DatasetTestCase):
 
         with (
             patch("lastmile_dataflow.workflows.collection._execute", side_effect=execute),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]),
         ):
-            calibration = evaluate_stations(
+            calibration = collect_lastmile(
                 dataset, self.root, config, self.collection, self.root, run_id="calibration", gpu_ids=[0]
             )
         with (
             patch("lastmile_dataflow.workflows.collection._station_trials") as station_trials,
             patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset,
@@ -140,7 +107,6 @@ class CollectionTests(DatasetTestCase):
                 return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ) as execute,
             patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]) as recovery,
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset, self.root, config, self.collection, self.root, run_id="continuous", gpu_ids=[0]
@@ -159,9 +125,9 @@ class CollectionTests(DatasetTestCase):
                 "lastmile_dataflow.workflows.collection._execute",
                 return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]),
         ):
-            calibration = evaluate_stations(
+            calibration = collect_lastmile(
                 dataset,
                 self.root,
                 config,
@@ -174,7 +140,6 @@ class CollectionTests(DatasetTestCase):
         with (
             patch("lastmile_dataflow.workflows.collection._station_trials") as trials,
             patch("lastmile_dataflow.workflows.collection._execute") as execute,
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset,
@@ -305,14 +270,13 @@ class CollectionTests(DatasetTestCase):
         dataset = self.dataset()
         config = ExecutionConfig(trials_per_station=1)
         with (patch('lastmile_dataflow.workflows.collection._execute', return_value={'status': 'failure'}),
-              patch('lastmile_dataflow.workflows.collection.export_heatmap')):
-            calibration = evaluate_stations(dataset, self.root, config, self.collection, self.root,
-                                            run_id='cal-selection', gpu_ids=[0])
+              patch('lastmile_dataflow.workflows.collection._recovery_trials', return_value=[])):
+            calibration = collect_lastmile(dataset, self.root, config, self.collection, self.root,
+                                           run_id='cal-selection', gpu_ids=[0])
         changed = replace(config, lastmile_low=.1, lastmile_high=.9, start_count=1,
                           max_s1_candidates=1, lastmile_nearby_m=.01, navigation_margin_m=.03,
                           navigation_clearance_weight=3., navigation_max_penetration_m=.004)
-        with (patch('lastmile_dataflow.workflows.collection._execute') as execute,
-              patch('lastmile_dataflow.workflows.collection.export_heatmap')):
+        with patch('lastmile_dataflow.workflows.collection._execute') as execute:
             collect_lastmile(dataset, self.root, changed, self.collection, self.root,
                              run_id='reuse-selection', gpu_ids=[0], calibration=calibration)
         execute.assert_not_called()

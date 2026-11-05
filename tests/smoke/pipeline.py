@@ -1,4 +1,4 @@
-"""Bounded calibration and continuous collection on one accepted scene.
+"""Bounded built-in calibration and continuous collection on one accepted scene.
 
 Optional benchmark execution requires an existing source cuRobo calibration.
 No synthetic recovery pair, automatic smoke fallback or relocation probe.
@@ -12,7 +12,7 @@ from pathlib import Path
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.utils.io import create_run, rows, write_json
 from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.workflows.collection import collect_lastmile, evaluate_stations
+from lastmile_dataflow.workflows.collection import collect_lastmile
 from lastmile_dataflow.workflows.lastmilebench import build, evaluate
 
 
@@ -43,20 +43,11 @@ def main():
     recording = CollectionConfig(
         width=config.width, height=config.height, seed=config.seed, record_video=False
     )
-    calibration = evaluate_stations(
-        args.dataset, args.assets_dir, config, recording, root, run_id="calibration", **options
-    )
+    # collect-lastmile calibrates every station first, then runs S0->S1 from those trials.
     collection = collect_lastmile(
-        args.dataset,
-        args.assets_dir,
-        config,
-        recording,
-        root,
-        run_id="collection",
-        calibration=calibration,
-        **options,
+        args.dataset, args.assets_dir, config, recording, root, run_id="collection", **options
     )
-    result = {"calibration": str(calibration), "collection": str(collection)}
+    result = {"calibration": str(collection), "collection": str(collection)}
     write_json(root / "results.json", result)
     if args.benchmark_calibration:
         bench = build(

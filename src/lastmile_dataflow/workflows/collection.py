@@ -1,4 +1,4 @@
-"""统一编排站位标定与连续采集，共用运行准备、场景遍历和资源收尾。"""
+"""连续采集：无外部标定时先逐点物理标定，再按标定结果执行 S0→S1 采集。"""
 import logging
 from collections import Counter
 from dataclasses import asdict, replace
@@ -19,13 +19,11 @@ from ..runtime.execution.vla import run_vla_attempt
 from ..scenes.dataset import load_scenes
 from ..runtime.execution_config import execution_profile, calibration_execution
 from ..data.evaluation.selection import station_calibration, eligible_stations, generate_pairs, evaluable
-from ..data.evaluation.statistics import aggregate
 from ..data.export.lastmile_dataset import successful, training_record
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
 from ..planning.navigation.astar import scene_grid, task_support_obstacles
 from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
 from ..planning.curobo.planner import StationPlannerCache
-from ..data.visualization.heatmap import export_heatmap
 
 logger = logging.getLogger(__name__)
 
@@ -379,28 +377,19 @@ def _recovery_trials(baseline, scene, pairs, assets_dir, config, collection, roo
     return processed
 
 
-def _station_summary(sim, scene, trials, config, root):
-    """汇总原始标定结果、导出展示热图，并筛选合格的 S0/S1 配对。"""
+def _station_summary(scene, trials, config):
+    """汇总原始标定结果，并筛选合格的 S0/S1 配对。"""
     binding = {'scene_id': scene['scene_id'], 'task_id': scene['task']['task_id']}
     rates = station_calibration(scene['stations'], trials, config.trials_per_station, binding, config)
     if not rates['complete']:
         logger.warning('scene=%s 标定不完整，不能用于正式困难配对', scene['scene_id'])
-    # 热图仅用于展示；困难配对仍由原始标定结果决定。直接标定可关闭以节省时间。
-    if config.export_figures:
-        grid = scene_grid(sim, scene['task']['anchor_world'], config.radius_m, config.map_resolution_m, 0., 0.,
-                          support_obstacles=task_support_obstacles(sim, scene['task']))
-        display = [{**row, 'attempt': row.get('rollout_id')} for row in trials]
-        export_heatmap(root / 'figures' / scene['scene_id'], grid,
-            aggregate(scene['stations'], display, config.trials_per_station), scene['task']['anchor_world'],
-            config.smoothing_sigma_m or config.spacing_m or .1, title=scene['scene_id'])
     if config.mode_config is None:
         starts, goals = eligible_stations(scene['stations'], rates, config)
         pair_count = len(starts) * len(goals)
     else:
         pair_count = None  # Mode relations are computed by the diagnosis stage.
-    logger.info('scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s',
-                scene['scene_id'], len(trials), rates['complete'], pair_count,
-                root / 'figures' / scene['scene_id'] if config.export_figures else 'disabled')
+    logger.info('scene=%s 标定 trial=%s complete=%s 合格配对=%s',
+                scene['scene_id'], len(trials), rates['complete'], pair_count)
     summary = {'scene_id': scene['scene_id'], 'calibration_complete': rates['complete'],
                'eligible_pairs': pair_count, 'successes': sum(r['successes'] for r in rates['stations'])}
     if config.mode_config is not None:
@@ -409,20 +398,10 @@ def _station_summary(sim, scene, trials, config, root):
     return summary
 
 
-def _evaluate_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids, station_options=None):
-    """完成单个场景的站位标定和汇总，不执行连续采集。"""
-    trials = ([r for r in prior if r['scene_id'] == scene['scene_id']] if prior is not None else
-              _station_trials(sim, scene, assets_dir, config, collection, root, policy, max_trials,
-                              attempt_ids=attempt_ids, **(station_options or {})))
-    summary = _station_summary(sim, scene, trials, config, root)
-    summary['shared_failure'] = any(_shared_failure(row) for row in trials)
-    return summary
-
-
-def _collect_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials, *, attempt_ids, pairs):
-    """标定已在规划前完成；当前场景只展示率表并执行全组合。"""
+def _collect_scene(sim, scene, assets_dir, config, collection, root, prior, *, attempt_ids, pairs):
+    """标定已在规划前完成；当前场景汇总率表并执行全组合。"""
     trials = [row for row in prior if row['scene_id'] == scene['scene_id']]
-    summary = _station_summary(sim, scene, trials, config, root)
+    summary = _station_summary(scene, trials, config)
     summary['eligible_pairs'] = sum(pair['scene_id'] == scene['scene_id'] for pair in pairs)
     episodes = _recovery_trials(sim, scene, pairs, assets_dir, config, collection, root, attempt_ids=attempt_ids)
     summary['successes'] = sum(successful(row, continuous=True) for row in episodes)
@@ -462,6 +441,8 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     if calibration:
         logger.info('复用已有标定=%s，不重复 rollout', calibration)
         saved = read_config(Path(calibration) / 'config.json')
+        from .station_map import reject_quality_map
+        reject_quality_map(saved)
         if (Path(saved['dataset']).resolve() != Path(dataset).resolve()
                 or any(saved['profiles'].get(sid) != profile for sid, profile in profiles.items())
                 or calibration_execution(saved['config']) != calibration_execution(asdict(config))):
@@ -488,7 +469,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
     return root, scenes, config, collection, prior
 
 
-def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_scene, *, run_id,
+def _run_dataset(dataset, assets_dir, config, collection, output_dir, *, run_id,
                  gpu_ids, samples=None, calibration=None, max_trials=None, station_workers=1,
                  egl_devices=None, reuse_planners=True, cpu_workers=60, preparation_workers=12,
                  recording_mode='numerical', planning_workers_per_gpu=1):
@@ -516,24 +497,17 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(egl_devices[0]), MUJOCO_GL='egl')
     root, scenes, config, collection, prior = _prepare_run(
         dataset, config, collection, output_dir, run_id, gpu_ids[0], samples, calibration, resources=resources,
-        **({'dataset_split': 'train'} if config.mode_config is not None and process_scene is _collect_scene else {}))
+        **({'dataset_split': 'train'} if config.mode_config is not None else {}))
     logger.info('运行=%s scene数=%s backend=%s GPU=%s 每点重复=%s 每场景预算=%s 标定来源=%s',
                 root, len(scenes), config.operation_backend, gpu_ids[0], config.trials_per_station,
                 max_trials if max_trials is not None else '完整标定', calibration or '当前 run 内执行')
     summaries = []
     attempt_ids = count()
-    policy = None
-    collecting = process_scene is _collect_scene
     pairs = []
     stopped = False
     calibration_summary = None
     diagnosis_summary = None
     try:
-        if config.operation_backend in ('molmobot', 'pi05'):
-            from ..policies.config import create_policy
-            logs = Path(output_dir) / 'logs'
-            logs.mkdir(parents=True, exist_ok=True)
-            policy = create_policy(config.policy_config, logs / f'{run_id}-policy.log')
         if split and prior is None:
             from .station_calibration import calibrate_stations
             from ..runtime.resources import calibration_recording
@@ -542,38 +516,37 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
                 attempt_ids=attempt_ids, max_trials=max_trials)
             stopped = bool(calibration_summary['failure'])
         # 无外部标定时，先完成全部场景的标定，再生成全量计划。
-        if collecting:
-            if prior is None:
-                prior = []
-                for scene in scenes:
-                    sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
-                    sim.scene_id = scene['scene_id']
-                    try:
-                        current = _station_trials(sim, scene, assets_dir, config, collection, root,
-                                                  budget=max_trials, attempt_ids=attempt_ids, **station_options)
-                        prior.extend(current)
-                    finally:
-                        sim.close()
-                    if any(_shared_failure(row) for row in current):
-                        stopped = True
-                        break
-            diagnoses = None
-            if config.mode_config is not None:
-                from ..data.evaluation.diagnosis import load_diagnoses
-                if calibration:
-                    diagnoses = load_diagnoses(calibration, scenes, read_json(root / 'config.json')['mode_settings'])
-                else:
-                    from .station_calibration import diagnose_stations
-                    results, diagnosis_summary = diagnose_stations(scenes, prior, assets_dir, config, root,
-                        gpu_ids, allow_probes=not stopped)
-                    diagnoses = {row['scene_id']: row for row in results}
-                    stopped = stopped or bool(diagnosis_summary['failure'])
-            pairs = _plan_collection(scenes, prior, config, root,
-                                     os.path.relpath(Path(calibration).resolve(), root.resolve()) if calibration else '.',
-                                     **({'diagnoses': diagnoses} if diagnoses is not None else {}))
-        # 策略客户端跨场景复用，仿真实例逐场景创建并关闭。
+        if prior is None:
+            prior = []
+            for scene in scenes:
+                sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
+                sim.scene_id = scene['scene_id']
+                try:
+                    current = _station_trials(sim, scene, assets_dir, config, collection, root,
+                                              budget=max_trials, attempt_ids=attempt_ids, **station_options)
+                    prior.extend(current)
+                finally:
+                    sim.close()
+                if any(_shared_failure(row) for row in current):
+                    stopped = True
+                    break
+        diagnoses = None
+        if config.mode_config is not None:
+            from ..data.evaluation.diagnosis import load_diagnoses
+            if calibration:
+                diagnoses = load_diagnoses(calibration, scenes, read_json(root / 'config.json')['mode_settings'])
+            else:
+                from .station_calibration import diagnose_stations
+                results, diagnosis_summary = diagnose_stations(scenes, prior, assets_dir, config, root,
+                    gpu_ids, allow_probes=not stopped)
+                diagnoses = {row['scene_id']: row for row in results}
+                stopped = stopped or bool(diagnosis_summary['failure'])
+        pairs = _plan_collection(scenes, prior, config, root,
+                                 os.path.relpath(Path(calibration).resolve(), root.resolve()) if calibration else '.',
+                                 **({'diagnoses': diagnoses} if diagnoses is not None else {}))
+        # 仿真实例逐场景创建并关闭。
         for index, scene in enumerate(scenes, 1):
-            if stopped and (collecting or not split):
+            if stopped:
                 break
             logger.info('场景 %s/%s 开始 scene=%s target=%s station数=%s',
                         index, len(scenes), scene['scene_id'], scene['task'].get('asset_id', scene['task']['task_id']),
@@ -582,39 +555,21 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             sim = Simulation.from_snapshot(scene['scene_path'], robot, target=scene['task']['target_body'])
             sim.scene_id = scene['scene_id']
             try:
-                summary = process_scene(sim, scene, assets_dir, config, collection, root, policy, prior, max_trials,
-                                        attempt_ids=attempt_ids,
-                                        **({'pairs': pairs} if collecting else {'station_options': station_options}))
+                summary = _collect_scene(sim, scene, assets_dir, config, collection, root, prior,
+                                         attempt_ids=attempt_ids, pairs=pairs)
                 summaries.append(summary)
                 stopped = stopped or summary.get('shared_failure', False)
                 logger.info('场景结束 %s', scene['scene_id'], extra={'progress': True})
             finally:
                 sim.close()
-        if config.mode_config is not None and not collecting:
-            from .station_calibration import diagnose_stations
-            raw_trials = prior if prior is not None else rows(root / 'trials.jsonl')
-            diagnoses, diagnosis_summary = diagnose_stations(scenes, raw_trials, assets_dir, config,
-                root, gpu_ids, source_root=calibration, allow_probes=not stopped)
-            by_scene = {row['scene_id']: row for row in diagnoses}
-            for summary in summaries:
-                diagnosis = by_scene[summary['scene_id']]
-                mode_pairs = {(row['s0'], goal) for row in diagnosis['s0_results']
-                         for label in row['labels'].values() if label['status'] == 'matched'
-                         for goal in label['qualifying_s1_ids']}
-                summary.update(task_eligibility=diagnosis['task_eligibility'],
-                               intent_hit=diagnosis['intent_hit'], eligible_pairs=len(mode_pairs))
-            stopped = stopped or bool(diagnosis_summary['failure'])
     finally:
-        # 异常退出也关闭策略服务并保存已完成场景；运行完整不等于任务成功。
-        if policy:
-            policy.close()
-        if collecting:
-            if not pairs:
-                pairs = rows(root / 'pair_index.jsonl')
-            for pair in pairs:
-                if pair['status'] == 'not_executed':
-                    pair['reason'] = 'shared_failure' if stopped else 'run_interrupted'
-            write_rows(root / 'pair_index.jsonl', pairs)
+        # 异常退出也保存已完成场景；运行完整不等于任务成功。
+        if not pairs:
+            pairs = rows(root / 'pair_index.jsonl')
+        for pair in pairs:
+            if pair['status'] == 'not_executed':
+                pair['reason'] = 'shared_failure' if stopped else 'run_interrupted'
+        write_rows(root / 'pair_index.jsonl', pairs)
         training = rows(root / 'train_index.jsonl')
         executed_pairs = sum((pair.get('executed_steps') or 0) > 0 for pair in pairs)
         write_json(root / 'summary.json', {
@@ -622,40 +577,15 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
             'scenes': summaries, 'elapsed_s': time.monotonic() - started,
             **({'calibration': calibration_summary} if calibration_summary is not None else {}),
             **({'diagnosis': diagnosis_summary} if diagnosis_summary is not None else {}),
-            **({'planned_pairs': len(pairs), 'processed_pairs': sum(p['status'] != 'not_executed' for p in pairs),
-                'executed_pairs': executed_pairs, 'execution_coverage': executed_pairs / len(pairs) if pairs else 0.,
-                'pair_status_counts': dict(Counter(p['status'] for p in pairs)),
-                'train_source_counts': dict(Counter(row['source_type'] for row in training))} if collecting else {})})
+            'planned_pairs': len(pairs), 'processed_pairs': sum(p['status'] != 'not_executed' for p in pairs),
+            'executed_pairs': executed_pairs, 'execution_coverage': executed_pairs / len(pairs) if pairs else 0.,
+            'pair_status_counts': dict(Counter(p['status'] for p in pairs)),
+            'train_source_counts': dict(Counter(row['source_type'] for row in training))})
         logger.info('运行收尾 输出=%s 已处理场景=%s/%s 耗时=%.1fs',
                     root, len(summaries), len(scenes), time.monotonic() - started)
         if len(summaries) != len(scenes) or stopped:
             logger.warning('运行未完整结束：已处理场景=%s/%s', len(summaries), len(scenes))
     return root
-
-
-def evaluate_stations(dataset, assets_dir, config, collection, output_dir, *, run_id,
-                      gpu_ids, samples=None, max_trials=None, station_workers=1, egl_devices=None, reuse_planners=True,
-                      cpu_workers=60, preparation_workers=12, recording_mode='numerical',
-                      planning_workers_per_gpu=1):
-    """执行逐站位试验并导出热图，不执行 S0→S1 连续采集。"""
-    return _run_dataset(dataset, assets_dir, config, collection, output_dir, _evaluate_scene,
-        run_id=run_id, gpu_ids=gpu_ids, samples=samples, max_trials=max_trials,
-        station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
-        cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode,
-        planning_workers_per_gpu=planning_workers_per_gpu)
-
-
-def evaluate_recipe(recipe, assets_dir, config, collection, output_dir, *, run_id, gpu_ids,
-                    build_workers=1, exclude_categories=None, **options):
-    """Prepare one-shot no-edit scene inputs from a recipe, then calibrate them."""
-    from .scene_datasets import prepare_scene_inputs
-    input_root = Path(output_dir) / '_calibration_inputs' / run_id
-    logger.info('直接标定准备 recipe=%s 输入=%s build_workers=%s exclude=%s',
-                recipe, input_root, build_workers, exclude_categories or [])
-    prepare_scene_inputs(recipe, input_root, gpu_ids=gpu_ids, workers=build_workers,
-                         exclude_categories=exclude_categories)
-    return evaluate_stations(input_root, assets_dir, config, collection, output_dir,
-                             run_id=run_id, gpu_ids=gpu_ids, **options)
 
 
 def collect_lastmile(dataset, assets_dir, config, collection, output_dir, *, run_id,
@@ -666,7 +596,7 @@ def collect_lastmile(dataset, assets_dir, config, collection, output_dir, *, run
     """复用匹配的标定或先完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
     if config.operation_backend != 'curobo':
         raise ValueError('continuous collection currently uses cuRobo')
-    return _run_dataset(dataset, assets_dir, config, collection, output_dir, _collect_scene,
+    return _run_dataset(dataset, assets_dir, config, collection, output_dir,
         run_id=run_id, gpu_ids=gpu_ids, samples=samples, calibration=calibration, max_trials=max_trials,
         station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
         cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode,

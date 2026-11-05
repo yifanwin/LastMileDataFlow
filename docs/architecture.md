@@ -25,7 +25,9 @@ src/lastmile_dataflow/
 │   └── logging_config.py          # 统一日志格式与终端颜色
 ├── workflows/                     # 短编排，不放核心算法
 │   ├── scene_datasets.py          # build_scenes：每任务共享准备与模式循环
-│   ├── collection.py              # evaluate_stations / collect_lastmile
+│   ├── station_map.py             # build_station_map：evaluate-stations 的质量图计算（不出图）
+│   ├── station_map_plot.py        # plot_station_map：evaluate-stations --plot-from，只读数组出图
+│   ├── collection.py              # collect_lastmile：内置逐点标定与连续采集
 │   ├── station_calibration.py     # 全 run 标定调度：CPU 准备 / GPU 规划 / CPU trial
 │   └── lastmilebench.py           # build / evaluate
 ├── scenes/                        # 场景、任务与候选站位
@@ -35,7 +37,7 @@ src/lastmile_dataflow/
 │   ├── build/                     # 共享上下文、提案、事务检查与搜索
 │   ├── modes/                     # 八类候选构造与共用几何代理
 │   ├── stations/
-│   │   ├── sampling.py            # sample_stations：初始化与可见性检查
+│   │   ├── sampling.py            # sample_stations；heading_fan / base_clearance（质量图）
 │   │   └── initialization.py      # 站位初始化
 │   └── augmentation/
 │       └── checks.py              # 增强场景物理检查
@@ -77,18 +79,19 @@ src/lastmile_dataflow/
     ├── recorder.py               # AttemptRecorder：轨迹、状态与图像
     ├── evaluation/               # 原始 trial 统计、S0/S1 选择、评测汇总
     ├── rendering/                # 图像与视频
-    ├── visualization/            # 成败热图与导航图
+    ├── visualization/            # 底盘质量图（quality_map）与导航图
     └── export/                   # lastmile_dataset 物化/batch 读取、MolmoBot 与 LeRobot/π0.5 导出
 ```
 
 ## 主要 workflow
 
 - `scene_datasets`：目标粗筛与空间覆盖选择；每任务准备一次 BuildContext，按八类 intent 构造候选，由父进程写唯一主记录。
-- `collection`：`evaluate_stations()` 单独跑逐点 rollout 与热图；`collect_lastmile()` 用匹配标定或在当前 run 标定一次，先落盘全量 S0×S1 计划和已有成功标定示教，再执行连续导航与操作。两个入口共享 run 准备、场景循环和真实执行器，没有 continuous/calibration_only Python 模式开关。
+- `station_map`：`build_station_map()` 是 `evaluate-stations` 的唯一实现。源场景或快照只做 `mj_forward`，物体不动；底盘、升降、夹爪锁定。每个站位绑定到同一个 `V2Planner`（`bind_station` 只更新已上传障碍物的位姿），`ik_candidates` 按 seed 顺序返回全部 32 个候选；CPU 评分进程用 MuJoCo 复核 FK、接触并调用 `planning/manipulability.py` 计算扩展可操作度。出图与计算分开：`station_map_plot.plot_station_map()`（`--plot-from`）只读 `map.npz` 等数组，调用 `data/visualization/quality_map.py`，计算模块不导入任何出图代码。
+- `collection`：`collect_lastmile()` 用匹配标定或在当前 run 逐点标定一次，先落盘全量 S0×S1 计划和已有成功标定示教，再执行连续导航与操作。逐点物理标定只在这里运行，仅 cuRobo。
 - `lastmilebench`：由完整标定选择困难 S0，保存 native 场景并独立执行策略。设备/profile 工具来自 `runtime.execution_config`，不依赖采集 workflow。
 
 `sample_stations` 只做初始化几何检查（`static_only=True`）或再加头部可见性，不执行规划或任务 rollout；
-`evaluate_stations` 才产生真实 rollout，两者不混用。
+真实 rollout 只来自 `collect_lastmile` 的标定与连续采集；质量图只有静态 IK 与评分，没有 stepping。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
 cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始的场景基线，每个 trial 仍经 `run_curobo_attempt` 新建仿真。父进程分配编号、汇总唯一的 `trials.jsonl`；共享故障通过进程事件停止新增试验。`StationPlannerCache` 每站位最多保留每臂一个闭爪前 planner，相同初态时重绑仿真、FOV 和日志，并为新 seed 重建原生种子管理器；闭爪后继续重建。`ContactSampler` 缓存静态名称与分类，每物理步读取一次接触力，供任务 monitor 和接触统计共用，详细遥测只在需要时生成。
@@ -110,15 +113,15 @@ flowchart TD
     MODES --> SAVE["最多 20 合法姿态与三相机 ROI → freeze"]
     SAVE --> DATASET["场景库与候选站位"]
 
-    CLI -->|evaluate-stations| EVAL["collection.evaluate_stations"]
-    DATASET -.-> EVAL
-    EVAL --> TRIALS["逐站位实际 rollout<br/>cuRobo / MolmoBot / π0.5"]
-    TRIALS --> CAL["标定：原始 trials.jsonl 与成败热图"]
+    CLI -->|evaluate-stations| MAP["station_map.build_station_map"]
+    SOURCE["base-map 场景文件或场景库"] -.-> MAP
+    MAP --> QUALITY["SE(2) 质量图：32-seed IK、MuJoCo 复核、扩展可操作度<br/>map.npz 与逐 grasp 图"]
 
     CLI -->|collect-lastmile| COLLECT["collection.collect_lastmile<br/>仅 cuRobo"]
     DATASET -.-> COLLECT
+    COLLECT --> CAL["内置逐点标定：原始 trials.jsonl"]
     CAL -.->|可复用的匹配标定| COLLECT
-    COLLECT --> EPISODES["S0→S1→操作<br/>pair_index / train_index 与实际执行记录"]
+    CAL --> EPISODES["S0→S1→操作<br/>pair_index / train_index 与实际执行记录"]
 
     CLI -->|build-bench| BENCH["lastmilebench.build"]
     DATASET -.-> BENCH
@@ -129,7 +132,7 @@ flowchart TD
     POLICY --> RESULT["VLA 独立执行、底盘诊断与分组 Macro"]
 ```
 
-热图用于展示；S0/S1 配对和困难 S0 选择读取原始 trial，而不是平滑后的颜色。
+S0/S1 配对和困难 S0 选择读取原始 trial；底盘质量图尚未接入选站（新规则未定），不能当成成功率读入。
 benchmark 按来源计划使用完整站位的原始计数，不重新标定；构建不依赖策略或 native 场景转换。`data/evaluation/recovery.py` 负责共享区域和诊断，路径搜索复用 `planning/navigation/astar.py`。策略需要的 native 控制适配在评测初始化阶段进行；隐藏 oracle 不发送到策略进程。
 
 ## build-scenes：任务共享准备与八类候选
@@ -159,16 +162,16 @@ no-edit/base-pose 复用同一个 baseline 快照；对象编辑保存各自真�
 
 ## 标定：逐站位 rollout → 原始 trial → S0/S1 门槛
 
-`evaluate-stations` 的主体是标定：逐站位 trial、原始记录与热图；`collect-lastmile` 先做同样的标定再用于配对。
+逐点标定只在 `collect-lastmile` 内运行（未传 `--calibration` 时），结果再用于配对。
 三条实现路径（复用已有标定、全 run 调度器、逐场景串行/站位并行）共享同一份 `trials.jsonl`
 格式；后两条路径由父进程唯一写入。
 
 ```text
-evaluate-stations / collect-lastmile
+collect-lastmile
   |
-  +-- evaluate_stations(...)              collect_lastmile(...)（仅 cuRobo）
-  |             |                                  |
-  +-------------+----------- _run_dataset ---------+
+  +-- collect_lastmile(...)（仅 cuRobo）
+                            |
+                         _run_dataset
                             |
                             +-- _prepare_run
                             |     数据集 config.json 的 geometry 键覆盖执行配置
@@ -188,13 +191,11 @@ evaluate-stations / collect-lastmile
                             |         每 worker 常驻一个已载入场景的 Simulation
                             |         父进程唯一追加 trials.jsonl
                             |
-                            +-- collect-lastmile：_plan_collection
+                            +-- _plan_collection
                             |     pair_index.jsonl   全部 S0 x S1，status=not_executed
                             |     train_index.jsonl  已有 S1 直采成功示教
                             |
-                            +-- 逐场景 process_scene
-                            |     evaluate-stations -> _evaluate_scene（只标定）
-                            |     collect-lastmile  -> _collect_scene（热图后走 A*）
+                            +-- 逐场景 _collect_scene（汇总率表后走 A*）
                             |
                             +-- finally：summary.json
                                   status=completed 仅当全部场景处理且无共享故障
@@ -270,8 +271,6 @@ trials.jsonl（一行一次 trial）
   |       S0: rate <= lastmile_low      S1: rate >= lastmile_high
   |
   +-- generate_pairs：S0 x S1 全组合，不在这步按路径或距离过滤
-  |
-  +-- 热图 aggregate -> figures/<scene_id>：只展示，不参与选择
   |
   -> collect-lastmile 在这里接 A* 与连续 attempt（见下节）
 ```

@@ -29,6 +29,30 @@ def disk_samples(anchor, radius, spacing):
     return result
 
 
+def heading_fan(xy, target_xy, offsets):
+    """World yaws of the base facing `target_xy`, shifted by each offset; None at the target."""
+    delta = np.asarray(target_xy[:2], float) - np.asarray(xy[:2], float)
+    if np.hypot(*delta) < 1e-9:
+        return None
+    facing = math.atan2(delta[1], delta[0])
+    return [math.atan2(math.sin(facing + offset), math.cos(facing + offset)) for offset in offsets]
+
+
+def base_clearance(sim, base, initial, base_bodies, *, floor_triangles=None):
+    """Floor support and base-only collisions at `base`; arm contacts never reject a station.
+
+    The base, column and arm mount are fixed relative to the base pose, so their
+    contacts depend only on (x, y, yaw); the arm's own contacts are judged per
+    IK configuration. Allowed floor support of the wheels is not a collision.
+    """
+    if not floor_support(sim, base[:2], triangles=floor_triangles):
+        return 'no_floor', []
+    sim.robot.initialize({**copy.deepcopy(initial), sim.robot.initial_base_field: list(base)})
+    collisions = [c for c in robot_contacts(sim)
+                  if c['kind'] == 'environment_collision' and set(c['body_names']) & base_bodies]
+    return ('base_collision' if collisions else 'clear'), collisions
+
+
 def yaw_variants(station, offsets=(-math.pi / 4, math.pi / 4)):
     """Create explicit initial headings relative to an initialized nominal pose."""
     xy_id = station['xy_id']

@@ -37,8 +37,6 @@ class ExecutionConfig:
     operation_retries: int = 1
     min_target_pixels: int = 24
     map_resolution_m: float = .05
-    smoothing_sigma_m: float | None = None
-    smoothing_support_distance_m: float = .35
     navigation_margin_m: float = .02
     navigation_clearance_weight: float = 2.
     navigation_max_penetration_m: float = .005
@@ -62,7 +60,6 @@ class ExecutionConfig:
     approach_offset_m: float = .01
     torso_heights: list = field(default_factory=lambda: [0., .369, .738])
     operations: list = field(default_factory=lambda: ['pick', 'open'])
-    export_figures: bool = True
     seed: int = 42
     width: int = 320
     height: int = 240
@@ -113,15 +110,14 @@ class ExecutionConfig:
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError('invalid ' + key)
         for key in ('local_base_radius_m', 'lastmile_nearby_m', 'head_fov_min_depth_m', 'radius_m', 'map_resolution_m',
-                    'smoothing_support_distance_m', 'navigation_speed_m_s', 'navigation_yaw_speed_rad_s',
+                    'navigation_speed_m_s', 'navigation_yaw_speed_rad_s',
                     'arrival_tolerance_m', 'arrival_tolerance_rad', 'attempt_timeout_s', 'gripper_width_m',
                     'open_hinge_rad', 'open_slide_m', 'open_hold_s', 'open_waypoint_step_rad', 'open_waypoint_step_m'):
             value = getattr(self, key)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError('invalid ' + key)
-        for value in (self.spacing_m, self.smoothing_sigma_m):
-            if value is not None and (not math.isfinite(value) or value <= 0):
-                raise ValueError('spacing and smoothing must be positive')
+        if self.spacing_m is not None and (not math.isfinite(self.spacing_m) or self.spacing_m <= 0):
+            raise ValueError('spacing must be positive')
         for key in ('navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'):
             if not math.isfinite(getattr(self, key)) or getattr(self, key) < 0:
                 raise ValueError('invalid ' + key)
@@ -156,7 +152,8 @@ def execution_profile(robot, config):
 
 def calibration_execution(config):
     """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
+    # Display-only keys of earlier runs (removed heat map) stay excluded so their calibrations still match.
     selection = {'mode_config', 'lastmile_low', 'lastmile_high', 'lastmile_nearby_m', 'start_count',
-                 'max_s1_candidates', 'smoothing_sigma_m', 'smoothing_support_distance_m',
+                 'max_s1_candidates', 'smoothing_sigma_m', 'smoothing_support_distance_m', 'export_figures',
                  'navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'}
     return {key: value for key, value in config.items() if key not in selection}

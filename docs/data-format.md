@@ -5,14 +5,14 @@
 | 阶段 | 主记录 | 内容 |
 |---|---|---|
 | scene-datasets | `scenes.jsonl` | 场景 ID、accepted/rejected、相对场景路径、任务、站位、障碍物放置 |
-| 逐点标定 | `trials.jsonl` | 场景/任务/站位、试验号、种子、状态、原因、相对 rollout 路径 |
+| 逐点标定（collect-lastmile 内置） | `trials.jsonl` | 场景/任务/站位、试验号、种子、状态、原因、相对 rollout 路径 |
 | lastmile 配对 | `pair_index.jsonl` | 全量 S0×S1 计划、导航难度及执行结果，包含未执行和无路径 |
 | lastmile 训练入口 | `train_index.jsonl` | 两类成功完整示教；引用型指向来源 run，物化后指向内部 rollout |
 | benchmark 定义 | `episodes.jsonl` | 场景、任务、困难起点、种子 |
 | benchmark 内部证据 | `oracle.json` | 每场景共享恢复区域、原始计数引用、可达路径、难度和分组；策略不可见 |
 | benchmark 执行 | `results.jsonl` | episode 对应结果、终止与记录完整性 |
 
-`config.json` 保存有效参数、种子、机器人/相机、后端或策略配置。`summary.json` 和热图是可重建的阅读产物，不作为协议入口。引用型生成读取原标定，不复制第二份 trials；独立物化仅复制训练索引所选的唯一轨迹与必需观测。
+`config.json` 保存有效参数、种子、机器人/相机、后端或策略配置。`summary.json` 和图像是可重建的阅读产物，不作为协议入口。引用型生成读取原标定，不复制第二份 trials；独立物化仅复制训练索引所选的唯一轨迹与必需观测。
 
 标定 run 的 `config.json.resources` 保存 `station_workers/gpu_ids/egl_devices/reuse_planners`，不参与物理执行配置匹配。新 trial 行包含原场景内的 `station_index`；seed 为 `config.seed + station_index × trials_per_station + trial`。并行时父进程预分配唯一 `rollout_id`，JSONL 行可按完成顺序排列，读取端不依赖行序。
 
@@ -116,7 +116,7 @@
 
 模式任务资格区分 incomplete、no_success、no_high_rate_s1、eligible。初始化/记录/基础设施错误及 outcome 未知的 timeout 不补进三次失败；S0 按 0/3、1/3 排序，各标签的 S1 先找合格 3/3，再找合格 2/3。
 
-### 逐点标定 run（`outputs/<calibration-run>/`）
+### 逐点标定 run（`collect-lastmile` 的 run，或旧 `evaluate-stations` 标定 run）
 
 ```
 <run>/
@@ -143,14 +143,12 @@
 │   ├── fk_check.json / target_query_range.json
 │   ├── carried_geometry.json      # 单次查询（-q<n>）
 │   └── planner_reuse.json         # 复用来源与作用域
-├── preparations/<scene_id>/<station_id>/
-│   ├── preparation.json           # 站位准备与实测初始状态
-│   └── state.npz                  # 冻结的 initial state
-└── figures/<scene_id>/
-    ├── heatmap.json               # 热图说明
-    ├── success_heatmap.npz        # 网格、成功率与权重
-    └── success_heatmap_stations.svg
+└── preparations/<scene_id>/<station_id>/
+    ├── preparation.json           # 站位准备与实测初始状态
+    └── state.npz                  # 冻结的 initial state
 ```
+
+旧的 `evaluate-stations` 标定 run 另有 `figures/<scene_id>/` 高斯成功率热图（`heatmap.json`、`success_heatmap.npz`、SVG），当前代码已不再生成，仅作历史阅读。
 
 `trials.jsonl` 字段：
 
@@ -218,8 +216,6 @@ N+1 个边界状态对应 N 个实际控制间隔；没有真实物理步时不�
 
 `preparation.json` 字段：`status`（`ready` 等）、`requested_station`、`actual_base`、`measured`（实测 `time_s/robot/target/instances/qpos/qvel/ctrl`）、`state`（`state.npz`）、`state_spec`、`model_dir`、`elapsed_s`、`settled_simulation_s`；失败时另有站位准备错误信息。
 
-`figures/<scene_id>/`：`heatmap.json` 为说明（`sigma_m`、核函数、遮挡掩码、加权规则、`unknown_is_not_zero`）；`success_heatmap.npz` 含 `origin`、`resolution_m`、`free`、`success_rate`、`weighted_trials`、`sigma_m`、`max_support_distance_m`；SVG 为可视化。热图只用于阅读，困难起点选择读取原始 trial。
-
 `config.json` 顶层：`dataset`（场景库 run 路径）、`config`（物理/规划/操作参数）、`collection` 与 `calibration_collection`（录制开关、分辨率、步数上限、穿透阈值）、`calibration`、`gpu`、`profiles`（每场景的机器人配置与初始状态）、`resources`（`station_workers/gpu_ids/egl_devices/reuse_planners/cpu_workers/preparation_workers/recording_mode/split_planning`）、`seed`。
 
 `summary.json`：`status`、`elapsed_s`、`calibration`（`planned_trials/recorded_trials/preparation_failures[]/failure/peaks/gpu_active_s/elapsed_s`）、`scenes[]`（`scene_id/calibration_complete/eligible_pairs/successes/shared_failure`）。`eligible_pairs` 为合格 S0 站位数 × S1 站位数，即计划配对数量，不是成功数。
@@ -228,8 +224,27 @@ N+1 个边界状态对应 N 个实际控制间隔；没有真实物理步时不�
 
 场景构建完成发现任务、资格筛选、增强与站位采样，accepted/rejected 都保留在 `scenes.jsonl`。
 每个 accepted 场景给出任务和最终站位，采集端按这些站位执行，不重新生成一套点集。
-`evaluate-stations()` 写 `trials.jsonl`；`collect-lastmile()` 读取该标定，或在当前 run 标定一次，再写全量配对与两类成功示教视图。
-平滑热图仅用于阅读，选点读取原始 trial 计算出的实测率。场景、任务与控制 profile 必须匹配。
+`collect-lastmile()` 读取已有标定 run 的 `trials.jsonl`，或在当前 run 标定一次，再写全量配对与两类成功示教视图。
+选点读取原始 trial 计算出的实测率；场景、任务与控制 profile 必须匹配。`evaluate-stations` 的底盘质量图不是成功率，不参与选点。
+
+## 底盘可达质量图 run
+
+`evaluate-stations --output-dir <dir> --run-id <id>` 写 `<dir>/<id>/`：顶层 `config.json`（`kind=base-quality-map-v1`、输入、生效配置、GPU）与 `summary.json`，每个场景一个子目录：
+
+```
+<run>/<scene_id>/
+├── scene.json            # 物体位姿与中心、支撑物、参考站位、升降/夹爪、肩枢轴、臂展上界、网格、选中 grasp（来源行、物体系与世界系 TCP）
+├── planner/              # 一次性 planner 资源与 FK 检查（同 planning/ 目录字段）
+├── candidates-NNNN.npz   # 每查询一行，最多 chunk_stations 个站位一块
+├── map.npz               # 汇总地图
+└── summary.json          # 计数、有效率、耗时分项、质量范围、完成状态
+```
+
+图由 `evaluate-stations --plot-from <run>` 另行生成到 `<output-dir>/<run-id>/<scene_id>/`：`base-quality-g{k}.png`、`heading-quality-g{k}.png`、`ik-valid-rate.png`、`grasp-poses.png`、`base-quality.html`、`figures.json`，`--render-examples` 时另有 `examples.png/json`；顶层 `plot.json` 记录来源 run。
+
+`candidates-NNNN.npz`（N 个已执行查询，S=32 seeds，按 seed 顺序）：`station_index`、`grasp_index`、`base_xyyaw (N,3)`、`q (N,S,7)`、`solver_success`、`reason`（索引见 `map.npz:seed_reason_names`：not_run、solver_failed、pose_mismatch、mujoco_contact、touching_contact、valid）、`quality`（仅 valid 有值）、`fk_error (N,S,2)`、`penalized_pairs`、`solver_position_error_m`、`solver_rotation_error_rad`、`warm_start_seeds`、`solve_s`、`full_seed_coverage`。
+
+`map.npz`：`x (Nx)`、`y (Ny)`、`heading_offsets_rad (M)`、`yaw (Ny,Nx,M)`；`(Ny,Nx,M,K)` 的 `status`（索引见 `status_names`：not_evaluated、no_heading、no_floor、base_collision、distance_filtered、ik_no_solution、valid）、`quality`、`valid_seeds`、`converged_seeds`、`executed_seeds`、`distinct_valid`、`warm_start_seeds`、`best_seed`、`full_seed_coverage` 与 `best_q (…,7)`；`position_quality (Ny,Nx,K)` 为各 grasp 在该位置所有有效朝向质量的平均值（无有效解的朝向不计入，不当 0），`valid_headings (Ny,Nx,K)` 为参与平均的朝向数；不跨 grasp 合成。2026-11-05 之前的 run 中该字段是跨朝向最大值，出图命令会按平均值重新聚合；`background_*` 为展示用障碍栅格。无解与未评价质量为 NaN，有效零分为 0。IK 有效率 = valid_seeds / executed_seeds，几何过滤的查询 executed_seeds=0，不进分母。
 
 ## lastmile 训练来源与物化
 

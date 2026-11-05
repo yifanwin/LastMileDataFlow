@@ -21,14 +21,14 @@
 
 | 目录 | 用途与入口 | 说明 |
 |---|---|---|
-| [scene_datasets](scene_datasets/README.md) | 历史 Case JSON | 保留实验输入引用，已退出公开构建 |
+| [scene_datasets](scene_datasets/README.md) | 历史 Case JSON；`evaluate-stations --recipe` 的 base-map 场景文件 | Case JSON 已退出公开构建；`*_base_map.json` 为质量图输入 |
 | [task_modes](task_modes/README.md) | 新模式配方、共享阈值与三次标定配置 | 公开 build-scenes v2 八类候选；统一诊断及 train/val 下游消费 |
-| [execution](execution/README.md) | `evaluate-stations / collect-lastmile --config` | 逐站位执行和标定 |
+| [execution](execution/README.md) | `collect-lastmile --config`；`evaluate-stations --config`（仅 `panda_omron_base_map.json`） | 逐点物理标定与采集；底盘质量图参数 |
 | [lastmile_datasets](lastmile_datasets/README.md) | `collect-lastmile --config` | S0→S1→操作的连续采集参数 |
 | [policies](policies/README.md) | execution 的 `policy_config`；`evaluate-bench --policy-config` | MolmoBot / π0.5 模型服务 |
 | [benchmark](benchmark/README.md) | `build-bench --config` | 恢复区域、路径、≤20% / ≥60% 阈值及评测预算 |
 | [robots](robots/README.md) | 机器人加载器；构造时由场景配方引用具体文件 | 机器人模型与控制；评测读取快照中的机器人配置 |
-| [scene_eval](scene_eval/README.md) | `evaluate-stations --config` | 与 execution/MolmoBot 同参数的预设 |
+| [scene_eval](scene_eval/README.md) | 历史 MolmoBot 逐点评测预设 | `evaluate-stations` 已改为质量图，当前无 CLI 入口读取 |
 | [collection](collection/README.md) | Python `load_config(CollectionConfig, ...)` | 记录配置示例；当前 CLI 不直接加载此 JSON |
 | [case_edits](case_edits/README.md) | 历史增强 JSON | 旧增强入口已退出 |
 

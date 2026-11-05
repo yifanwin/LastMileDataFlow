@@ -3,7 +3,7 @@
 ## 项目目标与边界
 
 LastMileDataFlow 是面向快速科研实验的机器人数据工程：
-**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
+**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**；底盘可达质量图（静态 IK + 扩展可操作度）单独回答“哪些站位与朝向能到达抓取终态”。
 
 - 只维护五个 CLI 命令：`build-scenes`、`evaluate-stations`、`collect-lastmile`、`build-bench`、`evaluate-bench`。
 - 规划固定 cuRobo V2（0.8.0），策略为 MolmoBot multitask，导航为 A*。连续采集当前仅支持 cuRobo。
@@ -55,7 +55,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 | `planning/` | cuRobo V2、机器人规划适配、碰撞/FOV 和 A* |
 | `policies/` | MolmoBot 配置、客户端/服务及 `multitask/` 必要推理代码 |
 | `data/` | `recorder.py` 与 `evaluation/export/rendering/visualization`，负责记录、统计、导出和图像 |
-| `workflows/` | 场景构建、逐点标定、连续采集和 benchmark 的薄编排 |
+| `workflows/` | 场景构建、底盘可达质量图、逐点标定与连续采集、benchmark 的薄编排 |
 
 包根 `cli.py` 只做命令分发，`config.py` / `io.py` 管理共用配置与读写。
 算法放领域模块，编排放 `workflows`，实际运动放 `runtime`；不另起平行执行器或记录链路。

@@ -26,6 +26,16 @@ from .tracing import SolverTrace, native_grasp_planner_type
 from .head_fov import HeadFOVCost, SparseFOVValidator, camera_definition, camera_robot_config, knot_sample_indices
 
 
+def pose_matrix(pose):
+    """Homogeneous matrix of a cuRobo [x, y, z, qw, qx, qy, qz] pose list."""
+    import mujoco
+    matrix = np.eye(4)
+    rotation = np.zeros(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(pose[3:], float))
+    matrix[:3, :3], matrix[:3, 3] = rotation.reshape(3, 3), pose[:3]
+    return matrix
+
+
 class PlannerUnavailable(RuntimeError):
     shared_resource = True
 
@@ -590,6 +600,69 @@ class V2Planner:
             return evidence
         finally:
             self.context.contact_allowed = False
+
+    def bind_station(self, base_world):
+        """Lock the base at another world pose; uploaded geometry is only re-posed.
+
+        World geometry stays in the frame it was exported in; every checker
+        receives that frame's pose relative to the new base. The robot model,
+        locks and solver allocations are unchanged.
+        """
+        from curobo.types import Pose
+        checkers = [self.motion.scene_collision_checker, self.context.target_checker]
+        if self.context.handle_checker is not None:
+            checkers.append(self.context.handle_checker)
+        if not hasattr(self, '_export_frame'):
+            self._export_frame = self.base.copy()
+            self._exported = [[(mesh.name, np.eye(4)) for mesh in checker.scene_model.mesh or ()]
+                              + [(box.name, pose_matrix(box.pose)) for box in checker.scene_model.cuboid or ()]
+                              for checker in checkers]
+        relative = np.linalg.solve(base_world, self._export_frame)
+        for checker, obstacles in zip(checkers, self._exported):
+            for name, local in obstacles:
+                checker.update_obstacle_pose(name, Pose.from_list(pose7(relative @ local), device_cfg=self.args))
+        self.base = np.asarray(base_world, float).copy()
+
+    def ik_candidates(self, matrices, lane_seeds, *, seeds_per_goal, seed_config=None):
+        """Independent full-budget IK per world goal at the bound base.
+
+        Every optimized seed is returned in seed order: early exit is disabled
+        for this call so a lane with one converged seed still optimizes the
+        rest. `seed_config` (lanes, n, joints) in planner joint order are
+        initial values inside the same budget, not extra seeds.
+        """
+        import torch
+        count = len(matrices)
+        bind_batch_seeds(self.motion, lane_seeds)
+        solver = self.motion.ik_solver
+        early, solver.config.exit_early = solver.config.exit_early, False
+        names = list(self.motion.joint_names)
+        if seed_config is not None:
+            seed_config = np.asarray(seed_config, float)
+            ordered = ordered_points(seed_config.reshape(-1, len(self.names)), list(self.names), names)
+            seed_config = self.args.to_device(ordered).view(count, seed_config.shape[1], -1)
+        self.context.contact_allowed = True
+        started = time.monotonic()
+        try:
+            result = solver.solve_pose(self.batch_goals([[matrix] for matrix in matrices]),
+                current_state=static_ik_state(self.state(count)), seed_config=seed_config,
+                return_seeds=seeds_per_goal)
+            torch.cuda.synchronize()
+        finally:
+            solver.config.exit_early = early
+            self.context.contact_allowed = False
+        evidence = ik_probe_evidence(result, count, seeds_per_goal)
+        # Native results are cost-ranked; restore seed order so lanes and seeds align.
+        lanes = np.arange(count)[:, None]
+        order = np.argsort(np.asarray(evidence['seed_indices']), axis=1)
+        array = lambda value: np.asarray(value.detach().cpu().numpy() if hasattr(value, 'detach') else value
+                                         ).reshape(count, seeds_per_goal, -1).squeeze(-1)[lanes, order]
+        q = ordered_points(result.solution.detach().cpu().numpy().reshape(-1, len(names)), names, list(self.names))
+        return {'q': np.asarray(q).reshape(count, seeds_per_goal, -1)[lanes, order],
+                'solver_success': array(evidence['per_seed_success']).astype(bool),
+                'position_error_m': array(result.position_error),
+                'rotation_error_rad': array(result.rotation_error),
+                'full_seed_coverage': evidence['status'] == 'measured', 'solve_s': time.monotonic() - started}
 
     def grasp_batch(self, matrix_batches, seeds, on_query):
         """Same prepared world, independent seeds and pre-close results per lane."""

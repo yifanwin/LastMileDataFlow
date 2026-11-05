@@ -50,7 +50,7 @@ def save_rendered(path, rendered):
 
 
 def replay(run, rollouts, run_id, output_dir, gpu, env):
-    command = [sys.executable, '-m', 'lastmile_dataflow.cli', 'evaluate-stations',
+    command = [sys.executable, '-m', 'lastmile_dataflow.cli', 'collect-lastmile',
                '--replay-from', run, '--rollouts', *rollouts, '--replay-layout', 'grid',
                '--output-dir', output_dir, '--run-id', run_id, '--gpu', gpu]
     print(json.dumps({'run': str(run), 'rollouts': len(rollouts), 'gpu': gpu,

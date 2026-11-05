@@ -1,0 +1,14 @@
+{
+  "data_root": "/data1/wenyifan/lmdf/molmospaces_data",
+  "schema_version": "base-map-scene-v1",
+  "scene_id": "val_103",
+  "scene_xml": "assets/scenes/procthor-10k-val/val_103.xml",
+  "metadata": "assets/scenes/procthor-10k-val/val_103_metadata.json",
+  "assets_dir": "assets",
+  "robot_config": "configs/robots/panda_omron_mobile.json",
+  "asset_id": "Cup_30",
+  "object_id": "Cup|surface|2|28",
+  "reference_base_xyyaw": [6.55, 2.0988, 0.0],
+  "lift": 0.2,
+  "gripper_width": 0.08
+}

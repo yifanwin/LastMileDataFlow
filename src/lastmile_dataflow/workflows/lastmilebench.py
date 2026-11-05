@@ -74,6 +74,8 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
     source = Path(dataset).resolve()
     calibration_dir = Path(calibration_dir).resolve()
     saved = read_json(calibration_dir / 'config.json')
+    from .station_map import reject_quality_map
+    reject_quality_map(saved)
     if Path(saved['dataset']).resolve() != source:
         raise ValueError('calibration source dataset mismatch')
     reference = saved['config']
