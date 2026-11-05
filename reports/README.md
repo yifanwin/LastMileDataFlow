@@ -5,6 +5,8 @@
 
 ## 验证边界
 
+- [跨策略站位可行性与 cuRobo Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md)：探索初始可抓握、后续门/抽屉运动与底盘占位冲突的任务。固定底盘仅作构建诊断，正式评测允许全身协调；S1 为参考解。[调整清单](no-edit-calibration/plan/05-policy-agnostic-region-adjustments.md)落实任务判据、自由度、搜索覆盖、四类标签、区域验证及跨策略对照；仅完成分析，尚未实施代码或新实验。
+
 - [PandaOmron 标定修复与排查方案](no-edit-calibration/plan/03-calibration-repair-and-diagnosis.md)：P1 Pick 顺序对照已恢复；N0–N2 已完成，见[阶段交付第 7 节](no-edit-calibration/delivery/04-calibration-repair.md#7-方案-n0n2-实施结果2026-10-27)。当前重构代码的 Cup_30 真实执行与原结果逐条一致，Pick/Open 家族复用与 fresh 规划一致（Open 只验证了规划）；修正后的测距显示，初始状态下 4 个球侵入站位的实体底盘均未接触障碍。IK 和轨迹候选的同状态对照（N3）未开始，没有修改碰撞球，采样参数调整不在范围内。
 
 - benchmark 静态构建图与评测组合图已解耦，按最新要求输出 PNG；已有 RBY-1 两条 rollout 的 head / 第三人称共四个视频单独保留，见[图片交付](benchmark/delivery/phase_02/2026-10-18-png.md)。
