@@ -2,8 +2,8 @@
 
 - 状态：active
 - 日期：2026-10-28
-- 替代：无（细节与证据见[阶段交付](04-calibration-repair.md)）
-- 关联：[修复诊断方案](../plan/03-calibration-repair-and-diagnosis.md)、[实时状态](status.md)
+- 替代：无（细节与证据见[阶段交付](../../collision-handing/archive/04-calibration-repair.md)）
+- 关联：[修复诊断方案](../../collision-handing/archive/03-calibration-repair-and-diagnosis.md)、[实时状态](status.md)
 
 ## 1. 为什么要修
 
@@ -90,7 +90,7 @@
 - 场景自带的墙体和天花板（`val_*_assets`）是封闭的。
 - 原始 obj 文件本身就是这样，不是加载过程造成的。
 
-所以“不封闭”应当理解为“表面不干净”，而不是“有缺口”。第 2 节第 3 行和[阶段交付第 13 节](04-calibration-repair.md#13-环境-sdf-符号错误的修复2026-10-28)说的“不封闭”都指这一点。
+所以“不封闭”应当理解为“表面不干净”，而不是“有缺口”。第 2 节第 3 行和[阶段交付第 13 节](../../collision-handing/archive/04-calibration-repair.md#13-环境-sdf-符号错误的修复2026-10-28)说的“不封闭”都指这一点。
 
 **责任边界。** 对 MuJoCo 仿真来说，这些资产没有问题：MuJoCo 按每个碰撞件的凸包计算碰撞，多余的三角形不起作用。问题在于规划器直接拿原始三角形去做内外判断，而这种判断要求表面干净、封闭。
 

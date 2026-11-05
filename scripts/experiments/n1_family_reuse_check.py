@@ -18,11 +18,21 @@ from dataclasses import asdict
 import json
 import os
 from pathlib import Path
+import time
 
 import numpy as np
 
 
-def frozen_request(run, scene_id, station_id, root, assets_dir, *, reuse):
+def run_dataset(run_dir):
+    """The run's input dataset. A run moved together with its outputs/ tree keeps the old
+    absolute path in config.json; resolve it under the outputs/ root the run now lives in."""
+    path = Path(json.loads((Path(run_dir) / 'config.json').read_text())['dataset'])
+    if not path.exists() and '/outputs/' in str(path):
+        path = Path(str(Path(run_dir).resolve()).split('/outputs/')[0]) / 'outputs' / str(path).split('/outputs/', 1)[1]
+    return path.resolve()
+
+
+def frozen_request(run, scene_id, station_id, root, assets_dir, *, reuse, overrides=None):
     from lastmile_dataflow.config import robot_config
     from lastmile_dataflow.runtime.execution.protocol import PlanningRequest, SimulationState, TrialBudget, TrialIdentity
     from lastmile_dataflow.runtime.execution_config import ExecutionConfig
@@ -31,7 +41,7 @@ def frozen_request(run, scene_id, station_id, root, assets_dir, *, reuse):
 
     run_dir = Path('outputs') / run
     saved = json.loads((run_dir / 'config.json').read_text())
-    scene = next(s for s in load_scenes(saved['dataset']) if s['scene_id'] == scene_id)
+    scene = next(s for s in load_scenes(run_dataset(run_dir)) if s['scene_id'] == scene_id)
     index = next(i for i, s in enumerate(scene['stations']) if s['station_id'] == station_id)
     trials = sorted((json.loads(line) for line in (run_dir / 'trials.jsonl').read_text().splitlines()),
                     key=lambda t: t['trial'])
@@ -40,7 +50,7 @@ def frozen_request(run, scene_id, station_id, root, assets_dir, *, reuse):
     with np.load(preparation / 'state.npz', allow_pickle=False) as state:
         frozen = SimulationState(state['state'], int(state['state_spec']), json.loads(str(state['control_json'])),
                                  float(state['clock_remainder']))
-    config = ExecutionConfig(**saved['config'])
+    config = ExecutionConfig(**{**saved['config'], **(overrides or {})})
     identities = [TrialIdentity(scene_id, index, t['trial'], f"{t['rollout_id']}-{'reuse' if reuse else 'fresh'}", t['seed'])
                   for t in trials]
     robot = robot_config(json.loads((Path(scene['scene_path']) / 'config.json').read_text())['robot'])
@@ -132,17 +142,22 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--gpu', type=int, required=True)
     parser.add_argument('--assets-dir', required=True)
+    parser.add_argument('--environment-representation', help='override the run config (A/B of the environment world)')
     args = parser.parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     from lastmile_dataflow.planning.pool import PlanningService
     args.output_dir.mkdir(parents=True, exist_ok=False)
     specs = [q.split(':') for q in args.queries]
-    report = {'queries': args.queries, 'gpu': args.gpu, 'resident': [], 'fresh': []}
+    overrides = {'environment_representation': args.environment_representation} if args.environment_representation else {}
+    report = {'queries': args.queries, 'gpu': args.gpu, 'overrides': overrides, 'resident': [], 'fresh': []}
     service = PlanningService()
     try:
         for run, scene, station in specs:
-            request, original = frozen_request(run, scene, station, args.output_dir / 'resident', args.assets_dir, reuse=True)
+            request, original = frozen_request(run, scene, station, args.output_dir / 'resident', args.assets_dir, reuse=True,
+                                               overrides=overrides)
+            start = time.perf_counter()
             responses = service.execute(request)
+            elapsed = round(time.perf_counter() - start, 2)
             planner = next(reversed(service.planners.planners.values()))
             directory = args.output_dir / 'resident' / 'planning' / request.query_id
             reuse = directory / 'planner_reuse.json'
@@ -152,19 +167,22 @@ def main():
                 'solver_reused': json.loads(reuse.read_text()).get('solver_reused', False) if reuse.exists() else False,
                 'retained_families': len(service.planners.planners),
                 'worlds': worlds(directory), 'binding': binding_checks(planner),
-                'lanes': lanes(responses), 'original_trials': original})
+                'lanes': lanes(responses), 'original_trials': original, 'elapsed_s': elapsed})
     finally:
         service.close()
     for run, scene, station in specs:
         service = PlanningService()
         try:
-            request, _ = frozen_request(run, scene, station, args.output_dir / 'fresh', args.assets_dir, reuse=False)
+            request, _ = frozen_request(run, scene, station, args.output_dir / 'fresh', args.assets_dir, reuse=False,
+                                        overrides=overrides)
+            start = time.perf_counter()
             responses = service.execute(request)
+            elapsed = round(time.perf_counter() - start, 2)
         finally:
             service.close()
         report['fresh'].append({'query': f'{run}:{scene}:{station}', 'query_id': request.query_id,
                                 'worlds': worlds(args.output_dir / 'fresh' / 'planning' / request.query_id),
-                                'lanes': lanes(responses)})
+                                'lanes': lanes(responses), 'elapsed_s': elapsed})
     for resident, fresh in zip(report['resident'], report['fresh']):
         resident['same_worlds_as_fresh'] = resident['worlds'] == fresh['worlds']
         resident['versus_fresh'] = compare(resident['lanes'], fresh['lanes'])

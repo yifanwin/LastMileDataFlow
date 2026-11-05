@@ -3,7 +3,7 @@
 - 状态：paused（全部进程已停，2026-10-28 22:00 核对）
 - 日期：2026-10-28
 - 替代：无
-- 关联：[修复摘要](05-repair-summary.md)、[实时状态](status.md)、[阶段交付](04-calibration-repair.md)
+- 关联：[修复摘要](05-repair-summary.md)、[实时状态](status.md)、[阶段交付](../../collision-handing/archive/04-calibration-repair.md)
 
 ## 1. 进程
 

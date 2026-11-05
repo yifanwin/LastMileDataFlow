@@ -2,6 +2,7 @@
 
 import copy
 import tempfile
+import json
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -182,3 +183,53 @@ class CollisionWorldTests(unittest.TestCase):
         self.assertTrue(world["ell"].contains([[.6, .6, .05]])[0])
         target = list(exported_geoms(sim, np.eye(4), 5., target_only=True))
         self.assertEqual([m.geom(g).name for g, _, _ in target], ["cup"])
+
+    def test_box_cuboids_keep_pose_and_size_in_the_measured_frame(self):
+        import tempfile
+        import mujoco
+        from pathlib import Path
+        from lastmile_dataflow.planning.curobo.collision_world import collision_world, exported_geoms
+        m = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
+          <body name="table" pos="1 .5 0" euler="0 0 30"><geom name="top" type="box" size=".4 .3 .02" pos="0 0 .74" euler="10 0 0"/>
+            <geom name="leg" type="cylinder" size=".03 .36" pos=".3 .2 .36"/></body>
+          <body name="cup" pos="0 2 .1"><freejoint/><geom name="cup" type="cylinder" size=".04 .05"/></body>
+          </worldbody></mujoco>""")
+        d = mujoco.MjData(m)
+        mujoco.mj_forward(m, d)
+        sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
+        base = np.eye(4)
+        base[:3, :3] = np.array([[0., -1, 0], [1, 0, 0], [0, 0, 1]])
+        base[:3, 3] = [.2, -.1, .05]
+        with tempfile.TemporaryDirectory() as tmp:
+            world = collision_world(sim, Path(tmp), 5., reference_base=base, cuboids=5., max_cuboids=4)
+        self.assertEqual(len(world.cuboid), 1)
+        self.assertEqual(len(world.mesh), 1)          # the leg alone, as a closed hull
+        cuboid, g = world.cuboid[0], m.geom("top").id
+        np.testing.assert_allclose(cuboid.dims, [.8, .6, .04])
+        rotation = np.zeros(9)
+        mujoco.mju_quat2Mat(rotation, np.asarray(cuboid.pose[3:]))
+        inv = np.linalg.inv(base)
+        np.testing.assert_allclose(cuboid.pose[:3], inv[:3, :3] @ d.geom_xpos[g] + inv[:3, 3], atol=1e-9)
+        np.testing.assert_allclose(rotation.reshape(3, 3), inv[:3, :3] @ d.geom_xmat[g].reshape(3, 3), atol=1e-9)
+        leg = next(v for gg, v, _ in exported_geoms(sim, base, 5.) if m.geom(gg).name == "leg")
+        self.assertEqual(len(world.mesh[0].vertices), len(leg))   # the box is not also in the mesh
+
+    def test_boxes_beyond_reach_or_cuboid_slots_stay_in_the_hull_mesh(self):
+        import tempfile
+        import mujoco
+        from pathlib import Path
+        from lastmile_dataflow.planning.curobo.collision_world import collision_world
+        m = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
+          <geom name="near" type="box" size=".1 .1 .1" pos=".5 0 .1"/><geom name="mid" type="box" size=".1 .1 .1" pos="1 0 .1"/>
+          <geom name="far" type="box" size=".1 .1 .1" pos="3 0 .1"/>
+          <body name="cup" pos="0 2 .1"><freejoint/><geom name="cup" type="cylinder" size=".04 .05"/></body>
+          </worldbody></mujoco>""")
+        d = mujoco.MjData(m)
+        mujoco.mj_forward(m, d)
+        sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
+        with tempfile.TemporaryDirectory() as tmp:
+            world = collision_world(sim, Path(tmp), 5., reference_base=np.eye(4), cuboids=1.5, max_cuboids=1)
+            report = json.loads((Path(tmp) / "collision_world.json").read_text())
+        self.assertEqual(report["cuboids"], ["near"])
+        self.assertEqual(sorted(report["geoms"]), ["far", "mid"])
+        self.assertEqual(len(world.cuboid), 1)

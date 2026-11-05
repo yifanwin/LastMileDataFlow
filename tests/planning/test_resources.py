@@ -123,14 +123,14 @@ class ResourceTests(unittest.TestCase):
         handle_checker = Mock(data=Mock(get_valid_data=lambda: []))
         planner.motion = Mock(scene_collision_checker=Mock(data=Mock(get_valid_data=lambda: [])))
         planner.context = PlannerContext(target_checker=target_checker, handle_checker=handle_checker)
-        planner.config = SimpleNamespace(head_fov_enabled=False)
+        planner.config = SimpleNamespace(head_fov_enabled=False, environment_representation="merged_hull")
         planner.world_range, planner.base, planner.pad_target_query_range = 2., np.eye(4), Mock()
         model = SimpleNamespace(nbody=6, body_parentid=np.array([0, 0, 1, 2, 0, 4]))
         planner.sim = SimpleNamespace(model=model, target_id=1, handle_id=3)
         planner.bind_target(planner.sim)
         exported = []
 
-        def world(sim, path, range_m, *, reference_base, target_only=False, bodies=None, filename=None):
+        def world(sim, path, range_m, *, reference_base, target_only=False, bodies=None, filename=None, cuboids=None, max_cuboids=0):
             exported.append((target_only, None if bodies is None else set(bodies), filename))
             return object()
 

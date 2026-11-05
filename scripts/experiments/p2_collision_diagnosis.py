@@ -25,6 +25,7 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.config import robot_config
+from n1_family_reuse_check import run_dataset
 from lastmile_dataflow.planning.curobo.collision_world import collision_world, exported_geoms
 from lastmile_dataflow.planning.robots.rby1m_mobile_torso import minimum_mesh_query_dimension, ordered_points
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
@@ -33,12 +34,16 @@ from lastmile_dataflow.scenes.geometry import descendants
 
 # Sphere groups of planning/robots/assets/panda_omron/spheres.yml and the
 # MuJoCo collision geom each group covers. The lift column rides on
-# panda_link0 (torso_height); the fixed column stays on omron_base.
+# panda_link0 (torso_height); the fixed column stays on omron_base. Groups are
+# told apart by the sphere-center height in the link, so they follow sphere
+# count changes: chassis spheres lie below the chassis top (z=0.382), fixed
+# column spheres above it; lift column spheres below the panda_link0 origin,
+# arm-base spheres above it.
 PARTS = {
-    'chassis': ('omron_base', range(0, 51), 'mobilebase0_pedestal_feet_col'),
-    'fixed_column': ('omron_base', range(51, 59), 'mobilebase0_g0_col'),
-    'lift_column': ('panda_link0', range(1, 9), 'mobilebase0_g1_col'),
-    'link0': ('panda_link0', range(0, 1), 'robot0_link0_collision'),
+    'chassis': ('omron_base', lambda z: z < .382, 'mobilebase0_pedestal_feet_col'),
+    'fixed_column': ('omron_base', lambda z: z >= .382, 'mobilebase0_g0_col'),
+    'lift_column': ('panda_link0', lambda z: z < 0, 'mobilebase0_g1_col'),
+    'link0': ('panda_link0', lambda z: z >= 0, 'robot0_link0_collision'),
 }
 ACTIVATION_M = .01   # optimizer_collision_activation_distance in planning/curobo/planner.py
 NEAR_M = .15         # pairs whose enclosing spheres are farther apart are skipped
@@ -194,7 +199,7 @@ def known_cases(sdf):
 
 def load_station(entry):
     # The run's own input directory, absolute: read_config resolves relative paths against the package root.
-    base = Path(json.loads((Path('outputs') / entry['run'] / 'config.json').read_text())['dataset']).resolve()
+    base = run_dataset(Path('outputs') / entry['run'])
     scene = next(json.loads(line) for line in (base / 'scenes.jsonl').read_text().splitlines()
                  if json.loads(line)['scene_id'] == entry['scene'])
     baseline = base / scene['scene']
@@ -220,12 +225,15 @@ def planning_spheres(sim, model, device):
         device.to_device(np.asarray(q, np.float32)).view(1, -1), joint_names=list(kinematics.joint_names)))
     local = state.robot_spheres.reshape(-1, 4).detach().cpu().numpy().astype(float)
     params = kinematics.config.kinematics_config
+    listed = model.cfg['kinematics']['collision_spheres']
+    groups = {part: [i for i, s in enumerate(listed[link]) if rule(s['center'][2])]
+              for part, (link, rule, _) in PARTS.items()}
     for link in {link for link, _, _ in PARTS.values()}:
-        listed = sorted(i for name, indices, _ in PARTS.values() if name == link for i in indices)
-        if listed != list(range(len(params.get_sphere_index_from_link_name(link)))):
-            raise ValueError(f'PARTS does not split every {link} sphere exactly once; update it with spheres.yml')
+        if len(params.get_sphere_index_from_link_name(link)) != len(listed[link]):
+            raise ValueError(f'loaded {link} spheres differ from the configuration')
     result = {}
-    for part, (link, indices, _) in PARTS.items():
+    for part, (link, _, _) in PARTS.items():
+        indices = groups[part]
         rows = params.get_sphere_index_from_link_name(link).tolist()
         chosen = local[[rows[i] for i in indices]]
         world = chosen[:, :3] @ model.base[:3, :3].T + model.base[:3, 3]
@@ -249,6 +257,35 @@ def chassis_uncovered(sim, s, buffer, step=.01):
     world = local @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
     gap = np.linalg.norm(world[:, None] - s['centers_world'][None], axis=-1) - (s['radii'] - buffer)[None]
     return round(float(gap.min(axis=1).max()), 5)
+
+
+def parts_uncovered(sim, spheres, buffer, step=.005):
+    """Per robot part: largest distance from a sample of its solid (grid inside plus surface;
+    a mesh as its convex hull) to the nearest sphere of any part without the buffer. The
+    union is used because each group only covers the exposed solid (the fixed column below
+    the chassis top, the lift column inside the fixed column); <= 0 means covered."""
+    import trimesh
+    m, d = sim.model, sim.data
+    centers = np.concatenate([s['centers_world'] for s in spheres.values()])
+    radii = np.concatenate([s['radii'] for s in spheres.values()]) - buffer
+    result = {}
+    for part, g in physical_geoms(sim).items():
+        size = m.geom_size[g]
+        if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+            mesh = int(m.geom_dataid[g]); va, vn = int(m.mesh_vertadr[mesh]), int(m.mesh_vertnum[mesh])
+            solid = trimesh.convex.convex_hull(m.mesh_vert[va:va + vn])
+        elif m.geom_type[g] == mujoco.mjtGeom.mjGEOM_CYLINDER:
+            solid = trimesh.creation.cylinder(radius=size[0], height=2 * size[1], sections=256)
+        else:
+            solid = trimesh.creation.box(extents=2 * size)
+        lo, hi = solid.bounds
+        grid = np.stack(np.meshgrid(*[np.arange(lo[k], hi[k] + 1e-9, step) for k in range(3)], indexing='ij'), -1).reshape(-1, 3)
+        local = np.r_[grid[solid.contains(grid)], solid.vertices, solid.sample(20000)]
+        world = local @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
+        gap = np.concatenate([(np.linalg.norm(w[:, None] - centers[None], axis=-1) - radii[None]).min(1)
+                              for w in np.array_split(world, max(1, len(world) // 20000))])
+        result[part] = round(float(gap.max()), 5)
+    return result
 
 
 def world_verdict(sim, model, sdf, spheres, range_m, directory):
@@ -426,6 +463,8 @@ def main():
             exported_geoms={k: len(v) for k, v in worlds.items()}, planner_world_verdict=verdict,
             chassis_box_max_uncovered_m=chassis_uncovered(
                 sim, spheres['chassis'], model.cfg['kinematics']['collision_sphere_buffer']),
+            parts_max_uncovered_m=parts_uncovered(
+                sim, spheres, model.cfg['kinematics']['collision_sphere_buffer']),
             spheres={part: {'link': s['link'], 'link_sphere_indices': s['link_sphere_indices'],
                             'centers_world': s['centers_world'].round(4).tolist(), 'radii_m': s['radii'].round(4).tolist()}
                      for part, s in spheres.items()},

@@ -3,7 +3,7 @@
 - 状态：draft（需求梳理，表示方式与精度参数待方案阶段确定）
 - 日期：2026-10-28
 - 替代：无；补充局部碰撞处理要求，不替代既有标定成功率定义
-- 关联：[标定需求](01-requirement.md)、[局部碰撞实现方案](../plan/04-local-collision-representation.md)、[修复诊断方案](../plan/03-calibration-repair-and-diagnosis.md)、[阶段交付与方案比较](../delivery/04-calibration-repair.md)
+- 关联：[标定需求](../../no-edit-calibration/requirement/01-requirement.md)、[局部碰撞实现方案](../plan/04-local-collision-representation.md)、[修复诊断方案](../archive/03-calibration-repair-and-diagnosis.md)、[阶段交付与方案比较](../archive/04-calibration-repair.md)
 
 ## 1. 目标
 
@@ -59,6 +59,7 @@
 - 原有可行操作空间保留；正常支撑/抓取关系与禁止碰撞分别表达，运动障碍无过期占用。
 - 同条件比较规划结果与耗时，区分表示误差和 IK/轨迹求解本身的失败；不以笼统成功率增长代替几何正确性检查。
 - 采用能满足上述需求的最小实现，避免全库重建资产、全场景统一高分辨率或一次性重写所有碰撞模块。
+- **成功率追踪单元（2026-10-29 用户要求）**：val103 / Cup_30（同一场景、同一目标杯子，全部 20 站 × 3 trial，seed 42）的任务成功率要随版本提高；每个候选版本都在该单元上跑一次，结果不得低于上一版本，基线为 2026-10-27 的 37/60。
 
 ## 7. 本次梳理记录
 
