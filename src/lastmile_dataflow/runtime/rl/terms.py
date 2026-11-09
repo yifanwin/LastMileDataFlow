@@ -74,7 +74,10 @@ class TaskState:
         scene_config = RLSceneConfig(**env.research_config['scene'])
         grasp = env.research_config['grasp']
         with np.load(scene_config.asset(grasp['path']), allow_pickle=False) as source:
-            pose = source['transforms'][grasp['row']].copy()
+            pose = source['transforms'][grasp['row']].astype(float)
+        # The corpus stores quantized rotations, as in the existing grasp loader.
+        u, _, v = np.linalg.svd(pose[:3, :3])
+        pose[:3, :3] = u @ v
         self.grasp_position = torch.tensor(pose[:3, 3], dtype=torch.float32, device=self.device)
         self.grasp_rotation = torch.tensor(pose[:3, :3], dtype=torch.float32, device=self.device)
 
@@ -136,8 +139,8 @@ class TaskState:
         self.control_failed |= active & fixed_failure
         self.failed |= active & (fixed_failure | (lift < -.3))
         data = self.env.sim.data
-        self.unhealthy |= active & ~(torch.isfinite(data.qpos).all(-1) & torch.isfinite(data.qvel).all(-1) &
-                                      torch.isfinite(data.qacc).all(-1))
+        self.unhealthy |= ((data.overflow != 0) | ~(torch.isfinite(data.qpos).all(-1) &
+                             torch.isfinite(data.qvel).all(-1) & torch.isfinite(data.qacc).all(-1)))
         self.success |= active & (self.hold >= P['hold_s'] - 1e-9) & ~self.failed & ~self.unhealthy
         self.elapsed += self.env.physics_dt
 

@@ -116,7 +116,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                 if not healthy.any():
                     log.write(json.dumps({'event': 'infrastructure_failure', 'transitions': transitions,
                                           'env_ids': (~healthy).nonzero(as_tuple=True)[0].cpu().tolist(),
-                                          'reason': 'all_environments_nonfinite'}) + '\n')
+                                          'reason': 'all_environments_infrastructure_failure'}) + '\n')
                     log.flush()
                     raise RuntimeError('All environments produced infrastructure failures')
                 replay.add(Transition(obs[healthy], action[healthy], reward[healthy], next_obs[healthy],

@@ -114,6 +114,7 @@ def main():
             obs = next_obs.clone()
             assert torch.isfinite(obs.nodes).all() and torch.isfinite(obs.arm_task_state).all()
             assert torch.isfinite(reward).all()
+            assert not env.task.unhealthy.any(), 'physics overflow or nonfinite state'
             completed += env.num_envs
             done = terminated | truncated
             if done.any():
@@ -131,6 +132,7 @@ def main():
                    'arm_displacement_rad': (env.task.robot.data.joint_pos[:, env.task.arm] - initial_arm).norm(dim=-1).cpu().tolist(),
                    'finger_forces_n': env.task.forces.cpu().tolist(),
                    'support': env.task.support.cpu().tolist(),
+                   'overflow_bits': env.sim.data.overflow.cpu().tolist(),
                    'lift_m': (env.sim.data.xpos[:, env.task.target, 2] - env.task.height_reference).cpu().tolist(),
                    'collision_free': env.task.collision_free.cpu().tolist(),
                    'peak_memory_bytes': torch.cuda.max_memory_allocated(),

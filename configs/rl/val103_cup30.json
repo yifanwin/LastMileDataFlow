@@ -13,7 +13,7 @@
   },
   "mjlab_source": "/home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab",
   "grasp": {"path": "mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz", "row": 0},
-  "environment": {"num_envs": 128, "decimation": 25, "episode_s": 20, "settling_s": 1.0},
+  "environment": {"num_envs": 128, "decimation": 25, "episode_s": 20, "settling_s": 1.0, "nconmax": 5000, "njmax": 5000},
   "action": {"translation_m": 0.01, "rotation_rad": 0.0872664626, "damping": 0.05, "joint_limit_weight": 1.0},
   "reward": {"position": 10.0, "rotation": 0.5, "collision": 2.0, "limit": 0.1, "control_failure": 5.0, "success": 20.0},
   "sac": {"gamma": 0.995, "tau": 0.005, "actor_lr": 0.0003, "critic_lr": 0.0003, "alpha_lr": 0.0001, "initial_alpha": 0.1, "target_entropy": -7.0},
