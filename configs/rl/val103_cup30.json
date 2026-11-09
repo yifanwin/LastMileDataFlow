@@ -17,7 +17,7 @@
   "action": {"translation_m": 0.01, "rotation_rad": 0.0872664626, "damping": 0.05, "joint_limit_weight": 1.0},
   "reward": {"position": 10.0, "rotation": 0.5, "collision": 2.0, "limit": 0.1, "control_failure": 5.0, "success": 20.0},
   "sac": {"gamma": 0.995, "tau": 0.005, "actor_lr": 0.0003, "critic_lr": 0.0003, "alpha_lr": 0.0001, "initial_alpha": 0.1, "target_entropy": -7.0},
-  "training": {"batch_size": 256, "replay_capacity": 100000, "warmup_min": 5000, "updates_per_step": 1, "log_every": 10000, "max_transitions": 200000, "eval_every": 100000, "validation_stations": 8, "validation_rollouts_per_station": 2},
+  "training": {"batch_size": 256, "replay_capacity": 100000, "warmup_min": 5000, "updates_per_step": 1, "debug_station_ids": [], "log_every": 10000, "max_transitions": 200000, "eval_every": 100000, "validation_stations": 8, "validation_rollouts_per_station": 2},
   "stations": {"radius_m": 1.0, "spacing_m": 0.1, "yaw_bins": 16, "block_m": 0.3, "split": [0.7, 0.15, 0.15], "seed": 42},
   "evaluation": {"action_samples": 16, "top": 4, "middle": 4, "low": 4, "uniform": 8, "rollouts_per_station": 10, "seed": 20261109, "q_color_limits": [-100.0, 100.0]},
   "acceptance": {"top_success_min": 0.5, "top_collision_free_success_min": 0.4, "top_uniform_gap_min": 0.1, "positive_spearman": true}

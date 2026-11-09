@@ -42,7 +42,10 @@ class TaskState:
         self.stations, initial = prepare_stations(self.model, env.prepared, env.research_config)
         self.initial_qpos = torch.tensor(initial, device=self.device, dtype=torch.float32)
         self.station_poses = torch.tensor([[s['x'], s['y'], s['yaw']] for s in self.stations], device=self.device)
-        self.pool = torch.tensor([i for i, s in enumerate(self.stations) if s['valid'] and s['split'] == 'train'],
+        # A non-empty debug list narrows training for algorithm checks only; it is never an acceptance input.
+        debug = set(env.research_config['training']['debug_station_ids'])
+        self.pool = torch.tensor([i for i, s in enumerate(self.stations) if s['valid'] and s['split'] == 'train'
+                                  and (not debug or s['station_id'] in debug)],
                                   device=self.device, dtype=torch.long)
         if not len(self.pool):
             raise ValueError('No physically valid training stations')
