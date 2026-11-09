@@ -40,6 +40,92 @@ def upstream_smoke(args):
         env.close()
 
 
+PREGRASP, APPROACH, CLOSE, LIFT = range(4)
+PHASES = ('pregrasp', 'approach', 'close', 'lift')
+
+
+def scripted_action(env, config, phase, closed_at, step):
+    '''Per-environment phases, so one vector batch can cover many stations.'''
+    dp, dr = env.task.goal_error()
+    pre_dp, pre_dr = env.task.goal_error(-.08)
+    before = (phase == PREGRASP)[:, None]
+    dp, dr = torch.where(before, pre_dp, dp), torch.where(before, pre_dr, dr)
+    action = torch.zeros(env.num_envs, 7, device=env.device)
+    action[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
+    action[:, 3:6] = (dr / config['action']['rotation_rad']).clamp(-1, 1)
+    action[:, 6] = 1
+    position, rotation = dp.norm(dim=-1), dr.norm(dim=-1)
+    at_pregrasp = (phase == PREGRASP) & (position < .01) & (rotation < .12)
+    at_grasp = (phase == APPROACH) & (position < .008) & (rotation < .1)
+    phase[at_pregrasp] = APPROACH
+    phase[at_grasp] = CLOSE
+    closed_at[at_grasp] = step
+    closing = phase == CLOSE
+    action[closing, 6] = -1
+    phase[closing & (step - closed_at >= 20)] = LIFT
+    lifting = phase == LIFT
+    action[lifting] = 0
+    action[lifting, 2] = (step - closed_at[lifting] < 40).float()
+    action[lifting, 6] = -1
+    return action
+
+
+def collision_label(prepared, name):
+    kind, _, index = name.rpartition('_')
+    if not index.isdigit():
+        return name
+    source = {'environment': prepared.scene_spec.worldbody.bodies, 'environment_world': prepared.scene_spec.worldbody.geoms,
+              'nonfinger': prepared.robot_spec.bodies}[kind]
+    return f'{kind}:{source[int(index)].name}'
+
+
+def scripted_batch(env, config, args):
+    '''Report which physically valid stations the same 7D/DLS path can pick from.'''
+    candidates = [i for i, s in enumerate(env.task.stations) if s['valid'] and s['split'] == args.split]
+    chosen = np.random.default_rng(args.station_seed).choice(candidates, min(env.num_envs, len(candidates)), replace=False).tolist()
+    chosen += chosen[:1] * (env.num_envs - len(chosen))
+    warmup(env, torch.tensor(chosen, device=env.device), args.warmup_steps)
+    phase = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+    closed_at = torch.zeros_like(phase)
+    rows, finished = [None] * env.num_envs, torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    best_position = torch.full((env.num_envs,), float('inf'), device=env.device)
+    start = time.perf_counter()
+    for step in range(env.max_episode_length):
+        action = scripted_action(env, config, phase, closed_at, step)
+        action[finished] = 0
+        _, _, terminated, truncated, _ = env.step(action)
+        best_position = torch.minimum(best_position, env.task.goal_error()[0].norm(dim=-1))
+        done = (terminated | truncated) & ~finished
+        for i in done.nonzero(as_tuple=True)[0].tolist():
+            hits = env.task.collision_hits[i]
+            station = env.task.stations[chosen[i]]
+            rows[i] = {**station, 'success': bool(env.task.success[i]), 'failed': bool(env.task.failed[i]),
+                       'control_failed': bool(env.task.control_failed[i]), 'unhealthy': bool(env.task.unhealthy[i]),
+                       'collision_free': bool(env.task.collision_free[i]), 'phase': PHASES[int(phase[i])], 'steps': step + 1,
+                       'best_position_error_m': float(best_position[i]), 'max_drift_m': float(env.task.max_drift[i]),
+                       'max_yaw_drift_rad': float(env.task.max_yaw_drift[i]), 'max_lift_drift_m': float(env.task.max_lift_drift[i]),
+                       'collision_time_s': float(env.task.collision_time[i]), 'collisions': {
+                           collision_label(env.prepared, env.task.collision_names[j]): float(hits[j])
+                           for j in hits.nonzero(as_tuple=True)[0].tolist()}}
+        finished |= done
+        if finished.all():
+            break
+    healthy = [r for r in rows if not r['unhealthy']]
+    sensors = Counter(name for r in healthy for name in r['collisions'])
+    summary = {'gpu': args.gpu, 'split': args.split, 'num_envs': env.num_envs, 'seconds': time.perf_counter() - start,
+               'vector_steps': step + 1, 'healthy': len(healthy), 'success': sum(r['success'] for r in healthy),
+               'collision_free_success': sum(r['success'] and r['collision_free'] for r in healthy),
+               'collision_free': sum(r['collision_free'] for r in healthy),
+               'final_phase': dict(Counter(r['phase'] for r in healthy)),
+               'control_failed': sum(r['control_failed'] for r in healthy),
+               'success_yaw_bins': dict(Counter(r['station_id'][-3:] for r in healthy if r['success'])),
+               'trial_yaw_bins': dict(Counter(r['station_id'][-3:] for r in healthy)),
+               'collision_sensors': sensors.most_common(30), 'overflow_bits': env.sim.data.overflow.cpu().tolist()[:8],
+               'peak_memory_bytes': torch.cuda.max_memory_allocated(), 'rows': rows}
+    Path(args.output).write_text(json.dumps(summary, indent=2))
+    print(json.dumps({k: v for k, v in summary.items() if k != 'rows'}, indent=2))
+
+
 def warmup(env, station_ids, steps):
     action = torch.zeros(env.num_envs, 7, device=env.device)
     for _ in range(steps):
@@ -57,6 +143,9 @@ def main():
     parser.add_argument('--steps', type=int, default=5)
     parser.add_argument('--scripted', action='store_true')
     parser.add_argument('--upstream', action='store_true', help='run the shipped YAM lift-cube environment')
+    parser.add_argument('--scripted-batch', action='store_true', help='scripted pick from one sampled station per environment')
+    parser.add_argument('--split', default='train', choices=('train', 'validation'))
+    parser.add_argument('--station-seed', type=int, default=42)
     parser.add_argument('--station-id')
     parser.add_argument('--warmup-steps', type=int, default=2)
     parser.add_argument('--random-actions', action='store_true')
@@ -73,6 +162,9 @@ def main():
     seed_all(42)
     env = StationEnv(config, gpu=args.gpu, seed=42, num_envs=args.num_envs)
     try:
+        if args.scripted_batch:
+            scripted_batch(env, config, args)
+            return
         if args.station_id:
             index = next(i for i, s in enumerate(env.task.stations) if s['station_id'] == args.station_id and s['valid'])
             obs = reset_stations(env, [index] * env.num_envs)
@@ -86,8 +178,8 @@ def main():
         torch.cuda.synchronize()
         start = time.perf_counter()
         completed = 0
-        phase = 'pregrasp' if args.scripted else 'sampling'
-        closed_at = 0
+        phase_ids = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+        closed_at = torch.zeros_like(phase_ids)
         trace = {name: [] for name in ('qpos', 'qvel', 'action', 'position_error', 'rotation_error',
                                        'joint_command', 'limit_fraction', 'forces', 'support', 'hold_s')}
         for step in range(env.max_episode_length if args.scripted else args.steps):
@@ -96,22 +188,7 @@ def main():
             if args.random_actions:
                 action = torch.rand_like(action) * 2 - 1
             if args.scripted:
-                dp, dr = env.task.goal_error(-.08 if phase == 'pregrasp' else 0.)
-                action[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
-                action[:, 3:6] = (dr / config['action']['rotation_rad']).clamp(-1, 1)
-                if phase == 'pregrasp' and bool((dp.norm(dim=-1) < .01).all() & (dr.norm(dim=-1) < .12).all()):
-                    phase = 'approach'
-                elif phase == 'approach' and bool((dp.norm(dim=-1) < .008).all() & (dr.norm(dim=-1) < .1).all()):
-                    phase, closed_at = 'close', step
-                if phase == 'close':
-                    action[:, 6] = -1
-                    if step - closed_at >= 20:
-                        phase = 'lift'
-                if phase == 'lift':
-                    action[:, :3] = 0
-                    action[:, 2] = 1 if step - closed_at < 40 else 0
-                    action[:, 3:6] = 0
-                    action[:, 6] = -1
+                action = scripted_action(env, config, phase_ids, closed_at, step)
             observations, reward, terminated, truncated, _ = env.step(action)
             if args.scripted:
                 controller = env.action_manager.get_term('tcp')
@@ -153,7 +230,7 @@ def main():
                    'lift_m': (env.sim.data.xpos[:, env.task.target, 2] - env.task.height_reference).cpu().tolist(),
                    'collision_free': env.task.collision_free.cpu().tolist(),
                    'peak_memory_bytes': torch.cuda.max_memory_allocated(),
-                   'scripted': args.scripted, 'phase': phase}
+                   'scripted': args.scripted, 'phase': PHASES[int(phase_ids[0])] if args.scripted else 'sampling'}
         position_error, rotation_error = env.task.goal_error()
         summary['position_error_m'] = position_error.norm(dim=-1).cpu().tolist()
         summary['rotation_error_rad'] = rotation_error.norm(dim=-1).cpu().tolist()

@@ -28,6 +28,9 @@ class TaskState:
         self.support_addresses = contact_addresses(self.model, ('support_',), 'force', self.device)
         self.collision_addresses = contact_addresses(self.model, ('environment_', 'nonfinger_', 'self_collision_'),
                                                       'found', self.device)
+        self.collision_names = [self.model.sensor(i).name.removesuffix('_found') for i in range(self.model.nsensor)
+                                if self.model.sensor(i).name.startswith(('environment_', 'nonfinger_', 'self_collision_'))
+                                and self.model.sensor(i).name.endswith('_found')]
         self.tcp = self.model.site('robot/robot_0/gripper0_right_grip_site').id
         self.base = self.model.site('robot/robot_0/base_site').id
         self.arm, _ = self.robot.find_joints([f'robot0_joint{i}' for i in range(1, 8)], preserve_order=True)
@@ -61,6 +64,7 @@ class TaskState:
         self.step_collision = torch.zeros_like(self.success)
         self.collision_free = torch.ones_like(self.success)
         self.collision_time = torch.zeros(n, device=self.device)
+        self.collision_hits = torch.zeros(n, len(self.collision_addresses), device=self.device)
         self.max_drift = torch.zeros(n, device=self.device)
         self.max_yaw_drift = torch.zeros(n, device=self.device)
         self.max_lift_drift = torch.zeros(n, device=self.device)
@@ -111,14 +115,15 @@ class TaskState:
         values = self.env.sim.data.sensordata
         forces = values[:, self.finger_addresses].clamp(min=0)
         support = (values[:, self.support_addresses] > P['finger_force_min_n']).any(-1)
-        collision = (values[:, self.collision_addresses] > 0).any(-1)
-        return forces, support, collision
+        return forces, support, values[:, self.collision_addresses] > 0
 
     def sample_physics(self):
         # All xpos/xmat/sensor forces are pre-integration data from the same
         # mj_step. Do not call forward() here and mix their timestamps.
         tcp_p, tcp_r, _, _, target_p, target_r = self.poses()
-        forces, support, collision = self.contact_facts()
+        forces, support, hits = self.contact_facts()
+        collision = hits.any(-1)
+        self.collision_hits += hits.float() * self.env.physics_dt
         self.forces[:] = forces
         self.support[:] = support
         self.step_collision |= collision
@@ -220,7 +225,7 @@ def reset(env, env_ids):
     task.reference_position[ids] = 0
     task.reference_rotation[ids] = torch.eye(3, device=env.device)
     for name in ('elapsed', 'hold', 'forces', 'support', 'success', 'failed', 'unhealthy',
-                 'control_failed', 'step_collision', 'collision_time', 'max_drift', 'max_yaw_drift',
+                 'control_failed', 'step_collision', 'collision_time', 'collision_hits', 'max_drift', 'max_yaw_drift',
                  'max_lift_drift', 'last_action', 'reward_components'):
         getattr(task, name)[ids] = 0
     task.collision_free[ids] = True
