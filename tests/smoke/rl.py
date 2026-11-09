@@ -77,6 +77,7 @@ def main():
             obs = graph_observation(observations)
         station_ids = env.task.station_ids.clone()
         obs = warmup(env, station_ids, args.warmup_steps)
+        initial_arm = env.task.robot.data.joint_pos[:, env.task.arm].clone()
         replay = Replay(max(args.steps * env.num_envs, 1), obs) if args.learner_updates else None
         torch.cuda.synchronize()
         start = time.perf_counter()
@@ -125,6 +126,12 @@ def main():
                    'selected_stations': [env.task.stations[int(i)] for i in station_ids],
                    'success': env.task.success.cpu().tolist(), 'failed': env.task.failed.cpu().tolist(),
                    'max_drift_m': env.task.max_drift.cpu().tolist(), 'hold_s': env.task.hold.cpu().tolist(),
+                   'max_yaw_drift_rad': env.task.max_yaw_drift.cpu().tolist(),
+                   'max_lift_drift_m': env.task.max_lift_drift.cpu().tolist(),
+                   'arm_displacement_rad': (env.task.robot.data.joint_pos[:, env.task.arm] - initial_arm).norm(dim=-1).cpu().tolist(),
+                   'finger_forces_n': env.task.forces.cpu().tolist(),
+                   'support': env.task.support.cpu().tolist(),
+                   'lift_m': (env.sim.data.xpos[:, env.task.target, 2] - env.task.height_reference).cpu().tolist(),
                    'collision_free': env.task.collision_free.cpu().tolist(),
                    'peak_memory_bytes': torch.cuda.max_memory_allocated(),
                    'scripted': args.scripted, 'phase': phase}
@@ -135,11 +142,19 @@ def main():
             summary['learner_updates'] = agent.updates
             summary['learner_losses'] = {name: float(value) for name, value in losses.items()}
         # Exercise local reset without replacing ongoing observations.
-        if not args.scripted and not done.any():
+        if not args.scripted:
             before = env.sim.data.qpos.clone()
-            env.reset(env_ids=torch.tensor([0], device=env.device))
-            torch.testing.assert_close(before[1:], env.sim.data.qpos[1:])
+            caches = {name: getattr(env.task, name).clone() for name in
+                      ('elapsed', 'window_start', 'last_action', 'reference_position', 'fixed_reference')}
+            ids = torch.unique(torch.cat((done.nonzero(as_tuple=True)[0], torch.tensor([0], device=env.device))))
+            ongoing = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+            ongoing[ids] = False
+            env.reset(env_ids=ids)
+            torch.testing.assert_close(before[ongoing], env.sim.data.qpos[ongoing], rtol=0, atol=0)
+            for name, cached in caches.items():
+                torch.testing.assert_close(cached[ongoing], getattr(env.task, name)[ongoing], rtol=0, atol=0)
             summary['partial_reset_preserved_other_qpos'] = True
+            summary['partial_reset_ongoing_envs_checked'] = int(ongoing.sum())
         Path(args.output).write_text(json.dumps(summary, indent=2))
         print(json.dumps(summary, indent=2))
     finally:
