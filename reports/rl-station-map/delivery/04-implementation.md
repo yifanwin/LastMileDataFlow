@@ -7,7 +7,7 @@
 
 ## 当前结果
 
-已在 actor-critic 工作区加入独立研究依赖、安装脚本、val103-cup30 配置、局部场景准备、mjlab manager 环境、Base Frame DLS、连续夹爪、共享 strict-pick 保持窗口、图观测、GAT SAC / Replay、训练 / 评分 / 评估入口和软件测试。真实 GPU 环境和训练验收正在推进，**尚未获得新策略真实抓取成功、训练 checkpoint 或有效 Q 图结论**。
+已在 actor-critic 工作区安装独立研究环境并实现 val103-cup30 场景准备、mjlab manager 环境、Base Frame DLS、连续夹爪、共享 strict-pick 保持窗口、图观测、GAT SAC / Replay、训练 / 评分 / 评估入口。上游与项目单环境真实 GPU stepping 已通过，32 环境和训练验收正在推进，**尚未获得新策略真实抓取成功、训练 checkpoint 或有效 Q 图结论**。
 
 主 checkout 及其 Python 环境未混装研究依赖。原有五个公开 CLI 不变。用户已有 reports/README.md 和本主题规划文档修改已保留。
 
@@ -32,13 +32,30 @@
 | 图几何分块、动态目标、Base Frame yaw、共享保持窗口及旧判定 | 与 SAC 合计 27 项通过 |
 | 站位分组、空间 split、基础设施失败分母 | 3 项通过 |
 | 全套离线回归 | 407 项通过、2 项跳过；此后新增图几何 / 站位统计测试在局部通过 |
+| 独立研究环境 | 151 包依赖兼容检查通过；MuJoCo / Warp 后端 3.16.0、warp-lang 1.19.0、torch 2.14.0+cu130、PyG 2.7.0 |
+| 研究环境新增软件测试 | 11 项通过；后续圆柱枚举兼容回归另通过 |
+| 上游 YAM lift-cube | GPU 4，1 环境真实 5 步，qpos 有限；不代表 Panda 抓取 |
+| 项目早期单 / 32 环境 | 软件 stepping 跑通，后查有碰撞缓冲溢出，不计物理验收 |
+| 修复后 32 环境 | 160 条真实 transition，预热后 stepping 1.698 s；overflow=0，固定部件失败=0，实际碰撞环境=1；两次 SAC 更新有限，局部 reset 后其余 31 环境 qpos 和任务缓存不变 |
 
 全套首轮的子进程失败来自主机缺少 libEGL.so.1；从 Ubuntu 官方包提取用户态库至 `/tmp/lastmile-gl/lib` 后复测通过，未修改系统驱动。测试设置 OMP/MKL 单线程，图网络临时依赖在 `/tmp/lastmile-pyg`，没有写入主 Python 环境。
 
 ## 当前环境问题与后续检查
 
-官方 CUDA 13 PyTorch 包可用，固定选择 2.14.0+cu130。整包传输在本会话会停滞，已确认 Range 请求可正常下载，使用临时分段下载工具补齐 NVIDIA wheels；安装脚本提供常规官方源安装路线。参考 mjlab 源码未修改。
+官方 CUDA 13 PyTorch 包可用，固定选择 2.14.0+cu130。整包传输在本会话会停滞，使用 Range 请求和镜像完成下载及安装；安装脚本支持显式包源和本地 wheel 目录。参考 mjlab 源码未修改。
 
-仍需完成：研究环境实际安装 / 版本检查、上游 smoke、项目单环境与 32 环境 stepping、脚本抓取抬升保持正例、子步接触时序实测、真实采样到 learner 更新、吞吐测量、训练、checkpoint 选择、验收与初始化基线、图和视频。P0–P6 不能因源码存在或 CPU 软件测试通过而标为全部完成。
+已处理两个真实兼容问题：NumPy int 在 MuJoCo 3.16 枚举 tuple 中的反向比较导致圆柱被误判，现将公共几何类型转为 int；Warp 不支持非零 mesh margin 与 MULTICCD 同开，研究配置显式关闭 MULTICCD，保留原 margin、碰撞形状与物理接触。DLS 的目标名按本地 mjlab 实际 API 绑定到 Panda 工作臂关节。
+
+MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、验收 290（旧 CPU 3.5 的 2,263 不作为当前分母）。图容量 435，arm/task 状态 65 维。有效 32 环境单元为 `outputs/experiments/scratch/20261109-mjlab-panda-smoke-220024/`，源码 `5a6f4d3`，最大底盘 XY / yaw / 升降漂移为 0.722 mm / 0.000134 rad / 0.133 mm，实际机械臂关节位移范数 0.0052–0.0209 rad。
+
+早期单 / 32 环境单元日志存在 broadphase overflow，已撤回其物理通过结论。原因是 mjlab 默认每环境 96 个接触缓冲不足以容纳真实房间，现显式使用原场景量级的 nconmax=5,000 / njmax=5,000，运行中 overflow 单列基础设施失败并排除 Replay。初次枚举、MULTICCD、绑定及缓冲诊断均保留在独立 scratch 单元，没有覆盖原日志。
+
+仍需完成：脚本抓取抬升保持正例、子步接触时序实测、128 / 256 环境吞吐、六项训练指标和四组图、训练、checkpoint 选择、验收与初始化基线、图和视频。P0–P6 不能因源码存在或软件测试通过而标为全部完成。
+
+## 新增监控要求与提交
+
+用户于本轮追加 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项指标，以及四组图（Loss、探索、训练效果、站位评价）。已同步需求和计划，监控接入正在实现；尚未发布训练曲线或伪造独立成功率。
+
+实现按冻结验证迭代提交：`f61db62` 为研究主干，`1eea7e4` 修复几何枚举并记录冻结 revision，后继修复 MuJoCo 3.16 碰撞选项 / 关节绑定，`5a6f4d3` 修复真实接触缓冲并拒绝溢出样本。每个真实 smoke 从对应提交导出的源码启动，运行单元 README 保存提交、参数、结果和失败原因。
 
 当前抓取 TCP 输入为数据抓取库的固定 row 0；其 Panda TCP 对齐与实际可抓取性仍须在 P2 实测。当前 reset 从统一准备阶段的 settled 物体状态恢复，需继续核对各站位伺服初始化后的稳定性及局部 / 全房间代表 rollout。

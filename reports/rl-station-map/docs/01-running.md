@@ -52,6 +52,8 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 
+从 `git archive` 导出的源码启动时，将 `LASTMILE_SOURCE_REVISION` 设为导出时的提交号，并将 `PYTHONPATH` 指向导出目录的 `src/`，避免 checkpoint 把外层工作区后来更新的 HEAD 当作运行版本。
+
 ```bash
 MUJOCO_GL=disable .venv/bin/python scripts/experiments/train_sac.py \
   --config configs/rl/val103_cup30.json --gpu 4 --seed 42 \

@@ -5,6 +5,10 @@
 
 ## 验证边界
 
+- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案与 P0–P6 计划](rl-station-map/plan/01-implementation.md)：采用 mjlab 并行环境 + 自定义 SAC 双 Q + DLS；独立环境已安装，GPU 4 上游 stepping、32 个真实 val103-cup30 环境 / Replay / 两次 SAC 更新及局部 reset 已通过。抓取脚本与六项训练指标、四组可视化正在推进，尚无学习成功或有效 Q 图结论。见[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
+
+  [mjlab 适配评估](rl-station-map/delivery/02-mjlab-assessment.md)保留选型前分析；当前路线与依赖以构建方案为准。此前的[需求梳理](rl-station-map/delivery/01-requirements-review.md)记录论文核对过程。
+
 - [跨策略站位可行性与 cuRobo Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md)：探索初始可抓握、后续门/抽屉运动与底盘占位冲突的任务。固定底盘仅作构建诊断，正式评测允许全身协调；S1 为参考解。[调整清单](no-edit-calibration/plan/05-policy-agnostic-region-adjustments.md)落实任务判据、自由度、搜索覆盖、四类标签、区域验证及跨策略对照；仅完成分析，尚未实施代码或新实验。
 
 - [PandaOmron 标定修复与排查方案](collision-handing/archive/03-calibration-repair-and-diagnosis.md)：P1 Pick 顺序对照已恢复；N0–N2 已完成，见[阶段交付第 7 节](collision-handing/archive/04-calibration-repair.md#7-方案-n0n2-实施结果2026-10-27)。当前重构代码的 Cup_30 真实执行与原结果逐条一致，Pick/Open 家族复用与 fresh 规划一致（Open 只验证了规划）；修正后的测距显示，初始状态下 4 个球侵入站位的实体底盘均未接触障碍。IK 和轨迹候选的同状态对照（N3）未开始，没有修改碰撞球，采样参数调整不在范围内。
