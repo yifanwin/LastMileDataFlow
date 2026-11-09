@@ -108,7 +108,7 @@ class StationEnv(ManagerBasedRlEnv):
                           init_state=EntityCfg.InitialStateCfg(pos=tuple(root.pos), rot=tuple(root.quat),
                                                               joint_pos=initial),
                           articulation=EntityArticulationInfoCfg(actuators=(
-                              XmlActuatorCfg(target_names_expr=('.*',)),)))
+                              XmlActuatorCfg(target_names_expr=tuple(initial)),)))
         action = config['action']
         env_cfg = config['environment']
         sensors = build_sensors(prepared)
@@ -122,7 +122,7 @@ class StationEnv(ManagerBasedRlEnv):
             seed=seed, decimation=env_cfg['decimation'], episode_length_s=env_cfg['episode_s'],
             auto_reset=False, is_finite_horizon=True, scale_rewards_by_dt=False,
             actions={
-                'tcp': BaseFrameDLSCfg(entity_name='robot', actuator_names=[f'robot0_torq_j{i}' for i in range(1, 8)],
+                'tcp': BaseFrameDLSCfg(entity_name='robot', actuator_names=[f'robot0_joint{i}' for i in range(1, 8)],
                                       frame_type='site', frame_name='gripper0_right_grip_site',
                                       base_site=ROBOT_PREFIX + 'base_site',
                                       delta_pos_scale=action['translation_m'], delta_ori_scale=action['rotation_rad'],
