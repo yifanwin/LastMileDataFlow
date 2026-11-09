@@ -15,7 +15,7 @@ import torch
 from lastmile_dataflow.config import REPO_ROOT
 from lastmile_dataflow.runtime.rl.environment import StationEnv
 from lastmile_dataflow.workflows.rl_evaluation import reset_stations
-from lastmile_dataflow.workflows.rl_training import graph_observation, seed_all
+from lastmile_dataflow.workflows.rl_training import graph_observation, isolate_gpu, seed_all
 from lastmile_dataflow.policies.sac.agent import SAC, SACConfig
 from lastmile_dataflow.policies.sac.replay import Replay, Transition
 
@@ -32,7 +32,7 @@ def upstream_smoke(args):
         for _ in range(args.steps):
             env.step(action)
         assert torch.isfinite(env.sim.data.qpos).all()
-        result = {'upstream': 'yam_lift_cube_env_cfg', 'gpu': args.gpu,
+        result = {'upstream': 'yam_lift_cube_env_cfg', 'gpu': args.physical_gpu,
                   'num_envs': env.num_envs, 'steps': args.steps, 'finite_qpos': True}
         Path(args.output).write_text(json.dumps(result, indent=2))
         print(json.dumps(result, indent=2))
@@ -116,7 +116,7 @@ def scripted_batch(env, config, args):
             reset_stations(env, [chosen[i] for i in ended.tolist()], env_ids=ended)
     healthy = [r for r in rows if not r['unhealthy']]
     sensors = Counter(name for r in healthy for name in r['collisions'])
-    summary = {'gpu': args.gpu, 'split': args.split, 'num_envs': env.num_envs, 'seconds': time.perf_counter() - start,
+    summary = {'gpu': args.physical_gpu, 'split': args.split, 'num_envs': env.num_envs, 'seconds': time.perf_counter() - start,
                'vector_steps': step + 1, 'healthy': len(healthy), 'success': sum(r['success'] for r in healthy),
                'collision_free_success': sum(r['success'] and r['collision_free'] for r in healthy),
                'collision_free': sum(r['collision_free'] for r in healthy),
@@ -151,6 +151,8 @@ def main():
     parser.add_argument('--split', default='train', choices=('train', 'validation'))
     parser.add_argument('--station-seed', type=int, default=42)
     parser.add_argument('--station-id')
+    parser.add_argument('--approach-offset', type=float, help='diagnostic override of grasp.approach_offset_m')
+    parser.add_argument('--grasp-row', type=int, help='diagnostic override of grasp.row')
     parser.add_argument('--warmup-steps', type=int, default=2)
     parser.add_argument('--random-actions', action='store_true')
     parser.add_argument('--learner-updates', type=int, default=0)
@@ -159,10 +161,16 @@ def main():
     args = parser.parse_args()
     if args.monitor and args.learner_updates <= 0:
         parser.error('--monitor requires --learner-updates > 0')
+    args.physical_gpu = args.gpu
+    args.gpu = isolate_gpu(args.gpu)
     if args.upstream:
         upstream_smoke(args)
         return
     config = json.loads(Path(args.config).read_text())
+    if args.approach_offset is not None:
+        config['grasp']['approach_offset_m'] = args.approach_offset
+    if args.grasp_row is not None:
+        config['grasp']['row'] = args.grasp_row
     seed_all(42)
     env = StationEnv(config, gpu=args.gpu, seed=42, num_envs=args.num_envs)
     try:
@@ -218,7 +226,7 @@ def main():
             if done.any():
                 break
         torch.cuda.synchronize()
-        summary = {'gpu': args.gpu, 'num_envs': env.num_envs, 'transitions': completed,
+        summary = {'gpu': args.physical_gpu, 'num_envs': env.num_envs, 'transitions': completed,
                    'seconds': time.perf_counter() - start, 'node_capacity': env.task.graph.capacity,
                    'state_dim': obs.arm_task_state.shape[-1], 'valid_stations': sum(s['valid'] for s in env.task.stations),
                    'valid_splits': dict(Counter(s['split'] for s in env.task.stations if s['valid'])),

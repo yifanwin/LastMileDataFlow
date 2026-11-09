@@ -34,7 +34,7 @@ export XDG_CACHE_HOME=/tmp/lastmile-cache
 
 ## 选卡与真实 smoke
 
-每次启动查询实时资源，选择低利用率且空闲显存足够的卡。下方的 4 只是本次空闲卡示例。
+每次启动查询实时资源，选择低利用率且空闲显存足够的卡。下方的 4 只是本次空闲卡示例。`--gpu` 填物理卡号，入口在 CUDA 初始化前用 `CUDA_VISIBLE_DEVICES` 把进程限制在这张卡上（进程内逻辑卡号为 0），不会在其他卡上建立上下文。
 
 ```bash
 nvidia-smi --query-gpu=index,utilization.gpu,memory.free --format=csv

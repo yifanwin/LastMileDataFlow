@@ -26,6 +26,17 @@ def seed_all(seed):
     torch.cuda.manual_seed_all(seed)
 
 
+def isolate_gpu(gpu):
+    '''Expose only the chosen card before CUDA starts; returns its in-process index.
+
+    Libraries that fall back to device 0 would otherwise open a context on a
+    card the run was never assigned, which may belong to another user.
+    '''
+    visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+    os.environ['CUDA_VISIBLE_DEVICES'] = visible.split(',')[gpu] if visible else str(gpu)
+    return 0
+
+
 def runtime_metadata(config, gpu):
     from ..config import REPO_ROOT
     visible = os.environ.get('CUDA_VISIBLE_DEVICES')
@@ -57,6 +68,7 @@ def run_cli(mode):
             parser.add_argument('--scores', required=True)
             parser.add_argument('--baseline', action='store_true', help='evaluate initial.pt on the trained score selection')
     args = vars(parser.parse_args())
+    args['gpu'] = isolate_gpu(args['gpu'])
     config = json.loads(Path(args.pop('config')).read_text())
     if mode == 'train':
         args['seed'] = 42 if args['seed'] is None else args['seed']
