@@ -65,3 +65,30 @@ P2 首个原始抓取脚本 20 s 超时，轨迹显示伺服目标只领先实�
 实现按冻结验证迭代提交：`f61db62` 为研究主干，`1eea7e4` 修复几何枚举并记录冻结 revision，后继修复 MuJoCo 3.16 碰撞选项 / 关节绑定，`5a6f4d3` 修复真实接触缓冲并拒绝溢出样本。每个真实 smoke 从对应提交导出的源码启动，运行单元 README 保存提交、参数、结果和失败原因。
 
 当前抓取 TCP 输入为数据抓取库的固定 row 0；其 Panda TCP 对齐与实际可抓取性仍须在 P2 实测。当前 reset 从统一准备阶段的 settled 物体状态恢复，需继续核对各站位伺服初始化后的稳定性及局部 / 全房间代表 rollout。
+
+## P2 脚本抓取实测（2026-11-09 晚）
+
+`tests/smoke/rl.py --scripted-batch` 让每个环境各走一套预抓取、接近、闭合、抬升状态机，一次覆盖 128 个随机训练站位，动作走与 Actor 相同的 7D / DLS / 伺服路径，不调用规划器，并按传感器记录碰撞来源。同一批站位（seed 42）的结果：
+
+| grasp.approach_offset_m | strict-pick 成功 | 无非法碰撞成功 | 手掌碰杯站位 | 单元 |
+|---|---|---|---|---|
+| +0.01（原配置） | 38/128 | 0 | 39 | scratch/20261109-mjlab-panda-scripted-batch-233718 |
+| 0 | 38/128 | 36 | 4 | scratch/20261109-mjlab-panda-scripted-offset0-234644 |
+| -0.01（现配置） | 39/128 | 38 | 1 | scratch/20261109-mjlab-panda-scripted-offsetm1-234644 |
+
+原配置下每次成功都被记为碰撞，来源是手掌碰撞网格 `gripper0_right_hand_collision` 与杯子的真实接触，属于抓取过深，不是传感器误判；现配置改为 -1 cm 后基本消失。CPU 判定中 `nonfinger_target` 同样只作遥测、不决定成败，与 GPU 一致。
+
+成功站位覆盖 15 个 yaw 档，说明 Base Frame 动作在多朝向下可用。约三分之二站位停在预抓取阶段，主要是直线 TCP 接近在这些站位够不到目标或被自身限制，这是脚本策略的上限，不等于这些站位不可抓；按方案，这些合法站位保留在训练池中。碰撞来源另有少量自碰撞和家具（environment_14 / 31 / 41），属于真实接触。
+
+P2 的脚本正例由此成立。保持窗口的 NumPy / Torch 一致性由 `tests/runtime/test_pick_state.py` 用同一段合成事实序列覆盖；真实轨迹的 CPU 回放对照尚未执行。
+
+## GPU 隔离与吞吐
+
+入口脚本在导入 torch / Warp 之前调用 `lastmile_dataflow.gpu.isolate_from_argv`，把进程限制在 `--gpu` 指定的物理卡上。此前未隔离时，单次运行在 GPU 0 上额外占用约 338 MiB；先在解析参数后再设置环境变量的做法无效，曾导致两个诊断进程落到 GPU 0 并因显存不足退出。隔离后用 nvidia-smi 持续采样确认进程只出现在指定卡上。
+
+| 环境数 | 向量步/s | transitions/s | 峰值 torch 显存 |
+|---|---|---|---|
+| 32 | 2.97 | 95 | 0.15 GB |
+| 256 | 1.90 | 488 | 0.97 GB |
+
+以上为随机动作 40 步、预热后的 stepping 口径；256 环境 overflow 为 0。SAC 单次更新约 31 ms（batch 256），远小于约 0.5 s 的向量步，因此增加了 `training.updates_per_step`，默认仍为方案的 1。正式训练含碰撞与复位，实际吞吐更低，以 `metrics.jsonl` 为准。
