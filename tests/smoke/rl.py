@@ -130,7 +130,7 @@ def scripted_batch(env, config, args):
                'success_yaw_bins': dict(Counter(r['station_id'][-3:] for r in healthy if r['success'])),
                'trial_yaw_bins': dict(Counter(r['station_id'][-3:] for r in healthy)),
                'collision_sensors': sensors.most_common(30), 'overflow_bits': env.sim.data.overflow.cpu().tolist()[:8],
-               'peak_memory_bytes': torch.cuda.max_memory_allocated(), 'rows': rows}
+               'peak_memory_bytes': torch.cuda.max_memory_allocated(env.device), 'rows': rows}
     Path(args.output).write_text(json.dumps(summary, indent=2))
     print(json.dumps({k: v for k, v in summary.items() if k != 'rows'}, indent=2))
 
@@ -161,6 +161,7 @@ def main():
     parser.add_argument('--warmup-steps', type=int, default=2)
     parser.add_argument('--random-actions', action='store_true')
     parser.add_argument('--learner-updates', type=int, default=0)
+    parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--monitor', action='store_true', help='validate independent evaluation and all four metric figures')
     parser.add_argument('--output', default='/tmp/lastmile-rl-smoke.json')
     args = parser.parse_args()
@@ -191,7 +192,7 @@ def main():
         obs = warmup(env, station_ids, args.warmup_steps)
         initial_arm = env.task.robot.data.joint_pos[:, env.task.arm].clone()
         replay = Replay(max(args.steps * env.num_envs, 1), obs) if args.learner_updates else None
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(env.device)
         start = time.perf_counter()
         completed = 0
         phase_ids = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
@@ -229,7 +230,7 @@ def main():
             done = terminated | truncated
             if done.any():
                 break
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(env.device)
         summary = {'gpu': args.physical_gpu, 'num_envs': env.num_envs, 'transitions': completed,
                    'seconds': time.perf_counter() - start, 'node_capacity': env.task.graph.capacity,
                    'state_dim': obs.arm_task_state.shape[-1], 'valid_stations': sum(s['valid'] for s in env.task.stations),
@@ -245,7 +246,7 @@ def main():
                    'overflow_bits': env.sim.data.overflow.cpu().tolist(),
                    'lift_m': (env.sim.data.xpos[:, env.task.target, 2] - env.task.height_reference).cpu().tolist(),
                    'collision_free': env.task.collision_free.cpu().tolist(),
-                   'peak_memory_bytes': torch.cuda.max_memory_allocated(),
+                   'peak_memory_bytes': torch.cuda.max_memory_allocated(env.device),
                    'scripted': args.scripted, 'phase': PHASES[int(phase_ids[0])] if args.scripted else 'sampling'}
         position_error, rotation_error = env.task.goal_error()
         summary['position_error_m'] = position_error.norm(dim=-1).cpu().tolist()
@@ -256,8 +257,11 @@ def main():
             summary['control_trace'] = str(replay_path)
         if replay is not None:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config['sac']))
+            learner_started = time.perf_counter()
             for _ in range(args.learner_updates):
-                losses = agent.update(replay.sample(min(32, replay.size)))
+                losses = agent.update(replay.sample(min(args.batch_size, replay.size)))
+            torch.cuda.synchronize(env.device)
+            summary['learner_seconds_per_update'] = (time.perf_counter() - learner_started) / args.learner_updates
             summary['learner_updates'] = agent.updates
             summary['learner_losses'] = {name: float(value) for name, value in losses.items()}
         # Exercise local reset without replacing ongoing observations.
