@@ -135,6 +135,58 @@ def scripted_batch(env, config, args):
     print(json.dumps({k: v for k, v in summary.items() if k != 'rows'}, indent=2))
 
 
+@torch.no_grad()
+def policy_diagnosis(env, config, args):
+    '''Report how far a frozen stochastic Actor gets through the grasp sequence.'''
+    agent, saved = SAC.load(args.policy_checkpoint, env.device)
+    candidates = [i for i, s in enumerate(env.task.stations) if s['valid'] and s['split'] == args.split]
+    chosen = np.random.default_rng(args.station_seed).choice(candidates, min(env.num_envs, len(candidates)), replace=False).tolist()
+    chosen += chosen[:1] * (env.num_envs - len(chosen))
+    obs = reset_stations(env, chosen)
+    n, device = env.num_envs, env.device
+    finished = torch.zeros(n, dtype=torch.bool, device=device)
+    best_distance, best_angle, min_width = (torch.full((n,), float('inf'), device=device) for _ in range(3))
+    near_steps, touch_any, touch_both, closed_near, max_lift = (torch.zeros(n, device=device) for _ in range(5))
+    for _ in range(env.max_episode_length):
+        action, _ = agent.actor.sample(obs)
+        observations, _, terminated, truncated, _ = env.step(action)
+        active = ~finished
+        dp, dr = env.task.goal_error()
+        distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
+        q = env.task.robot.data.joint_pos
+        width = q[:, env.task.fingers[0]] - q[:, env.task.fingers[1]]
+        touching = env.task.forces > 1e-6
+        near = (distance < .03) & (angle < .3)
+        best_distance[active] = torch.minimum(best_distance, distance)[active]
+        best_angle[active] = torch.minimum(best_angle, angle)[active]
+        min_width[active] = torch.minimum(min_width, width)[active]
+        near_steps += (active & near).float()
+        touch_any += (active & touching.any(-1)).float()
+        touch_both += (active & touching.all(-1)).float()
+        closed_near += (active & near & (width < .06)).float()
+        lift = env.sim.data.xpos[:, env.task.target, 2] - env.task.height_reference
+        max_lift[active] = torch.maximum(max_lift, lift)[active]
+        finished |= terminated | truncated
+        obs = graph_observation(observations).clone()
+        ended = (terminated | truncated).nonzero(as_tuple=True)[0]
+        if finished.all():
+            break
+        if len(ended):
+            obs.replace(ended, reset_stations(env, [chosen[i] for i in ended.tolist()], env_ids=ended))
+    def share(values, threshold=0):
+        return float((values > threshold).float().mean())
+    summary = {'checkpoint': str(args.policy_checkpoint), 'transitions': saved['transitions'], 'split': args.split, 'num_envs': n,
+               'position_error_cm_percentiles': (torch.quantile(best_distance, torch.tensor([0., .25, .5, .75, 1.], device=device)) * 100).cpu().tolist(),
+               'rotation_error_rad_percentiles': torch.quantile(best_angle, torch.tensor([0., .25, .5, .75, 1.], device=device)).cpu().tolist(),
+               'share_reached_3cm_0p3rad': share(near_steps), 'mean_steps_near_when_reached': float(near_steps[near_steps > 0].mean()) if (near_steps > 0).any() else 0.,
+               'share_any_finger_touch': share(touch_any), 'share_both_fingers_touch': share(touch_both),
+               'share_closed_below_6cm_while_near': share(closed_near), 'min_width_m_percentiles': torch.quantile(min_width, torch.tensor([0., .5, 1.], device=device)).cpu().tolist(),
+               'share_lift_over_1cm': share(max_lift, .01), 'share_lift_over_5cm': share(max_lift, .05), 'max_lift_m': float(max_lift.max()),
+               'success': int(env.task.success.sum())}
+    Path(args.output).write_text(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2))
+
+
 def warmup(env, station_ids, steps):
     action = torch.zeros(env.num_envs, 7, device=env.device)
     for _ in range(steps):
@@ -155,6 +207,7 @@ def main():
     parser.add_argument('--scripted-batch', action='store_true', help='scripted pick from one sampled station per environment')
     parser.add_argument('--split', default='train', choices=('train', 'validation'))
     parser.add_argument('--station-seed', type=int, default=42)
+    parser.add_argument('--policy-checkpoint', help='report grasp-sequence progress of a frozen Actor')
     parser.add_argument('--station-id')
     parser.add_argument('--approach-offset', type=float, help='diagnostic override of grasp.approach_offset_m')
     parser.add_argument('--grasp-row', type=int, help='diagnostic override of grasp.row')
@@ -181,6 +234,9 @@ def main():
     try:
         if args.scripted_batch:
             scripted_batch(env, config, args)
+            return
+        if args.policy_checkpoint:
+            policy_diagnosis(env, config, args)
             return
         if args.station_id:
             index = next(i for i, s in enumerate(env.task.stations) if s['station_id'] == args.station_id and s['valid'])
