@@ -14,7 +14,18 @@ class BaseFrameDLSCfg(DifferentialIKActionCfg):
     joint_velocity_limits: tuple[float, ...] = (2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61)
 
     def build(self, env):
+        self.max_dq = max(self.joint_velocity_limits) * env.step_dt
         return BaseFrameDLS(self, env)
+
+
+def limit_joint_command(current, displacement, previous_command, lower, upper, max_step):
+    desired = current + displacement
+    position_limited = desired.clamp(lower, upper)
+    command_delta = position_limited - previous_command
+    bounded_delta = command_delta.clamp(-max_step, max_step)
+    command = previous_command + bounded_delta
+    limited = ((position_limited != desired) | (bounded_delta != command_delta)).float().mean(-1)
+    return command, limited
 
 
 class BaseFrameDLS(DifferentialIKAction):
@@ -39,10 +50,15 @@ class BaseFrameDLS(DifferentialIKAction):
 
     def apply_actions(self):
         dq = self.compute_dq()
-        bounded = dq.clamp(-self.velocity_step, self.velocity_step)
         current = self._entity.data.joint_pos[:, self._joint_ids]
-        candidate = current + bounded
-        self.q_command[:] = candidate.clamp(self._joint_lower, self._joint_upper)
-        limited = ((dq != bounded) | (self.q_command != candidate)).float().mean(-1)
+        command, limited = limit_joint_command(current, dq, self.q_command,
+                                                self._joint_lower, self._joint_upper, self.velocity_step)
+        self.q_command[:] = command
         self.limit_fraction = torch.maximum(self.limit_fraction, limited)
         self._entity.set_joint_position_target(self.q_command, joint_ids=self._joint_ids)
+
+    def reset(self, env_ids=None):
+        super().reset(env_ids)
+        ids = slice(None) if env_ids is None else env_ids
+        self.q_command[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids]
+        self.limit_fraction[ids] = 0

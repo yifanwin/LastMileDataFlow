@@ -127,7 +127,7 @@ class StationEnv(ManagerBasedRlEnv):
                                       frame_type='site', frame_name='gripper0_right_grip_site',
                                       base_site=ROBOT_PREFIX + 'base_site',
                                       delta_pos_scale=action['translation_m'], delta_ori_scale=action['rotation_rad'],
-                                      damping=action['damping'], joint_limit_weight=action['joint_limit_weight'], max_dq=.01),
+                                      damping=action['damping'], joint_limit_weight=action['joint_limit_weight']),
                 'gripper': GripperCfg(entity_name='robot')},
             observations={'policy': ObservationGroupCfg(terms={
                 'nodes': ObservationTermCfg(func=terms.nodes),
