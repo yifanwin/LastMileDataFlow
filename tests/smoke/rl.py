@@ -110,6 +110,10 @@ def scripted_batch(env, config, args):
         finished |= done
         if finished.all():
             break
+        # mjlab requires ended slots to reset; finished slots idle until the batch ends.
+        ended = (terminated | truncated).nonzero(as_tuple=True)[0]
+        if len(ended):
+            reset_stations(env, [chosen[i] for i in ended.tolist()], env_ids=ended)
     healthy = [r for r in rows if not r['unhealthy']]
     sensors = Counter(name for r in healthy for name in r['collisions'])
     summary = {'gpu': args.gpu, 'split': args.split, 'num_envs': env.num_envs, 'seconds': time.perf_counter() - start,
