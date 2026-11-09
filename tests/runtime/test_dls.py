@@ -16,6 +16,16 @@ class JointCommandTests(unittest.TestCase):
             self.assertTrue(((command - previous).abs() <= .004001).all())
         torch.testing.assert_close(command, torch.full_like(current, .1))
 
+    def test_reference_ramp_inside_a_policy_step_is_not_a_limit(self):
+        from lastmile_dataflow.runtime.control.dls import limit_joint_command
+        current = torch.zeros(1, 7)
+        _, within = limit_joint_command(current, torch.full_like(current, .05), current, -1., 1., .004, 25)
+        _, beyond = limit_joint_command(current, torch.full_like(current, .2), current, -1., 1., .004, 25)
+        _, clamped = limit_joint_command(current, torch.full_like(current, .05), current, -.01, .01, .004, 25)
+        self.assertEqual(float(within), 0.)
+        self.assertEqual(float(beyond), 1.)
+        self.assertEqual(float(clamped), 1.)
+
     def test_position_servo_can_converge_with_a_rate_limited_reference(self):
         from lastmile_dataflow.runtime.control.dls import limit_joint_command
         dt, max_step = .002, 2.175 * .002

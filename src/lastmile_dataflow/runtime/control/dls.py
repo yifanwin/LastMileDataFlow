@@ -18,13 +18,15 @@ class BaseFrameDLSCfg(DifferentialIKActionCfg):
         return BaseFrameDLS(self, env)
 
 
-def limit_joint_command(current, displacement, previous_command, lower, upper, max_step):
+def limit_joint_command(current, displacement, previous_command, lower, upper, max_step, substeps=1):
     desired = current + displacement
     position_limited = desired.clamp(lower, upper)
     command_delta = position_limited - previous_command
     bounded_delta = command_delta.clamp(-max_step, max_step)
     command = previous_command + bounded_delta
-    limited = ((position_limited != desired) | (bounded_delta != command_delta)).float().mean(-1)
+    # Ramping the reference inside a policy step is normal; only a position clamp or
+    # travel beyond one whole policy step at the velocity limit counts as limited.
+    limited = ((position_limited != desired) | (command_delta.abs() > max_step * substeps)).float().mean(-1)
     return command, limited
 
 
@@ -51,8 +53,8 @@ class BaseFrameDLS(DifferentialIKAction):
     def apply_actions(self):
         dq = self.compute_dq()
         current = self._entity.data.joint_pos[:, self._joint_ids]
-        command, limited = limit_joint_command(current, dq, self.q_command,
-                                                self._joint_lower, self._joint_upper, self.velocity_step)
+        command, limited = limit_joint_command(current, dq, self.q_command, self._joint_lower, self._joint_upper,
+                                                self.velocity_step, self._env.cfg.decimation)
         self.q_command[:] = command
         self.limit_fraction = torch.maximum(self.limit_fraction, limited)
         self._entity.set_joint_position_target(self.q_command, joint_ids=self._joint_ids)
