@@ -20,6 +20,7 @@ class RLSceneConfig:
     target: str = 'Cup_30'
     local_radius_m: float = 2.
     physics_dt: float = .002
+    multiccd: bool = False
     home: tuple = (0., -.00365045915, 0., -2.61799387799, 0., 2.74159265359, .78539816339)
     lift: float = .2
 
@@ -37,12 +38,17 @@ class PreparedRLScene:
     initial_ctrl: dict
     catalog: list
     local_model: dict
+    multiccd: bool
 
     def copy_robot(self):
         return self.robot_spec.copy()
 
     def attach_scene(self, spec):
         spec.attach(self.scene_spec.copy(), prefix='', frame=spec.worldbody.add_frame())
+        # MuJoCo Warp 3.16 cannot combine MULTICCD with the source scene's
+        # nonzero mesh margins. Preserve those margins and physical contacts.
+        if not self.multiccd:
+            spec.option.enableflags &= ~mujoco.mjtEnableBit.mjENBL_MULTICCD
 
 
 def prepare_rl_scene(config):
@@ -76,7 +82,7 @@ def prepare_rl_scene(config):
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a])
             for a in range(local.model.nu)}
     prepared = PreparedRLScene(scene_spec, robot_spec, target, anchor, qpos, ctrl,
-                               local.catalog, local.local_model)
+                               local.catalog, local.local_model, config.multiccd)
     local.close()
     sim.close()
     return prepared
