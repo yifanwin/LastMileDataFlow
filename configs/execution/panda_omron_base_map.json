@@ -1,7 +1,17 @@
 {
   "seed": 42,
   "spacing_m": 0.1,
-  "heading_offsets_deg": [-60, -45, -30, -15, 0, 15, 30, 45, 60],
+  "heading_offsets_deg": [
+    -60,
+    -45,
+    -30,
+    -15,
+    0,
+    15,
+    30,
+    45,
+    60
+  ],
   "max_grasps": 5,
   "grasp_position_scale_m": 0.05,
   "grasp_rotation_scale_rad": 1.5707963267948966,
@@ -11,7 +21,6 @@
   "warm_start_seeds": 8,
   "warm_start_radius_m": 0.15,
   "warm_start_yaw_rad": 0.5235987755982988,
-  "distinct_joint_tolerance_rad": 0.001,
   "pose_tolerance_m": 0.005,
   "pose_tolerance_rad": 0.05,
   "characteristic_length_m": 0.9410662914823394,
@@ -21,5 +30,10 @@
   "penalize_support_surface": false,
   "scoring_workers": 16,
   "chunk_stations": 128,
-  "region_m": null
+  "region_m": null,
+  "joint_distance_threshold": 0.05,
+  "max_representatives": 4,
+  "retain_trajectories": 4,
+  "minimum_approach_m": 0.01,
+  "approach_weight": 10.0
 }

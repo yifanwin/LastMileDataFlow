@@ -79,12 +79,23 @@ Panda 配置的 `shared_station_preparation=true` 表示每站位静置一次，
 | `max_grasps` / `grasp_position_scale_m` / `grasp_rotation_scale_rad` | 最多 5 个 grasp；物体系 TCP 位姿最远点采样的位置/旋转尺度 |
 | `approach_offset_m` / `grasp_roll_rad` | 资产 grasp 到规划 TCP 的偏移与绕接近轴 roll，与固定抓取一致 |
 | `seeds_per_goal` | 每 `(站位, grasp)` 的 IK seeds，32；全部返回并逐个复核 |
-| `warm_start_seeds` / `warm_start_radius_m` / `warm_start_yaw_rad` | 热启动占预算内最多 8 个；邻点 0.15 m、朝向差 30° 内的已完成有效解 |
-| `distinct_joint_tolerance_rad` | 统计不同解时的关节最大差，0.001 rad；不丢弃候选 |
+| `warm_start_seeds` / `warm_start_radius_m` / `warm_start_yaw_rad` | 热启动占预算内最多 8 个；0 同时禁用 IK / 轨迹历史；邻点 0.15 m、朝向差 30° 内的已完成有效解 |
+| `joint_distance_threshold` / `max_representatives` / `retain_trajectories` | 七关节固定物理范围归一化 L2 距离 0.05，最多 4 个 IK 代表、每代表 2 初值、评分后最多留 4 条 |
+| `perturbation_fraction` | 第二条无历史初值时，中间控制点扰动标准差为固定关节范围的 0.03 |
+| `approach_distance_m` / `minimum_approach_m` | 0.10 m 软目标 / 0.01 m 最小有效接近长度，分别配置 |
+| `approach_fraction` / `approach_weight` | 优化有效运动末段 20% 的接近软代价（原生终态静止 padding 前归零），此配置权重 10；不用于识别真实接近边界 |
+| `approach_lateral_m` / `approach_rotation_rad` / `approach_backtrack_m` | 接近段横向 0.01 m、姿态 0.10 rad、累计轴向回退 0.002 m；软位置项按 0.01 m 归一化 |
+| `contact_pad_names` / `contact_tolerance_m` | namespace 内两块 finger pad 与目标的终态窗口接触，数值容差 1e-6 m；正常底盘地面支撑另按既有 5 mm 许可 |
+| `validation_dt_s` / `validation_joint_step_rad` / `validation_geometry_step_m` | 整段离散检查最大 0.005 s / 0.01 rad，近障/接近区机器人几何运动最大 0.002 m |
+| `transition_fraction` / `quality_initial_samples` / `quality_max_samples` | 辅助分跳过前 10% 归一化弧长，16→32 点，两个阶段边界也占预算 |
+| `refine_quality` / `refine_clearance_m` / `refine_limit_margin` | 加密相对分差 0.20、完整硬碰撞间隙 0.03 m、归一化限位裕度 0.05 |
+| `refine_joint_length` / `refine_tcp_m` / `refine_tcp_rad` | 加密区间归一化关节弧长 0.10、TCP 累计平移 0.03 m / 转角 0.15 rad |
 | `pose_tolerance_m` / `pose_tolerance_rad` | MuJoCo FK 复核目标误差，5 mm / 0.05 rad |
 | `characteristic_length_m` | Jacobian 平移行的特征长度，0.941 m |
 | `collision_alpha` / `collision_beta` / `collision_query_m` | 距离势 $e^{-\alpha d}d^{-\beta}$ 参数（m⁻¹，无量纲）与查询上限 0.5 m |
 | `penalize_support_surface` | 目标支撑物（桌面）是否进入距离惩罚，默认 false；目标物体始终只做硬碰撞检查 |
-| `scoring_workers` / `chunk_stations` | CPU 评分进程数；每个候选文件的最多站位数 |
+| `scoring_workers` / `chunk_stations` | 逐轨迹 CPU 进程数，每进程 BLAS 单线程；每个候选文件的最多已规划查询数 |
 | `region_m` | 可选 `[dx_min, dx_max, dy_min, dy_max]`，相对物体中心裁剪试跑区域；null 为全范围 |
 
+
+轨迹图当前默认 kind 为 `base-trajectory-quality-map-v1`。主分为全轨迹瓶颈；R_plan 与辅助分单独记录，旧静态图不改写。本轮 GPU 全图使用最小接近长度 0.01 m、接近软项权重 10；结果与适用范围见[全图交付](../../reports/base-map/delivery/04-trajectory-performance.md)。

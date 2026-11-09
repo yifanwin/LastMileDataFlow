@@ -229,22 +229,21 @@ N+1 个边界状态对应 N 个实际控制间隔；没有真实物理步时不�
 
 ## 底盘可达质量图 run
 
-`evaluate-stations --output-dir <dir> --run-id <id>` 写 `<dir>/<id>/`：顶层 `config.json`（`kind=base-quality-map-v1`、输入、生效配置、GPU）与 `summary.json`，每个场景一个子目录：
+`evaluate-stations --output-dir <dir> --run-id <id>` 写 `<dir>/<id>/`。当前 `config.json:kind=base-trajectory-quality-map-v1`；旧 `base-quality-map-v1` 仍表示静态终态 IK 质量，不改写含义。
 
-```
-<run>/<scene_id>/
-├── scene.json            # 物体位姿与中心、支撑物、参考站位、升降/夹爪、肩枢轴、臂展上界、网格、选中 grasp（来源行、物体系与世界系 TCP）
-├── planner/              # 一次性 planner 资源与 FK 检查（同 planning/ 目录字段）
-├── candidates-NNNN.npz   # 每查询一行，最多 chunk_stations 个站位一块
-├── map.npz               # 汇总地图
-└── summary.json          # 计数、有效率、耗时分项、质量范围、完成状态
-```
+每场景保留 `scene.json`、`planner/`、`candidates-NNNN.npz`、`map.npz`、`summary.json`。`scene.json` 记录输入、grasp、网格、固定初态/开度/升降、七关节物理范围、速度/加速度限制和所有有效参数。曲线为原生 B-spline 在实际结点处的 q/v/a 所确定的分段多项式，不是控制点折线；读取时用 `JointCurve(time,q,velocity,acceleration)` 重建同一曲线。
 
-图由 `evaluate-stations --plot-from <run>` 另行生成到 `<output-dir>/<run-id>/<scene_id>/`：`base-quality-g{k}.png`、`heading-quality-g{k}.png`、`ik-valid-rate.png`、`grasp-poses.png`、`base-quality.html`、`figures.json`，`--render-examples` 时另有 `examples.png/json`；顶层 `plot.json` 记录来源 run。
+候选块全部为非 object NPZ 数组，`np.load` 无需 pickle：
 
-`candidates-NNNN.npz`（N 个已执行查询，S=32 seeds，按 seed 顺序）：`station_index`、`grasp_index`、`base_xyyaw (N,3)`、`q (N,S,7)`、`solver_success`、`reason`（索引见 `map.npz:seed_reason_names`：not_run、solver_failed、pose_mismatch、mujoco_contact、touching_contact、valid）、`quality`（仅 valid 有值）、`fk_error (N,S,2)`、`penalized_pairs`、`solver_position_error_m`、`solver_rotation_error_rad`、`warm_start_seeds`、`solve_s`、`full_seed_coverage`。
+- `summary_json`：每查询一条 JSON 字符串，含 query/base/grasp、32-seed IK 结果、尝试/完成/有效/保留计数及全部候选摘要。候选含代表/候选 ID、初值类型和历史来源、q_seed、实际 q_final、两者归一化距离、FK 误差、原生标志、验证原因/失败时间/检查点数、终态区域标签、双分数、瓶颈和每轮最低值。未保留轨迹只存摘要；保留轨迹另有最多 32 个评分样本（s/q/m、t、TCP 世界位姿、完整硬碰撞间隙、限位裕度和阶段）。JSON 空指标为 null。候选 `evaluation_reused` 表示共用了同 yaw、同 grasp 的完全相同时间多项式的 CPU 结果，尝试数仍分别保留。
+- `trajectory_query/trajectory_candidate`：每条保留轨迹所属查询和候选；`trajectory_offsets` 将下列拼接数组切成各条曲线。
+- `trajectory_time`、`trajectory_q (N,7)`、`trajectory_velocity`、`trajectory_acceleration`：实际结点时间和状态，起终点均包含。最多每查询 4 条；不同路径即使终态区域相同仍可保留。
 
-`map.npz`：`x (Nx)`、`y (Ny)`、`heading_offsets_rad (M)`、`yaw (Ny,Nx,M)`；`(Ny,Nx,M,K)` 的 `status`（索引见 `status_names`：not_evaluated、no_heading、no_floor、base_collision、distance_filtered、ik_no_solution、valid）、`quality`、`valid_seeds`、`converged_seeds`、`executed_seeds`、`distinct_valid`、`warm_start_seeds`、`best_seed`、`full_seed_coverage` 与 `best_q (…,7)`；`position_quality (Ny,Nx,K)` 为各 grasp 在该位置所有有效朝向质量的平均值（无有效解的朝向不计入，不当 0），`valid_headings (Ny,Nx,K)` 为参与平均的朝向数；不跨 grasp 合成。2026-11-05 之前的 run 中该字段是跨朝向最大值，出图命令会按平均值重新聚合；`background_*` 为展示用障碍栅格。无解与未评价质量为 NaN，有效零分为 0。IK 有效率 = valid_seeds / executed_seeds，几何过滤的查询 executed_seeds=0，不进分母。
+查询编号 `query=((iy*Nx+ix)*M+yaw_index)*K+grasp_index`。`map.npz` 保存 x/y、偏角/实际 yaw，及 `(Ny,Nx,M,K)` 的 status、quality（完整主分）、post_quality、n_attempted/completed/valid/retained、r_plan、representatives、distinct_valid（实际有效终态区域数）、cluster_share、bottleneck_phase、best_seed（赢家候选 ID）、best_q（赢家实际 q_final）。保留 executed/valid/converged_seeds、warm_start_seeds 和 full_seed_coverage 作为 IK 诊断。状态名称以 status_names 为准，包含 initial_state_invalid、no_valid_trajectory 和 incomplete；空分数为 NaN，有效零分为 0。
+
+`position_quality (Ny,Nx,K)` 为有效 yaw 主分的均值，`valid_headings` 为参与数；不跨 grasp 合成。位置均值无对应单条轨迹，查询/候选身份固定实际 yaw。完整且有尝试的查询 `r_plan=n_valid/n_attempted`，保留前计算；过滤/零尝试/不完整查询为 NaN，汇总只对完整查询加总计数后求比，并记录不完整数量。该比例不参与主分和排名。`summary.timing` 另含 planning_batches、planning_lanes、planning_padding_lanes、cpu_wait_s 和 reused_trajectories；validation_cpu_s / trajectory_scoring_cpu_s 是并发任务累计 CPU 时间，不能与规划时间直接相加当墙钟。共享 GPU batch 时间按实际 lane 数分配至查询。
+
+图由 `--plot-from` 另行生成：逐 grasp 质量/朝向图、ik-valid-rate.png、planning-valid-rate.png、grasp-poses.png、trajectory-previews.png（有保留路径时）、base-quality.html、figures.json；可选 `--render-examples` 仍只渲染赢家实际终态，需要 EGL。路径预览展示明确查询和候选的 TCP 评分采样点，不表示物理回放。旧静态 kind 仅用既有字段绘图，旧 distinct_valid 是终态构型去重数；新数据与旧静态分数不可混称。
 
 ## lastmile 训练来源与物化
 

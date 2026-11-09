@@ -139,7 +139,7 @@ class CollectionConfig:
 
 @dataclass(frozen=True)
 class BaseMapConfig:
-    """Static base-quality map: fixed base, lift and gripper; 7-joint arm IK and scoring."""
+    """Fixed-base, seven-joint feasible trajectory quality map."""
     seed: int = 42
     spacing_m: float = 0.10
     heading_offsets_deg: tuple = (-60., -45., -30., -15., 0., 15., 30., 45., 60.)
@@ -152,7 +152,31 @@ class BaseMapConfig:
     warm_start_seeds: int = 8
     warm_start_radius_m: float = 0.15
     warm_start_yaw_rad: float = math.pi / 6
-    distinct_joint_tolerance_rad: float = 0.001
+    joint_distance_threshold: float = 0.05
+    max_representatives: int = 4
+    retain_trajectories: int = 4
+    perturbation_fraction: float = 0.03
+    approach_distance_m: float = 0.10
+    minimum_approach_m: float = 0.01
+    approach_fraction: float = 0.20
+    approach_lateral_m: float = 0.01
+    approach_rotation_rad: float = 0.10
+    approach_backtrack_m: float = 0.002
+    approach_weight: float = 1.0
+    contact_tolerance_m: float = 1e-6
+    contact_pad_names: tuple = ('gripper0_right_finger1_pad_collision', 'gripper0_right_finger2_pad_collision')
+    validation_dt_s: float = 0.005
+    validation_joint_step_rad: float = 0.01
+    validation_geometry_step_m: float = 0.002
+    transition_fraction: float = 0.10
+    quality_initial_samples: int = 16
+    quality_max_samples: int = 32
+    refine_quality: float = 0.20
+    refine_clearance_m: float = 0.03
+    refine_limit_margin: float = 0.05
+    refine_joint_length: float = 0.10
+    refine_tcp_m: float = 0.03
+    refine_tcp_rad: float = 0.15
     pose_tolerance_m: float = 0.005
     pose_tolerance_rad: float = 0.05
     characteristic_length_m: float = 0.9410662914823394
@@ -174,9 +198,15 @@ class BaseMapConfig:
             raise ValueError('base map counts must be positive')
         if not 0 <= self.warm_start_seeds < self.seeds_per_goal:
             raise ValueError('warm-start seeds must leave default seeds in the same budget')
+        if not 1 <= self.max_representatives <= 4 or not 1 <= self.retain_trajectories <= 4:
+            raise ValueError('at most four representatives and retained trajectories')
+        if not 2 <= self.quality_initial_samples <= self.quality_max_samples or not 0 < self.transition_fraction < 1:
+            raise ValueError('invalid trajectory sampling budget or transition fraction')
         for key in ('spacing_m', 'grasp_position_scale_m', 'grasp_rotation_scale_rad', 'warm_start_radius_m',
                     'pose_tolerance_m', 'pose_tolerance_rad', 'characteristic_length_m', 'collision_alpha',
-                    'collision_beta', 'collision_query_m'):
+                    'collision_beta', 'collision_query_m', 'joint_distance_threshold', 'minimum_approach_m',
+                    'approach_distance_m', 'approach_fraction', 'approach_lateral_m', 'approach_rotation_rad',
+                    'validation_dt_s', 'validation_joint_step_rad', 'validation_geometry_step_m'):
             if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
                 raise ValueError(f'invalid {key}')
 

@@ -22,7 +22,7 @@ def parser():
     source.add_argument('--config', type=Path)
     source.add_argument('--preview-dataset', type=Path, help='只补生成已有场景库的组合图和浏览页')
     build.add_argument('--build-workers', type=int, default=1, help='房屋发现和任务构建进程数（1–12）')
-    stations = commands.add_parser('evaluate-stations', help='SE(2) 底盘可达质量图：固定站位 Batch IK + 扩展可操作度')
+    stations = commands.add_parser('evaluate-stations', help='SE(2) 底盘可达质量图：多候选轨迹验证 + 瓶颈扩展可操作度')
     source = stations.add_mutually_exclusive_group(required=True)
     source.add_argument('--recipe', type=Path, help='base-map-scene-v1 场景文件：源场景、固定目标与机器人')
     source.add_argument('--dataset', type=Path, help='已有场景库快照；只读取场景与目标，不复用其站位')

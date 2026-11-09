@@ -1,6 +1,6 @@
 # LastMileDataFlow：最后一公里（Last-Mile）移动操作任务模式、数据管线与验证
 
-**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**；底盘可达质量图（静态 IK + 扩展可操作度）单独回答“哪些站位与朝向能到达抓取终态”。
+**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**；底盘轨迹质量图单独评价“从指定初态能否到达抓取终态，以及路径瓶颈质量”。
 
 规划使用 cuRobo V2（0.8.0），策略支持 MolmoBot / π0.5，导航使用 A*。当前只有五个命令。
 
@@ -26,7 +26,7 @@ scripts/install.sh
 | 命令 | 用途 |
 |---|---|
 | `build-scenes` | Panda RoboCasa 八类模式候选构造与站位采样，保存场景库 |
-| `evaluate-stations` | 固定目标下的 SE(2) 底盘可达质量图：逐站位 32-seed Batch IK、MuJoCo 复核与扩展可操作度；不做物理试抓 |
+| `evaluate-stations` | 固定目标下的 SE(2) 底盘可达质量图：32-seed IK、最多 8 条 Pose-goal 轨迹、MuJoCo 全程离散复核与瓶颈扩展可操作度；不做物理试抓 |
 | `collect-lastmile` | 逐点物理标定（或复用已有标定）后执行 S0×S1 全组合；支持独立物化与按实测状态离线回放 |
 | `build-bench` | 复用已有标定；模式数据消费已保存标签及合格 S1；可用 CPU |
 | `evaluate-bench` | 独立 MolmoBot / π0.5 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
@@ -36,7 +36,7 @@ scripts/install.sh
 - 新构建使用 [v2 任务模式配方](configs/task_modes/README.md)，旧 Case 构造入口已退出。场景构建、完整真实标定和多标签诊断已交付；六类有真实正例，Orientation/Visibility 尚无正例。`proposal_intent` 不作为最终标签。按用户最新要求，本轮止于标定，见 [交付记录](reports/task-modes/delivery/02-calibration-delivery.md)。
 
 - 连续采集与逐点物理标定仅支持 cuRobo；MolmoBot / π0.5 只通过 `evaluate-bench` 评测。独立物化为 CPU 后处理，不需要 GPU 或资产。
-- 底盘可达质量图首版只验收 Panda-Omron val103 / Cup_30，质量图尚不作为采集选站依据（S0/S1 新规则未定）；见 [base-map 交付](reports/base-map/delivery/01-val103-cup30.md)。
+- 底盘轨迹质量图已接入软件链路，已在沙箱外 GPU 4 完成 val103/Cup_30 轨迹质量全图及图表，结果和性能对照见 [本轮报告](reports/base-map/delivery/04-trajectory-performance.md)。既有 [val103 / Cup_30 结果](reports/base-map/delivery/01-val103-cup30.md)仍只表示静态 IK 质量；质量图尚不作为采集选站依据。
 - PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
 - π0.5 已加入双本体适配与可选评测入口；Panda RoboCasa profile 已验证真权重推理和 cuRobo→FK→共用 controller 固定抓取。策略任务表现、批量 benchmark 与 RBY-1 微调分别验收，见 [π0.5 运行指南](reports/pi05/docs/01-running.md) 和 [构建报告](reports/pi05/delivery/03-implementation.md)。
 - Panda 已支持从已有标定构建 benchmark；原 position profile 的快照需要按 RoboCasa profile 重建后再供 Panda π0.5 使用。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。

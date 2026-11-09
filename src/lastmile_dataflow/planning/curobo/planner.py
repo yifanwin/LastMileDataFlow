@@ -58,6 +58,25 @@ def pose_error(a, b):
     return translation, angle
 
 
+def native_spline_curve(q, velocity, acceleration, dt, action_knots, degree):
+    """Recover native degree 3–5 polynomial segments from evaluated knot states.
+
+    v0.8.0 interpolates (action_knots + degree + 1) equal intervals, including
+    padded start/end boundaries. Check the reconstruction against every native
+    output position; a version/layout mismatch is an incomplete query.
+    """
+    from ..trajectory_quality import JointCurve
+    intervals = action_knots + degree + 1
+    if degree not in (3, 4, 5) or (len(q) - 1) % intervals:
+        raise ValueError('unsupported native B-spline output layout')
+    stride = (len(q) - 1) // intervals
+    indices = np.arange(0, len(q), stride)
+    curve = JointCurve(indices * dt, q[indices], velocity[indices], acceleration[indices])
+    if not np.allclose(curve.at(np.arange(len(q)) * dt), q, atol=2e-5, rtol=1e-5):
+        raise ValueError('native B-spline reconstruction differs from evaluated trajectory')
+    return curve
+
+
 def verify_version():
     version = importlib.metadata.version('nvidia-curobo')
     if version != '0.8.0':
@@ -222,15 +241,18 @@ class V2Planner:
         self.check_fk()
         if config.head_fov_enabled:
             self._check_head_camera_fk(sim, config)
-        if not ik_only:
+        # Native warmup calls plan_cspace/solve_joint and leaves the implicit
+        # endpoint flag set in v0.8.0. Map solvers start directly in Pose mode.
+        if not ik_only and getattr(config, 'trajectory_quality', None) is None:
             self.motion.warmup(enable_graph=False, num_warmup_iterations=1)
         self.progress_ready = True
         self.query_log.clear()
         self.fov_log.clear()
         self.solver_log.clear()
         # Observe the actual native solves; do not issue additional IK searches.
-        for kind, solver in (('ik', self.motion.ik_solver), ('trajopt', self.motion.trajopt_solver)):
-            SolverTrace.install(self, solver, kind)
+        if getattr(config, 'trajectory_quality', None) is None:
+            for kind, solver in (('ik', self.motion.ik_solver), ('trajopt', self.motion.trajopt_solver)):
+                SolverTrace.install(self, solver, kind)
         self._write_identity()
         trial_progress('Planner initialized side=%s elapsed=%.1fs', side, time.monotonic() - setup_started)
 
@@ -309,9 +331,11 @@ class V2Planner:
         self.context.fov_tcp_frame = self.model.tcp_link
 
     def _create_motion(self, native, batch_size):
-        from .costs import manager_type, fov_optimizer_configs
+        from .costs import manager_type, fov_optimizer_configs, trajectory_optimizer_config
         config = self.config
         extra_settings = {}
+        if getattr(config, 'trajectory_quality', None) is not None:
+            extra_settings['trajopt_optimizer_configs'] = [trajectory_optimizer_config()]
         if config.head_fov_enabled:
             ik_config, trajopt_config, metrics_config = fov_optimizer_configs()
             # v0.8.0 mutates resolved dictionaries while constructing each
@@ -663,6 +687,58 @@ class V2Planner:
                 'position_error_m': array(result.position_error),
                 'rotation_error_rad': array(result.rotation_error),
                 'full_seed_coverage': evidence['status'] == 'measured', 'solve_s': time.monotonic() - started}
+
+    def trajectory_candidates(self, goal, candidates, seeds):
+        """Each explicit initial trajectory gets one Pose-goal lane and one seed.
+
+        This solver is used only for Pose-goal calls; no implicit joint endpoint
+        is installed. Padding is discarded before returning logical attempts.
+        """
+        import torch
+        from types import SimpleNamespace
+        solver = self.motion.trajopt_solver
+        cfg = self.config.trajectory_quality
+        count = len(candidates)
+        padded = [*range(count), *([0] * (self.batch_size - count))]
+        per_candidate = np.broadcast_to(goal, (count, 4, 4))
+        goals = per_candidate[padded]
+        local = np.array([pose7(np.linalg.solve(self.base, g)) for g in goals])
+        from curobo._src.types.control_space import ControlSpace
+        degree = ControlSpace.spline_degree(solver.auxiliary_rollout.transition_model.control_space)
+        self.context.trajectory_config = SimpleNamespace(**vars(cfg), tcp_link=self.model.tcp_link,
+            spline_intervals=solver.action_horizon + degree + 1)
+        self.context.trajectory_goals = self.args.to_device(local)
+        names = list(self.motion.joint_names)
+        ordered = ordered_points(np.asarray(seeds)[padded], list(self.names), names)
+        started = time.monotonic()
+        try:
+            targets, current = self.batch_goals([[g] for g in goals]), self.state(self.batch_size)
+            seed_tensor = self.args.to_device(ordered)[:, None]
+            for candidate in candidates:
+                candidate.submitted = True
+            result = solver.solve_pose(targets,
+                current_state=current, seed_traj=seed_tensor,
+                num_seeds=1, return_seeds=1, use_implicit_goal=False, goal_state=None)
+            torch.cuda.synchronize()
+        finally:
+            self.context.trajectory_goals = None
+        native = result.interpolated_trajectory
+        if native is None:
+            return candidates, time.monotonic() - started
+        native = native.reorder(list(self.names))
+        success = result.success.detach().cpu().numpy().reshape(self.batch_size, -1)[:, 0]
+        lengths = result.interpolated_last_tstep.detach().cpu().numpy().reshape(-1)
+        knot_count = result.js_solution.knot.shape[-2]
+        arrays = [getattr(native, name).detach().cpu().numpy().reshape(self.batch_size, -1, len(self.names))
+                  for name in ('position', 'velocity', 'acceleration')]
+        dts = native.dt.detach().cpu().numpy().reshape(-1)
+        for lane, candidate in enumerate(candidates):
+            candidate.solver_success = bool(success[lane])
+            length = int(lengths[lane])
+            dt = float(dts[min(lane, len(dts) - 1)])
+            candidate.curve = native_spline_curve(
+                *(a[lane, :length] for a in arrays), dt, knot_count, degree)
+        return candidates, time.monotonic() - started
 
     def grasp_batch(self, matrix_batches, seeds, on_query):
         """Same prepared world, independent seeds and pre-close results per lane."""

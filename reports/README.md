@@ -5,6 +5,10 @@
 
 ## 验证边界
 
+- [可行轨迹质量图初步构建总结](base-map/delivery/05-construction-summary.md)：2026-11-06 约 11:30 的历史快照，保留其当时结论；后续 14:21 已完成最终全图，当前结果以[性能与全图交付](base-map/delivery/04-trajectory-performance.md)为准。
+
+- [可行轨迹质量评分需求](base-map/requirement/02-feasible-trajectory-quality.md)及[完整构建方案](base-map/plan/02-feasible-trajectory-quality.md)：每 SE(2) 位姿独立规划，32-seed IK→最多 4 代表/8 轨迹→整轨迹验证→主分排名前 4；新增过渡后辅助分、瓶颈阶段、R_plan 和 Pose-goal 实际终态簇，复用数据与热启动但不复用跨 yaw 的有效性/质量。2026-11-06 已实施并通过离线回归；沙箱外 GPU 4 已完成全图：15,582 次尝试、426 条有效轨迹、351 个有效查询、0 incomplete；调度小样本约快 4.85 倍。完整结果与边界见[最新报告](base-map/delivery/04-trajectory-performance.md)，早期设备阻塞见[实施报告](base-map/delivery/03-trajectory-quality-implementation.md)。
+
 - [跨策略站位可行性与 cuRobo Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md)：探索初始可抓握、后续门/抽屉运动与底盘占位冲突的任务。固定底盘仅作构建诊断，正式评测允许全身协调；S1 为参考解。[调整清单](no-edit-calibration/plan/05-policy-agnostic-region-adjustments.md)落实任务判据、自由度、搜索覆盖、四类标签、区域验证及跨策略对照；仅完成分析，尚未实施代码或新实验。
 
 - [PandaOmron 标定修复与排查方案](collision-handing/archive/03-calibration-repair-and-diagnosis.md)：P1 Pick 顺序对照已恢复；N0–N2 已完成，见[阶段交付第 7 节](collision-handing/archive/04-calibration-repair.md#7-方案-n0n2-实施结果2026-10-27)。当前重构代码的 Cup_30 真实执行与原结果逐条一致，Pick/Open 家族复用与 fresh 规划一致（Open 只验证了规划）；修正后的测距显示，初始状态下 4 个球侵入站位的实体底盘均未接触障碍。IK 和轨迹候选的同状态对照（N3）未开始，没有修改碰撞球，采样参数调整不在范围内。

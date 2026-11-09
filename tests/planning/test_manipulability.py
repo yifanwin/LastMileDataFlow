@@ -54,6 +54,34 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(extended_quality(np.zeros((6, 7)), np.ones(7), np.ones(7))[0], 0.)
 
 
+class MeshDistanceTests(unittest.TestCase):
+    def test_separated_meshes_do_not_report_false_contact_from_gjk_zero(self):
+        from types import SimpleNamespace
+        from lastmile_dataflow.scenes.geometry import geom_distance
+        # One deterministic real failure of MuJoCo 3.5 native GJK (#3383).
+        rng = np.random.default_rng(7)
+        for _ in range(16):
+            first = rng.normal(size=(24, 3)) * [.35, .35, .05]
+            second = rng.normal(size=(24, 3)) * [.1, .1, .1]
+            position = rng.uniform(-.5, .5, 3)
+            quaternion = rng.normal(size=4)
+            quaternion /= np.linalg.norm(quaternion)
+        first_text = ' '.join(f'{v:.5f}' for v in first.ravel())
+        second_text = ' '.join(f'{v:.5f}' for v in second.ravel())
+        position_text = ' '.join(map(str, position))
+        quaternion_text = ' '.join(map(str, quaternion))
+        model = mujoco.MjModel.from_xml_string(f"""<mujoco><asset>
+            <mesh name="a" vertex="{first_text}"/><mesh name="b" vertex="{second_text}"/>
+            </asset><worldbody><geom type="mesh" mesh="a" pos="{position_text}" quat="{quaternion_text}"/>
+            <geom type="mesh" mesh="b"/></worldbody></mujoco>""")
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        witnesses = np.zeros(6)
+        distance = geom_distance(SimpleNamespace(model=model, data=data), 0, 1, 2., witnesses)
+        self.assertAlmostEqual(distance, .0605068229, places=6)
+        self.assertAlmostEqual(distance, np.linalg.norm(witnesses[3:]-witnesses[:3]))
+
+
 class CollisionGradientTests(unittest.TestCase):
     def test_distance_derivative_uses_closest_point_jacobians(self):
         model = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>

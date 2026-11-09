@@ -76,24 +76,72 @@ class ContactManager(RobotCostManager):
         if not self.context.attached:
             idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
             if self.target_cost is not None:
-                result.add(self._contact_cost(state, self.target_cost, self.contact_indices, idxs),
+                result.add(self._contact_cost(state, self.target_cost, self.contact_indices, idxs, goal),
                            'target_collision')
             if self.handle_cost is not None:
                 # A pinch on a deep handle puts the palm against it; only the
                 # handle is relaxed, the surrounding body stays a hard obstacle.
-                result.add(self._contact_cost(state, self.handle_cost, self.handle_indices, idxs),
+                result.add(self._contact_cost(state, self.handle_cost, self.handle_indices, idxs, goal),
                            'handle_contact')
         if self.config.scene_collision_cfg is not None and self.context.movable_base:
             result.add(self._workspace_cost(state), 'workspace_circle')
         if self.head_fk is not None:
             self._add_head_fov(state, result)
+        if self.config.trajectory_approach_enabled and self.context.trajectory_goals is not None:
+            result.add(self._approach_cost(state, goal), 'trajectory_approach')
         return result
 
-    def _contact_cost(self, state, cost, indices, idxs):
+    def _contact_cost(self, state, cost, indices, idxs, goal=None):
         kin = copy.copy(state.cuda_robot_model_state)
         # Differentiable copy: no writes into shared FK/robot geometry.
-        kin.robot_spheres = contact_spheres(state.robot_spheres, indices, self.context.contact_allowed)
+        spheres = state.robot_spheres
+        if self.context.trajectory_goals is not None and indices:
+            position, quaternion = self._tool_pose(state)
+            goals = self._trajectory_targets(goal)
+            cfg = self.context.trajectory_config
+            distance = torch.linalg.vector_norm(position - goals[:, None, :3], dim=-1)
+            dot = (quaternion * goals[:, None, 3:]).sum(dim=-1).abs().clamp(max=1.)
+            angle = 2 * torch.acos(dot)
+            window = ((distance <= cfg.pose_tolerance_m) & (angle <= cfg.pose_tolerance_rad))
+            # Ball geometry cannot distinguish pad surfaces. The independent
+            # MuJoCo validator enforces pad-only contact at these terminal poses.
+            masked = spheres.clone()
+            masked[..., indices, 3] = torch.where(window[..., None], -100., masked[..., indices, 3])
+            kin.robot_spheres = masked
+        else:
+            kin.robot_spheres = contact_spheres(spheres, indices, self.context.contact_allowed)
         return cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
+
+    def _tool_pose(self, state):
+        poses = state.cuda_robot_model_state.tool_poses
+        index = poses.tool_frames.index(self.context.trajectory_config.tcp_link)
+        return poses.position[..., index, :], poses.quaternion[..., index, :]
+
+    def _trajectory_targets(self, goal):
+        goals = self.context.trajectory_goals
+        return goals if goal is None else goals[goal.idxs_link_pose.reshape(-1)]
+
+    def _approach_cost(self, state, goal=None):
+        p, quat = self._tool_pose(state)
+        goals, cfg = self._trajectory_targets(goal), self.context.trajectory_config
+        # Quaternions use wxyz. The third rotation column is the TCP +Z axis.
+        w, x, y, z = goals[:, 3:].unbind(-1)
+        axis = torch.stack((2*(x*z+w*y), 2*(y*z-w*x), 1-2*(x*x+y*y)), dim=-1)
+        progress = torch.linspace(0, 1, p.shape[1], device=p.device, dtype=p.dtype)
+        # Native B-spline output ends with one stationary padded interval.
+        # The approach target reaches zero before that hold, avoiding a
+        # conflicting nonzero depth target at an already stationary endpoint.
+        progress = (progress / (1 - 1 / cfg.spline_intervals)).clamp(max=1.)
+        active = progress >= 1 - cfg.approach_fraction
+        depth_target = cfg.approach_distance_m * (1 - progress) / cfg.approach_fraction
+        delta = goals[:, None, :3] - p
+        depth = (delta * axis[:, None]).sum(-1)
+        lateral = delta - depth[..., None] * axis[:, None]
+        rotation = 1 - (quat * goals[:, None, 3:]).sum(-1).square()
+        value = ((lateral / cfg.approach_lateral_m).square().sum(-1)
+                 + ((depth - depth_target) / cfg.approach_lateral_m).square()
+                 + 4 * rotation / cfg.approach_rotation_rad**2)
+        return (cfg.approach_weight * value * active).unsqueeze(-1)
 
     def _workspace_cost(self, state):
         xy = state.joint_state.position[..., [self.names.index('base_x'), self.names.index('base_y')]]
@@ -128,6 +176,7 @@ class ContactManager(RobotCostManager):
 class ContactManagerCfg(RobotCostManagerCfg):
     head_fov_cost_enabled: bool = False
     head_fov_endpoint_check: bool = False
+    trajectory_approach_enabled: bool = False
     context: object = None
     # Class attribute, not a field: set on the per-planner type by manager_type().
     planner_context = None
@@ -142,6 +191,7 @@ class ContactManagerCfg(RobotCostManagerCfg):
         return cls(**vars(original),
                    head_fov_cost_enabled=data_dict.get('head_fov_cost_enabled', False),
                    head_fov_endpoint_check=data_dict.get('head_fov_endpoint_check', False),
+                   trajectory_approach_enabled=data_dict.get('trajectory_approach_enabled', False),
                    context=cls.planner_context)
 
 
@@ -169,3 +219,10 @@ def fov_optimizer_configs():
     metrics = load_yaml(join_path(get_task_configs_path(), 'metrics_base.yml'))
     metrics['rollout']['constraint_cfg']['head_fov_endpoint_check'] = True
     return (*result, metrics)
+
+
+def trajectory_optimizer_config():
+    """Approach is a soft TrajOpt term, never an IK or convergence constraint."""
+    config = load_yaml(join_path(get_task_configs_path(), 'trajopt/lbfgs_bspline_trajopt.yml'))
+    config['rollout']['cost_cfg']['trajectory_approach_enabled'] = True
+    return config

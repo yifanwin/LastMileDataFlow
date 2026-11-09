@@ -86,12 +86,13 @@ src/lastmile_dataflow/
 ## 主要 workflow
 
 - `scene_datasets`：目标粗筛与空间覆盖选择；每任务准备一次 BuildContext，按八类 intent 构造候选，由父进程写唯一主记录。
-- `station_map`：`build_station_map()` 是 `evaluate-stations` 的唯一实现。源场景或快照只做 `mj_forward`，物体不动；底盘、升降、夹爪锁定。每个站位绑定到同一个 `V2Planner`（`bind_station` 只更新已上传障碍物的位姿），`ik_candidates` 按 seed 顺序返回全部 32 个候选；CPU 评分进程用 MuJoCo 复核 FK、接触并调用 `planning/manipulability.py` 计算扩展可操作度。出图与计算分开：`station_map_plot.plot_station_map()`（`--plot-from`）只读 `map.npz` 等数组，调用 `data/visualization/quality_map.py`，计算模块不导入任何出图代码。
+- `station_map`：`evaluate-stations` 唯一计算链路。固定场景/底盘/升降/夹爪，持久 `V2Planner.bind_station` 更新世界；32-seed IK 只筛终态，`trajectory_quality` 选代表与构造两条初值，`trajectory_candidates` 每初值一 lane 运行 Pose-goal。独立 MuJoCo worker 经 `trajectory_validation` 验证原生 B-spline 曲线，再复用 `manipulability.ScoringModel` 计算 16→32 点双瓶颈；全部有效候选评分后保留前 4。`station_map_plot` 只读数组和候选块，生成地图、比例图、路径预览及 HTML；旧静态 kind 仍可读取。
+
 - `collection`：`collect_lastmile()` 用匹配标定或在当前 run 逐点标定一次，先落盘全量 S0×S1 计划和已有成功标定示教，再执行连续导航与操作。逐点物理标定只在这里运行，仅 cuRobo。
 - `lastmilebench`：由完整标定选择困难 S0，保存 native 场景并独立执行策略。设备/profile 工具来自 `runtime.execution_config`，不依赖采集 workflow。
 
 `sample_stations` 只做初始化几何检查（`static_only=True`）或再加头部可见性，不执行规划或任务 rollout；
-真实 rollout 只来自 `collect_lastmile` 的标定与连续采集；质量图只有静态 IK 与评分，没有 stepping。
+真实 rollout 只来自 `collect_lastmile` 的标定与连续采集；质量图只规划、验证和评分，没有 stepping。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
 cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始的场景基线，每个 trial 仍经 `run_curobo_attempt` 新建仿真。父进程分配编号、汇总唯一的 `trials.jsonl`；共享故障通过进程事件停止新增试验。`StationPlannerCache` 每站位最多保留每臂一个闭爪前 planner，相同初态时重绑仿真、FOV 和日志，并为新 seed 重建原生种子管理器；闭爪后继续重建。`ContactSampler` 缓存静态名称与分类，每物理步读取一次接触力，供任务 monitor 和接触统计共用，详细遥测只在需要时生成。
@@ -115,7 +116,7 @@ flowchart TD
 
     CLI -->|evaluate-stations| MAP["station_map.build_station_map"]
     SOURCE["base-map 场景文件或场景库"] -.-> MAP
-    MAP --> QUALITY["SE(2) 质量图：32-seed IK、MuJoCo 复核、扩展可操作度<br/>map.npz 与逐 grasp 图"]
+    MAP --> QUALITY["SE(2) 质量图：32-seed IK、多候选轨迹、MuJoCo 验证、瓶颈质量<br/>map.npz 与逐 grasp 图"]
 
     CLI -->|collect-lastmile| COLLECT["collection.collect_lastmile<br/>仅 cuRobo"]
     DATASET -.-> COLLECT
@@ -329,3 +330,6 @@ flowchart TD
 `workflows/station_calibration.py` 调度全 run 的有界准备、GPU 查询与 CPU trial 队列，父进程唯一写原始 trial。`planning/pool.py` 的 spawn 进程拥有 CUDA、solver 和规划视图；`planning/remote.py` 在 CPU 侧将实测状态转为后续请求。
 
 `runtime/execution/workers.py` 创建独立 MjData，并继续调用原 `run_curobo_attempt`、`ContinuousContext`、跟踪器和任务判定。`protocol.py` 传递数值状态、身份及累计活跃预算；`SnapshotCache` 仅在进程内保留少量只读模型。`data/rendering/replay.py` 使用独立 MjData 逐帧 mj_forward 回放，不参与任务成败；`rollout_video.py` 在同一实测边界组合三路相机与俯视底盘轨迹。
+
+
+`workflows/station_map.py` 在每个 yaw 内将多 grasp 初值装入固定 8-lane GPU batch，并逐轨迹异步提交现有 CPU 池；收齐后按原顺序排名、记录和更新热启动，再进入下一 yaw。worker 只缓存当前 yaw 的精确构型评分；同 grasp 完全相同的时间多项式可共用 CPU 结果，逻辑尝试数仍保留。`TrajectoryValidator` 用 `mj_kinematics`、`mj_comPos` 和 `mj_collision` 更新所需状态，不运行无关动力学步骤。

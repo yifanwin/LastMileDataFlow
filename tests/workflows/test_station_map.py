@@ -8,7 +8,8 @@ from lastmile_dataflow.config import BaseMapConfig
 from lastmile_dataflow.data.visualization.quality_map import cell_categories
 from lastmile_dataflow.scenes.stations.sampling import heading_fan
 from lastmile_dataflow.workflows.station_map import (
-    CODE, MAP_KIND, SEED, _counts, _initial_values, best_valid, distinct, heading_mean, select_grasps, tcp_local)
+    CODE, MAP_KIND, _counts, _initial_values, _candidate_seeds, _write_chunk, WarmTrajectory,
+    heading_mean, select_grasps, tcp_local, _neighbours)
 
 
 class HeadingTests(unittest.TestCase):
@@ -45,13 +46,33 @@ class GraspTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
+    def test_history_is_only_a_seed_and_one_source_is_not_copied_to_all_representatives(self):
+        bounds = (np.full(7, -2.), np.full(7, 2.))
+        history = [WarmTrajectory(-.1, 12, 3, np.array([np.full(7, .2), np.full(7, .8)]))]
+        candidates, paths = _candidate_seeds(np.array([np.full(7, .8), np.full(7, -1.)]), np.zeros(7),
+                                             16, bounds, BaseMapConfig(), 13, history)
+        self.assertEqual([c.seed_kind for c in candidates], ['linear', 'history', 'linear', 'perturbed'])
+        self.assertEqual(candidates[1].source_query, 12)
+        self.assertTrue(all(c.curve is None for c in candidates))
+        np.testing.assert_allclose(paths[:, 0], 0.)
+        np.testing.assert_allclose(paths[0, -1], paths[1, -1])
+        np.testing.assert_allclose(paths[2, -1], paths[3, -1])
+
+    def test_zero_warm_budget_disables_history_for_ik_and_trajectory_seeds(self):
+        from dataclasses import replace
+        entry = WarmTrajectory(0., 1, 0, np.zeros((2, 7)))
+        self.assertEqual(_neighbours({(0, 0): {0: [entry]}}, (0, 0), 0., 0,
+                                     replace(BaseMapConfig(), warm_start_seeds=0)), [])
+
     def test_warm_starts_come_from_finished_neighbours_inside_the_budget(self):
         config = BaseMapConfig()
         bounds = (np.full(7, -1.), np.full(7, 1.))
         self.assertEqual(_initial_values({}, (0, 0), 0., [0, 1], 2, config, bounds, [1, 2]),
                          (None, {0: 0, 1: 0}))
         near = [np.full(7, .1 * i) for i in range(12)]
-        cache = {(0, -1): {0: [(0.1, near)]}, (5, 5): {1: [(0., near)]}, (1, -1): {0: [(math.pi, near)]}}
+        cache = {(0, -1): {0: [WarmTrajectory(.1, 0, i, np.array([q])) for i, q in enumerate(near)]},
+                 (5, 5): {1: [WarmTrajectory(0., 1, 0, np.array([near[0]]))]},
+                 (1, -1): {0: [WarmTrajectory(math.pi, 2, 0, np.array([near[0]]))]}}
         seeds, warm = _initial_values(cache, (0, 0), 0., [0, 1], 2, config, bounds, [1, 2])
         self.assertEqual(warm, {0: config.warm_start_seeds, 1: 0})  # far cell and opposite yaw ignored
         self.assertEqual(seeds.shape, (2, config.warm_start_seeds, 7))
@@ -59,18 +80,100 @@ class BudgetTests(unittest.TestCase):
         np.testing.assert_allclose(seeds[0], near[:config.warm_start_seeds])
         self.assertTrue(np.all(np.abs(seeds[1]) <= 1.))
 
-    def test_distinct_counts_clusters_without_dropping_the_first(self):
-        q = [np.zeros(7), np.full(7, 5e-4), np.ones(7)]
-        self.assertEqual(len(distinct(q, 1e-3)), 2)
+
+
+class SchedulingTests(unittest.TestCase):
+    def test_grasps_share_gpu_batches_and_cpu_jobs_start_before_next_solve(self):
+        from types import SimpleNamespace
+        from lastmile_dataflow.workflows.station_map import TrajectoryQuery, _submit_trajectories
+        from lastmile_dataflow.planning.trajectory_quality import TrajectoryCandidate
+        calls, jobs = [], []
+        def solve(goals, candidates, seeds):
+            calls.append((goals.copy(), len(jobs)))
+            for candidate in candidates:
+                candidate.submitted = True
+            return candidates, 2.
+        def submit(function, args):
+            jobs.append(args[0])
+            return len(jobs)
+        planner = SimpleNamespace(batch_size=8, trajectory_candidates=solve)
+        pool = SimpleNamespace(apply_async=submit)
+        requests = [TrajectoryQuery(k, k, 10+k,
+            [TrajectoryCandidate(i, i//2, np.zeros(7), 'linear') for i in range(n)],
+            np.zeros((n, 16, 7))) for k, n in enumerate((2, 4, 6))]
+        goals = np.tile(np.eye(4), (3, 1, 1))
+        goals[:, 0, 3] = [1, 2, 3]
+        elapsed = _submit_trajectories(planner, pool, requests, (0, 0, 0), goals,
+                                       np.zeros(7), np.ones(7), np.ones(7))
+        self.assertEqual(elapsed, [2., 2.])
+        np.testing.assert_equal(calls[0][0][:, 0, 3], [1, 1, 2, 2, 2, 2, 3, 3])
+        self.assertEqual(calls[1][1], 8)  # CPU validation already queued
+        self.assertEqual([len(r.pending) for r in requests], [2, 4, 6])
+        self.assertEqual(len(jobs), 12)
+        self.assertTrue(all(len(job['candidates']) == 1 for job in jobs))
+        self.assertAlmostEqual(sum(r.planning_s for r in requests), sum(elapsed))
+        self.assertTrue(all(c.submitted for r in requests for c in r.candidates))
+
+
+    def test_identical_curves_share_cpu_work_but_keep_all_attempts(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from lastmile_dataflow.workflows.station_map import TrajectoryQuery, _submit_trajectories
+        from lastmile_dataflow.planning.trajectory_quality import JointCurve, TrajectoryCandidate
+        curve = JointCurve([0., 1.], np.zeros((2, 7)), np.zeros((2, 7)), np.zeros((2, 7)))
+        candidates = [TrajectoryCandidate(i, i//2, np.zeros(7), 'linear', curve=curve) for i in range(4)]
+        planner = SimpleNamespace(batch_size=8, trajectory_candidates=Mock(return_value=(candidates, 1.)))
+        pool = SimpleNamespace(apply_async=Mock())
+        request = TrajectoryQuery(0, 0, 5, candidates, np.zeros((4, 16, 7)))
+        _submit_trajectories(planner, pool, [request], (0, 0, 0), np.eye(4)[None],
+                             np.zeros(7), np.ones(7), np.ones(7))
+        self.assertEqual(len(request.candidates), 4)
+        self.assertEqual(pool.apply_async.call_count, 1)
+        self.assertEqual([reused for _, reused in request.pending], [False, True, True, True])
+
+    def test_worker_reuses_one_yaw_and_discards_scores_when_yaw_changes(self):
+        from unittest.mock import Mock, patch
+        from types import SimpleNamespace
+        from lastmile_dataflow.workflows import station_map
+        initialize = Mock()
+        worker = dict(sim=SimpleNamespace(robot=SimpleNamespace(initialize=initialize)),
+                      initial={'base_xyyaw': [0, 0, 0]}, validator=object())
+        with patch.object(station_map, '_WORKER', worker):
+            station_map._place_worker((1., 2., 0.))
+            worker['quality_cache']['test'] = .5
+            station_map._place_worker((1., 2., 0.))
+            self.assertEqual(initialize.call_count, 1)
+            self.assertEqual(worker['quality_cache']['test'], .5)
+            station_map._place_worker((1., 2., .1))
+            self.assertEqual(initialize.call_count, 2)
+            self.assertEqual(worker['quality_cache'], {})
 
 
 class ScoreTests(unittest.TestCase):
-    def test_best_of_valid_seeds_only(self):
-        reasons = np.array([SEED['valid'], SEED['touching_contact'], SEED['valid'], SEED['solver_failed']])
-        quality = np.array([.2, np.nan, .5, np.nan])
-        self.assertEqual(best_valid(reasons, quality), 2)
-        self.assertEqual(best_valid(reasons, np.array([.2, 9., .1, 9.])), 0)
-        self.assertIsNone(best_valid(np.full(4, SEED['mujoco_contact']), quality))
+    def test_scoring_point_collision_rejects_candidate_without_query_exception(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from lastmile_dataflow.workflows import station_map
+        from lastmile_dataflow.planning.trajectory_quality import JointCurve, TrajectoryCandidate
+        from lastmile_dataflow.planning.trajectory_validation import TrajectoryValidation
+        curve = JointCurve([0., 1.], np.zeros((2, 7)), np.zeros((2, 7)), np.zeros((2, 7)))
+        candidate = TrajectoryCandidate(0, 0, np.zeros(7), 'linear', curve=curve)
+        validation = TrajectoryValidation(True, 'valid', approach_time=.5, trace={})
+        model = SimpleNamespace(lower=np.full(7, -1.), upper=np.ones(7))
+        validator = SimpleNamespace(model=model, set_q=Mock(), validate=Mock(return_value=validation))
+        worker = dict(model=model, config=BaseMapConfig(), quality_cache={})
+        job = dict(base=(0, 0, 0), goal=np.eye(4), candidates=[candidate], q0=np.zeros(7),
+                   velocity_limits=np.ones(7), acceleration_limits=np.ones(7))
+        score = SimpleNamespace(samples=[dict(valid=False, time=.7)])
+        with patch.object(station_map, '_WORKER', worker), \
+             patch.object(station_map, '_place_worker', return_value=(None, validator)), \
+             patch.object(station_map, 'tcp_pose', return_value=np.eye(4)), \
+             patch('lastmile_dataflow.planning.trajectory_quality.score_trajectory', return_value=score):
+            rows, _, _ = station_map._evaluate_trajectories(job)
+        self.assertIsNone(rows[0]['quality'])
+        self.assertEqual(rows[0]['validation'].reason, 'collision_at_score')
+        self.assertFalse(rows[0]['validation'].valid)
+        self.assertEqual(rows[0]['validation'].failure_time, .7)
 
     def test_filtered_queries_stay_out_of_the_ik_denominator(self):
         status = np.full((1, 1, 2, 2), CODE['distance_filtered'], np.int8)
@@ -91,6 +194,33 @@ class ScoreTests(unittest.TestCase):
 
 
 class AggregationTests(unittest.TestCase):
+    def test_candidate_chunks_preserve_identity_timing_and_all_attempts_without_pickle(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from lastmile_dataflow.planning.trajectory_quality import JointCurve, TrajectoryCandidate, TrajectoryQuality
+        from lastmile_dataflow.planning.trajectory_validation import TrajectoryValidation
+        curve = JointCurve([0., 1.], np.zeros((2, 7)), np.zeros((2, 7)), np.zeros((2, 7)))
+        sample = dict(q=np.zeros(7), tcp=np.eye(4), quality=0., time=0., s=0., u=0., phase='approach')
+        quality = TrajectoryQuality(0., None, 0., [sample], [], sample, None, 'no_distinct_configuration')
+        rows = [dict(candidate=TrajectoryCandidate(i, i//2, np.zeros(7), 'linear', curve=curve),
+                     validation=TrajectoryValidation(True, 'valid'), quality=quality) for i in range(8)]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'chunk.npz'
+            _write_chunk(path, [dict(query=17, base=(1, 2, -.3), grasp=0, rows=rows,
+                                     kept=rows[:4], n_attempted=8, n_completed=8, n_valid=8, n_retained=4)])
+            with np.load(path, allow_pickle=False) as data:
+                record = json.loads(str(data['summary_json'][0]))
+                self.assertEqual(record['n_attempted'], 8)
+                self.assertEqual(len(record['candidates']), 8)
+                np.testing.assert_equal(data['trajectory_query'], [17]*4)
+                np.testing.assert_equal(data['trajectory_offsets'], [0, 2, 4, 6, 8])
+                np.testing.assert_equal(data['trajectory_time'][:2], [0., 1.])
+                self.assertEqual(record['n_valid']/record['n_attempted'], 1.)
+                self.assertIsNone(record['candidates'][0]['quality']['post'])
+                self.assertIn('samples', record['candidates'][0]['quality'])
+                self.assertNotIn('samples', record['candidates'][-1]['quality'])
+
     def test_position_quality_is_the_mean_of_valid_headings_only(self):
         status = np.array([[[[CODE['valid']], [CODE['valid']], [CODE['ik_no_solution']]],
                             [[CODE['distance_filtered']]] * 3]], np.int8)  # (1, 2, 3, 1)
@@ -129,6 +259,20 @@ class AggregationTests(unittest.TestCase):
             names = {p.name for p in (output / 'one').iterdir()}
             self.assertTrue({'base-quality-g0.png', 'heading-quality-g0.png', 'base-quality.html'} <= names)
             self.assertNotIn('heading-quality-g0-slices.png', names)
+
+            # New trajectory diagnostics use count-weighted rates and explicit yaw details.
+            with np.load(scene/'map.npz') as z:
+                data = {key: z[key] for key in z.files}
+            data.update(n_attempted=np.full(status.shape, 8), n_completed=np.full(status.shape, 8),
+                n_valid=np.full(status.shape, 6), n_retained=np.full(status.shape, 4),
+                r_plan=np.full(status.shape, .75), post_quality=quality,
+                cluster_share=np.full(status.shape, 1.), bottleneck_phase=np.full(status.shape, 'transit'))
+            np.savez(scene/'map.npz', **data)
+            output = plot_station_map(run, Path(d)/'trajectory-figures')
+            self.assertTrue((output/'one'/'planning-valid-rate.png').is_file())
+            html = (output/'one'/'base-quality.html').read_text()
+            self.assertIn('R_plan', html)
+            self.assertIn('post_quality', html)
 
 
 class DownstreamTests(unittest.TestCase):

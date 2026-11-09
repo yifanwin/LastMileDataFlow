@@ -88,3 +88,16 @@ LD_LIBRARY_PATH=/data1/wenyifan/opt/lib MUJOCO_GL=egl \
 ```
 
 这些检查使用原生 CPU 随机采样、实际 spawn 和简化 MuJoCo；覆盖三次映射、跨场景独立执行、实测后续请求、活跃预算、共享停批与唯一记录，不代表真实 CUDA batch 或 Panda rollout 通过。正式输入按执行计划在软件回归之后运行。
+
+## 轨迹质量图软件检查
+
+```bash
+MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl .venv/bin/python -m unittest \
+  tests.planning.test_trajectory_quality tests.planning.test_trajectory_validation \
+  tests.planning.test_trajectory_adapter tests.workflows.test_station_map -v
+```
+
+覆盖段内实际 MuJoCo 碰撞反例、跨 yaw 重查、接近方向/长度、解析运动极值、原生曲线结点重建、代表/终态区域、双瓶颈采样和每初值一 lane。CPU 接口测试不代替真实 GPU Pose-goal 对照；真实验收阶段见[方案](../reports/base-map/plan/02-feasible-trajectory-quality.md)。
+
+
+轨迹地图性能回归覆盖同 yaw 跨 grasp 合批、单轨迹任务分发、完全重复曲线复用但不改变尝试数、跨 yaw 清空评分缓存、冷启动关闭全部历史，以及仅位置更新与完整 forward 的几何/接触/Jacobian 一致性。真实 GPU 调度和验证器 profile 对照见[性能交付](../reports/base-map/delivery/04-trajectory-performance.md)。

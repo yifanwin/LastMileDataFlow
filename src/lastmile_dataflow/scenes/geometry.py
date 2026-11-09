@@ -4,6 +4,9 @@ import itertools
 import mujoco
 import numpy as np
 
+_DISTANCE_SUPPORT_TYPES = (mujoco.mjtGeom.mjGEOM_MESH, mujoco.mjtGeom.mjGEOM_BOX,
+    mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CYLINDER, mujoco.mjtGeom.mjGEOM_CAPSULE)
+
 
 def descendants(model, body):
     result = {body}
@@ -35,6 +38,26 @@ def geom_points(sim, g):
     else:
         raise ValueError(f'unsupported object collision geom: {m.geom(g).name}')
     return local @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
+
+
+def geom_distance(sim, a, b, limit, fromto):
+    """MuJoCo distance with the separated-convex zero-distance fix from #3383.
+
+    MuJoCo 3.5 can return zero with noncoincident GJK witnesses. Recover their
+    distance only when conservative support projections confirm a separating plane,
+    matching the upstream GJK early-exit correction (35342f4).
+    """
+    m, d = sim.model, sim.data
+    distance = mujoco.mj_geomDistance(m, d, a, b, limit, fromto)
+    if distance == 0 and m.geom_type[a] in _DISTANCE_SUPPORT_TYPES and m.geom_type[b] in _DISTANCE_SUPPORT_TYPES:
+        vector = fromto[3:] - fromto[:3]
+        length = np.linalg.norm(vector)
+        if length > m.opt.ccd_tolerance:
+            axis = vector / length
+            first, second = geom_points(sim, a) @ axis, geom_points(sim, b) @ axis
+            if second.min() > first.max() or first.min() > second.max():
+                distance = min(float(length), limit)
+    return distance
 
 
 def body_points(sim, body):

@@ -18,6 +18,8 @@ class PlannerContext:
     contact_links: tuple = ()
     handle_contact_links: tuple = ()
     contact_allowed: bool = False
+    trajectory_goals: Optional[object] = None
+    trajectory_config: Optional[object] = None
 
     # FOV robot and target tracking
     fov_robot: Optional[object] = None

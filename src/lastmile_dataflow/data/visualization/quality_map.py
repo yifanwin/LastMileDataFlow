@@ -25,7 +25,7 @@ NO_SOLUTION_CODE, VALID_CODE = 5, 6
 def cell_categories(status_k):
     """(Ny, Nx) per grasp: 0 unevaluated, 1 filtered, 2 evaluated without solution, 3 valid."""
     valid = (status_k == VALID_CODE).any(axis=-1)
-    tried = (status_k == NO_SOLUTION_CODE).any(axis=-1)
+    tried = np.isin(status_k, (5, 7, 8, 9)).any(axis=-1)
     filtered = np.isin(status_k, FILTER_CODES).any(axis=-1)
     return np.select([valid, tried, filtered], [3, 2, 1], 0)
 
@@ -81,8 +81,11 @@ def export_quality_maps(data, scene, summary, figures):
     offsets = np.rad2deg(data['heading_offsets_rad'])
     vmax = summary['quality_range'][1] if summary.get('quality_range') else 1.
     norm = matplotlib.colors.Normalize(0., vmax)
+    trajectory = 'n_attempted' in data
+    quality_label = ('trajectory bottleneck quality (higher = better)' if trajectory
+                     else 'extended manipulability (higher = better)')
     legend = [Patch(color=FILTERED, label='filtered (floor / base / reach)'),
-              Patch(color=NO_SOLUTION, label='evaluated, no valid IK'),
+              Patch(color=NO_SOLUTION, label='evaluated, no valid trajectory' if trajectory else 'evaluated, no valid IK'),
               Patch(color=OBSTACLE, label='obstacle footprint (< 1.5 m)')]
     written = []
 
@@ -97,7 +100,7 @@ def export_quality_maps(data, scene, summary, figures):
         _decorate(ax, scene, extent, k)
         ax.set_title(f"{scene['scene_id']} / {scene['asset_id']} grasp g{k} (row {row}): "
                      'Q(x, y) = mean over valid headings')
-        fig.colorbar(im, ax=ax, label='extended manipulability (higher = better)', shrink=.8)
+        fig.colorbar(im, ax=ax, label=quality_label, shrink=.8)
         ax.legend(handles=[*legend, *ax.get_legend_handles_labels()[0]], loc='upper right', fontsize=8)
         path = figures / f'base-quality-g{k}.png'
         fig.savefig(path, dpi=160)
@@ -112,19 +115,64 @@ def export_quality_maps(data, scene, summary, figures):
                            width=.0022, headwidth=2.6, headlength=3, headaxislength=2.6, zorder=3)
         _decorate(ax, scene, extent, k)
         ax.set_title(f'grasp g{k} (row {row}): every valid heading, coloured by its quality')
-        fig.colorbar(arrows, ax=ax, label='extended manipulability (higher = better)', shrink=.8)
+        fig.colorbar(arrows, ax=ax, label=quality_label, shrink=.8)
         path = figures / f'heading-quality-g{k}.png'
         fig.savefig(path, dpi=160)
         plt.close(fig)
         written.append(path)
 
     written.append(_ik_rate_figure(plt, data, scene, extent, figures))
+    if 'n_attempted' in data:
+        written.append(_planning_rate_figure(plt, data, scene, extent, figures))
+    if data.get('paths'):
+        written.append(_path_previews(plt, data['paths'], figures))
     written.append(_grasp_figure(plt, scene, figures))
     written.append(_viewer(figures / 'base-quality.html', data, scene, vmax))
     write_json(figures / 'figures.json', {'color_scale': [0., vmax], 'colormap': CMAP,
                'scale_scope': 'all valid configurations of this map', 'files': [p.name for p in written],
                'ik_valid_rate': 'separate figure; never colours quality'})
     return figures
+
+
+def _planning_rate_figure(plt, data, scene, extent, figures):
+    complete = data['status'] != 9
+    attempted = np.where(complete, data['n_attempted'], 0).sum(axis=2)
+    valid = np.where(complete, data['n_valid'], 0).sum(axis=2)
+    rate = np.where(attempted > 0, valid / np.maximum(attempted, 1), np.nan)
+    fig, axes = plt.subplots(1, rate.shape[-1], figsize=(4.4*rate.shape[-1], 4.4), squeeze=False, layout='constrained')
+    for k, ax in enumerate(axes.flat):
+        _background(ax, data)
+        im = ax.imshow(rate[..., k], origin='lower', extent=extent, cmap='viridis', vmin=0, vmax=1)
+        _decorate(ax, scene, extent, k)
+        ax.set_title(f'g{k}')
+    fig.colorbar(im, ax=axes, label='valid / attempted trajectories (complete queries)')
+    path = figures / 'planning-valid-rate.png'
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+    return path
+
+
+def _path_previews(plt, paths, figures):
+    rows = [(query, row) for query, entries in paths.items() for row in entries]
+    rows.sort(key=lambda item: (-item[1]['full'], item[0], item[1]['id']))
+    picks = sorted(set([0, len(rows)//2, len(rows)-1]))
+    fig, axes = plt.subplots(1, len(picks), figsize=(5*len(picks), 4), squeeze=False, layout='constrained')
+    for ax, index in zip(axes.flat, picks):
+        query, row = rows[index]
+        tcp = np.asarray(row['tcp'])
+        ax.plot(tcp[:, 0], tcp[:, 1], '-o', markersize=2)
+        ax.scatter(*tcp[0, :2], marker='s', label='start')
+        ax.scatter(*tcp[-1, :2], marker='*', label='grasp')
+        ax.set_title(f"query {query}, candidate {row['id']}\nQ={row['full']:.4g}; {row['phase']}")
+        ax.set_aspect('equal', adjustable='datalim')
+        ax.set_xlabel('world X (m)')
+        ax.set_ylabel('world Y (m)')
+        ax.legend()
+    fig.suptitle('Selected TCP paths at score samples; query fixes the actual yaw')
+    path = figures / 'trajectory-previews.png'
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+    return path
 
 
 def _ik_rate_figure(plt, data, scene, extent, figures):
@@ -199,10 +247,16 @@ def _viewer(path, data, scene, vmax):
         'valid': data['valid_seeds'].tolist(), 'executed': data['executed_seeds'].tolist(),
         'distinct': data['distinct_valid'].tolist(), 'warm': data['warm_start_seeds'].tolist(),
         'bestQ': np.round(np.nan_to_num(data['best_q'], nan=0.), 3).tolist(),
+        'trajectory': 'r_plan' in data, 'paths': data.get('paths', {}),
         'grasps': [{'row': g['source_row'], 'xy': np.asarray(g['tcp_world'])[:2, 3].round(4).tolist()} for g in scene['grasps']],
         'center': np.round(scene['object_center_world'], 4).tolist(),
         'background': {'url': _png_data_url(free), 'x0': float(origin[0] - resolution / 2),
                        'y0': float(origin[1] - resolution / 2), 'w': free.shape[1] * resolution, 'h': free.shape[0] * resolution}}
+    for key in ('post_quality', 'r_plan', 'n_attempted', 'n_completed', 'n_valid', 'n_retained',
+                'cluster_share', 'bottleneck_phase'):
+        if key in data:
+            payload[key] = (np.where(np.isfinite(data[key]), data[key], -1).tolist()
+                            if key != 'bottleneck_phase' else data[key].tolist())
     html = VIEWER.replace('__DATA__', json.dumps(payload, separators=(',', ':')))
     path.write_text(html, encoding='utf-8')
     return path
@@ -223,7 +277,7 @@ table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #e3e5e8
 <label><input type="checkbox" id="arrows" checked> 朝向箭头</label>
 <span class="hint">滚轮/双指缩放，拖动平移，点格子看数值</span>
 <div style="width:160px"><div class="bar"></div><div class="hint" id="scale"></div></div></header>
-<main><div id="wrap"><canvas id="c"></canvas></div><div id="info"><div class="hint">点击地图上的一个格子。灰色：评价过但无有效 IK；浅灰：几何过滤（无地面/底盘碰撞/臂展外）；空白：未评价。</div></div></main>
+<main><div id="wrap"><canvas id="c"></canvas></div><div id="info"><div class="hint">点击地图上的一个格子。灰色：评价过但无有效解；浅灰：几何过滤（无地面/底盘碰撞/臂展外）；空白：未评价。</div></div></main>
 <script>
 const D=__DATA__;const C=document.getElementById('c'),X=C.getContext('2d');const bg=new Image();bg.src=D.background.url;
 const stops=[[0,0,143],[0,0,255],[0,255,255],[255,255,0],[255,0,0],[128,0,0]];
@@ -235,11 +289,11 @@ let view={cx:D.center[0],cy:D.center[1],s:1},sel=null;const ny=D.y.length,nx=D.x
 function fit(){const w=C.clientWidth,h=Math.max(320,Math.min(w,window.innerHeight-120));const r=devicePixelRatio||1;C.width=w*r;C.height=h*r;C.style.height=h+'px';
 const span=Math.max(D.x[nx-1]-D.x[0],D.y[ny-1]-D.y[0])+D.spacing;view.s=Math.min(w,h)/span*r;view.cx=(D.x[0]+D.x[nx-1])/2;view.cy=(D.y[0]+D.y[ny-1])/2;draw()}
 const P=(x,y)=>[C.width/2+(x-view.cx)*view.s,C.height/2-(y-view.cy)*view.s];
-function cellBest(k,iy,ix){let sum=0,n=0,tried=false,filt=false;for(let m=0;m<M;m++){const s=D.status[iy][ix][m][k];if(s==6){n++;sum+=D.quality[iy][ix][m][k]}else if(s==5)tried=true;else if(s>=1&&s<=4)filt=true}return{best:n?sum/n:-1,any:n>0,tried,filt}}
+function cellBest(k,iy,ix){let sum=0,n=0,tried=false,filt=false;for(let m=0;m<M;m++){const s=D.status[iy][ix][m][k];if(s==6){n++;sum+=D.quality[iy][ix][m][k]}else if([5,7,8,9].includes(s))tried=true;else if(s>=1&&s<=4)filt=true}return{best:n?sum/n:-1,any:n>0,tried,filt}}
 function draw(){const k=+gs.value,v=+vs.value;X.fillStyle='#fff';X.fillRect(0,0,C.width,C.height);
 const b=D.background;const [bx,by]=P(b.x0,b.y0+b.h);X.globalAlpha=.25;X.imageSmoothingEnabled=false;X.drawImage(bg,bx,by,b.w*view.s,b.h*view.s);X.globalAlpha=ar.checked?.35:1;
 const h=D.spacing*view.s;for(let iy=0;iy<ny;iy++)for(let ix=0;ix<nx;ix++){const [px,py]=P(D.x[ix],D.y[iy]);let fill=null;
-if(v<0){const c=cellBest(k,iy,ix);fill=c.any?col(c.best):c.tried?'#8f8f8f':c.filt?'#e4e4e4':null}else{const s=D.status[iy][ix][v][k];fill=s==6?col(D.quality[iy][ix][v][k]):s==5?'#8f8f8f':(s>=1&&s<=4)?'#e4e4e4':null}
+if(v<0){const c=cellBest(k,iy,ix);fill=c.any?col(c.best):c.tried?'#8f8f8f':c.filt?'#e4e4e4':null}else{const s=D.status[iy][ix][v][k];fill=s==6?col(D.quality[iy][ix][v][k]):[5,7,8,9].includes(s)?'#8f8f8f':(s>=1&&s<=4)?'#e4e4e4':null}
 if(fill){X.fillStyle=fill;X.fillRect(px-h/2,py-h/2,h*0.96,h*0.96)}}
 X.globalAlpha=1;if(ar.checked){X.lineWidth=Math.max(1,h/40);for(let iy=0;iy<ny;iy++)for(let ix=0;ix<nx;ix++)for(let m=0;m<M;m++){if(v>=0&&m!=v)continue;if(D.status[iy][ix][m][k]!=6)continue;
 const [px,py]=P(D.x[ix],D.y[iy]),a=D.yaw[iy][ix][m],L=h*0.45;X.strokeStyle=col(D.quality[iy][ix][m][k]);X.beginPath();X.moveTo(px,py);X.lineTo(px+L*Math.cos(a),py-L*Math.sin(a));X.stroke()}}
@@ -248,7 +302,7 @@ const g=D.grasps[k].xy,[gx,gy]=P(g[0],g[1]);X.strokeStyle='#3b915d';X.lineWidth=
 if(sel){const [sx,sy]=P(D.x[sel[1]],D.y[sel[0]]);X.strokeStyle='#1f2328';X.lineWidth=2;X.strokeRect(sx-h/2,sy-h/2,h,h)}}
 function info(iy,ix){const k=+gs.value;const c=cellBest(k,iy,ix);let r=`<b>X ${D.x[ix].toFixed(2)} m, Y ${D.y[iy].toFixed(2)} m</b> · g${k} · 有效朝向平均 ${c.any?c.best.toFixed(4):'-'}<table><tr><th>偏角</th><th>世界yaw</th><th>状态</th><th>质量</th><th>有效/执行 seed</th><th>不同解</th><th>热启动</th></tr>`;
 for(let m=0;m<M;m++){const s=D.status[iy][ix][m][k],q=D.quality[iy][ix][m][k],y=D.yaw[iy][ix][m];r+=`<tr><td>${D.offsets[m]}°</td><td>${y>99?'-':(y*180/Math.PI).toFixed(1)+'°'}</td><td>${D.statusNames[s]}</td><td>${s==6?q.toFixed(4):'-'}</td><td>${D.executed[iy][ix][m][k]?D.valid[iy][ix][m][k]+'/'+D.executed[iy][ix][m][k]:'-'}</td><td>${s==6?D.distinct[iy][ix][m][k]:'-'}</td><td>${D.executed[iy][ix][m][k]?D.warm[iy][ix][m][k]:'-'}</td></tr>`}
-r+='</table><div class="hint" style="margin-top:6px">获胜构型 q（rad，Panda joint1–7）</div>';for(let m=0;m<M;m++)if(D.status[iy][ix][m][k]==6)r+=`<div>${D.offsets[m]}°: [${D.bestQ[iy][ix][m][k].join(', ')}]</div>`;
+r+='</table>';if(D.trajectory){r+='<table><tr><th>偏角</th><th>辅助分</th><th>R_plan</th><th>有效/尝试/保留</th><th>瓶颈</th><th>终态区域/最大占比</th></tr>';for(let m=0;m<M;m++){const a=(key)=>D[key][iy][ix][m][k],f=(x)=>x<0?'-':x.toFixed(4);r+=`<tr><td>${D.offsets[m]}°</td><td>${f(a('post_quality'))}</td><td>${f(a('r_plan'))}</td><td>${a('n_valid')}/${a('n_attempted')}/${a('n_retained')}</td><td>${a('bottleneck_phase')}</td><td>${D.distinct[iy][ix][m][k]} / ${f(a('cluster_share'))}</td></tr>`}r+='</table>';r+='<div class="hint">位置均值无对应轨迹；下面每条路径绑定实际 yaw 与候选。</div>';for(let m=0;m<M;m++){const query=String(((iy*nx+ix)*M+m)*D.grasps.length+k);for(const path of D.paths[query]||[])r+=`<details><summary>${D.offsets[m]}° · candidate ${path.id} · Q=${path.full.toFixed(4)}</summary><pre>TCP world XYZ:\n${path.tcp.map(p=>p.map(v=>v.toFixed(4)).join(', ')).join('\n')}</pre></details>`}}r+='<div class="hint" style="margin-top:6px">获胜构型 q（rad，Panda joint1–7）</div>';for(let m=0;m<M;m++)if(D.status[iy][ix][m][k]==6)r+=`<div>${D.offsets[m]}°: [${D.bestQ[iy][ix][m][k].join(', ')}]</div>`;
 r+='<div class="hint" style="margin-top:6px">IK 有效率只是求解统计，不进入质量和颜色。</div>';document.getElementById('info').innerHTML=r}
 let drag=null,moved=false;C.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];moved=false;C.setPointerCapture(e.pointerId)});
 C.addEventListener('pointermove',e=>{if(!drag)return;const r=devicePixelRatio||1,dx=e.clientX-drag[0],dy=e.clientY-drag[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;view.cx-=dx*r/view.s;view.cy+=dy*r/view.s;drag=[e.clientX,e.clientY];draw()});

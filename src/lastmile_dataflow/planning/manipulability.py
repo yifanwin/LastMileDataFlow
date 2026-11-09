@@ -10,7 +10,7 @@ from itertools import product
 import mujoco
 import numpy as np
 
-from ..scenes.geometry import descendants
+from ..scenes.geometry import descendants, geom_distance
 
 ORTHANTS = np.array(list(product((-1., 1.), repeat=6)))  # (64, 6)
 
@@ -123,7 +123,7 @@ class ScoringModel:
         gradients, vectors, nearest = [], [], np.inf
         fromto = np.zeros(6)
         for robot_geom, other in [*self._environment_pairs(sim), *self.self_pairs]:
-            distance = mujoco.mj_geomDistance(m, d, robot_geom, other, config.collision_query_m, fromto)
+            distance = geom_distance(sim, robot_geom, other, config.collision_query_m, fromto)
             if distance >= config.collision_query_m:
                 continue
             if distance <= 0:
