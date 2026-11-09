@@ -20,7 +20,7 @@ def collision_geoms(sim, body):
 
 def geom_points(sim, g):
     m, d = sim.model, sim.data
-    kind, size = m.geom_type[g], m.geom_size[g]
+    kind, size = int(m.geom_type[g]), m.geom_size[g]
     if kind == mujoco.mjtGeom.mjGEOM_MESH:
         mesh = int(m.geom_dataid[g]); a, n = int(m.mesh_vertadr[mesh]), int(m.mesh_vertnum[mesh])
         local = m.mesh_vert[a:a+n]

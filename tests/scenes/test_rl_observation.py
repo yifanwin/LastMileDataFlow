@@ -7,9 +7,20 @@ import numpy as np
 import torch
 
 from lastmile_dataflow.scenes.rl_observation import GeometryObservation
+from lastmile_dataflow.scenes.geometry import geom_points
 
 
 class GeometryTests(unittest.TestCase):
+    def test_source_cylinder_bounds_with_numpy_geom_enum(self):
+        model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
+          <geom type="cylinder" size=".01 .08" pos="1 2 3"/>
+          </worldbody></mujoco>''')
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        points = geom_points(SimpleNamespace(model=model, data=data), 0)
+        np.testing.assert_allclose(points.min(0), [.99, 1.99, 2.92])
+        np.testing.assert_allclose(points.max(0), [1.01, 2.01, 3.08])
+
     def test_blocks_dynamic_target_and_base_yaw(self):
         model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
           <body name="table"><geom type="box" size=".5 .5 .02" pos="0 0 .7"/>

@@ -29,8 +29,9 @@ def seed_all(seed):
 def runtime_metadata(config, gpu):
     from ..config import REPO_ROOT
     visible = os.environ.get('CUDA_VISIBLE_DEVICES')
-    revisions = {name: subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
-                 for name, path in (('project', REPO_ROOT), ('mjlab', config['mjlab_source']))}
+    revisions = {'project': os.environ.get('LASTMILE_SOURCE_REVISION') or subprocess.check_output(
+        ['git', '-C', str(REPO_ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
+                 'mjlab': subprocess.check_output(['git', '-C', config['mjlab_source'], 'rev-parse', 'HEAD'], text=True).strip()}
     return {'revisions': revisions,
             'versions': {name: importlib.metadata.version(name) for name in
                          ('torch', 'torch-geometric', 'mjlab', 'mujoco', 'mujoco-warp', 'warp-lang', 'numpy')},
