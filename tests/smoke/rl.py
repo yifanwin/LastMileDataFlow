@@ -4,6 +4,7 @@ This is separate from unittest. Scripted actions pass through the identical
 7D/DLS/servo/physics path as the Actor, without planner prechecks.
 """
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 import time
@@ -14,6 +15,8 @@ from lastmile_dataflow.config import REPO_ROOT
 from lastmile_dataflow.runtime.rl.environment import StationEnv
 from lastmile_dataflow.workflows.rl_evaluation import reset_stations
 from lastmile_dataflow.workflows.rl_training import graph_observation, seed_all
+from lastmile_dataflow.policies.sac.agent import SAC, SACConfig
+from lastmile_dataflow.policies.sac.replay import Replay, Transition
 
 
 def upstream_smoke(args):
@@ -36,6 +39,15 @@ def upstream_smoke(args):
         env.close()
 
 
+def warmup(env, station_ids, steps):
+    action = torch.zeros(env.num_envs, 7, device=env.device)
+    for _ in range(steps):
+        _, _, terminated, truncated, _ = env.step(action)
+        if (terminated | truncated).any():
+            reset_stations(env, station_ids)
+    return reset_stations(env, station_ids)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default=str(REPO_ROOT / 'configs/rl/val103_cup30.json'))
@@ -45,6 +57,9 @@ def main():
     parser.add_argument('--scripted', action='store_true')
     parser.add_argument('--upstream', action='store_true', help='run the shipped YAM lift-cube environment')
     parser.add_argument('--station-id')
+    parser.add_argument('--warmup-steps', type=int, default=2)
+    parser.add_argument('--random-actions', action='store_true')
+    parser.add_argument('--learner-updates', type=int, default=0)
     parser.add_argument('--output', default='/tmp/lastmile-rl-smoke.json')
     args = parser.parse_args()
     if args.upstream:
@@ -60,6 +75,9 @@ def main():
         else:
             observations, _ = env.reset()
             obs = graph_observation(observations)
+        station_ids = env.task.station_ids.clone()
+        obs = warmup(env, station_ids, args.warmup_steps)
+        replay = Replay(max(args.steps * env.num_envs, 1), obs) if args.learner_updates else None
         torch.cuda.synchronize()
         start = time.perf_counter()
         completed = 0
@@ -68,6 +86,8 @@ def main():
         for step in range(env.max_episode_length if args.scripted else args.steps):
             action = torch.zeros(env.num_envs, 7, device=env.device)
             action[:, 6] = 1
+            if args.random_actions:
+                action = torch.rand_like(action) * 2 - 1
             if args.scripted:
                 dp, dr = env.task.goal_error()
                 action[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
@@ -84,7 +104,13 @@ def main():
                     action[:, 3:6] = 0
                     action[:, 6] = -1
             observations, reward, terminated, truncated, _ = env.step(action)
-            obs = graph_observation(observations)
+            next_obs = graph_observation(observations)
+            if replay is not None:
+                healthy = ~env.task.unhealthy
+                replay.add(Transition(obs[healthy], action[healthy], reward[healthy], next_obs[healthy],
+                                      (terminated | truncated)[healthy], torch.zeros_like(truncated[healthy]),
+                                      env.task.reward_components[healthy], env.task.station_ids[healthy]))
+            obs = next_obs.clone()
             assert torch.isfinite(obs.nodes).all() and torch.isfinite(obs.arm_task_state).all()
             assert torch.isfinite(reward).all()
             completed += env.num_envs
@@ -95,11 +121,19 @@ def main():
         summary = {'gpu': args.gpu, 'num_envs': env.num_envs, 'transitions': completed,
                    'seconds': time.perf_counter() - start, 'node_capacity': env.task.graph.capacity,
                    'state_dim': obs.arm_task_state.shape[-1], 'valid_stations': sum(s['valid'] for s in env.task.stations),
+                   'valid_splits': dict(Counter(s['split'] for s in env.task.stations if s['valid'])),
+                   'selected_stations': [env.task.stations[int(i)] for i in station_ids],
                    'success': env.task.success.cpu().tolist(), 'failed': env.task.failed.cpu().tolist(),
                    'max_drift_m': env.task.max_drift.cpu().tolist(), 'hold_s': env.task.hold.cpu().tolist(),
                    'collision_free': env.task.collision_free.cpu().tolist(),
                    'peak_memory_bytes': torch.cuda.max_memory_allocated(),
                    'scripted': args.scripted, 'phase': phase}
+        if replay is not None:
+            agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config['sac']))
+            for _ in range(args.learner_updates):
+                losses = agent.update(replay.sample(min(32, replay.size)))
+            summary['learner_updates'] = agent.updates
+            summary['learner_losses'] = {name: float(value) for name, value in losses.items()}
         # Exercise local reset without replacing ongoing observations.
         if not args.scripted and not done.any():
             before = env.sim.data.qpos.clone()
