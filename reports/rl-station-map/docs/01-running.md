@@ -82,6 +82,14 @@ MUJOCO_GL=disable .venv/bin/python scripts/experiments/train_sac.py \
 
 每次评估原始数据保存在 `analysis/validation-<transition数>.json`，包含实际 trials、站位成功率与全图原始 Q。全部成功率相同或数据不足时，相关性记录为 null、图中标 N/A；不填成 0。监控曲线本身不代表策略或站位图已通过最终验收。
 
+独立检查监控链路可运行下列真实 smoke；它只做两次诊断更新，不作为训练结果：
+
+```bash
+MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py \
+  --gpu 4 --num-envs 8 --steps 5 --random-actions --learner-updates 2 --monitor \
+  --output <smoke单元>/runs/smoke.json
+```
+
 ## 冻结评分与验收
 
 ```bash

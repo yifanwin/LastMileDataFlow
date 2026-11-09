@@ -5,7 +5,7 @@
 
 ## 验证边界
 
-- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案与 P0–P6 计划](rl-station-map/plan/01-implementation.md)：采用 mjlab 并行环境 + 自定义 SAC 双 Q + DLS；独立环境已安装，GPU 4 上游 stepping、32 个真实 val103-cup30 环境 / Replay / 两次 SAC 更新及局部 reset 已通过。抓取脚本与六项训练指标、四组可视化正在推进，尚无学习成功或有效 Q 图结论。见[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
+- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案与 P0–P6 计划](rl-station-map/plan/01-implementation.md)：独立环境已安装，GPU 上游 stepping、32 个真实 val103-cup30 环境 / Replay / SAC 更新及局部 reset 已通过。六项指标、四组图的真实监控 smoke 完成，16 条独立 validation rollout 无基础设施失败、成功 0；415 项软件回归通过、4 项跳过。抓取控制正例和正式学习仍在推进，尚无学会操作或有效 Q 图结论。见[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
 
   [mjlab 适配评估](rl-station-map/delivery/02-mjlab-assessment.md)保留选型前分析；当前路线与依赖以构建方案为准。此前的[需求梳理](rl-station-map/delivery/01-requirements-review.md)记录论文核对过程。
 

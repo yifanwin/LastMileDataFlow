@@ -37,6 +37,8 @@
 | 上游 YAM lift-cube | GPU 4，1 环境真实 5 步，qpos 有限；不代表 Panda 抓取 |
 | 项目早期单 / 32 环境 | 软件 stepping 跑通，后查有碰撞缓冲溢出，不计物理验收 |
 | 修复后 32 环境 | 160 条真实 transition，预热后 stepping 1.698 s；overflow=0，固定部件失败=0，实际碰撞环境=1；两次 SAC 更新有限，局部 reset 后其余 31 环境 qpos 和任务缓存不变 |
+| 六指标 / 四组图真实 smoke | GPU 5，40 条采样 / 2 次诊断更新；8 validation 站位×2 rollout，16 healthy、0 基础设施失败、0 success；Entropy=4.539 nats，平均 episode return=-36.098，Spearman=null；四组 PNG 已输出 |
+| 监控与控制实现后的软件回归 | 独立研究局部 15 项通过；原环境全套 415 项通过、4 项跳过（含仅研究环境可跑的 DLS 测试） |
 
 全套首轮的子进程失败来自主机缺少 libEGL.so.1；从 Ubuntu 官方包提取用户态库至 `/tmp/lastmile-gl/lib` 后复测通过，未修改系统驱动。测试设置 OMP/MKL 单线程，图网络临时依赖在 `/tmp/lastmile-pyg`，没有写入主 Python 环境。
 
@@ -55,6 +57,8 @@ MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、�
 ## 新增监控要求与提交
 
 用户于本轮追加 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项指标，以及四组图（Loss、探索、训练效果、站位评价）。已接入 Entropy、日志间隔均值、独立 validation 向量 rollout、冻结 Q 全图、Spearman、best checkpoint 和四组 PNG；配置固定为每 100,000 transition、8 站位×2 rollout。软件检查与真实监控 smoke 分开，尚无正式训练学习曲线结论。
+
+真实监控验证单元：`outputs/experiments/scratch/20261109-mjlab-panda-monitor-gpu5-222243/`，源码 `75da668`。四组图位于其 `runs/views/`：`loss-curves.png`、`exploration.png`、`training-effect.png`、`station-evaluation.png`。底层 metrics、逐 trial 结果、实际全图 Q 和 seeds 同时保存。该 Actor 仅做了两次软件诊断更新，不是已训练策略；全零成功率下相关性不可计算，图内标 N/A，不以热图外观通过地图验收。
 
 P2 首个原始抓取脚本 20 s 超时，轨迹显示伺服目标只领先实测关节约 0.005 rad，导致收敛过慢。`2874119` 改为按上一命令限制变化速度，并从 reset 实测位置初始化命令；两项针对性控制测试通过。修复后的实际脚本在接近杯子时达到 3.26 cm 位置误差，但触发 2.05 mm 底盘漂移，保持失败，未将双指接触当作成功。后继脚本采用预抓取接近，并对齐现有 Panda 执行配置的 π/2 抓取 roll 与 1 cm 接近偏移，继续验证。
 
