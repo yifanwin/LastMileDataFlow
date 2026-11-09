@@ -3,9 +3,14 @@
 This is separate from unittest. Scripted actions pass through the identical
 7D/DLS/servo/physics path as the Actor, without planner prechecks.
 """
+from lastmile_dataflow.gpu import isolate_from_argv
+
+isolate_from_argv()  # before any CUDA library loads
+
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import time
 
@@ -15,7 +20,7 @@ import torch
 from lastmile_dataflow.config import REPO_ROOT
 from lastmile_dataflow.runtime.rl.environment import StationEnv
 from lastmile_dataflow.workflows.rl_evaluation import reset_stations
-from lastmile_dataflow.workflows.rl_training import graph_observation, isolate_gpu, seed_all
+from lastmile_dataflow.workflows.rl_training import graph_observation, seed_all
 from lastmile_dataflow.policies.sac.agent import SAC, SACConfig
 from lastmile_dataflow.policies.sac.replay import Replay, Transition
 
@@ -161,8 +166,7 @@ def main():
     args = parser.parse_args()
     if args.monitor and args.learner_updates <= 0:
         parser.error('--monitor requires --learner-updates > 0')
-    args.physical_gpu = args.gpu
-    args.gpu = isolate_gpu(args.gpu)
+    args.physical_gpu = os.environ.get('CUDA_VISIBLE_DEVICES')
     if args.upstream:
         upstream_smoke(args)
         return
