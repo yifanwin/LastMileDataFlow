@@ -78,6 +78,10 @@ class TaskState:
         # The corpus stores quantized rotations, as in the existing grasp loader.
         u, _, v = np.linalg.svd(pose[:3, :3])
         pose[:3, :3] = u @ v
+        pose[:3, 3] += pose[:3, 2] * grasp['approach_offset_m']
+        angle = grasp['roll_rad']
+        pose[:3, :3] = pose[:3, :3] @ np.array([[np.cos(angle), -np.sin(angle), 0.],
+                                                [np.sin(angle), np.cos(angle), 0.], [0., 0., 1.]])
         self.grasp_position = torch.tensor(pose[:3, 3], dtype=torch.float32, device=self.device)
         self.grasp_rotation = torch.tensor(pose[:3, :3], dtype=torch.float32, device=self.device)
 
@@ -91,10 +95,11 @@ class TaskState:
         target_r = data.xmat[:, self.target].reshape(-1, 3, 3)
         return tcp_p, tcp_r, base_p, base_r, target_p, target_r
 
-    def goal_error(self):
+    def goal_error(self, approach_offset_m=0.):
         tcp_p, tcp_r, _, base_r, target_p, target_r = self.poses()
         goal_p = target_p + torch.einsum('bij,j->bi', target_r, self.grasp_position)
         goal_r = target_r @ self.grasp_rotation
+        goal_p = goal_p + approach_offset_m * goal_r[:, :, 2]
         dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
         return torch.einsum('bji,bj->bi', base_r, dp), torch.einsum('bji,bj->bi', base_r, dr)
 

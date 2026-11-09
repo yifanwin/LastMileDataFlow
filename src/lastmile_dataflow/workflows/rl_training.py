@@ -67,13 +67,57 @@ def run_cli(mode):
     print(json.dumps(result, indent=2))
 
 
+def record_episodes(log, env, done, transitions, returns, components, steps):
+    for index in done.nonzero(as_tuple=True)[0].tolist():
+        log.write(json.dumps({'event': 'episode', 'transitions': transitions,
+                              'station_id': env.task.stations[int(env.task.station_ids[index])]['station_id'],
+                              'return': float(returns[index]), 'steps': int(steps[index]),
+                              'reward_components': components[index].cpu().tolist(),
+                              'success': bool(env.task.success[index]),
+                              'collision_free': bool(env.task.collision_free[index]),
+                              'collision_time_s': float(env.task.collision_time[index]),
+                              'max_drift_m': float(env.task.max_drift[index]),
+                              'max_yaw_drift_rad': float(env.task.max_yaw_drift[index]),
+                              'max_lift_drift_m': float(env.task.max_lift_drift[index]),
+                              'infrastructure_failure': bool(env.task.unhealthy[index])}) + '\n')
+    returns[done] = 0
+    components[done] = 0
+    steps[done] = 0
+
+
+def validation_checkpoint(agent, env, config, transitions, output, log, metadata, best_score):
+    from .rl_evaluation import monitor_validation
+    from ..data.visualization.sac_monitor import training_curves
+    started = time.perf_counter()
+    event = monitor_validation(agent, env, config, transitions, output)
+    event['seconds'] = time.perf_counter() - started
+    log.write(json.dumps(event) + '\n')
+    log.flush()
+    if not event['healthy_trials']:
+        raise RuntimeError('Independent validation produced no healthy trials')
+    score = (event['evaluation_success_rate'], event['episode_return_mean'])
+    if best_score is None or score > tuple(best_score):
+        best_score = score
+        metadata['best_validation_score'] = list(score)
+        agent.save(Path(output) / 'best.pt', metadata=metadata, transitions=transitions)
+    agent.save(Path(output) / 'latest.pt', metadata=metadata, transitions=transitions)
+    training_curves(Path(output) / 'metrics.jsonl', Path(output) / 'views')
+    return best_score
+
+
 def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, num_envs=None):
     from ..runtime.rl.environment import StationEnv
+    from ..data.visualization.sac_monitor import training_curves
     seed_all(seed)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     env = StationEnv(config, gpu=gpu, seed=seed, num_envs=num_envs)
+    evaluation_env = None
     try:
+        settings = config['training']
+        evaluation_env = StationEnv(config, gpu=gpu, seed=config['evaluation']['seed'],
+                                    num_envs=settings['validation_stations'])
+        seed_all(seed)
         observations, _ = env.reset()
         obs = graph_observation(observations)
         state_dim = obs.arm_task_state.shape[-1]
@@ -88,11 +132,13 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
             if saved['metadata']['config'] != config:
                 raise ValueError('Resume requires the checkpoint effective configuration')
             transitions = saved['transitions']
+            best_score = saved['metadata'].get('best_validation_score')
         else:
             agent = SAC(state_dim, env.device, SACConfig(**config['sac']))
             transitions = 0
+            best_score = None
             agent.save(output / 'initial.pt', metadata=metadata, transitions=0)
-        settings = config['training']
+        metadata['best_validation_score'] = best_score
         replay = Replay(settings['replay_capacity'], obs)
         warmup = max(settings['warmup_min'], env.num_envs * env.max_episode_length)
         limit = max_transitions or settings['max_transitions']
@@ -102,7 +148,13 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
         steps = torch.zeros(env.num_envs, device=env.device)
         started = time.perf_counter()
         log_at = transitions + settings['log_every']
+        evaluate_at = transitions + settings['eval_every']
+        loss_sums = {}
+        loss_count = 0
+        last_evaluation = None
         with (output / 'metrics.jsonl').open('a') as log:
+            best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
+            last_evaluation = transitions
             while transitions < limit:
                 with torch.no_grad():
                     action = (torch.rand(env.num_envs, 7, device=env.device) * 2 - 1
@@ -129,18 +181,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                 episode_components += env.task.reward_components
                 steps += 1
                 done = terminated | env.task.unhealthy
-                for index in done.nonzero(as_tuple=True)[0].tolist():
-                    log.write(json.dumps({'event': 'episode', 'transitions': transitions,
-                                          'station_id': env.task.stations[int(env.task.station_ids[index])]['station_id'],
-                                          'return': float(episode_return[index]), 'steps': int(steps[index]),
-                                          'reward_components': episode_components[index].cpu().tolist(),
-                                          'success': bool(env.task.success[index]),
-                                          'collision_free': bool(env.task.collision_free[index]),
-                                          'collision_time_s': float(env.task.collision_time[index]),
-                                          'max_drift_m': float(env.task.max_drift[index]),
-                                          'max_yaw_drift_rad': float(env.task.max_yaw_drift[index]),
-                                          'max_lift_drift_m': float(env.task.max_lift_drift[index]),
-                                          'infrastructure_failure': bool(env.task.unhealthy[index])}) + '\n')
+                record_episodes(log, env, done, transitions, episode_return, episode_components, steps)
                 # Replay already owns terminal state. Reset returns the whole batch;
                 # replace only done rows, preserving ongoing environments' history.
                 obs = next_obs.clone()
@@ -148,22 +189,36 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                     ids = done.nonzero(as_tuple=True)[0]
                     reset_obs, _ = env.reset(env_ids=ids)
                     obs.replace(ids, graph_observation(reset_obs))
-                    episode_return[ids] = 0
-                    episode_components[ids] = 0
-                    steps[ids] = 0
                 losses = {}
                 if collected >= warmup and replay.size >= settings['batch_size']:
                     losses = agent.update(replay.sample(settings['batch_size']))
+                    loss_count += 1
+                    for name, value in losses.items():
+                        if name not in loss_sums:
+                            loss_sums[name] = torch.zeros_like(value)
+                        loss_sums[name] += value
                 if transitions >= log_at:
                     log.write(json.dumps({'event': 'learner', 'transitions': transitions,
                                           'updates': agent.updates, 'replay_size': replay.size,
                                           'transitions_per_s': collected / (time.perf_counter() - started),
                                           'updates_per_transition': 1 / env.num_envs,
-                                          **{name: float(value) for name, value in losses.items()}}) + '\n')
+                                          **{name: float(value / loss_count) for name, value in loss_sums.items()}}) + '\n')
                     log.flush()
                     agent.save(output / 'latest.pt', metadata=metadata, transitions=transitions)
+                    training_curves(output / 'metrics.jsonl', output / 'views')
+                    for value in loss_sums.values():
+                        value.zero_()
+                    loss_count = 0
                     log_at += settings['log_every']
+                if transitions >= evaluate_at:
+                    best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
+                    last_evaluation = transitions
+                    evaluate_at += settings['eval_every']
+            if last_evaluation != transitions:
+                validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
         agent.save(output / 'latest.pt', metadata=metadata, transitions=transitions)
         return {'transitions': transitions, 'updates': agent.updates, 'checkpoint': str(output / 'latest.pt')}
     finally:
+        if evaluation_env is not None:
+            evaluation_env.close()
         env.close()

@@ -10,10 +10,106 @@ from ..policies.sac.agent import SAC
 from .rl_training import graph_observation, seed_all
 
 
-def reset_stations(env, station_ids):
+def reset_stations(env, station_ids, env_ids=None):
     env.task.requested_station_ids = torch.as_tensor(station_ids, dtype=torch.long, device=env.device)
-    observations, _ = env.reset()
+    observations, _ = env.reset(env_ids=env_ids)
     return graph_observation(observations)
+
+
+@torch.no_grad()
+def station_scores(agent, env, samples):
+    rows = [{**s, 'q_mean': None, 'q_std': None, 'K': samples} for s in env.task.stations]
+    valid = [i for i, row in enumerate(rows) if row['valid']]
+    for start in range(0, len(valid), env.num_envs):
+        batch = valid[start:start + env.num_envs]
+        padded = batch + [batch[-1]] * (env.num_envs - len(batch))
+        obs = reset_stations(env, padded)
+        mean, std = action_sampled_q(agent, obs, samples)
+        for offset, index in enumerate(batch):
+            rows[index].update(q_mean=float(mean[offset]), q_std=float(std[offset]))
+    return rows
+
+
+@torch.no_grad()
+def validation_rollout(agent, env, station_ids, seed, gamma):
+    """One episode per vector slot; ended slots reset without entering results twice."""
+    torch.manual_seed(seed)
+    obs = reset_stations(env, station_ids)
+    finished = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    returns = torch.zeros(env.num_envs, device=env.device)
+    discounted = torch.zeros_like(returns)
+    discount = 1.
+    records = [None] * env.num_envs
+    while not finished.all():
+        active = ~finished
+        action, _ = agent.actor.sample(obs)
+        action[finished] = 0
+        observations, reward, terminated, truncated, _ = env.step(action)
+        returns += torch.where(active, reward, 0.)
+        discounted += discount * torch.where(active, reward, 0.)
+        discount *= gamma
+        done = terminated | truncated | env.task.unhealthy
+        first_done = done & active
+        for index in first_done.nonzero(as_tuple=True)[0].tolist():
+            unhealthy = bool(env.task.unhealthy[index])
+            records[index] = {
+                'station_id': env.task.stations[station_ids[index]]['station_id'], 'seed': seed,
+                'success': bool(env.task.success[index]), 'collision_free': bool(env.task.collision_free[index]),
+                'infrastructure_failure': unhealthy,
+                'return': None if unhealthy else float(discounted[index]),
+                'episode_return': None if unhealthy else float(returns[index]),
+                'collision_time_s': float(env.task.collision_time[index]),
+                'max_drift_m': float(env.task.max_drift[index]),
+                'max_yaw_drift_rad': float(env.task.max_yaw_drift[index]),
+                'max_lift_drift_m': float(env.task.max_lift_drift[index]),
+            }
+        finished |= first_done
+        obs = graph_observation(observations).clone()
+        if done.any() and not finished.all():
+            ids = done.nonzero(as_tuple=True)[0]
+            reset_obs = reset_stations(env, [station_ids[i] for i in ids.tolist()], env_ids=ids)
+            obs.replace(ids, reset_obs)
+    return records
+
+
+def monitor_validation(agent, env, config, transitions, output):
+    """Fixed validation points/seeds and frozen online Q throughout evaluation."""
+    from ..data.visualization.sac_monitor import station_evaluation
+    output = Path(output)
+    analysis, views = output / 'analysis', output / 'views'
+    analysis.mkdir(exist_ok=True)
+    views.mkdir(exist_ok=True)
+    settings = config['training']
+    seed = config['evaluation']['seed']
+    candidates = [i for i, row in enumerate(env.task.stations) if row['valid'] and row['split'] == 'validation']
+    station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=False).tolist()
+    selection = [{**env.task.stations[i], 'group': 'validation'} for i in station_ids]
+    (analysis / 'validation-selection.json').write_text(json.dumps({
+        'stations': selection, 'seed': seed, 'rollouts_per_station': settings['validation_rollouts_per_station']}, indent=2))
+    with torch.random.fork_rng(devices=[torch.device(env.device).index]):
+        torch.manual_seed(seed)
+        rows = station_scores(agent, env, config['evaluation']['action_samples'])
+        values = {r['station_id']: r for r in rows}
+        selection = [{**row, 'q_mean': values[row['station_id']]['q_mean']} for row in selection]
+        trials = []
+        for repeat in range(settings['validation_rollouts_per_station']):
+            trials.extend(validation_rollout(agent, env, station_ids, seed + repeat, config['sac']['gamma']))
+    summary = summarize_trials(selection, trials, seed=seed)
+    healthy = [row for row in trials if not row['infrastructure_failure']]
+    event = {'event': 'evaluation', 'transitions': transitions, 'split': 'validation',
+             'evaluation_success_rate': float(np.mean([r['success'] for r in healthy])) if healthy else None,
+             'successes': sum(r['success'] for r in healthy), 'healthy_trials': len(healthy), 'total_trials': len(trials),
+             'infrastructure_failures': len(trials) - len(healthy),
+             'episode_return_mean': float(np.mean([r['episode_return'] for r in healthy])) if healthy else None,
+             'value_success_correlation': summary['q_success_spearman']}
+    (analysis / f'validation-{transitions:012d}.json').write_text(json.dumps(
+        {'metrics': event, 'stations': summary['stations'], 'trials': trials, 'q_scores': rows}, indent=2))
+    station_evaluation(rows, summary['stations'], views / 'station-evaluation.png',
+                       q_limits=config['evaluation']['q_color_limits'], correlation=summary['q_success_spearman'])
+    agent.actor.train()
+    agent.q1.train()
+    agent.q2.train()
+    return event
 
 
 def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
@@ -27,34 +123,24 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     try:
-        rows = [{**s, 'q_mean': None, 'q_std': None, 'K': config['evaluation']['action_samples']}
-                for s in env.task.stations]
-        valid = [i for i, row in enumerate(rows) if row['valid']]
-        for start in range(0, len(valid), env.num_envs):
-            batch = valid[start:start + env.num_envs]
-            padded = batch + [batch[-1]] * (env.num_envs - len(batch))
-            obs = reset_stations(env, padded)
-            mean, std = action_sampled_q(agent, obs, config['evaluation']['action_samples'])
-            for offset, index in enumerate(batch):
-                rows[index].update(q_mean=float(mean[offset]), q_std=float(std[offset]))
+        rows = station_scores(agent, env, config['evaluation']['action_samples'])
         result = {'checkpoint': str(Path(checkpoint).absolute()), 'seed': seed,
                   'interpretation': 'raw E[min online Q]; K is action samples, not rollouts',
-                  'legal_coverage': len(valid) / len(rows), 'stations': rows}
+                  'legal_coverage': sum(r['valid'] for r in rows) / len(rows), 'stations': rows}
         (output / 'station-q.json').write_text(json.dumps(result, indent=2))
-        plot_scores(rows, output / 'station-q.png')
+        plot_scores(rows, output / 'station-q.png', config['evaluation']['q_color_limits'])
         return result
     finally:
         env.close()
 
 
-def plot_scores(rows, path):
+def plot_scores(rows, path, q_limits):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     legal = [r for r in rows if r['valid']]
     if not legal:
         return
-    values = [r['q_mean'] for r in legal]
     first_yaw = min(r['yaw'] for r in rows)
     slice_rows = [r for r in rows if abs(r['yaw'] - first_yaw) < 1e-6]
     best = {}
@@ -69,7 +155,7 @@ def plot_scores(rows, path):
         valid = [r for r in subset if r['valid']]
         axis.scatter([r['x'] for r in invalid], [r['y'] for r in invalid], c='gray', marker='x', label='invalid')
         points = axis.scatter([r['x'] for r in valid], [r['y'] for r in valid],
-                              c=[r['q_mean'] for r in valid], vmin=min(values), vmax=max(values), marker='s')
+                              c=[r['q_mean'] for r in valid], vmin=q_limits[0], vmax=q_limits[1], marker='s')
         axis.set(title=title, xlabel='world x (m)', ylabel='world y (m)', aspect='equal')
         fig.colorbar(points, ax=axis, label='raw min-Q (not success probability)')
     fig.savefig(path, dpi=160)
@@ -140,6 +226,9 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         summary['policy'] = 'initialization_baseline' if baseline else 'trained_stochastic_actor'
         summary['checkpoint'] = str(Path(checkpoint).absolute())
         (output / 'summary.json').write_text(json.dumps(summary, indent=2))
+        from ..data.visualization.sac_monitor import station_evaluation
+        station_evaluation(scored['stations'], summary['stations'], output / 'station-evaluation.png',
+                           q_limits=config['evaluation']['q_color_limits'], correlation=summary['q_success_spearman'])
         return summary
     finally:
         env.close()

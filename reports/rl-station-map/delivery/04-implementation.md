@@ -54,7 +54,9 @@ MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、�
 
 ## 新增监控要求与提交
 
-用户于本轮追加 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项指标，以及四组图（Loss、探索、训练效果、站位评价）。已同步需求和计划，监控接入正在实现；尚未发布训练曲线或伪造独立成功率。
+用户于本轮追加 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项指标，以及四组图（Loss、探索、训练效果、站位评价）。已接入 Entropy、日志间隔均值、独立 validation 向量 rollout、冻结 Q 全图、Spearman、best checkpoint 和四组 PNG；配置固定为每 100,000 transition、8 站位×2 rollout。软件检查与真实监控 smoke 分开，尚无正式训练学习曲线结论。
+
+P2 首个原始抓取脚本 20 s 超时，轨迹显示伺服目标只领先实测关节约 0.005 rad，导致收敛过慢。`2874119` 改为按上一命令限制变化速度，并从 reset 实测位置初始化命令；两项针对性控制测试通过。修复后的实际脚本在接近杯子时达到 3.26 cm 位置误差，但触发 2.05 mm 底盘漂移，保持失败，未将双指接触当作成功。后继脚本采用预抓取接近，并对齐现有 Panda 执行配置的 π/2 抓取 roll 与 1 cm 接近偏移，继续验证。
 
 实现按冻结验证迭代提交：`f61db62` 为研究主干，`1eea7e4` 修复几何枚举并记录冻结 revision，后继修复 MuJoCo 3.16 碰撞选项 / 关节绑定，`5a6f4d3` 修复真实接触缓冲并拒绝溢出样本。每个真实 smoke 从对应提交导出的源码启动，运行单元 README 保存提交、参数、结果和失败原因。
 

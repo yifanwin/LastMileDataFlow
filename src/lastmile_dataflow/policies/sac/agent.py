@@ -82,7 +82,8 @@ class SAC:
                     target_parameter.lerp_(parameter, cfg.tau)
         self.updates += 1
         return {"critic_loss": critic_loss.detach(), "actor_loss": actor_loss.detach(),
-                "alpha_loss": alpha_loss.detach(), "alpha": self.alpha}
+                "alpha_loss": alpha_loss.detach(), "alpha": self.alpha,
+                "entropy": -log_prob.detach().mean()}
 
     def save(self, path, *, metadata, transitions):
         torch.save({

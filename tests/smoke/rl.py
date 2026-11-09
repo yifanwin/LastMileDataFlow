@@ -61,8 +61,11 @@ def main():
     parser.add_argument('--warmup-steps', type=int, default=2)
     parser.add_argument('--random-actions', action='store_true')
     parser.add_argument('--learner-updates', type=int, default=0)
+    parser.add_argument('--monitor', action='store_true', help='validate independent evaluation and all four metric figures')
     parser.add_argument('--output', default='/tmp/lastmile-rl-smoke.json')
     args = parser.parse_args()
+    if args.monitor and args.learner_updates <= 0:
+        parser.error('--monitor requires --learner-updates > 0')
     if args.upstream:
         upstream_smoke(args)
         return
@@ -83,7 +86,7 @@ def main():
         torch.cuda.synchronize()
         start = time.perf_counter()
         completed = 0
-        phase = 'approach'
+        phase = 'pregrasp' if args.scripted else 'sampling'
         closed_at = 0
         trace = {name: [] for name in ('qpos', 'qvel', 'action', 'position_error', 'rotation_error',
                                        'joint_command', 'limit_fraction', 'forces', 'support', 'hold_s')}
@@ -93,10 +96,12 @@ def main():
             if args.random_actions:
                 action = torch.rand_like(action) * 2 - 1
             if args.scripted:
-                dp, dr = env.task.goal_error()
+                dp, dr = env.task.goal_error(-.08 if phase == 'pregrasp' else 0.)
                 action[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
                 action[:, 3:6] = (dr / config['action']['rotation_rad']).clamp(-1, 1)
-                if phase == 'approach' and bool((dp.norm(dim=-1) < .008).all() & (dr.norm(dim=-1) < .1).all()):
+                if phase == 'pregrasp' and bool((dp.norm(dim=-1) < .01).all() & (dr.norm(dim=-1) < .12).all()):
+                    phase = 'approach'
+                elif phase == 'approach' and bool((dp.norm(dim=-1) < .008).all() & (dr.norm(dim=-1) < .1).all()):
                     phase, closed_at = 'close', step
                 if phase == 'close':
                     action[:, 6] = -1
@@ -176,6 +181,22 @@ def main():
                 torch.testing.assert_close(cached[ongoing], getattr(env.task, name)[ongoing], rtol=0, atol=0)
             summary['partial_reset_preserved_other_qpos'] = True
             summary['partial_reset_ongoing_envs_checked'] = int(ongoing.sum())
+        if args.monitor:
+            from lastmile_dataflow.workflows.rl_evaluation import monitor_validation
+            from lastmile_dataflow.data.visualization.sac_monitor import training_curves
+            output_dir = Path(args.output).parent
+            event = monitor_validation(agent, env, config, completed, output_dir)
+            rows = json.loads((output_dir / 'analysis' / f'validation-{completed:012d}.json').read_text())
+            with (output_dir / 'metrics.jsonl').open('w') as stream:
+                stream.write(json.dumps({'event': 'learner', 'transitions': completed, **summary['learner_losses']}) + '\n')
+                stream.write(json.dumps(event) + '\n')
+                for trial in rows['trials']:
+                    stream.write(json.dumps({'event': 'episode', 'transitions': completed,
+                                              'return': trial['episode_return'],
+                                              'infrastructure_failure': trial['infrastructure_failure']}) + '\n')
+            training_curves(output_dir / 'metrics.jsonl', output_dir / 'views')
+            summary['monitor'] = event
+            summary['monitor_interpretation'] = 'untrained software smoke with diagnostic updates, not a training result'
         Path(args.output).write_text(json.dumps(summary, indent=2))
         print(json.dumps(summary, indent=2))
     finally:

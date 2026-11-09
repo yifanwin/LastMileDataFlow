@@ -61,9 +61,26 @@ MUJOCO_GL=disable .venv/bin/python scripts/experiments/train_sac.py \
   --max-transitions 200000
 ```
 
-输出 `initial.pt`、`latest.pt` 和 `metrics.jsonl`。初始 checkpoint 用作未训练 Actor 基线。checkpoint 包含有效配置、字段、运行版本、两个源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+输出 `initial.pt`、`latest.pt`、`best.pt` 和 `metrics.jsonl`。初始 checkpoint 用作未训练 Actor 基线；`best.pt` 按独立 validation 成功率、同率时按平均 episode return 选择。checkpoint 包含有效配置、字段、运行版本、两个源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
+
+## 六项监控与四组图
+
+`metrics.jsonl` 保存 `learner`、`episode`、`evaluation` 三类记录：Actor Loss / Critic Loss / Entropy 为日志间隔内更新均值；Episode Return 是实际回合奖励和；独立评估记录成功数、健康 trial 数、总 trial 数、基础设施失败及 Value-Success Spearman。
+
+默认每 100,000 条有效 transition 做一次独立评估，开始和结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停参数更新后计算全图 Q 和实际站位成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
+
+训练目录的 `views/` 持续更新四组 PNG：
+
+| 文件 | 内容 |
+|---|---|
+| `loss-curves.png` | Actor Loss、Critic Loss |
+| `exploration.png` | tanh 策略动作的 `-E[logπ]`，单位 nats，可为负数 |
+| `training-effect.png` | 独立 validation 成功率、每回合累计奖励 |
+| `station-evaluation.png` | 固定色标的 max-yaw Critic Value Map、真实 Value-Success Scatter 与 Spearman |
+
+每次评估原始数据保存在 `analysis/validation-<transition数>.json`，包含实际 trials、站位成功率与全图原始 Q。全部成功率相同或数据不足时，相关性记录为 null、图中标 N/A；不填成 0。监控曲线本身不代表策略或站位图已通过最终验收。
 
 ## 冻结评分与验收
 
@@ -87,7 +104,8 @@ MUJOCO_GL=disable .venv/bin/python scripts/experiments/evaluate_sac.py \
 ```bash
 MUJOCO_GL=disable .venv/bin/python -m unittest \
   tests.policies.test_sac tests.runtime.test_pick_state \
-  tests.scenes.test_rl_observation tests.data.test_station_q -v
+  tests.runtime.test_dls tests.scenes.test_rl_observation \
+  tests.data.test_station_q tests.workflows.test_rl_evaluation -v
 ```
 
 原主链全套软件回归仍使用主 checkout 的原环境，避免 MuJoCo / cuRobo 版本混装。真实 GPU rollout 和训练不随 unittest 自动运行。

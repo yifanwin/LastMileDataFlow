@@ -120,7 +120,7 @@ reset 执行：恢复准备好的物体状态 → 设置底盘 (x,y,yaw) 和升�
 
 继承 / 组合上游 `DifferentialIKAction`，只增加坐标适配和关节命令约束，复用其 GPU Jacobian 与 DLS 求解。DLS 只选择 7 个工作臂关节，不包含底盘、升降、夹爪或物体自由度。每物理子步求解并跟踪同一个 TCP 目标，不在子步重复叠加 Actor 增量。夹爪单独用一个 action term 映射到两指目标，宽度语义按 Panda 实际传动验证。
 
-DLS 初值 λ=0.05；开启关节限位软目标，关节位置命令裁剪到有效范围，`max_dq` 结合关节速度上限和物理 dt 设置，不直接沿用上游 0.5 rad/solve 默认值。位置命令经原 Panda kp/kv、执行器力限与重力补偿进入真实 stepping。记录 TCP 跟踪误差、限幅率和关节速度；持续停滞先作为诊断，不把一次残差视为 IK 无解。
+DLS 初值 λ=0.05；开启关节限位软目标，关节位置命令裁剪到有效范围。实施中发现相对实测 q 每子步仅领先 `v_max×physics_dt` 会使位置伺服长期跟踪过慢，现将速度约束作用到**上一条关节命令到当前命令的变化量**，每子步不超过 `v_max×physics_dt`；DLS 单次求解步长按速度上限与 policy dt 固定，不沿用 0.5 rad/solve 默认值。reset 从实测 q 初始化命令。位置命令经原 Panda kp/kv、执行器力限与重力补偿进入真实 stepping。记录 TCP 跟踪误差、限幅率和关节速度；持续停滞先作为诊断，不把一次残差视为 IK 无解。
 
 不加入障碍距离约束、预检轨迹、碰撞 QP、碰撞后动作回滚或规划器替换动作。Replay 保存 Actor 原始归一化 7D 动作，诊断记录实际 q_cmd / TCP 变化，不能用执行结果替换 replay action。
 
@@ -298,7 +298,7 @@ P0 若当前会话无法查询 GPU，切换到有设备访问的训练会话再�
 
 checkpoint 保存 Actor、双 Q、target、优化器、logα、有效配置、字段/尺度定义、计数器和 RNG 状态。首版 resume 为参数/优化器热恢复，环境重新 reset、Replay 重新 warmup，明确不承诺逐步精确续跑；不默认把全部 replay 和仿真内存封存。val103 验收与出图只需冻结模型和必要元数据。
 
-按用户新增要求，训练监控固定为 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项，并输出 Loss、探索、训练效果、Critic Value Map + Value-Success Scatter 四组图。周期评估用 validation 站位和固定 seeds，最终 acceptance 站位不参与调参；数据源及统计口径见需求第 10 节。监控实现和真实结果须分别记录，不将空曲线或占位图算作交付。
+按用户新增要求，训练监控固定为 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项，并输出 Loss、探索、训练效果、Critic Value Map + Value-Success Scatter 四组图。周期评估用 8 个 validation 站位、每点 2 次 stochastic rollout 和固定 seeds，间隔 100,000 条有效 transition，开始与结束也评估；最终 acceptance 站位不参与调参。Loss / Entropy 按日志间隔取更新均值，相关性采用原始 Q 与真实站位成功率的 Spearman；常量结果不可计算时记 null。数据源与字段见需求第 10 节和运行指南。监控实现和真实结果须分别记录，不将空曲线或占位图算作交付。
 
 产物放 `outputs/experiments/val103-cup30-sac-YYYYMMDD/`，批量训练 seed 再按需要使用 campaign；直接子目录仅用 src/inputs/runs/replays/views/analysis/logs。README 记录用途、状态、源码 revision、输入与对应报告；正式运行按仓库规则使用冻结源码，并固定本地 mjlab revision，训练期间不修改 editable 源码。每层直接子目录遵循不超过 20 个的更严格约束。
 
