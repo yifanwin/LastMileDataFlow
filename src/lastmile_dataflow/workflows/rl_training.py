@@ -189,19 +189,19 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                     ids = done.nonzero(as_tuple=True)[0]
                     reset_obs, _ = env.reset(env_ids=ids)
                     obs.replace(ids, graph_observation(reset_obs))
-                losses = {}
                 if collected >= warmup and replay.size >= settings['batch_size']:
-                    losses = agent.update(replay.sample(settings['batch_size']))
-                    loss_count += 1
-                    for name, value in losses.items():
-                        if name not in loss_sums:
-                            loss_sums[name] = torch.zeros_like(value)
-                        loss_sums[name] += value
+                    for _ in range(settings['updates_per_step']):
+                        losses = agent.update(replay.sample(settings['batch_size']))
+                        loss_count += 1
+                        for name, value in losses.items():
+                            if name not in loss_sums:
+                                loss_sums[name] = torch.zeros_like(value)
+                            loss_sums[name] += value
                 if transitions >= log_at:
                     log.write(json.dumps({'event': 'learner', 'transitions': transitions,
                                           'updates': agent.updates, 'replay_size': replay.size,
                                           'transitions_per_s': collected / (time.perf_counter() - started),
-                                          'updates_per_transition': 1 / env.num_envs,
+                                          'updates_per_transition': settings['updates_per_step'] / env.num_envs,
                                           **{name: float(value / loss_count) for name, value in loss_sums.items()}}) + '\n')
                     log.flush()
                     agent.save(output / 'latest.pt', metadata=metadata, transitions=transitions)
