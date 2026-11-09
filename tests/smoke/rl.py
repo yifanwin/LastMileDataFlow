@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import time
 
+import numpy as np
 import torch
 
 from lastmile_dataflow.config import REPO_ROOT
@@ -84,6 +85,8 @@ def main():
         completed = 0
         phase = 'approach'
         closed_at = 0
+        trace = {name: [] for name in ('qpos', 'qvel', 'action', 'position_error', 'rotation_error',
+                                       'joint_command', 'limit_fraction', 'forces', 'support', 'hold_s')}
         for step in range(env.max_episode_length if args.scripted else args.steps):
             action = torch.zeros(env.num_envs, 7, device=env.device)
             action[:, 6] = 1
@@ -105,6 +108,15 @@ def main():
                     action[:, 3:6] = 0
                     action[:, 6] = -1
             observations, reward, terminated, truncated, _ = env.step(action)
+            if args.scripted:
+                controller = env.action_manager.get_term('tcp')
+                position_error, rotation_error = env.task.goal_error()
+                for name, value in (
+                    ('qpos', env.sim.data.qpos), ('qvel', env.sim.data.qvel), ('action', action),
+                    ('position_error', position_error), ('rotation_error', rotation_error),
+                    ('joint_command', controller.q_command), ('limit_fraction', controller.limit_fraction),
+                    ('forces', env.task.forces), ('support', env.task.support), ('hold_s', env.task.hold)):
+                    trace[name].append(value[0].detach().cpu().numpy().copy())
             next_obs = graph_observation(observations)
             if replay is not None:
                 healthy = ~env.task.unhealthy
@@ -137,6 +149,13 @@ def main():
                    'collision_free': env.task.collision_free.cpu().tolist(),
                    'peak_memory_bytes': torch.cuda.max_memory_allocated(),
                    'scripted': args.scripted, 'phase': phase}
+        position_error, rotation_error = env.task.goal_error()
+        summary['position_error_m'] = position_error.norm(dim=-1).cpu().tolist()
+        summary['rotation_error_rad'] = rotation_error.norm(dim=-1).cpu().tolist()
+        if args.scripted:
+            replay_path = Path(args.output).with_name(Path(args.output).stem + '-control.npz')
+            np.savez_compressed(replay_path, **{name: np.asarray(values) for name, values in trace.items()})
+            summary['control_trace'] = str(replay_path)
         if replay is not None:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config['sac']))
             for _ in range(args.learner_updates):
