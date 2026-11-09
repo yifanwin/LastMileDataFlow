@@ -35,6 +35,14 @@ pi05-data = ["lerobot==0.3.3", "datasets==3.6.0"]
 lastmile-dataflow = "lastmile_dataflow.cli:main"
 
 [dependency-groups]
+rl = [
+    "torch>=2.14.0",
+    "torch-geometric==2.7.0",
+    "numpy>=1.26,<3",
+    "scipy>=1.15",
+    "matplotlib>=3.8",
+    "PyYAML>=6",
+]
 pi05 = [
     "jax[cuda12]==0.5.3",
     "flax==0.10.2",

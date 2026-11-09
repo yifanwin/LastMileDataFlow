@@ -19,13 +19,10 @@ import numpy as np
 from ...scenes.geometry import body_pose, tcp_pose
 from ...scenes.geometry import descendants
 from .contacts import CONTACT_POLICY, SIMULATION_FAILURES, ContactSampler
+from .pick_state import PICK_THRESHOLDS, update_hold_window
 
 # 任务成功阈值不可通过配置放宽。
-PROTOCOL={'version':'strict-pick-v3','lift_m':.05,'hold_s':2.,'base_translation_m':.002,
-          'base_yaw_rad':np.deg2rad(.2),'lift_hold_error_m':.002,'torso_error_rad':.002,'head_error_rad':.002,
-          'idle_arm_error_rad':.002,'relative_translation_m':.01,
-          'relative_rotation_rad':np.deg2rad(5),'max_sample_gap_s':.0041,
-          'finger_force_min_n':1e-6, 'contact_policy':CONTACT_POLICY}
+PROTOCOL = {**PICK_THRESHOLDS, 'contact_policy': CONTACT_POLICY}
 
 
 def rotation_error(a,b): return float(np.arccos(np.clip((np.trace(a.T@b)-1)/2,-1,1)))
@@ -136,7 +133,8 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
     # 时间必须严格递增且采样间隔不过大，否则“保持 2 秒”无从谈起。
     if len(times)<2 or not np.isfinite(times).all() or np.any(np.diff(times)<=0) or np.max(np.diff(times))>PROTOCOL['max_sample_gap_s']:
         return {'status':'infrastructure_error','reason':'physics_trace_gap'}
-    start=None; reference=None; best=0.; max_lift=0.
+    start=np.asarray(-1.); reference_position=np.zeros(3); reference_rotation=np.eye(3)
+    best=0.; max_lift=0.; tail=0.
     try:
         for r in samples:
             numeric=np.concatenate([np.atleast_1d(r[key]) for key in ('base','torso','head','idle_arm','lift','height_m','command_h') if key in r])
@@ -151,13 +149,10 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
             if fail: return {'status':'simulation_failure' if fail in ('nonfinite_state','mujoco_warning') else 'failure','reason':fail,'first_failure_phase':r['phase'],'first_failure_time_s':r['time_s']}
             lift=r['height_m']-initial['height_m']; max_lift=max(max_lift,lift)
             held=(set(forces)==set(initial['fingers']) and len(forces)==2 and lift>=PROTOCOL['lift_m'] and r['support_contact'] is False)
-            if not held: start=None; reference=None; continue   # 没抓住的瞬间：清零保持计时
-            if start is None: start=r['time_s']; reference=pose
-            # 相对位姿漂移过大 = 滑了：重开保持计时窗口
-            if np.linalg.norm(pose[:3,3]-reference[:3,3])>PROTOCOL['relative_translation_m'] or rotation_error(reference[:3,:3],pose[:3,:3])>PROTOCOL['relative_rotation_rad']:
-                start=r['time_s']; reference=pose
-            best=max(best,r['time_s']-start)
-        tail=times[-1]-start if start is not None else 0.
+            start,reference_position,reference_rotation,tail=update_hold_window(
+                r['time_s'],np.asarray(held),pose[:3,3],pose[:3,:3],start,
+                reference_position,reference_rotation,xp=np)
+            best=max(best,float(tail))
         ok=tail>=PROTOCOL['hold_s']-1e-9
         return {'status':'success' if ok else 'failure','reason':'strict_pick' if ok else 'lift_contact_hold_or_slip',
                 'first_failure_phase':None if ok else samples[-1]['phase'],'tail_held_s':float(tail),

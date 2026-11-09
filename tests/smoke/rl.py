@@ -1,0 +1,116 @@
+"""Explicit real val103/mjlab stepping and scripted-control smoke.
+
+This is separate from unittest. Scripted actions pass through the identical
+7D/DLS/servo/physics path as the Actor, without planner prechecks.
+"""
+import argparse
+import json
+from pathlib import Path
+import time
+
+import torch
+
+from lastmile_dataflow.config import REPO_ROOT
+from lastmile_dataflow.runtime.rl.environment import StationEnv
+from lastmile_dataflow.workflows.rl_evaluation import reset_stations
+from lastmile_dataflow.workflows.rl_training import graph_observation, seed_all
+
+
+def upstream_smoke(args):
+    from mjlab.envs import ManagerBasedRlEnv
+    from mjlab.tasks.manipulation.config.yam.env_cfgs import yam_lift_cube_env_cfg
+    cfg = yam_lift_cube_env_cfg(play=True)
+    cfg.scene.num_envs = args.num_envs
+    env = ManagerBasedRlEnv(cfg, device=f'cuda:{args.gpu}')
+    try:
+        env.reset()
+        action = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
+        for _ in range(args.steps):
+            env.step(action)
+        assert torch.isfinite(env.sim.data.qpos).all()
+        result = {'upstream': 'yam_lift_cube_env_cfg', 'gpu': args.gpu,
+                  'num_envs': env.num_envs, 'steps': args.steps, 'finite_qpos': True}
+        Path(args.output).write_text(json.dumps(result, indent=2))
+        print(json.dumps(result, indent=2))
+    finally:
+        env.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--config', default=str(REPO_ROOT / 'configs/rl/val103_cup30.json'))
+    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--num-envs', type=int, default=1)
+    parser.add_argument('--steps', type=int, default=5)
+    parser.add_argument('--scripted', action='store_true')
+    parser.add_argument('--upstream', action='store_true', help='run the shipped YAM lift-cube environment')
+    parser.add_argument('--station-id')
+    parser.add_argument('--output', default='/tmp/lastmile-rl-smoke.json')
+    args = parser.parse_args()
+    if args.upstream:
+        upstream_smoke(args)
+        return
+    config = json.loads(Path(args.config).read_text())
+    seed_all(42)
+    env = StationEnv(config, gpu=args.gpu, seed=42, num_envs=args.num_envs)
+    try:
+        if args.station_id:
+            index = next(i for i, s in enumerate(env.task.stations) if s['station_id'] == args.station_id and s['valid'])
+            obs = reset_stations(env, [index] * env.num_envs)
+        else:
+            observations, _ = env.reset()
+            obs = graph_observation(observations)
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        completed = 0
+        phase = 'approach'
+        closed_at = 0
+        for step in range(env.max_episode_length if args.scripted else args.steps):
+            action = torch.zeros(env.num_envs, 7, device=env.device)
+            action[:, 6] = 1
+            if args.scripted:
+                dp, dr = env.task.goal_error()
+                action[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
+                action[:, 3:6] = (dr / config['action']['rotation_rad']).clamp(-1, 1)
+                if phase == 'approach' and bool((dp.norm(dim=-1) < .008).all() & (dr.norm(dim=-1) < .1).all()):
+                    phase, closed_at = 'close', step
+                if phase == 'close':
+                    action[:, 6] = -1
+                    if step - closed_at >= 20:
+                        phase = 'lift'
+                if phase == 'lift':
+                    action[:, :3] = 0
+                    action[:, 2] = 1 if step - closed_at < 40 else 0
+                    action[:, 3:6] = 0
+                    action[:, 6] = -1
+            observations, reward, terminated, truncated, _ = env.step(action)
+            obs = graph_observation(observations)
+            assert torch.isfinite(obs.nodes).all() and torch.isfinite(obs.arm_task_state).all()
+            assert torch.isfinite(reward).all()
+            completed += env.num_envs
+            done = terminated | truncated
+            if done.any():
+                break
+        torch.cuda.synchronize()
+        summary = {'gpu': args.gpu, 'num_envs': env.num_envs, 'transitions': completed,
+                   'seconds': time.perf_counter() - start, 'node_capacity': env.task.graph.capacity,
+                   'state_dim': obs.arm_task_state.shape[-1], 'valid_stations': sum(s['valid'] for s in env.task.stations),
+                   'success': env.task.success.cpu().tolist(), 'failed': env.task.failed.cpu().tolist(),
+                   'max_drift_m': env.task.max_drift.cpu().tolist(), 'hold_s': env.task.hold.cpu().tolist(),
+                   'collision_free': env.task.collision_free.cpu().tolist(),
+                   'peak_memory_bytes': torch.cuda.max_memory_allocated(),
+                   'scripted': args.scripted, 'phase': phase}
+        # Exercise local reset without replacing ongoing observations.
+        if not args.scripted and not done.any():
+            before = env.sim.data.qpos.clone()
+            env.reset(env_ids=torch.tensor([0], device=env.device))
+            torch.testing.assert_close(before[1:], env.sim.data.qpos[1:])
+            summary['partial_reset_preserved_other_qpos'] = True
+        Path(args.output).write_text(json.dumps(summary, indent=2))
+        print(json.dumps(summary, indent=2))
+    finally:
+        env.close()
+
+
+if __name__ == '__main__':
+    main()
