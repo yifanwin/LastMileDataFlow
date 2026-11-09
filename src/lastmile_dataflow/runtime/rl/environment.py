@@ -117,7 +117,8 @@ class StationEnv(ManagerBasedRlEnv):
                            entities={'robot': robot}, sensors=sensors,
                            spec_fn=prepared.attach_scene),
             sim=SimulationCfg(mujoco=MujocoCfg(timestep=config['scene']['physics_dt'],
-                                               impratio=10., cone='elliptic', gravity=(0., 0., -9.8))),
+                                               impratio=10., cone='elliptic', gravity=(0., 0., -9.8),
+                                               disableflags=() if prepared.multiccd else ('multiccd',))),
             seed=seed, decimation=env_cfg['decimation'], episode_length_s=env_cfg['episode_s'],
             auto_reset=False, is_finite_horizon=True, scale_rewards_by_dt=False,
             actions={

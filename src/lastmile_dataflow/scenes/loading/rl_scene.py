@@ -45,10 +45,6 @@ class PreparedRLScene:
 
     def attach_scene(self, spec):
         spec.attach(self.scene_spec.copy(), prefix='', frame=spec.worldbody.add_frame())
-        # MuJoCo Warp 3.16 cannot combine MULTICCD with the source scene's
-        # nonzero mesh margins. Preserve those margins and physical contacts.
-        if not self.multiccd:
-            spec.option.enableflags &= ~mujoco.mjtEnableBit.mjENBL_MULTICCD
 
 
 def prepare_rl_scene(config):
