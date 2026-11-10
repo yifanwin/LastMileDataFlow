@@ -144,7 +144,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
         limit = max_transitions or settings['max_transitions']
         collected = 0
         episode_return = torch.zeros(env.num_envs, device=env.device)
-        episode_components = torch.zeros(env.num_envs, 6, device=env.device)
+        episode_components = torch.zeros(env.num_envs, 7, device=env.device)
         steps = torch.zeros(env.num_envs, device=env.device)
         started = time.perf_counter()
         log_at = transitions + settings['log_every']

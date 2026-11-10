@@ -95,11 +95,13 @@ def scripted_batch(env, config, args):
     rows, finished = [None] * env.num_envs, torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     best_position = torch.full((env.num_envs,), float('inf'), device=env.device)
     start = time.perf_counter()
+    components = torch.zeros(env.num_envs, env.task.reward_components.shape[-1], device=env.device)
     for step in range(env.max_episode_length):
         action = scripted_action(env, config, phase, closed_at, step)
         action[finished] = 0
         _, _, terminated, truncated, _ = env.step(action)
         best_position = torch.minimum(best_position, env.task.goal_error()[0].norm(dim=-1))
+        components += env.task.reward_components * (~finished)[:, None]
         done = (terminated | truncated) & ~finished
         for i in done.nonzero(as_tuple=True)[0].tolist():
             hits = env.task.collision_hits[i]
@@ -109,7 +111,7 @@ def scripted_batch(env, config, args):
                        'collision_free': bool(env.task.collision_free[i]), 'phase': PHASES[int(phase[i])], 'steps': step + 1,
                        'best_position_error_m': float(best_position[i]), 'max_drift_m': float(env.task.max_drift[i]),
                        'max_yaw_drift_rad': float(env.task.max_yaw_drift[i]), 'max_lift_drift_m': float(env.task.max_lift_drift[i]),
-                       'collision_time_s': float(env.task.collision_time[i]), 'collisions': {
+                       'collision_time_s': float(env.task.collision_time[i]), 'reward_components': components[i].cpu().tolist(), 'collisions': {
                            collision_label(env.prepared, env.task.collision_names[j]): float(hits[j])
                            for j in hits.nonzero(as_tuple=True)[0].tolist()}}
         finished |= done

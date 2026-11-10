@@ -74,8 +74,9 @@ class TaskState:
         self.last_action = torch.zeros(n, 7, device=self.device)
         self.previous_distance = torch.zeros(n, device=self.device)
         self.previous_angle = torch.zeros(n, device=self.device)
+        self.previous_grasp = torch.zeros(n, device=self.device)
         self.needs_baseline = torch.ones(n, dtype=torch.bool, device=self.device)
-        self.reward_components = torch.zeros(n, 6, device=self.device)
+        self.reward_components = torch.zeros(n, 7, device=self.device)
         # The fixed object-local TCP is an explicit input, shared with scoring.
         from ...scenes.loading.rl_scene import RLSceneConfig
         scene_config = RLSceneConfig(**env.research_config['scene'])
@@ -109,6 +110,20 @@ class TaskState:
         goal_p = goal_p + approach_offset_m * goal_r[:, :, 2]
         dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
         return torch.einsum('bji,bj->bi', base_r, dp), torch.einsum('bji,bj->bi', base_r, dr)
+
+    def grasp_potential(self):
+        '''Staged grasp potential: close near the pose, bear on both fingers, lift while held.
+
+        Rewarded only as a difference between policy steps (potential-based shaping),
+        so it adds no return for loitering in any state.
+        '''
+        dp, _ = self.goal_error()
+        q = self.robot.data.joint_pos
+        width = q[:, self.fingers[0]] - q[:, self.fingers[1]]
+        closed_near = (dp.norm(dim=-1) < .03).float() * (1 - width / .08).clamp(0, 1)
+        both = (self.forces > P['finger_force_min_n']).all(-1).float()
+        lift = ((self.env.sim.data.xpos[:, self.target, 2] - self.height_reference) / P['lift_m']).clamp(0, 1)
+        return .5 * closed_near + both + 2 * both * lift
 
     def begin_step(self, action):
         self.step_collision.zero_()
@@ -167,6 +182,7 @@ class TaskState:
         self.previous_distance[self.needs_baseline] = distance[self.needs_baseline]
         self.previous_angle[self.needs_baseline] = angle[self.needs_baseline]
         self.height_reference[self.needs_baseline] = target_p[self.needs_baseline, 2]
+        self.previous_grasp[self.needs_baseline] = self.grasp_potential()[self.needs_baseline]
         self.needs_baseline.zero_()
         q, v = self.robot.data.joint_pos, self.robot.data.joint_vel
         width = (q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None]
@@ -244,6 +260,7 @@ def reward(env):
     task = env.task
     dp, dr = task.goal_error()
     distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
+    grasp = task.grasp_potential()
     cfg = env.research_config['reward']
     task.reward_components[:] = torch.stack((
         cfg['position'] * (task.previous_distance - distance),
@@ -251,9 +268,11 @@ def reward(env):
         -cfg['collision'] * task.step_collision.float(),
         -cfg['limit'] * env.action_manager.get_term('tcp').limit_fraction,
         -cfg['control_failure'] * task.control_failed.float(),
-        cfg['success'] * task.success.float()), -1)
+        cfg['success'] * task.success.float(),
+        cfg['grasp'] * (grasp - task.previous_grasp)), -1)
     task.previous_distance[:] = distance
     task.previous_angle[:] = angle
+    task.previous_grasp[:] = grasp
     return task.reward_components.sum(-1)
 
 

@@ -31,7 +31,7 @@ class Replay:
         self.reward = torch.empty(capacity, device=self.device)
         self.terminated = torch.empty(capacity, dtype=torch.bool, device=self.device)
         self.truncated = torch.empty_like(self.terminated)
-        self.reward_components = torch.empty(capacity, 6, device=self.device)
+        self.reward_components = torch.empty(capacity, 7, device=self.device)
         self.station_id = torch.empty(capacity, dtype=torch.long, device=self.device)
 
     @torch.no_grad()
