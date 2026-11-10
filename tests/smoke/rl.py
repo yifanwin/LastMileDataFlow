@@ -70,7 +70,8 @@ def scripted_action(env, config, phase, closed_at, step):
     phase[closing & (step - closed_at >= 20)] = LIFT
     lifting = phase == LIFT
     action[lifting] = 0
-    action[lifting, 2] = (step - closed_at[lifting] < 40).float()
+    # Twenty steps of 1 cm, whatever the action scale.
+    action[lifting, 2] = (step - closed_at[lifting] < 40).float() * min(1., .01 / config['action']['translation_m'])
     action[lifting, 6] = -1
     return action
 
