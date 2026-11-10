@@ -141,9 +141,11 @@ def scripted_batch(env, config, args):
 def policy_diagnosis(env, config, args):
     '''Report how far a frozen stochastic Actor gets through the grasp sequence.'''
     agent, saved = SAC.load(args.policy_checkpoint, env.device)
-    candidates = [i for i, s in enumerate(env.task.stations) if s['valid'] and s['split'] == args.split]
+    debug = set(config['training']['debug_station_ids'])
+    candidates = [i for i, s in enumerate(env.task.stations) if s['valid'] and s['split'] == args.split
+                  and (not debug or s['station_id'] in debug)]
     chosen = np.random.default_rng(args.station_seed).choice(candidates, min(env.num_envs, len(candidates)), replace=False).tolist()
-    chosen += chosen[:1] * (env.num_envs - len(chosen))
+    chosen = [chosen[i % len(chosen)] for i in range(env.num_envs)]
     obs = reset_stations(env, chosen)
     n, device = env.num_envs, env.device
     finished = torch.zeros(n, dtype=torch.bool, device=device)
