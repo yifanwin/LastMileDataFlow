@@ -61,7 +61,7 @@
   "training": {
     "batch_size": 256,
     "replay_capacity": 100000,
-    "warmup_min": 5000,
+    "warmup_min": 20000,
     "updates_per_step": 1,
     "debug_station_ids": [],
     "log_every": 10000,

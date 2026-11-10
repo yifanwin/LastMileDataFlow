@@ -13,7 +13,7 @@ def observations(state):
 
 
 class ObservationActor:
-    def sample(self, observation):
+    def sample(self, observation, deterministic=False):
         return observation.arm_task_state.expand(-1, 7).clone(), torch.zeros(2)
 
 
@@ -30,7 +30,10 @@ class TwoEpisodeEnv:
                                     success=torch.zeros(2, dtype=torch.bool),
                                     collision_free=torch.ones(2, dtype=torch.bool),
                                     collision_time=torch.zeros(2), max_drift=torch.zeros(2),
-                                    max_yaw_drift=torch.zeros(2), max_lift_drift=torch.zeros(2))
+                                    max_yaw_drift=torch.zeros(2), max_lift_drift=torch.zeros(2),
+                                    target=0, height_reference=torch.zeros(2), forces=torch.zeros(2, 2),
+                                    hold=torch.zeros(2), goal_error=lambda: (torch.ones(2, 3), torch.ones(2, 3)))
+        self.sim = SimpleNamespace(data=SimpleNamespace(xpos=torch.zeros(2, 1, 3)))
 
     def reset(self, env_ids=None):
         if env_ids is None:
@@ -67,3 +70,5 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(rows[0]['success'])
         self.assertFalse(rows[1]['success'])
         self.assertEqual(float(env.actions[1][1, 0]), 3.)
+        self.assertFalse(rows[0]["both_fingers"])
+        self.assertAlmostEqual(rows[0]["best_position_error_m"], 3 ** .5, places=6)

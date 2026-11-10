@@ -52,7 +52,7 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 当前动作每轴4cm / 7.5°，回合60s（1200步），控制20Hz。γ已从0.995调整为0.999，属于待实测新配置；旧训练checkpoint均为1cm / 5° / 20s / γ=0.995。配置变化后从头训练，`--resume`要求有效配置完全一致。
 
-预热条数为 `max(warmup_min, 环境数×回合步数)`：128环境/60s时153600条。当前默认总量200000、每向量步更新1次，只有约363次learner更新；256环境默认预算甚至不足以退出预热。下方20万条命令只适合检查训练流程，正式学习需在新有效配置中明确记录总量与更新比。已有对照曾采用128环境每向量步更新8次，详细结果见接手报告。
+随机预热条数直接取 `training.warmup_min`（当前 20000），不再与回合长度绑定；旧实现为 `max(warmup_min, 环境数×回合步数)`，128 环境 / 60 s 时达 153600 条，超过 Replay 容量。总量和每向量步更新次数需按实验显式设定，并记录实际更新数。配置了 `debug_station_ids` 时，每次评估另在这些训练站位上各跑一遍随机动作和均值动作（`tanh(mu)`），记录到达位姿、双指接触、抬升 5 cm、最长保持和完整成功，写入 `metrics.jsonl` 的 `debug_stations` 字段；空间 validation 照旧。
 
 正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 

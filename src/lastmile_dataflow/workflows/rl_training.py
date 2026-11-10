@@ -140,7 +140,8 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
             agent.save(output / 'initial.pt', metadata=metadata, transitions=0)
         metadata['best_validation_score'] = best_score
         replay = Replay(settings['replay_capacity'], obs)
-        warmup = max(settings['warmup_min'], env.num_envs * env.max_episode_length)
+        # Random warmup is an explicit budget, independent of episode length.
+        warmup = settings['warmup_min']
         limit = max_transitions or settings['max_transitions']
         collected = 0
         episode_return = torch.zeros(env.num_envs, device=env.device)

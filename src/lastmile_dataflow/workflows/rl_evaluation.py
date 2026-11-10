@@ -31,20 +31,37 @@ def station_scores(agent, env, samples):
 
 
 @torch.no_grad()
-def validation_rollout(agent, env, station_ids, seed, gamma):
-    """One episode per vector slot; ended slots reset without entering results twice."""
+def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False):
+    """One episode per vector slot; ended slots reset without entering results twice.
+
+    Stage facts (closest pose, both fingers, lift, hold) locate the earliest
+    failing phase; they do not replace strict-pick success.
+    """
     torch.manual_seed(seed)
     obs = reset_stations(env, station_ids)
     finished = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    task = env.task
+    best_position = torch.full((env.num_envs,), float('inf'), device=env.device)
+    best_rotation = torch.full_like(best_position, float('inf'))
+    both_fingers = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    max_lift = torch.full_like(best_position, -float('inf'))
+    max_hold = torch.zeros_like(best_position)
     returns = torch.zeros(env.num_envs, device=env.device)
     discounted = torch.zeros_like(returns)
     discount = 1.
     records = [None] * env.num_envs
     while not finished.all():
         active = ~finished
-        action, _ = agent.actor.sample(obs)
+        action, _ = agent.actor.sample(obs, deterministic=deterministic)
         action[finished] = 0
         observations, reward, terminated, truncated, _ = env.step(action)
+        position, rotation = (e.norm(dim=-1) for e in task.goal_error())
+        lift = env.sim.data.xpos[:, task.target, 2] - task.height_reference
+        best_position = torch.where(active, torch.minimum(best_position, position), best_position)
+        best_rotation = torch.where(active, torch.minimum(best_rotation, rotation), best_rotation)
+        both_fingers |= active & (task.forces > 1e-6).all(-1)
+        max_lift = torch.where(active, torch.maximum(max_lift, lift), max_lift)
+        max_hold = torch.where(active, torch.maximum(max_hold, task.hold.float()), max_hold)
         returns += torch.where(active, reward, 0.)
         discounted += discount * torch.where(active, reward, 0.)
         discount *= gamma
@@ -62,6 +79,11 @@ def validation_rollout(agent, env, station_ids, seed, gamma):
                 'max_drift_m': float(env.task.max_drift[index]),
                 'max_yaw_drift_rad': float(env.task.max_yaw_drift[index]),
                 'max_lift_drift_m': float(env.task.max_lift_drift[index]),
+                'policy': 'mean' if deterministic else 'stochastic',
+                'best_position_error_m': float(best_position[index]),
+                'best_rotation_error_rad': float(best_rotation[index]),
+                'both_fingers': bool(both_fingers[index]), 'max_lift_m': float(max_lift[index]),
+                'max_hold_s': float(max_hold[index]),
             }
         finished |= first_done
         obs = graph_observation(observations).clone()
@@ -70,6 +92,31 @@ def validation_rollout(agent, env, station_ids, seed, gamma):
             reset_obs = reset_stations(env, [station_ids[i] for i in ids.tolist()], env_ids=ids)
             obs.replace(ids, reset_obs)
     return records
+
+
+def debug_station_rollouts(agent, env, settings, seed):
+    """Training-station check for debug pools: same stations, stochastic and mean actions."""
+    names = settings.get('debug_station_ids') or []
+    if not names:
+        return None
+    lookup = {row['station_id']: i for i, row in enumerate(env.task.stations)}
+    ids = [lookup[name] for name in names]
+    slots = [ids[i % len(ids)] for i in range(env.num_envs)]
+    return {policy: validation_rollout(agent, env, slots, seed + 1000, 1., deterministic=policy == 'mean')
+            for policy in ('stochastic', 'mean')}
+
+
+def stage_summary(rows):
+    healthy = [r for r in rows if not r['infrastructure_failure']]
+    if not healthy:
+        return {'healthy': 0}
+    near = [r['best_position_error_m'] < .03 and r['best_rotation_error_rad'] < .3 for r in healthy]
+    return {'healthy': len(healthy), 'success': sum(r['success'] for r in healthy),
+            'collision_free_success': sum(r['success'] and r['collision_free'] for r in healthy),
+            'reached_pose': sum(near), 'both_fingers': sum(r['both_fingers'] for r in healthy),
+            'lift_5cm': sum(r['max_lift_m'] >= .05 for r in healthy),
+            'best_position_error_m_median': float(np.median([r['best_position_error_m'] for r in healthy])),
+            'max_hold_s': max(r['max_hold_s'] for r in healthy)}
 
 
 def monitor_validation(agent, env, config, transitions, output):
@@ -94,6 +141,7 @@ def monitor_validation(agent, env, config, transitions, output):
         trials = []
         for repeat in range(settings['validation_rollouts_per_station']):
             trials.extend(validation_rollout(agent, env, station_ids, seed + repeat, config['sac']['gamma']))
+        debug = debug_station_rollouts(agent, env, settings, seed)
     summary = summarize_trials(selection, trials, seed=seed)
     healthy = [row for row in trials if not row['infrastructure_failure']]
     event = {'event': 'evaluation', 'transitions': transitions, 'split': 'validation',
@@ -102,8 +150,11 @@ def monitor_validation(agent, env, config, transitions, output):
              'infrastructure_failures': len(trials) - len(healthy),
              'episode_return_mean': float(np.mean([r['episode_return'] for r in healthy])) if healthy else None,
              'value_success_correlation': summary['q_success_spearman']}
+    if debug:
+        event['debug_stations'] = {policy: stage_summary(rows_) for policy, rows_ in debug.items()}
     (analysis / f'validation-{transitions:012d}.json').write_text(json.dumps(
-        {'metrics': event, 'stations': summary['stations'], 'trials': trials, 'q_scores': rows}, indent=2))
+        {'metrics': event, 'stations': summary['stations'], 'trials': trials, 'q_scores': rows,
+         'debug_trials': debug}, indent=2))
     station_evaluation(rows, summary['stations'], views / 'station-evaluation.png',
                        q_limits=config['evaluation']['q_color_limits'], correlation=summary['q_success_spearman'])
     agent.actor.train()

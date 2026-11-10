@@ -193,7 +193,7 @@ Actor：`MLP(GAT(G) || arm_task_state) -> mu, log_std`，隐藏层 256×2；`log
 | γ / τ | 0.995 / 0.005；20 s 时域下 γ^400 约 0.135 |
 | batch / Replay | 256 / 100,000 transitions |
 | 环境数 | 1 验证 → 32 测量 → 128 首轮训练，256 按吞吐和显存决定 |
-| warmup | max(5,000, N×400) 条有效 transition；N=128 时 51,200 |
+| warmup | 显式 `warmup_min` 条有效 transition（2026-11-10 起 20,000，与回合长度解耦；原为 max(5,000, N×400)） |
 | 更新频率 | warmup 后每次 vector step 1 个 learner step，Actor/Q/α 同步更新 |
 | 梯度/新 transition | 1/N；样本重用量约 batch/N，N=128 时 2 |
 
