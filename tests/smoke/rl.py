@@ -148,6 +148,27 @@ def policy_diagnosis(env, config, args):
     chosen = [chosen[i % len(chosen)] for i in range(env.num_envs)]
     obs = reset_stations(env, chosen)
     n, device = env.num_envs, env.device
+    # Does the frozen Critic prefer moving toward the grasp pose, and does the Actor?
+    dp, dr = env.task.goal_error()
+    toward = torch.zeros(n, 7, device=device)
+    toward[:, :3] = (dp / config['action']['translation_m']).clamp(-1, 1)
+    toward[:, 3:6] = (dr / config['action']['rotation_rad']).clamp(-1, 1)
+    toward[:, 6] = 1
+    away = toward.clone()
+    away[:, :6] = -toward[:, :6]
+    still = torch.zeros_like(toward)
+    still[:, 6] = 1
+    sampled = [agent.actor.sample(obs)[0] for _ in range(16)]
+    def q(action):
+        return torch.minimum(agent.q1(obs, action), agent.q2(obs, action)).mean().item()
+    mean_action = torch.stack(sampled).mean(0)
+    critic_probe = {'q_toward': q(toward), 'q_still': q(still), 'q_away': q(away),
+                    'q_actor_samples': sum(q(a) for a in sampled) / len(sampled),
+                    'actor_mean_cosine_to_goal_translation': float(torch.nn.functional.cosine_similarity(mean_action[:, :3], dp, dim=-1).mean()),
+                    'actor_mean_abs_translation': float(mean_action[:, :3].abs().mean()),
+                    'actor_sample_std_translation': float(torch.stack(sampled)[:, :, :3].std(0).mean()),
+                    'initial_distance_m': float(dp.norm(dim=-1).mean())}
+    print(json.dumps(critic_probe, indent=2))
     finished = torch.zeros(n, dtype=torch.bool, device=device)
     best_distance, best_angle, min_width = (torch.full((n,), float('inf'), device=device) for _ in range(3))
     near_steps, touch_any, touch_both, closed_near, max_lift = (torch.zeros(n, device=device) for _ in range(5))
@@ -186,7 +207,7 @@ def policy_diagnosis(env, config, args):
                'share_any_finger_touch': share(touch_any), 'share_both_fingers_touch': share(touch_both),
                'share_closed_below_6cm_while_near': share(closed_near), 'min_width_m_percentiles': torch.quantile(min_width, torch.tensor([0., .5, 1.], device=device)).cpu().tolist(),
                'share_lift_over_1cm': share(max_lift, .01), 'share_lift_over_5cm': share(max_lift, .05), 'max_lift_m': float(max_lift.max()),
-               'success': int(env.task.success.sum())}
+               'success': int(env.task.success.sum()), 'critic_probe': critic_probe}
     Path(args.output).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
