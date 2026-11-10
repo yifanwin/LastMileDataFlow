@@ -5,7 +5,7 @@
 
 ## 验证边界
 
-- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案与 P0–P6 计划](rl-station-map/plan/01-implementation.md)：独立环境已安装，GPU 上游 stepping、32 个真实 val103-cup30 环境 / Replay / SAC 更新及局部 reset 已通过。六项指标、四组图的真实监控 smoke 完成，16 条独立 validation rollout 无基础设施失败、成功 0；415 项软件回归通过、4 项跳过。抓取控制正例和正式学习仍在推进，尚无学会操作或有效 Q 图结论。见[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
+- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)：独立mjlab环境、DLS、图观测、SAC双Q、Replay、六指标/四组图已实现并有真实运行证据。已有12轮训练、保存交互约511万条，记录训练回合12260个与重复validation rollout896次均无成功；当前停在P4学习。`123bc88` 的4cm / 7.5° / 60s脚本抓取成功43/128、无非法碰撞成功35/128，尚无新尺度训练结果。工作区后续将γ从0.995调至0.999，待训练验证；尚无有效站位排序验收结论。见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)、[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
 
   [mjlab 适配评估](rl-station-map/delivery/02-mjlab-assessment.md)保留选型前分析；当前路线与依赖以构建方案为准。此前的[需求梳理](rl-station-map/delivery/01-requirements-review.md)记录论文核对过程。
 

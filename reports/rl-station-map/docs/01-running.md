@@ -1,11 +1,11 @@
 # 固定底盘 mjlab / SAC 研究入口
 
 - 状态：active
-- 日期：2026-11-09
+- 日期：2026-11-10
 - 替代：无
 - 关联：../plan/01-implementation.md、../delivery/04-implementation.md
 
-从 actor-critic 工作区根目录运行。实际验证状态以交付记录为准；长训练前先完成脚本动作真实抓取、抬升和保持验证。
+从 actor-critic 工作区根目录运行。实际验证状态见[训练接手报告](../delivery/05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
 
 ## 安装
 
@@ -49,6 +49,10 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 ## 配置与训练
 
 配置为 `configs/rl/val103_cup30.json`，数据根为 `/data1/wenyifan/lmdf/molmospaces_data`，抓取变换来自该根下的 Cup_30 抓取库固定 row。修改抓取行、奖励、控制或 split 后，作为新的有效配置重新记录。
+
+当前动作每轴4cm / 7.5°，回合60s（1200步），控制20Hz。γ已从0.995调整为0.999，属于待实测新配置；旧训练checkpoint均为1cm / 5° / 20s / γ=0.995。配置变化后从头训练，`--resume`要求有效配置完全一致。
+
+预热条数为 `max(warmup_min, 环境数×回合步数)`：128环境/60s时153600条。当前默认总量200000、每向量步更新1次，只有约363次learner更新；256环境默认预算甚至不足以退出预热。下方20万条命令只适合检查训练流程，正式学习需在新有效配置中明确记录总量与更新比。已有对照曾采用128环境每向量步更新8次，详细结果见接手报告。
 
 正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 
