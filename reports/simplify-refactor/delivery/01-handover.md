@@ -2,7 +2,8 @@
 
 - 状态：active；已恢复工作，阶段 0–2 完成，阶段 7 的控制、策略配置、本体公共工具已实施
 - 替代：无
-- 最新进度：[08-docs-scene-validation.md](08-docs-scene-validation.md)：旧配置和主文档已清理，真实场景构建2/2接受、自动预览2张成功，原场景快照/站位与基线一致。长函数检查与其余必要验证继续。
+- 当前进度：[09-execution-cleanup.md](09-execution-cleanup.md)，2026-11-11 23:47 +08:00：执行长函数/闭包已整理，42项相关测试通过；固定版本真实验证与最终核对继续。
+- 上轮进度：[08-docs-scene-validation.md](08-docs-scene-validation.md)：旧配置和主文档已清理，真实场景构建2/2接受、自动预览2张成功，原场景快照/站位与基线一致。长函数检查与其余必要验证继续。
 - 上轮进度：[07-runtime-assets-recording.md](07-runtime-assets-recording.md)：资产与 runtime 合并、physics/depth 录制和无用执行字段已删除；完整文档/配置清理及验证仍待处理。
 - 前轮进度：[06-station-map.md](06-station-map.md)：标定/采集已拆分，诊断、旧 recipe、StationPlannerCache 和 mode_config 已删除，58 项相关局部测试通过；其余收尾继续。
 - 上轮进度：[05-scene-edits.md](05-scene-edits.md)：阶段 3 已替换旧模式构建并删除旧目录，局部测试通过；真实构建验证和阶段 4 等继续处理。
