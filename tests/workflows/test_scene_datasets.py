@@ -87,7 +87,7 @@ class SceneDatasetTests(DatasetTestCase):
                                  'task_completion': 'unknown'}]}
         with self.assertRaisesRegex(RuntimeError, 'renderer failed'):
             self.build('shared-error', worker)
-        root = self.root / 'scene_datasets/shared-error'
+        root = self.root / 'shared-error'
         self.assertEqual(len(rows(root / 'scenes.jsonl')), 1)
         summary = read_json(root / 'summary.json')
         self.assertEqual(summary['status'], 'infrastructure_error')
@@ -97,7 +97,7 @@ class SceneDatasetTests(DatasetTestCase):
     def test_executor_failure_never_saves_completed_status(self):
         with self.assertRaisesRegex(RuntimeError, 'worker unavailable'):
             self.build('executor-error', RuntimeError('worker unavailable'))
-        summary = read_json(self.root / 'scene_datasets/executor-error/summary.json')
+        summary = read_json(self.root / 'executor-error/summary.json')
         self.assertEqual(summary['status'], 'infrastructure_error')
         self.assertEqual(summary['accepted'] + summary['rejected'], 0)
 

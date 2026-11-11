@@ -271,7 +271,7 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
     return root
 
 
-def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
+def evaluate(benchmark, output, policy_path, *, gpu_ids):
     benchmark = Path(benchmark).resolve()
     episodes = rows(benchmark / 'episodes.jsonl')
     if not episodes:
@@ -286,7 +286,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids, log_dir):
     root = create_run(output, {'benchmark': str(benchmark), 'policy': asdict(policy_config),
                               'seed': settings.seed, 'horizon': settings.horizon, 'wall_timeout_s': settings.wall_timeout_s,
                               'reference_calibration': saved['calibration'], 'scene_profiles': {}})
-    logs = Path(log_dir)
+    logs = root / 'logs'
     logs.mkdir(parents=True, exist_ok=True)
     results = []
     policy = None

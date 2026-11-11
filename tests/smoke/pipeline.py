@@ -74,7 +74,6 @@ def main():
                     root / "evaluation",
                     args.policy_config,
                     gpu_ids=[args.gpu],
-                    log_dir=Path("outputs/logs"),
                 )
             )
         else:

@@ -20,7 +20,7 @@
 
 以下为当前实现的产物布局，路径相对各自 run 根目录。主记录只有 JSONL；`index.html`、`previews/`、`figures/` 是可删除重建的阅读产物，不作为协议入口。
 
-### 场景库 run（`outputs/scene_datasets/<run>/`）
+### 场景库 run（`<单元>/runs/<run>/`）
 
 ```text
 <run>/

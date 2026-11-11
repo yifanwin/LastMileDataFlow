@@ -1,4 +1,4 @@
-"""Expose figures, preparations, planning, rollouts and replays by task/object."""
+"""Historical layout utility; new runs use outputs/RULES.md without link views."""
 import argparse
 import json
 import os

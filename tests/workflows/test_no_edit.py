@@ -1,5 +1,6 @@
 """No-edit recipe, natural dispatch and additive trial fields."""
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,27 @@ from lastmile_dataflow.workflows.scene_datasets import _task_preparation_rejecti
 
 
 class NoEditRecipeTests(unittest.TestCase):
+    def test_incremental_videos_keep_state_with_each_source_run(self):
+        from scripts import render_valid_videos as renderer
+        from lastmile_dataflow.utils.io import read_json, write_json
+
+        with tempfile.TemporaryDirectory() as directory:
+            unit = Path(directory)
+            state = unit / 'state.json'
+            write_json(state, {'completed': ['a', 'b']})
+
+            def videos(runs):
+                return [{'calibration': str(runs[0]), 'rollout_id': 'r0', 'kind': 's1'}]
+
+            with (patch.object(renderer, 'valid_scene_replays', side_effect=videos),
+                  patch.object(renderer, 'render_job', return_value={'r0': 'preview'}),
+                  patch('builtins.print')):
+                renderer.main(['--state', str(state), '--output-dir', str(unit), '--gpu', '3'])
+            for name in ('a', 'b'):
+                saved = read_json(unit / 'runs' / name / 'videos' / 'incremental_valid_state.json')
+                self.assertEqual(saved['rendered'], [f'{unit / "runs" / name}|r0'])
+            self.assertFalse((unit / 'replays').exists())
+
     def recipe(self, **overrides):
         values = dict(dataset_dir='.', assets_dir='.', asset_index='unused',
                       robot_config='unused', mode_config='unused', houses=[0, 1],

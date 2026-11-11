@@ -154,38 +154,39 @@ def main(argv=None):
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--driver-pid', type=int)
     parser.add_argument('--run-prefix', default='no-edit-val-all',
-                        help='流水线 run 前缀；驱动日志为 logs/<前缀>-driver.log')
+                        help='流水线 run 前缀；驱动日志为 analysis/<前缀>-driver.log')
     parser.add_argument('--pilot', help='计入统计的试点 run（墙钟从它的准备开始算）；省略时从首个 chunk 算')
     args = parser.parse_args(argv)
 
     state = json.loads(args.state.read_text())
     completed = state.get('completed', [])
     prefix = args.run_prefix
-    driver_log = args.output_dir / 'logs' / f'{prefix}-driver.log'
+    driver_log = args.output_dir / 'analysis' / f'{prefix}-driver.log'
     total_chunks, house_ranges, order = driver_info(driver_log)
     last_driver = order[-1] if order else None
     current = last_driver if last_driver and last_driver not in completed else None
     now = datetime.now()
 
-    cache_path = args.output_dir / '_analysis' / 'status_cache.json'
+    cache_path = args.output_dir / 'analysis' / 'status_cache.json'
     cache = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
     prep = {}
     prep_houses = {}
-    inputs = args.output_dir / '_calibration_inputs'
-
-    # Runs/inputs are flat (legacy) or grouped as runs/<group>/<run>, inputs/<group>/<run>.
     def run_dir(name):
-        return next(iter(sorted(args.output_dir.glob(f'runs/*/{name}'))), args.output_dir / name)
+        return next(iter(sorted(args.output_dir.glob(f'runs/*/{name}'))), args.output_dir / 'runs' / name)
 
     def input_dir(name):
-        return next(iter(sorted(args.output_dir.glob(f'inputs/*/{name}'))), inputs / name)
+        return run_dir(name) / 'scene-inputs'
 
-    for path in [*inputs.glob(f'{prefix}-c*'), *args.output_dir.glob(f'inputs/*/{prefix}-c*'),
-                 *([inputs / args.pilot] if args.pilot else [])]:
+    run_paths = [*args.output_dir.glob(f'runs/{prefix}-c*'),
+                 *args.output_dir.glob(f'runs/*/{prefix}-c*')]
+    if args.pilot:
+        run_paths.append(run_dir(args.pilot))
+    for run in run_paths:
+        path = run / 'scene-inputs'
         value = read_summary(path / 'summary.json', 'wall_elapsed_s')
         if value is not None:
-            prep[path.name] = value
-            prep_houses[path.name] = source_houses(path / 'summary.json')
+            prep[run.name] = value
+            prep_houses[run.name] = source_houses(path / 'summary.json')
 
     rows = []
     status_total = Counter()
@@ -236,7 +237,7 @@ def main(argv=None):
     current_pick_rate = current_open_rate = None
     current_pick_scene_rate = current_open_scene_rate = None
     if current:
-        start = timestamp(args.output_dir / 'logs' / f'{current}.log', r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*开始命令')
+        start = timestamp(run_dir(current) / 'run.log', r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*开始命令')
         current_elapsed = (now - start).total_seconds() if start else None
         scene_ops = scene_operations(input_dir(current) / 'scenes.jsonl')
         counts, current_trials, success_scenes, success_ops, success_scene_ops, trial_ops = trial_counts(
@@ -290,7 +291,7 @@ def main(argv=None):
                      'pick_rate': None, 'open_rate': None, 'state': 'prepared'})
 
     pilot = args.pilot or (order[0] if order else f'{prefix}-c000')
-    pilot_start = timestamp(args.output_dir / 'logs' / f'{pilot}.log',
+    pilot_start = timestamp(run_dir(pilot) / 'run.log',
                             r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*开始命令')
     experiment_start = (pilot_start - timedelta(seconds=prep.get(pilot, 0))) if pilot_start else None
     wall = (now - experiment_start).total_seconds() if experiment_start else None
@@ -303,14 +304,15 @@ def main(argv=None):
     overall_pick_scene_rate = len(success_scene_ops_total.get('pick', set())) / (cal_total / 60) if cal_total else None
     overall_open_scene_rate = len(success_scene_ops_total.get('open', set())) / (cal_total / 60) if cal_total else None
 
-    # The video manifest is shared by all runs; count only rendered rows of the reported runs.
-    manifest = args.output_dir / 'replays' / 'incremental_valid_manifest.jsonl'
+    # Count videos from each reported source run.
+    manifest = '各 run/videos/incremental_valid_manifest.jsonl'
     reported = set(completed) | ({current} if current else set())
     videos = Counter()
     video_runs = {}
     seen_videos = set()
-    if manifest.is_file():
-        for line in manifest.read_text().splitlines():
+    manifests = [run_dir(name) / 'videos' / 'incremental_valid_manifest.jsonl' for name in reported]
+    for video_manifest in manifests:
+        for line in video_manifest.read_text().splitlines() if video_manifest.is_file() else []:
             if not line.strip():
                 continue
             row = json.loads(line)
@@ -322,7 +324,7 @@ def main(argv=None):
             videos[row.get('kind')] += 1
             video_runs.setdefault(name, Counter())[row.get('kind')] += 1
     rendered = len(seen_videos)
-    state_path = args.output_dir / 'replays' / 'incremental_valid_state.json'
+    state_path = '各 run/videos/incremental_valid_state.json'
 
     heatmaps = {}
     for run in completed + ([current] if current else []):
@@ -436,7 +438,7 @@ def main(argv=None):
 
     lines += ['## 5. 目录视图', '',
               '- `figures/`、`preparations/`、`planning/`、`rollouts/`：`<pick|open>/<类别>/<valid_task|no_valid_task>/<条目>`。',
-              '- `replays/`：`<pick|open>/<类别>/<valid_task|no_valid_task>/<success|failure>/<scene_id>`，不再经过 replay-run 层。',
+              '- 视频保存在各来源 run 的 `videos/`，不创建分类链接视图。',
               '- 分类视图是符号链接，已有结果不移动、不复制；每 30 min 自动重建。',
               '- 目录中的 `valid_task` 与第 1/2 节一致：任务至少 1 条 success trial。', '',
               '## 6. ETA', '',

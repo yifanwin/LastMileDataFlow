@@ -49,7 +49,7 @@ def main(argv=None):
     parser.add_argument('--run-id-prefix', required=True)
     parser.add_argument('--gpu', type=int, default=0)
     args = parser.parse_args(argv)
-    output = args.output_dir / 'replays'
+    output = args.output_dir / 'analysis'
     output.mkdir(parents=True, exist_ok=True)
     combined_path = output / f'{args.run_id_prefix}-manifest.jsonl'
     combined = []

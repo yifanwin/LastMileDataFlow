@@ -479,7 +479,7 @@ def _prepare_run(dataset, config, collection, output_dir, run_id, gpu, samples, 
         'profiles': profiles, 'gpu': gpu, 'seed': config.seed, 'calibration': str(Path(calibration).resolve()) if calibration else None,
         'resources': resources, **({'mode_settings': mode_settings,
             'mode_visibility': {'min_reference_pixels': geometry.get('min_reference_pixels', 24)}}
-            if mode_settings is not None else {})})
+            if mode_settings is not None else {})}, prepared=True)
     if resources and resources.get('split_planning'):
         from ..runtime.resources import calibration_recording
         saved = read_config(root / 'config.json')
@@ -531,7 +531,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
     try:
         if config.operation_backend in ('molmobot', 'pi05'):
             from ..policies.config import create_policy
-            logs = Path(output_dir) / 'logs'
+            logs = root / 'logs'
             logs.mkdir(parents=True, exist_ok=True)
             policy = create_policy(config.policy_config, logs / f'{run_id}-policy.log')
         if split and prior is None:
@@ -649,7 +649,7 @@ def evaluate_recipe(recipe, assets_dir, config, collection, output_dir, *, run_i
                     build_workers=1, exclude_categories=None, **options):
     """Prepare one-shot no-edit scene inputs from a recipe, then calibrate them."""
     from .scene_datasets import prepare_scene_inputs
-    input_root = Path(output_dir) / '_calibration_inputs' / run_id
+    input_root = Path(output_dir) / run_id / 'scene-inputs'
     logger.info('直接标定准备 recipe=%s 输入=%s build_workers=%s exclude=%s',
                 recipe, input_root, build_workers, exclude_categories or [])
     prepare_scene_inputs(recipe, input_root, gpu_ids=gpu_ids, workers=build_workers,
