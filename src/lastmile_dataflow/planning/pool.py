@@ -9,6 +9,7 @@ from queue import Empty
 import time
 from types import SimpleNamespace
 
+from ..gpu import bind_device, resolve_egl_devices
 from ..runtime.execution.protocol import PlanningResponse
 from ..utils.io import write_json
 
@@ -150,8 +151,9 @@ class PlanningService:
         self.scenes.close()
 
 
-def _planning_worker(index, gpu, requests, results, service_type):
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu), OMP_NUM_THREADS='1',
+def _planning_worker(index, gpu, requests, results, service_type, egl_device):
+    bind_device(gpu, egl_device)
+    os.environ.update(OMP_NUM_THREADS='1',
                       OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
     from ..runtime.execution.lifecycle import classify_episode_exception
     from ..runtime.execution.context import OperationFailure
@@ -191,13 +193,15 @@ class PlanningPool:
         if len(values) != len(gpu_ids) or any(
                 not isinstance(value, int) or not 1 <= value <= 4 for value in values):
             raise ValueError('planning workers per GPU must be one value or one 1-4 value per GPU')
+        egl_devices = dict(zip(gpu_ids, resolve_egl_devices(gpu_ids)))
         self.context = multiprocessing.get_context('spawn')
         self.results = self.context.Queue()
         self.workers_per_gpu = tuple(values)
         self.worker_gpu = [gpu for gpu, count in zip(gpu_ids, values) for _ in range(count)]
         self.requests = [self.context.Queue() for _ in self.worker_gpu]
         self.processes = [self.context.Process(target=_planning_worker,
-            args=(index, self.worker_gpu[index], self.requests[index], self.results, service_type))
+            args=(index, self.worker_gpu[index], self.requests[index], self.results, service_type,
+                  egl_devices[self.worker_gpu[index]]))
             for index in range(len(self.requests))]
         self.pending = []
         self.active = {}

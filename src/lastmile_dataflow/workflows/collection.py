@@ -9,6 +9,7 @@ import time
 import multiprocessing
 from queue import Empty
 
+from ..gpu import bind_device, select_devices
 from ..config import CollectionConfig, load_local_config, load_station_run, read_config
 from ..config import RobotConfig
 from ..utils.io import append_row, create_run, read_json, rows, write_json, write_rows
@@ -110,7 +111,7 @@ def _station_worker(worker, gpu, egl_device, requests, results, stop, scene,
                     assets_dir, config, collection, root, reuse_planners):
     from ..utils.logging_config import setup_logging
     setup_logging()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu), MUJOCO_EGL_DEVICE_ID=str(egl_device), MUJOCO_GL='egl')
+    bind_device(gpu, egl_device)
     sim = None
     try:
         sim = Simulation.from_snapshot(scene['scene_path'], scene['robot_config'], target=scene['task']['target_body'])
@@ -500,7 +501,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
         raise ValueError('station_workers must be positive')
     if station_workers > 1 and config.operation_backend != 'curobo':
         raise ValueError('parallel station evaluation currently uses cuRobo')
-    egl_devices = list(gpu_ids) if egl_devices is None else egl_devices
+    egl_devices = select_devices(gpu_ids, egl_devices)
     if len(egl_devices) != len(gpu_ids):
         raise ValueError('provide one EGL device index per GPU')
     resources = {'station_workers': station_workers, 'gpu_ids': list(gpu_ids),
@@ -513,7 +514,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
         resources.update(asdict(split_resources), split_planning=True)
     station_options = dict(workers=station_workers, gpu_ids=gpu_ids, egl_devices=egl_devices,
                            reuse_planners=reuse_planners)
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(egl_devices[0]), MUJOCO_GL='egl')
+    bind_device(gpu_ids[0], egl_devices[0])
     root, scenes, config, collection, prior = _prepare_run(
         dataset, config, collection, output_dir, run_id, gpu_ids[0], samples, calibration, resources=resources,
         **({'dataset_split': 'train'} if config.mode_config is not None and process_scene is _collect_scene else {}))

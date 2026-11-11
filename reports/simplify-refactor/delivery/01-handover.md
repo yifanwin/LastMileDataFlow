@@ -2,7 +2,7 @@
 
 - 状态：active；已恢复工作，阶段 0–2 完成，阶段 7 的控制、策略配置、本体公共工具已实施
 - 替代：无
-- 最新交付：[02-control-policy-refactor.md](02-control-policy-refactor.md)
+- 最新交付：[03-egl-device-binding.md](03-egl-device-binding.md)；控制精简见 [02-control-policy-refactor.md](02-control-policy-refactor.md)
 - 日期：2026-11-11
 - 关联：[../plan/01-refactor-plan.md](../plan/01-refactor-plan.md)（计划、已确认的决定、阶段 0 基线结果）
 
@@ -98,6 +98,8 @@ $PY $U/analysis/compare_dataset.py $U/runs/collect-mat <新的自包含数据集
 
 ## 6 GPU 和渲染：接手前必读
 
+**2026-11-11 更新：设备绑定已修复，真实准备/规划子进程最小出图验证仅占 GPU 0，见最新交付。以下故障描述为修复前记录；完整业务对照仍未补跑。**
+
 - GPU 0–3 平时空闲（有时是 zhanzhihao 在用），4–7 是 fengzhuoqian 长期在跑的进程（每张约 20 GB、利用率约 89%）。开跑前先看 `nvidia-smi` 和进程属主，只用空闲的卡，不干预别人的进程。
 - **渲染设备隔离还没修，修好之前不要跑任何会渲染的运行**：场景构建（出预览图）、带录像的标定、采集、benchmark 评测、RL 验证视频。阶段 0 里，这类运行在指定卡之外的 GPU 4–7 上建过 EGL 上下文（每个约 1.5 GB）；为了查映射起的 4 个带录像的标定，spawn 出的子进程在 GPU 4–7 上各建了一个。用户发现后，这些进程已全部停止。
 - 已知情况：CUDA 计算都落在指定的卡上，额外占用来自 EGL。`CUDA_VISIBLE_DEVICES` 管不住 EGL；这台机器上 EGL 设备号和 nvidia-smi 编号的对应关系还没查清（`eglQueryDeviceStringEXT` 查不到 DRM 节点，直接用 `mujoco.Renderer` 的探针报 `EGLError`）；规划池和站位准备 spawn 的子进程没有逐个绑定渲染设备。
@@ -110,7 +112,7 @@ $PY $U/analysis/compare_dataset.py $U/runs/collect-mat <新的自包含数据集
 ## 7 接下来
 
 1. 用户 2026-11-11 已要求继续精简、减少测试和实机测试、优先构建。本轮先完成阶段 7 中不依赖 GPU 的控制模块合并、策略配置统一和本体公共工具提取；40 项相关现有测试通过，见最新交付。阶段 7 的 execution_config 精简尚待阶段 4 删除旧功能后处理。
-2. 渲染设备隔离和阶段 2 的真实对照仍待完成，下一次实际渲染前按第 6 节处理，不阻塞无渲染的代码构建。
+2. 渲染设备绑定已修复，并完成真实最小出图验证；阶段 2 的业务对照仍待完成。正常使用 --gpu 自动选择 EGL，需要覆盖时使用 --egl-devices。
 3. 阶段 3 场景构建：用新的 `scenes/edits/` 替换 `modes/`、`build/`、`augmentation/`，换成 `SceneRecipe`，重写 `workflows/scene_datasets.py`，按计划 4.1、第 8 节第 5 条的默认值放障碍物。原场景这条路要和 `noedit` 的站位、快照一致；编辑后场景的结果本来就会变，检查接受率、各类拒绝原因和物理校验，并把编辑前后的对比预览图交给用户看。阶段 5、6 的逐位对照要以阶段 0 的 `modes` 快照为输入。
 4. 阶段 4–8 按计划第 7 节执行。阶段 4 里 `pool.py`、`remote.py` 保留，只在内部精简（不做去留对比）。
 5. 需要用户定的事：第 3 节末尾提到的、没有脚本入口的离线回放和预览补生成要不要保留入口。

@@ -9,9 +9,10 @@ def main():
     cli.add_argument('--config', type=Path, required=True, help='策略配置 JSON，见 configs/policies')
     cli.add_argument('--output', type=Path, required=True, help='新评测目录')
     cli.add_argument('--gpu', type=int, required=True)
+    cli.add_argument('--egl-devices', type=int, nargs='+', help='与 --gpu 对应的 EGL 设备号，默认自动查询')
     args = cli.parse_args()
     from lastmile_dataflow.gpu import select_devices
-    select_devices([args.gpu])
+    select_devices([args.gpu], args.egl_devices)
     from lastmile_dataflow.utils.logging_config import setup_logging
     from lastmile_dataflow.workflows.lastmilebench import evaluate
     setup_logging()

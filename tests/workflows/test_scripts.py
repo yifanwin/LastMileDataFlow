@@ -23,9 +23,10 @@ class StageScriptTests(unittest.TestCase):
             self.assertIn('--output', result.stdout, name)
 
     def test_select_devices_binds_cuda_and_egl_to_the_first_card(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('lastmile_dataflow.gpu.egl_device_map', return_value={3: 4, 5: 2}):
             select_devices([3, 5])
-            self.assertEqual((os.environ['CUDA_VISIBLE_DEVICES'], os.environ['MUJOCO_EGL_DEVICE_ID']), ('3', '3'))
+            self.assertEqual((os.environ['CUDA_VISIBLE_DEVICES'], os.environ['MUJOCO_EGL_DEVICE_ID']), ('3', '4'))
             select_devices([3], [1])
             self.assertEqual(os.environ['MUJOCO_EGL_DEVICE_ID'], '1')
             self.assertEqual(os.environ['MUJOCO_GL'], 'egl')

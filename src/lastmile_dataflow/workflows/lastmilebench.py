@@ -8,6 +8,7 @@ import time
 
 import numpy as np
 
+from ..gpu import bind_device
 from ..config import CollectionConfig, robot_config
 from ..data.evaluation.benchmark_config import BenchmarkConfig, load_benchmark_config
 from ..data.evaluation.benchmark import reference_calibration, select_starts, failure_family, summarize
@@ -282,7 +283,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids):
     regions = {key: RecoveryRegion.from_dict(value) for key, value in oracle['regions'].items()}
     policy_config = load_policy_config(policy_path)
     selected_backend = backend(policy_path)
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(gpu_ids[0]))
+    bind_device(gpu_ids[0])
     root = create_run(output, {'benchmark': str(benchmark), 'policy': asdict(policy_config),
                               'seed': settings.seed, 'horizon': settings.horizon, 'wall_timeout_s': settings.wall_timeout_s,
                               'reference_calibration': saved['calibration'], 'scene_profiles': {}})

@@ -17,6 +17,7 @@ import time
 
 import numpy as np
 
+from ..gpu import bind_device
 from ..config import load_robot_config
 from ..runtime.execution_config import load_execution_config
 from ..runtime.simulation import Simulation
@@ -186,8 +187,8 @@ def _task_deadline(seconds):
 
 def _build_house(job):
     recipe, house, robot, root, gpu = job
-    os.environ.update(MUJOCO_GL='egl', MUJOCO_EGL_DEVICE_ID=str(gpu), CUDA_VISIBLE_DEVICES=str(gpu),
-                      OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
+    bind_device(gpu)
+    os.environ.update(OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
     start = time.monotonic()
     records = []
     report = {'house': house, 'dataset_split': recipe.house_splits[str(house)], 'tasks': []}

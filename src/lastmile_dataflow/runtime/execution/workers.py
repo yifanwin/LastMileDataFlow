@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import time
 
+from ...gpu import bind_cpu_renderer
 from ..simulation import SnapshotCache
 from .context import clone_sim
 from .curobo import run_curobo_attempt
@@ -20,7 +21,7 @@ _scenes = None
 
 def initialize_preparation_worker():
     global _scenes
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    bind_cpu_renderer()
     _scenes = SnapshotCache()
 
 
@@ -72,7 +73,7 @@ def record_unexecuted(scene, index, prepared, response, budget, config, collecti
 
 def execution_worker(index, jobs, planning_requests, planning_responses, results, stop,
                      config, collection, assets_dir, root, reuse_planners=True, *, runner=run_curobo_attempt):
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    bind_cpu_renderer()
     with closing(SnapshotCache()) as scenes:
         while True:
             job = jobs.get()

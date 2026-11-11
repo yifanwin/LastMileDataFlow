@@ -17,3 +17,18 @@
 
 `curobo_v2.json` 是 RBY-1，`panda_omron_robocasa_curobo.json` 是 Panda RoboCasa。要改记录或并行就复制一份新文件，
 不要改动已有 run 用过的文件。
+
+## GPU 与渲染
+
+`--gpu` 使用物理 GPU 编号。入口自动查询 CUDA 与 EGL 的对应关系，准备、执行和规划子进程继承同一映射。
+CPU 准备和执行进程的 CUDA 可见列表为空，但仍在首张所选 GPU 上渲染；规划进程在各自 GPU 上计算和渲染。
+
+```bash
+PYTHONPATH=src /data1/wenyifan/lmdf/LastMileDataFlow/.venv/bin/python scripts/station_map.py \
+  --dataset <场景库> --config <运行配置> --output <新目录> --gpu 0
+```
+
+需要手动覆盖时，`--egl-devices` 与 `--gpu` 一一对应，填 EGL 枚举编号，不是物理 GPU 编号。
+本机 2026-11-11 查询及最小出图验证：GPU 0 对应 EGL 7，可用 `--gpu 0 --egl-devices 7`。
+`build_scenes.py`、`collect.py` 和 `bench_evaluate.py` 同样支持该覆盖；通常不需要手动设置。
+首次渲染前完成设备绑定，运行中不要切换已经建立的 EGL 上下文。
