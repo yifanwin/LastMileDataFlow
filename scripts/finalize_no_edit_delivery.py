@@ -21,37 +21,18 @@ def wait_pid(pid, log):
 
 
 def report(path, result, analysis_dir):
-    lines = ['# 无编辑全体 val 最终交付', '',
+    lines = ['# 无编辑全体 val 实验结果', '',
+             '- 状态：done',
              f"- 日期：{time.strftime('%Y-%m-%d')}",
-             f"- 标定 run：{len(result['runs'])} 个",
-             f"- house：{result['counts']['houses']}；task：{result['counts']['tasks']}；"
-             f"station：{result['counts']['stations']}；有效 trial：{result['counts']['trials']}", '',
-             '## 任务分类', '', '| 类别 | 数量 |', '|---|---:|']
-    lines += [f'| {key} | {value} |' for key, value in result['task_classes'].items()]
-    lines += ['', '## trial 级失败主表', '',
-              '| 阶段/原因 | pick | open | 合计 | 占全部 |', '|---|---:|---:|---:|---:|']
-    for row in result['main_table']:
-        share = f"{100 * row['share']:.2f}%" if row.get('share') is not None else '—'
-        lines.append(f"| {row['row']} | {row['pick']} | {row['open']} | {row['合计']} | {share} |")
-    lines += ['', '## 目标类别成功率', '',
-              '| 类别 | 操作 | tasks | houses | trials | 成功 | 成功率 |', '|---|---|---:|---:|---:|---:|---:|']
-    for row in result['target_categories']:
-        rate = f"{100 * row['success_rate']:.2f}%" if row.get('success_rate') is not None else '—'
-        lines.append(f"| {row['category']} | {row['operation']} | {row['tasks']} | {row['houses']} | "
-                     f"{row['trials']} | {row['successes']} | {rate} |")
-    lines += ['', '## 后续批次排除类别', '',
-              ', '.join(result['exclude_categories']) if result['exclude_categories'] else '无', '',
-              '## 明细文件', '',
-              f"- `{analysis_dir / 'planning_failures.jsonl'}`",
-              f"- `{analysis_dir / 'execution_failures.jsonl'}`",
-              f"- `{analysis_dir / 'failure_summary.json'}`",
-              f"- `{analysis_dir / 'target_success_rates.json'}`",
-              f"- `{analysis_dir / 'failure_table.md'}`",
-              f"- `{analysis_dir / 'replay_manifest.jsonl'}`", '',
-              '## 边界', '',
-              '- 规划无解、未执行、未知 timeout 不写成任务失败。',
-              '- 基础设施错误与任务失败分开；不补造 trial。',
-              '- 视频由已有 rollout 离线回放，不新增物理步。']
+             '- 替代：无',
+             f'- 关联：{analysis_dir}', '',
+             f"标定包含 {len(result['runs'])} 个 run，"
+             f"共记录 {result['counts']['trials']} 条 trial。", '',
+             '统计表、失败明细和可视化保存在实验单元的 analysis，不在报告中重复保存。',
+             f"- [失败统计表]({(analysis_dir / 'failure_table.md').resolve()})",
+             f"- [汇总数据]({(analysis_dir / 'failure_summary.json').resolve()})", '',
+             '规划无解、未执行和未知 timeout 不当作任务失败；基础设施错误单独统计。',
+             '离线视频仅回放已记录状态，不新增物理步。']
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('\n'.join(lines) + '\n')
 
@@ -61,19 +42,20 @@ def main(argv=None):
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--output-dir', type=Path, default=Path('outputs'))
     parser.add_argument('--driver-pid', type=int)
-    parser.add_argument('--analysis-out', type=Path, default=Path('outputs/_analysis/final'))
+    parser.add_argument('--analysis-out', type=Path, help='默认 <单元>/analysis')
     parser.add_argument('--report', type=Path,
                         default=Path('reports/no-edit-calibration/delivery/02-final.md'))
     parser.add_argument('--video-gpu', type=int, default=0)
     parser.add_argument('--skip-video', action='store_true')
     args = parser.parse_args(argv)
-    log_path = args.output_dir / 'logs' / 'no-edit-finalizer.log'
+    args.analysis_out = args.analysis_out or args.output_dir / 'analysis'
+    log_path = args.output_dir / 'analysis' / 'finalizer.log'
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open('a') as log:
         log.write(f'finalizer start {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
         wait_pid(args.driver_pid, log)
         state = json.loads(args.state.read_text())
-        runs = [args.output_dir / item for item in state.get('completed', [])]
+        runs = [next(iter(sorted((args.output_dir / 'runs').glob(f'*/{item}'))), args.output_dir / 'runs' / item) for item in state.get('completed', [])]
         log.write(f'analyze {len(runs)} runs\n'); log.flush()
         result = analyze_runs(runs, args.analysis_out, min_trials=30, min_houses=2)
         report(args.report, result, args.analysis_out)
@@ -87,14 +69,9 @@ def main(argv=None):
                 log.write(f"replay $ {' '.join(map(str, command))}\n"); log.flush()
                 subprocess.run([str(item) for item in command], check=False,
                                stdout=log, stderr=subprocess.STDOUT)
-        organize = [sys.executable, ROOT / 'scripts/organize_outputs_by_task.py',
-                    '--output-dir', args.output_dir]
-        log.write(f"organize $ {' '.join(map(str, organize))}\n"); log.flush()
-        subprocess.run([str(item) for item in organize], check=False,
-                       stdout=log, stderr=subprocess.STDOUT)
         status = [sys.executable, ROOT / 'scripts/report_no_edit_status.py',
                   '--state', args.state, '--output-dir', args.output_dir,
-                  '--output', ROOT / 'reports/no-edit-calibration/delivery/status.md',
+                  '--output', args.analysis_out / 'status.md',
                   '--driver-pid', str(args.driver_pid or 0)]
         subprocess.run([str(item) for item in status], check=False,
                        stdout=log, stderr=subprocess.STDOUT)

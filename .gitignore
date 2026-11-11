@@ -7,7 +7,7 @@ __pycache__/
 /data/
 /configs/local.json
 outputs/*
-!outputs/outputs_rules.md
+!outputs/RULES.md
 .pytest_cache/
 reports/logs/
 .claude/

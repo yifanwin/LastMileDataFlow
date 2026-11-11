@@ -63,14 +63,14 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 - 根目录 `configs/`：显式 JSON 配置；解析规则见下节。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
 - `tests/`：按 `scenes/runtime/planning/policies/data/workflows` 分组；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
-- `outputs/`：运行产物，细则见 [outputs/outputs_rules.md](outputs/outputs_rules.md)。硬规则：
-  1. 顶层只有 `campaigns/`（按配方批量运行）、`experiments/`（少数「场景 + 目标物体」上的定位与对照；临时试跑放 `experiments/scratch/`，7 天内转为正式主题或删除）、本地索引 `README.md`，以及 `outputs_rules.md`。
-  2. 每个 campaign 或实验主题自成一体，带 `README.md`（用途、状态、代码提交号、对应报告）；子目录只用 `src/ inputs/ runs/ replays/ views/ analysis/ logs/`（campaign 另有 `state.json`），按需创建。
-  3. 每个目录的直接子目录不超过 25 个，超出时按序号（`c000-c009`）或对照组分组；名称只用小写字母、数字、连字符和 `YYYYMMDD`，不复用。
-  4. 运行期间代码不变：先提交并记录提交号，从 `git archive` 导出的 `src/` 或固定在该提交上的 worktree 启动；运行中替换任何文件都要在该单元的 README 登记。
-  5. 结束、作对照保留、被替代，都只改 README 里的状态，不移动目录；有进程在读写时，不移动、改名或删除该单元、它所在的 worktree 以及 `outputs/`；确需搬迁时按细则第 7 节执行。
-  6. 删除前须经用户确认，并记入 `outputs/README.md`；不删被报告引用的结果、对照基线，以及已有 run 依赖的冻结输入。
-- 不提交环境、缓存、大型资产或运行产物（`outputs/outputs_rules.md` 除外）；根目录数据忽略规则保持 `/data/`，不能误忽略源码和测试中的同名目录。
+- `outputs/`：运行产物，细则见 [outputs/RULES.md](outputs/RULES.md)。
+  1. `batches/` 用于批量运行、评测和采集；`experiments/` 用于特定问题的复现、对照和参数实验；`experiments/scratch/` 用于临时测试，无需完整实验管理。
+  2. 一个单元回答一个问题；一个 run 是最小归档单位。配置、日志、指标、checkpoint、视频和生成输入均归入对应 `runs/<run>/`，内部目录按需创建。
+  3. 单元 README 简要记录目的、状态、Git commit、工作区状态、命令、配置、Runs 表和报告链接；顶层 README 只列单元及用途，不重复维护状态。
+  4. 记录代码版本，不复制源码。长期任务使用固定 commit 的 worktree，运行期间不修改代码。
+  5. `runs/` 保存原始结果，`analysis/` 保存分析、统计和可视化，仓库 `reports/` 保存结论；同一结果不重复保存。
+  6. 每个目录的直接子目录不超过 20 个，多时按批次或条件分组。历史产物不自动迁移；有进程读写时不搬迁，删除结果须经用户确认。
+- 不提交环境、缓存、大型资产或运行产物（`outputs/RULES.md` 除外）；根目录数据忽略规则保持 `/data/`，不能误忽略源码和测试中的同名目录。
 
 ## 环境与路径
 
@@ -78,7 +78,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 - `data_root` 在含数据输入的配置中显式填写，绝对路径或相对仓库根目录均可。
 - 数据、快照、权重、tokenizer 路径相对于 `data_root`；配置文件和解释器路径相对于仓库根目录，也可使用绝对路径。不是相对于当前 JSON 文件位置。
 - CLI 文件系统参数按调用工作目录解释；从其他目录调用时优先传绝对路径。
-- 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位；`outputs/` 内的产物搬迁按 `outputs/outputs_rules.md` 第 7 节改写路径，其他位置搬迁后显式调整输入位置并重建环境。
+- 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位；`outputs/` 内的产物搬迁按 `outputs/RULES.md` 的搬迁规则改写路径，其他位置搬迁后显式调整输入位置并重建环境。
 - MJB 恢复要求匹配生成时的 MuJoCo 版本；不能把可查看的 XML 宣称为已验证的独立可搬迁资产包。
 - GPU 0–7 按实时利用率与空闲显存选择，CLI 显式传 `--gpu <index>`；不在代码中固定卡号，不干预其他进程。
 

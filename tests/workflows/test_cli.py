@@ -34,7 +34,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.output_dir, Path('/shared/output'))
         args = parser().parse_args(['evaluate-bench', '--benchmark', 'bench', '--output', 'result',
                                     '--policy-config', 'policy.json', '--gpu', '6'])
-        self.assertEqual(args.log_dir, Path('/shared/output/logs'))
         self.assertEqual(args.output, Path('result'))
 
     def test_assets_and_gpu_still_required_without_defaults(self):
@@ -58,7 +57,7 @@ class CliTests(unittest.TestCase):
               patch('builtins.print')):
             main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0', 'r1',
                   '--replay-camera', 'overview', '--output-dir', 'out', '--run-id', 'video', '--gpu', '0'])
-        replay.assert_called_once_with(Path('run'), Path('out/replays/video'),
+        replay.assert_called_once_with(Path('run'), Path('run/videos/video'),
                                        rollouts=['r0', 'r1'], camera='overview')
         evaluate.assert_not_called()
 
@@ -70,7 +69,7 @@ class CliTests(unittest.TestCase):
             main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0',
                   '--replay-layout', 'grid', '--output-dir', 'out', '--run-id', 'video',
                   '--gpu', '0'])
-        grid.assert_called_once_with(Path('run'), Path('out/replays/video'), rollouts=['r0'])
+        grid.assert_called_once_with(Path('run'), Path('run/videos/video'), rollouts=['r0'])
         evaluate.assert_not_called()
 
     def test_materialization_dispatch_needs_neither_gpu_nor_assets(self):

@@ -202,19 +202,19 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 .venv/bin/python tests/smoke/multitask.py \
   --checkpoint "$DATA_ROOT/models/MolmoBot-RBY1Multitask" \
   --tokenizer "$DATA_ROOT/models/Qwen3-tokenizer" --gpu "$GPU" \
-  --output "outputs/diagnostics/multitask-smoke"
+  --output "outputs/experiments/scratch/20261111-multitask-smoke"
 ```
 
 小样本主链：
 
 ```bash
 .venv/bin/lastmile-dataflow build-scenes \
-  --config configs/scene_datasets/val103_cup30_minimal_v3.json --run-id small --gpu "$GPU"
+  --config configs/scene_datasets/val103_cup30_minimal_v3.json --output-dir outputs/batches/example/runs --run-id scenes --gpu "$GPU"
 .venv/bin/lastmile-dataflow evaluate-stations \
-  --dataset "outputs/scene_datasets/small" --run-id stations --gpu "$GPU"
+  --dataset "outputs/batches/example/runs/scenes" --output-dir outputs/batches/example/runs --run-id stations --gpu "$GPU"
 .venv/bin/lastmile-dataflow collect-lastmile \
-  --dataset "outputs/scene_datasets/small" \
-  --calibration "outputs/stations" --run-id lastmile --gpu "$GPU"
+  --dataset "outputs/batches/example/runs/scenes" \
+  --calibration "outputs/batches/example/runs/stations" --output-dir outputs/batches/example/runs --run-id lastmile --gpu "$GPU"
 ```
 
 benchmark 见 `build-bench --help`、`evaluate-bench --help`。

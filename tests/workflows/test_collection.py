@@ -27,6 +27,20 @@ from tests.helpers import DatasetTestCase
 
 
 class CollectionTests(DatasetTestCase):
+    def test_prepared_run_keeps_inputs_and_logs_and_refuses_overwrite(self):
+        from lastmile_dataflow.workflows.collection import _prepare_run
+
+        dataset = self.dataset()
+        root = self.root / 'prepared'
+        write_json(root / 'scene-inputs' / 'summary.json', {'accepted': 1})
+        (root / 'run.log').write_text('preparation completed\n')
+        args = (dataset, ExecutionConfig(), self.collection, self.root, 'prepared', 0, None, None)
+        _prepare_run(*args)
+        self.assertEqual(read_json(root / 'scene-inputs' / 'summary.json'), {'accepted': 1})
+        self.assertEqual((root / 'run.log').read_text(), 'preparation completed\n')
+        with self.assertRaises(FileExistsError):
+            _prepare_run(*args)
+
     def test_sampling_geometry_does_not_override_execution_workspace(self):
         from lastmile_dataflow.workflows.collection import _prepare_run
 

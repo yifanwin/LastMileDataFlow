@@ -460,7 +460,7 @@ def build_scenes(config, output_dir, run_id, *, gpu_ids, workers=1):
         raise ValueError(f'build workers must be between 1 and {_build_worker_limit()}')
     recipe = load_task_mode_recipe(config)
     robot = load_robot_config(recipe.robot_config)
-    root = _create_build_root(Path(output_dir) / 'scene_datasets' / run_id, recipe, robot)
+    root = _create_build_root(Path(output_dir) / run_id, recipe, robot)
     return _build_into_root(recipe, robot, root, gpu_ids, workers)
 
 

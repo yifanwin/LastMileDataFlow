@@ -64,17 +64,15 @@ def chunk_group(index, size):
     return f'c{low:03d}-c{low + size - 1:03d}'
 
 
-def chunk_dirs(output, index, size):
-    """(run parent, input parent) of a chunk; flat legacy layout when size is 0."""
-    if not size:
-        return output, output / '_calibration_inputs'
-    group = chunk_group(index, size)
-    return output / 'runs' / group, output / 'inputs' / group
+def run_parent(output, index, size):
+    parent = output / 'runs'
+    if size:
+        parent /= chunk_group(index, size)
+    return parent
 
 
 def find_run(output, name):
-    """Run directory in either layout."""
-    return next(iter(sorted((output / 'runs').glob(f'*/{name}'))), output / name)
+    return next(iter(sorted((output / 'runs').glob(f'*/{name}'))), output / 'runs' / name)
 
 
 def pipeline_env():
@@ -106,7 +104,8 @@ def wait(process, label):
 def recipe_for(base, houses, exclusions, path):
     value = {**base, 'houses': houses, 'exclude_categories': sorted(exclusions)}
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + '\n')
+    if not path.exists():
+        path.write_text(json.dumps(value, indent=2) + '\n')
     return path
 
 
@@ -136,15 +135,15 @@ def main(argv=None):
     parser.add_argument('--max-chunks', type=int)
     parser.add_argument('--state', type=Path)
     parser.add_argument('--group-size', type=int, default=0,
-                        help='>0 时每 N 个 chunk 一组：runs/<组>/<run>、inputs/<组>/<run>，避免单层目录过多')
+                        help='>0 时每 N 个 chunk 一组：runs/<组>/<run>；输入和日志保存在 run 内，避免单层目录过多')
     args = parser.parse_args(argv)
 
     base = json.loads(args.recipe.read_text())
     houses = list(base['houses'])
     output = args.output_dir
-    state_path = args.state or (output / '_calibration_inputs' / f'{args.run_prefix}-state.json')
+    state_path = args.state or (output / 'state.json')
     state = load_state(state_path)
-    analysis_root = output / '_analysis' / args.run_prefix
+    analysis_root = output / 'analysis'
     env = pipeline_env()
     if state.get('completed'):
         if not state.get('category_stats'):
@@ -156,17 +155,17 @@ def main(argv=None):
     chunks = chunks_of(houses, args.first_chunk_houses, args.chunk_houses)
     if args.max_chunks:
         chunks = chunks[:args.max_chunks]
-    recipe_dir = (output / 'inputs' if args.group_size else output / '_calibration_inputs') / 'recipes'
-    log_dir = output / 'logs'
-    prepared = {}
+    if len(chunks) > 20 and not args.group_size:
+        args.group_size = 10
     heatmaps = []
     print(f'chunks={len(chunks)} run_prefix={args.run_prefix} state={state_path}', flush=True)
 
     def prepare_command(index, chunk):
         run_id = f'{args.run_prefix}-c{index:03d}'
-        input_root = chunk_dirs(output, index, args.group_size)[1] / run_id
+        run_root = run_parent(output, index, args.group_size) / run_id
+        input_root = run_root / 'scene-inputs'
         recipe = recipe_for(base, chunk, state['exclude_categories'],
-                            recipe_dir / f'{args.run_prefix}-c{index:03d}.json')
+                            run_root / 'recipe.json')
         command = [sys.executable, ROOT / 'scripts/prepare_no_edit_inputs.py',
                    '--recipe', recipe, '--output', input_root,
                    '--build-workers', args.build_workers, '--gpu', *args.gpu]
@@ -175,7 +174,7 @@ def main(argv=None):
     def calibration_command(index, run_id, input_root):
         return [sys.executable, '-m', 'lastmile_dataflow.cli', 'evaluate-stations',
                 '--dataset', input_root, '--assets-dir', args.assets_dir,
-                '--config', args.config, '--output-dir', chunk_dirs(output, index, args.group_size)[0],
+                '--config', args.config, '--output-dir', run_parent(output, index, args.group_size),
                 '--run-id', run_id,
                 '--gpu', *args.gpu, '--egl-devices', *args.gpu,
                 '--cpu-workers', args.cpu_workers,
@@ -190,18 +189,16 @@ def main(argv=None):
         print(f'skip existing input {first_input}', flush=True)
     else:
         print(f'prepare {first_id} houses={chunks[0][0]}-{chunks[0][-1]}', flush=True)
-        wait(start(first_command, log_dir / f'{first_id}-prepare.log', env), f'prepare {first_id}')
-    prepared[0] = first_input
+        wait(start(first_command, first_input.parent / 'prepare.log', env), f'prepare {first_id}')
 
     for index, chunk in enumerate(chunks):
         run_id, input_root, _ = prepare_command(index, chunk)
-        run_dir = chunk_dirs(output, index, args.group_size)[0] / run_id
-        prepared[index] = input_root
+        run_dir = run_parent(output, index, args.group_size) / run_id
         calibration = None
         if run_id not in state['completed']:
             print(f'calibrate {run_id} houses={chunk[0]}-{chunk[-1]}', flush=True)
             calibration = start(calibration_command(index, run_id, input_root),
-                                log_dir / f'{run_id}.log', env)
+                                run_dir / 'run.log', env)
         next_prepare = None
         if index + 1 < len(chunks):
             next_id, next_input, next_command = prepare_command(index + 1, chunks[index + 1])
@@ -209,7 +206,7 @@ def main(argv=None):
                 print(f'skip existing input {next_input}', flush=True)
             else:
                 print(f'prepare {next_id} while {run_id} calibrates', flush=True)
-                next_prepare = start(next_command, log_dir / f'{next_id}-prepare.log', env)
+                next_prepare = start(next_command, next_input.parent / 'prepare.log', env)
         new_run = False
         if calibration is not None:
             try:
@@ -227,7 +224,7 @@ def main(argv=None):
             heatmaps.append(start([sys.executable, ROOT / 'scripts/export_no_edit_heatmaps.py',
                                    '--calibration', run_dir,
                                    '--workers', args.heatmap_workers, '--skip-existing'],
-                                  log_dir / f'{run_id}-heatmap.log', env))
+                                  run_dir / 'heatmap.log', env))
         if next_prepare is not None:
             wait(next_prepare, f'prepare {next_id}')
         if new_run:

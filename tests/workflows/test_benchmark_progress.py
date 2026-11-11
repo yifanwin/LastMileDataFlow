@@ -62,7 +62,7 @@ class BenchmarkProgressTests(DatasetTestCase):
                 OSError('fixture write error')]),
             self.assertRaisesRegex(OSError, 'fixture write error'),
         ):
-            workflow.evaluate(bench, output, 'unused-policy.json', gpu_ids=[0], log_dir=self.root / 'logs')
+            workflow.evaluate(bench, output, 'unused-policy.json', gpu_ids=[0])
         policy.close.assert_called_once()
         self.assertEqual(len(rows(output / 'results.jsonl')), 1)
         summary = read_json(output / 'summary.json')
@@ -81,7 +81,7 @@ class BenchmarkProgressTests(DatasetTestCase):
             patch.object(workflow, 'backend', return_value='molmobot'),
             patch.object(workflow, 'create_policy') as client,
         ):
-            workflow.evaluate(bench, output, 'unused-policy.json', gpu_ids=[0], log_dir=self.root / 'logs')
+            workflow.evaluate(bench, output, 'unused-policy.json', gpu_ids=[0])
         client.assert_not_called()
         summary = read_json(output / 'summary.json')
         self.assertEqual(summary['not_executed'], 2)

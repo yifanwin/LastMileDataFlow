@@ -56,8 +56,10 @@ def write_rows(path, values):
     temporary.replace(path)
 
 
-def create_run(path, config):
+def create_run(path, config, *, prepared=False):
     path = Path(path)
-    path.mkdir(parents=True, exist_ok=False)
+    if prepared and (path / 'config.json').exists():
+        raise FileExistsError(path)
+    path.mkdir(parents=True, exist_ok=prepared)
     write_json(path / 'config.json', config)
     return path

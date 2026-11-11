@@ -15,7 +15,6 @@ def parser():
         local = load_local_config()
     except (OSError, ValueError, TypeError) as error:
         cli.error(f'configs/local.json: {error}')
-    cli.set_defaults(log_dir=local.output_dir / 'logs')
     commands = cli.add_subparsers(dest='command', required=True)
     build = commands.add_parser('build-scenes')
     source = build.add_mutually_exclusive_group(required=True)
@@ -73,7 +72,7 @@ def parser():
         command.add_argument('--output', required=True, type=Path)
     for command in (build, commands.choices['evaluate-stations'], commands.choices['collect-lastmile']):
         command.add_argument('--output-dir', type=Path, default=local.output_dir,
-                             help='输出根目录；默认读取 configs/local.json，否则为 outputs')
+                             help='run 的父目录；默认读取本机配置；离线回放固定写入来源 run/videos')
         command.add_argument('--run-id', required=command is not build)
     for name, command in commands.choices.items():
         command.add_argument('--gpu', required=name not in ('collect-lastmile', 'build-bench'), type=int,
@@ -108,11 +107,11 @@ def main(argv=None):
     if replaying:
         if args.replay_layout == 'grid':
             from .data.rendering.rollout_video import render_run_grid
-            output = render_run_grid(args.replay_from, args.output_dir / 'replays' / args.run_id,
+            output = render_run_grid(args.replay_from, args.replay_from / 'videos' / args.run_id,
                                      rollouts=args.rollouts)
         else:
             from .data.rendering.replay import render_run
-            output = render_run(args.replay_from, args.output_dir / 'replays' / args.run_id,
+            output = render_run(args.replay_from, args.replay_from / 'videos' / args.run_id,
                                 rollouts=args.rollouts, camera=args.replay_camera)
     elif materializing:
         from .data.export.lastmile_dataset import materialize_lastmile
@@ -154,8 +153,7 @@ def main(argv=None):
                        config_path=args.config, gpu_ids=gpu_ids)
     else:
         from .workflows.lastmilebench import evaluate
-        output = evaluate(args.benchmark, args.output, args.policy_config, gpu_ids=gpu_ids,
-                          log_dir=args.log_dir)
+        output = evaluate(args.benchmark, args.output, args.policy_config, gpu_ids=gpu_ids)
     logger.info('命令结束=%s 输出=%s（任务结果以主记录为准）', args.command, output)
     # stdout 只保留结果目录，进度日志写 stderr。
     print(output)
