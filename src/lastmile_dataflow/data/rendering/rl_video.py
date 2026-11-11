@@ -3,7 +3,7 @@ from pathlib import Path
 import time
 from types import SimpleNamespace
 
-from .third_person import ThirdPersonCamera
+from .third_person import ThirdPersonCamera, ThirdPersonConfig
 
 from ..recorder import video_writer
 import mujoco
@@ -21,7 +21,9 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
     target_id = model.body(settings['target_body']).id
     sim = SimpleNamespace(model=model, data=data, target_id=target_id,
                           robot=SimpleNamespace(config=SimpleNamespace(namespace='robot/robot_0/')))
-    wrist = 'robot/robot_0/robot0_eye_in_hand'
+    close_observer = ThirdPersonCamera(ThirdPersonConfig(context_margin_m=.04))
+    close_sim = SimpleNamespace(model=model, data=data, target_id=target_id,
+                                robot=SimpleNamespace(config=SimpleNamespace(namespace='robot/robot_0/gripper0_right')))
     path = Path(path)
     path.parent.mkdir(exist_ok=True)
     with mujoco.Renderer(model, height=height, width=width) as renderer, video_writer(path, round(1 / dt)) as writer:
@@ -29,8 +31,8 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
             data.qpos[:] = qpos
             mujoco.mj_forward(model, data)
             overview = observer.render(sim, renderer, width, height)
-            renderer.update_scene(data, camera=wrist)
-            frames = (overview, renderer.render().copy())
+            closeup = close_observer.render(close_sim, renderer, width, height)
+            frames = (overview, closeup)
             picture = Image.fromarray(np.concatenate(frames, axis=1))
             draw = ImageDraw.Draw(picture)
             text = label + '\n' + row + '\n' + result
@@ -38,6 +40,6 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
             draw.text((8, 5), text, fill='white')
             writer.append_data(np.asarray(picture))
     return {'path': str(path), 'frames': len(states), 'duration_s': len(states) * dt,
-            'camera': {'overview': observer.metadata(), 'close': wrist},
+            'camera': {'overview': observer.metadata(), 'close': close_observer.metadata()},
             'simulation_duration_s': (len(states) - 1) * dt,
             'render_seconds': time.perf_counter() - started}
