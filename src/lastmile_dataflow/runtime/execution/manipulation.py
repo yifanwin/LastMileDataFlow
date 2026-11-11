@@ -28,7 +28,7 @@ def _candidate_score(sim, reference, method, candidate):
     return float(np.dot(goal[:3, 2], vector) / max(np.linalg.norm(vector), 1e-9))
 
 
-def candidate_pool(ctx, candidates, seed, forced):
+def candidate_pool(sim, config, candidates, seed, forced):
     rng = np.random.default_rng(seed)
     if forced:
         pool = [
@@ -38,22 +38,14 @@ def candidate_pool(ctx, candidates, seed, forced):
         ]
         if not pool:
             raise ValueError("missing winning grasp")
-        return pool[: ctx.config.max_grasp_candidates]
-    method = ctx.config.grasp_candidate_order
-    reference = (
-        tcp_pose(ctx.sim, ctx.sim.robot.arms[0])[:3, 3]
-        if method == "tcp_distance"
-        else ctx.sim.robot.base_pose()
-    )
-    score = partial(_candidate_score, ctx.sim, reference, method)
+        return pool[: config.max_grasp_candidates]
+    method = config.grasp_candidate_order
+    reference = tcp_pose(sim, sim.robot.arms[0])[:3, 3] if method == "tcp_distance" else sim.robot.base_pose()
+    score = partial(_candidate_score, sim, reference, method)
     if method == "tcp_distance":
-        return sorted(candidates, key=score)[: ctx.config.max_grasp_candidates]
-    pool = sorted(candidates, key=score, reverse=True)[
-        : max(ctx.config.max_grasp_candidates * 8, 16)
-    ]
-    return [
-        pool[i] for i in rng.permutation(len(pool))[: ctx.config.max_grasp_candidates]
-    ]
+        return sorted(candidates, key=score)[: config.max_grasp_candidates]
+    pool = sorted(candidates, key=score, reverse=True)[: max(config.max_grasp_candidates * 8, 16)]
+    return [pool[i] for i in rng.permutation(len(pool))[: config.max_grasp_candidates]]
 
 
 def grasp_goals(sim, config, pool, *, retreat=False):
@@ -91,7 +83,7 @@ class _Manipulation:
     def __init__(self, ctx, task, candidates, assets_dir, seed, forced=None):
         self.ctx, self.sim, self.task = ctx, ctx.sim, task
         self.seed, self.assets_dir = seed, assets_dir
-        self.pool = candidate_pool(ctx, candidates, seed, forced)
+        self.pool = candidate_pool(ctx.sim, ctx.config, candidates, seed, forced)
         if forced:
             self.sides = [forced["arm"]]
         else:

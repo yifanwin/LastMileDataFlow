@@ -23,12 +23,12 @@ from tests.helpers import DatasetTestCase
 
 class FixtureService:
     def execute(self, request):
-        if request.inputs['task'].get('shared_fault'):
+        if request.inputs.task.get('shared_fault'):
             raise MemoryError('synthetic shared planning fault')
         time.sleep(.01)
         responses = []
         for identity, budget in zip(request.identities, request.budgets):
-            no_solution = request.inputs['task'].get('no_solution', False)
+            no_solution = request.inputs.task.get('no_solution', False)
             if request.stage == 'preclose':
                 plan = {'success': not no_solution, 'index': None if no_solution else 0,
                         'stages': {}, 'diagnostics': {'batch_slot': identity.trial}}

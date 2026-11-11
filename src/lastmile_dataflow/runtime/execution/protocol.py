@@ -62,6 +62,24 @@ class TrialBudget:
 
 
 @dataclass
+class PlanningInputs:
+    """Scene, task and execution context a GPU planning service needs for one request."""
+    task: dict
+    robot: object
+    config: object
+    root: str
+    assets_dir: str
+    model_dir: str | None = None
+    candidates: list | None = None          # preclose grasp batch
+    preparation_path: str | None = None     # prepared station state of a preclose batch
+    side: str | None = None                 # pose queries of a running trial
+    phase: str | None = None
+    attached: bool = False
+    goal: object = None
+    recording_step: int | None = None
+
+
+@dataclass
 class PlanningRequest:
     query_id: str
     model_dir: str
@@ -69,7 +87,7 @@ class PlanningRequest:
     state: SimulationState
     stage: str
     budgets: list[TrialBudget]
-    inputs: dict = field(default_factory=dict)
+    inputs: PlanningInputs | None = None
     enqueued_at: float = field(default_factory=time.monotonic)
 
 

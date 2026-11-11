@@ -81,18 +81,23 @@ def reset_motion_seed(motion, seed):
     for solver in (motion.ik_solver, motion.trajopt_solver):
         core = solver.core
         core.config.random_seed = seed
-        core.seed_manager = type(core.seed_manager)(
-            core.config.device_cfg,
-            core.action_dim,
-            core.auxiliary_rollout.action_bound_lows,
-            core.auxiliary_rollout.action_bound_highs,
-            random_seed=seed,
-            action_horizon=core.auxiliary_rollout.action_horizon,
-        )
+        core.seed_manager = _seed_manager(core, seed)
     motion.reset_seed()
 
 
+def _seed_manager(core, seed):
+    return type(core.seed_manager)(
+        core.config.device_cfg,
+        core.action_dim,
+        core.auxiliary_rollout.action_bound_lows,
+        core.auxiliary_rollout.action_bound_highs,
+        random_seed=seed,
+        action_horizon=core.auxiliary_rollout.action_horizon,
+    )
+
+
 def _batch_actions(streams, batch_size, num_seeds):
+    """Drop-in for SeedManager.generate_random_actions: one row per trial seed."""
     import torch
 
     return torch.cat(
@@ -120,17 +125,7 @@ def bind_batch_seeds(motion, seeds):
     """Bind core and default LM-IK random samples to individual trial seeds."""
     for solver in (motion.ik_solver, motion.trajopt_solver):
         core = solver.core
-        streams = [
-            type(core.seed_manager)(
-                core.config.device_cfg,
-                core.action_dim,
-                core.auxiliary_rollout.action_bound_lows,
-                core.auxiliary_rollout.action_bound_highs,
-                random_seed=seed,
-                action_horizon=core.auxiliary_rollout.action_horizon,
-            )
-            for seed in seeds
-        ]
+        streams = [_seed_manager(core, seed) for seed in seeds]
         core.seed_manager.generate_random_actions = partial(_batch_actions, streams)
     seed_solver = motion.ik_solver.seed_ik_solver
     if seed_solver is not None:
@@ -209,6 +204,7 @@ class V2Planner:
         self.identity = verify_version()
         self.batch_size = self.evidence_batch_size = batch_size
         self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
+        self.record = {}
         self.resource_path = self.path
         self.args = native["DeviceCfg"]()
         self.on_query = None
@@ -454,8 +450,8 @@ class V2Planner:
         actual_camera[:3, :3] = sim.data.cam_xmat[cid].reshape(3, 3)
         actual_camera = np.linalg.solve(self.base, actual_camera)
         translation_error, angle_error = pose_error(pose, actual_camera)
-        write_json(
-            self.path / "head_camera_fk_check.json",
+        self._record(
+            "head_camera_fk_check",
             {
                 **self.fov_definition,
                 "translation_error_m": translation_error,
@@ -468,16 +464,21 @@ class V2Planner:
         if not sim.started and (translation_error > 0.001 or angle_error > 0.001):
             raise ValueError("cuRobo/MuJoCo head optical FK mismatch")
 
+    def _record(self, section, value):
+        """One planner.json per planner directory; per-query results stay in their own files."""
+        self.record[section] = value
+        write_json(self.path / "planner.json", self.record)
+
     def _write_identity(self):
         config, (center, radius) = self.config, self.workspace
-        write_json(
-            self.path / "planner_identity.json",
+        self._record(
+            "identity",
             {
                 **self.identity,
                 **self.model.coupling,
                 "joint_names": list(self.names),
                 "tool_frames": self.motion.tool_frames,
-                "default_plan_pose_attempts": 5,
+                "default_plan_pose_attempts": NATIVE_MAX_ATTEMPTS,
                 "self_collision": True,
                 "head_fov_enabled": config.head_fov_enabled,
                 "head_fov_margin": config.head_fov_margin,
@@ -489,8 +490,8 @@ class V2Planner:
                 "handle_checker": self.context.handle_checker is not None,
             },
         )
-        write_json(
-            self.path / "mobile_base.json",
+        self._record(
+            "mobile_base",
             {
                 "reference_world": self.base.tolist(),
                 "joint_bounds_local": self.model.bounds,
@@ -525,8 +526,8 @@ class V2Planner:
         )
         actual = np.linalg.solve(self.base, tcp_pose(self.sim, self.side))
         translation_error, angle_error = pose_error(fk, actual)
-        write_json(
-            self.path / "fk_check.json",
+        self._record(
+            "fk_check",
             {
                 "translation_error_m": translation_error,
                 "rotation_error_rad": angle_error,
@@ -586,6 +587,7 @@ class V2Planner:
 
         self.detach()
         self.sim, self.config, self.path = sim, config, Path(path)
+        self.record = {}
         self._bind_model(sim, config, path, workspace)
         self.bind_target(sim)
         robot = RobotCfg.create(self.robot_cfg, device_cfg=self.args)
@@ -629,8 +631,8 @@ class V2Planner:
         self.refresh_world(self.path)
         self.check_fk()
         reset_motion_seed(self.motion, config.seed)
-        write_json(
-            self.path / "planner_reuse.json",
+        self._record(
+            "reuse",
             {
                 "resource_path": str(self.resource_path),
                 "solver_reused": True,
@@ -705,73 +707,13 @@ class V2Planner:
             raise ValueError("planned trajectory leaves circular workspace")
         return tuple(tuple(float(v) for v in p) for p in points)
 
-    def grasp(self, matrices, on_query, *, lift=True):
-        write_json(
-            self.path / "grasp_inputs.json",
-            {"seeds": [self.config.seed], "world_goals": [matrices]},
-        )
-        self.phases = iter(("goalset", "pregrasp", "grasp", "lift"))
+    @contextmanager
+    def _grasp_trial(self, phases, on_query):
+        """Name native plan_pose queries by phase; always release attachments and tool criteria."""
+        self.phases = iter(phases)
         self.on_query = on_query
         try:
-            result = self.motion.plan_grasp(
-                self.goals(matrices),
-                self.state(),
-                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M,
-                grasp_lift_offset=0.10,
-                grasp_lift_in_tool_frame=False,
-                plan_approach_to_grasp=True,
-                plan_grasp_to_lift=lift,
-                disable_collision_links=[],
-            )
-            success = result.success is not None and bool(result.success.any().item())
-            stages = {}
-            if success:
-                for name, field in (
-                    ("pregrasp", "approach"),
-                    ("approach", "grasp"),
-                    ("lift", "lift"),
-                ):
-                    if name == "lift" and not lift:
-                        continue
-                    stages[name] = self.points(
-                        getattr(result, field + "_interpolated_trajectory"),
-                        getattr(result, field + "_interpolated_last_tstep"),
-                    )
-            index = (
-                int(result.goalset_index.reshape(-1)[0].item())
-                if result.goalset_index is not None
-                else None
-            )
-            diagnostic = {
-                "status": result.status,
-                "queries": list(self.query_log),
-                "grasp_index": index,
-                "reference_world": self.base.tolist(),
-                "control_dt_s": 1 / self.sim.robot.config.control_hz,
-                "time_dilation": self.config.time_dilation,
-                "native_plan_grasp": True,
-                "native_full_plan_grasp": bool(lift),
-                "joint_names": list(self.names),
-                "phase_evidence": phase_evidence(self.query_log, self.solver_log, 0),
-                "solver_trace_ref": str((self.path / "solver_trace.json").resolve()),
-                "grasp_inputs_ref": str((self.path / "grasp_inputs.json").resolve()),
-                "head_fov": list(self.fov_log),
-                "finite_budget_not_impossibility": True,
-                "constrained_planning": self.config.head_fov_enabled,
-                "failure_reason": (
-                    "fov_constraint_failed"
-                    if any(not r["valid"] for r in self.fov_log)
-                    else "constrained_planning_failure"
-                    if not success and self.config.head_fov_enabled
-                    else None
-                ),
-            }
-            write_json(
-                self.path / "grasp_result.json",
-                {**diagnostic, "success": success, "stages": stages},
-            )
-            write_json(self.path / "solver_trace.json", self.solver_log)
-            return success, index, stages, diagnostic
+            yield
         finally:
             self.phases = None
             self.on_query = None
@@ -779,87 +721,97 @@ class V2Planner:
             self.detach()
             self._reset_tool_criteria()
 
+    def _stages(self, result, fields, slot=None):
+        """Executable waypoints per stage; a batch slot selects one lane."""
+        part = slice(None) if slot is None else slice(slot, slot + 1)
+        stages = {}
+        for name, field in fields:
+            last = getattr(result, field + "_interpolated_last_tstep")
+            stages[name] = self.points(getattr(result, field + "_interpolated_trajectory")[part],
+                                       None if last is None else last[part])
+        return stages
+
+    def _common_diagnostics(self):
+        return {
+            "reference_world": self.base.tolist(),
+            "control_dt_s": 1 / self.sim.robot.config.control_hz,
+            "time_dilation": self.config.time_dilation,
+            "joint_names": list(self.names),
+            "solver_trace_ref": str((self.path / "solver_trace.json").resolve()),
+            "grasp_inputs_ref": str((self.path / "grasp_inputs.json").resolve()),
+        }
+
+    def _failure_reason(self, success):
+        if any(not r["valid"] for r in self.fov_log):
+            return "fov_constraint_failed"
+        if not success and self.config.head_fov_enabled:
+            return "constrained_planning_failure"
+        return None
+
+    def grasp(self, matrices, on_query, *, lift=True):
+        write_json(self.path / "grasp_inputs.json", {"seeds": [self.config.seed], "world_goals": [matrices]})
+        with self._grasp_trial(("goalset", "pregrasp", "grasp", "lift"), on_query):
+            result = self.motion.plan_grasp(
+                self.goals(matrices), self.state(),
+                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M, grasp_lift_offset=0.10,
+                grasp_lift_in_tool_frame=False, plan_approach_to_grasp=True,
+                plan_grasp_to_lift=lift, disable_collision_links=[])
+            success = result.success is not None and bool(result.success.any().item())
+            fields = (("pregrasp", "approach"), ("approach", "grasp"), *((("lift", "lift"),) if lift else ()))
+            stages = self._stages(result, fields) if success else {}
+            index = int(result.goalset_index.reshape(-1)[0].item()) if result.goalset_index is not None else None
+            diagnostic = {
+                "status": result.status,
+                "queries": list(self.query_log),
+                "grasp_index": index,
+                **self._common_diagnostics(),
+                "native_plan_grasp": True,
+                "native_full_plan_grasp": bool(lift),
+                "phase_evidence": phase_evidence(self.query_log, self.solver_log, 0),
+                "head_fov": list(self.fov_log),
+                "finite_budget_not_impossibility": True,
+                "constrained_planning": self.config.head_fov_enabled,
+                "failure_reason": self._failure_reason(success),
+            }
+            write_json(self.path / "grasp_result.json", {**diagnostic, "success": success, "stages": stages})
+            write_json(self.path / "solver_trace.json", self.solver_log)
+            return success, index, stages, diagnostic
+
     def grasp_batch(self, matrix_batches, seeds, on_query):
         """Same prepared world, independent seeds and pre-close results per lane."""
         bind_batch_seeds(self.motion, seeds)
-        write_json(
-            self.path / "grasp_inputs.json",
-            {"seeds": list(seeds), "world_goals": matrix_batches},
-        )
-        self.phases = iter(("goalset", "pregrasp", "grasp"))
-        self.on_query = on_query
+        write_json(self.path / "grasp_inputs.json", {"seeds": list(seeds), "world_goals": matrix_batches})
         started = time.monotonic()
-        try:
+        with self._grasp_trial(("goalset", "pregrasp", "grasp"), on_query):
             result = self.motion.plan_grasp(
-                self.batch_goals(matrix_batches),
-                self.state(len(seeds)),
-                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M,
-                plan_approach_to_grasp=True,
-                plan_grasp_to_lift=False,
-                disable_collision_links=[],
-            )
+                self.batch_goals(matrix_batches), self.state(len(seeds)),
+                grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M, plan_approach_to_grasp=True,
+                plan_grasp_to_lift=False, disable_collision_links=[])
             elapsed = time.monotonic() - started
+            common = self._common_diagnostics()
             lanes = []
             for slot, seed in enumerate(seeds):
                 success = bool(result.success[slot].item())
-                index = (
-                    int(result.goalset_index[slot].reshape(-1)[0].item())
-                    if result.goalset_index is not None
-                    else None
-                )
-                stages = {}
-                if success:
-                    for name, field in (
-                        ("pregrasp", "approach"),
-                        ("approach", "grasp"),
-                    ):
-                        trajectory = getattr(
-                            result, field + "_interpolated_trajectory"
-                        )[slot : slot + 1]
-                        last = getattr(result, field + "_interpolated_last_tstep")
-                        stages[name] = self.points(
-                            trajectory, None if last is None else last[slot : slot + 1]
-                        )
+                index = (int(result.goalset_index[slot].reshape(-1)[0].item())
+                         if result.goalset_index is not None else None)
+                stages = (self._stages(result, (("pregrasp", "approach"), ("approach", "grasp")), slot)
+                          if success else {})
                 diagnostic = {
                     "status": result.status,
                     "seed": seed,
                     "batch_slot": slot,
-                    "phase_evidence": phase_evidence(
-                        self.query_log, self.solver_log, slot
-                    ),
-                    "solver_trace_ref": str(
-                        (self.path / "solver_trace.json").resolve()
-                    ),
-                    "grasp_inputs_ref": str(
-                        (self.path / "grasp_inputs.json").resolve()
-                    ),
+                    "phase_evidence": phase_evidence(self.query_log, self.solver_log, slot),
                     "batch_seeds": list(seeds),
                     "queries": list(self.query_log),
                     "planning_s": elapsed,
                     "native_max_attempts": NATIVE_MAX_ATTEMPTS,
-                    "joint_names": list(self.names),
-                    "reference_world": self.base.tolist(),
-                    "control_dt_s": 1 / self.sim.robot.config.control_hz,
-                    "time_dilation": self.config.time_dilation,
+                    **common,
                     "multi_env": False,
                 }
-                lanes.append(
-                    {
-                        "success": success,
-                        "index": index,
-                        "stages": stages,
-                        "diagnostics": diagnostic,
-                    }
-                )
+                lanes.append({"success": success, "index": index, "stages": stages, "diagnostics": diagnostic})
             write_json(self.path / "batch_grasp_result.json", lanes)
             write_json(self.path / "solver_trace.json", self.solver_log)
             return lanes
-        finally:
-            self.phases = None
-            self.on_query = None
-            self.context.contact_allowed = False
-            self.detach()
-            self._reset_tool_criteria()
 
     def detach(self):
         params = self.motion.kinematics.config.kinematics_config
@@ -951,7 +903,7 @@ class V2Planner:
             "fit_debug": fit.debug_info,
             "metrics": asdict(fit.metrics) if fit.metrics is not None else None,
         }
-        write_json(self.path / "carried_geometry.json", info)
+        self._record("carried_geometry", info)
         return info
 
     def pad_target_query_range(self):
@@ -973,8 +925,8 @@ class V2Planner:
             for data in checker.data.get_valid_data():
                 if hasattr(data, "dims"):
                     data.dims[..., :3].clamp_(min=minimum_dimension)
-        write_json(
-            self.path / "target_query_range.json",
+        self._record(
+            "target_query_range",
             {
                 "largest_robot_sphere_radius_m": max_radius,
                 "minimum_query_bound_dimension_m": minimum_dimension,
@@ -1013,39 +965,24 @@ class V2Planner:
         write_json(self.path / "solver_trace.json", self.solver_log)
         success = result is not None and bool(result.success.any().item())
         points = self.points(result.get_interpolated_plan()) if success else ()
-        fov_failed = (
-            result is not None
-            and getattr(result, "status", None) == "FOV_CONSTRAINT_FAILED"
-        )
-        return PlanResult(
-            "success"
-            if points
-            else "fov_constraint_failed"
-            if fov_failed
-            else "no_solution",
-            self.names,
-            points,
-            {
-                "status": "success"
-                if points
-                else "FOV_CONSTRAINT_FAILED"
-                if fov_failed
-                else "V2_POSE_FAIL",
-                "reference_world": self.base.tolist(),
-                "control_dt_s": 1 / self.sim.robot.config.control_hz,
-                "time_dilation": self.config.time_dilation,
-                "failure_reason": (
-                    "fov_constraint_failed"
-                    if fov_failed
-                    else "constrained_planning_failure"
-                    if not points and self.config.head_fov_enabled
-                    else None
-                ),
-                "head_fov": list(self.fov_log),
-                "queries": list(self.query_log),
-                "phase_evidence": phase_evidence(self.query_log, self.solver_log, 0),
-                "solver_trace_ref": str((self.path / "solver_trace.json").resolve()),
-                "finite_budget_not_impossibility": True,
-                "constrained_planning": self.config.head_fov_enabled,
-            },
-        )
+        fov_failed = result is not None and getattr(result, "status", None) == "FOV_CONSTRAINT_FAILED"
+        if points:
+            status, native_status, reason = "success", "success", None
+        elif fov_failed:
+            status, native_status, reason = "fov_constraint_failed", "FOV_CONSTRAINT_FAILED", "fov_constraint_failed"
+        else:
+            status, native_status = "no_solution", "V2_POSE_FAIL"
+            reason = "constrained_planning_failure" if self.config.head_fov_enabled else None
+        return PlanResult(status, self.names, points, {
+            "status": native_status,
+            "reference_world": self.base.tolist(),
+            "control_dt_s": 1 / self.sim.robot.config.control_hz,
+            "time_dilation": self.config.time_dilation,
+            "failure_reason": reason,
+            "head_fov": list(self.fov_log),
+            "queries": list(self.query_log),
+            "phase_evidence": phase_evidence(self.query_log, self.solver_log, 0),
+            "solver_trace_ref": str((self.path / "solver_trace.json").resolve()),
+            "finite_budget_not_impossibility": True,
+            "constrained_planning": self.config.head_fov_enabled,
+        })

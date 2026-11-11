@@ -24,6 +24,7 @@ from ..planning.navigation.astar import scene_grid, task_support_obstacles
 from ..planning.pool import PlanningPool
 from ..runtime.execution.curobo import run_curobo_attempt
 from ..runtime.execution.protocol import (
+    PlanningInputs,
     PlanningRequest,
     PlanningResponse,
     TrialBudget,
@@ -838,15 +839,10 @@ class _CalibrationScheduler:
                 prepared.state,
                 "preclose",
                 budgets,
-                {
-                    "task": scene["task"],
-                    "robot": scene["robot_config"],
-                    "config": self.inputs.config,
-                    "assets_dir": self.inputs.assets_dir,
-                    "root": self.inputs.root,
-                    "candidates": candidates,
-                    "preparation_path": prepared.path,
-                },
+                PlanningInputs(
+                    scene["task"], scene["robot_config"], self.inputs.config, self.inputs.root,
+                    self.inputs.assets_dir, candidates=candidates, preparation_path=prepared.path,
+                ),
             )
             self.batches[query_id] = (scene, index, prepared, budgets, candidates)
             self.pool.submit(request)

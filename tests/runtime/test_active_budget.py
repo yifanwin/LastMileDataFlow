@@ -12,7 +12,7 @@ from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.planning.remote import PlanningClient
 from lastmile_dataflow.runtime.execution.checkpoint import timed
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution.protocol import PlanningResponse, TrialBudget, TrialIdentity
+from lastmile_dataflow.runtime.execution.protocol import PlanningResponse, TrialBudget, TrialIdentity, PlanningInputs
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from tests.helpers import DatasetTestCase
 
@@ -59,7 +59,7 @@ class ActiveBudgetTests(DatasetTestCase):
                                   {'diagnostics': {}}, queue_s=50.)
         requests, responses = SerializedQueue(), Queue()
         client = PlanningClient(4, requests, responses, identity, budget, first,
-                                {'model_dir': 'fixed-scene'})
+                                PlanningInputs({}, None, None, '', '', model_dir='fixed-scene'))
         self.addCleanup(client.close)
         ctx = self.context(budget)
         client.bind(ctx)
@@ -76,8 +76,8 @@ class ActiveBudgetTests(DatasetTestCase):
         self.assertEqual(request.identities, [identity])
         self.assertEqual(request.query_id, 'r7-q1')
         self.assertEqual(request.budgets[0].plan_count, 3)
-        self.assertEqual(request.inputs['phase'], 'approach_contact')
-        self.assertEqual(request.inputs['recording_step'], 1)
+        self.assertEqual(request.inputs.phase, 'approach_contact')
+        self.assertEqual(request.inputs.recording_step, 1)
         np.testing.assert_array_equal(request.state.integration, measured)
         np.testing.assert_array_equal(self.sim.state_vector(), measured)
         self.assertTrue(self.sim.started)

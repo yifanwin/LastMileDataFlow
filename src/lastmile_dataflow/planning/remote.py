@@ -1,10 +1,11 @@
 """CPU-side planner interface: numerical RPCs and existing trajectory tracking."""
+from dataclasses import replace
 import time
 
-from .robots import planning_model
-from .waypoints import PlanResult
 from ..runtime.execution.protocol import PlanningRequest, SimulationState
 from ..utils.io import write_json
+from .robots import planning_model
+from .waypoints import PlanResult
 
 
 class PlanningClient:
@@ -37,10 +38,10 @@ class PlanningClient:
     def query(self, planner, goal):
         self.serial += 1
         request = PlanningRequest(f'{self.identity.attempt_id}-q{self.serial}',
-            self.inputs['model_dir'], [self.identity], SimulationState.capture(planner.sim),
-            'pose', [self.budget], {**self.inputs, 'side': planner.side,
-                'phase': planner.single_phase, 'attached': planner.attached, 'goal': goal,
-                'recording_step': self.ctx.recorder.steps})
+            self.inputs.model_dir, [self.identity], SimulationState.capture(planner.sim),
+            'pose', [self.budget], replace(self.inputs, side=planner.side, phase=planner.single_phase,
+                                           attached=planner.attached, goal=goal,
+                                           recording_step=self.ctx.recorder.steps))
         self.requests.put((self.worker, request))
         response = self.responses.get()
         self.accept(response)

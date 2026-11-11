@@ -9,15 +9,18 @@ import os
 from pathlib import Path
 from queue import Empty
 import time
-from types import SimpleNamespace
+
 from ..gpu import bind_device, resolve_egl_devices
-from ..runtime.execution.protocol import PlanningResponse
+from ..runtime.execution.context import clone_sim, planner_options
+from ..runtime.execution.lifecycle import classify_episode_exception
+from ..runtime.execution.manipulation import candidate_pool, grasp_goals
+from ..runtime.execution.protocol import OperationFailure, PlanningResponse
+from ..runtime.simulation import SnapshotCache
 from ..utils.io import write_json
+from .curobo.planner import PlannerResources, bind_batch_seeds
 
 
 def _consume_plan_budget(budgets, max_plans, phase):
-    from ..runtime.execution.protocol import OperationFailure
-
     for budget in budgets:
         budget.check()
         if budget.plan_count >= max_plans:
@@ -25,164 +28,114 @@ def _consume_plan_budget(budgets, max_plans, phase):
         budget.plan_count += 1
 
 
+def _write_query(directory, request, started):
+    write_json(directory / "query.json", {
+        "query_id": request.query_id,
+        "started_at": started,
+        "identities": [asdict(identity) for identity in request.identities],
+        "budgets": [asdict(budget) for budget in request.budgets],
+        "stage": request.stage,
+        "model_dir": request.model_dir,
+        "preparation_path": request.inputs.preparation_path,
+        "recording_step": request.inputs.recording_step,
+    })
+
+
+def _grasp_lanes(planner, sim, request, directory, side, on_query):
+    """Pre-close batch: one native grasp lane per trial seed on the same prepared world."""
+    inputs, seeds = request.inputs, [identity.seed for identity in request.identities]
+    pools = [candidate_pool(sim, inputs.config, inputs.candidates, seed, None) for seed in seeds]
+    if not pools[0]:
+        raise OperationFailure("no_grasp_candidates")
+    goals = [grasp_goals(sim, inputs.config, pool, retreat=inputs.task["operation"] == "open") for pool in pools]
+    write_json(directory / "grasp_candidates.json", {"lanes": [
+        {"identity": asdict(identity), "seed": identity.seed, "candidates": pool}
+        for identity, pool in zip(request.identities, pools)]})
+    lanes = planner.grasp_batch(goals, seeds, on_query)
+    for lane in lanes:
+        lane.update(side=side, joint_names=list(planner.names), reference_world=planner.base.tolist())
+    return lanes
+
+
+def _pose_lanes(planner, request, side, on_query):
+    """Post-close pose query of one running trial."""
+    inputs = request.inputs
+    bind_batch_seeds(planner.motion, [identity.seed for identity in request.identities])
+    planner.single_phase = inputs.phase
+    attached = planner.attach_target_geometry() if inputs.attached else None
+    planner.on_query = on_query
+    lane = {"result": asdict(planner.plan(inputs.goal)), "side": side}
+    if attached is not None:
+        lane["attached_object"] = attached
+    return [lane]
+
+
+def _responses(request, lanes, directory, *, closed, queue_s, elapsed):
+    responses = []
+    for index, (identity, lane) in enumerate(zip(request.identities, lanes)):
+        lane.setdefault("diagnostics", {}).update(
+            query_id=request.query_id, identity=asdict(identity), batch_slot=index,
+            query_ref=str((directory / "query.json").resolve()))
+        if not closed:
+            lane["diagnostics"]["planning_state_ref"] = str(Path(request.inputs.preparation_path) / "state.npz")
+        success = lane["result"]["status"] == "success" if closed else lane["success"]
+        status = "success" if success else "planning_no_solution"
+        if request.budgets[index].remaining_s <= elapsed:
+            status = "timeout"
+        responses.append(PlanningResponse(
+            request.query_id, identity, status, elapsed, request.budgets[index].plan_count, lane,
+            {"stage": request.stage, "query_path": str(directory)}, queue_s))
+    return responses
+
+
 class PlanningService:
     """GPU-owned planning views; no state is written to a CPU execution instance."""
 
     def __init__(self):
-        from ..runtime.simulation import SnapshotCache
-        from .curobo.planner import PlannerResources
-
         self.scenes = SnapshotCache()
         self.planners = PlannerResources()
 
     def baseline(self, request):
-        return self.scenes.get(
-            request.model_dir,
-            request.inputs["robot"],
-            request.inputs["task"]["target_body"],
-        )
+        return self.scenes.get(request.model_dir, request.inputs.robot, request.inputs.task["target_body"])
 
     def execute(self, request):
-        from .curobo.planner import bind_batch_seeds
-        from ..runtime.execution.context import (
-            clone_sim,
-            planner_options,
-            OperationFailure,
-        )
-        from ..runtime.execution.manipulation import candidate_pool, grasp_goals
-
         started = time.monotonic()
-        queue_s = started - request.enqueued_at
         inputs = request.inputs
-        (task, config) = (inputs["task"], inputs["config"])
-        directory = Path(inputs["root"]) / "planning" / request.query_id
+        task, config = inputs.task, inputs.config
+        directory = Path(inputs.root) / "planning" / request.query_id
         directory.mkdir(parents=True, exist_ok=False)
-        write_json(
-            directory / "query.json",
-            {
-                "query_id": request.query_id,
-                "started_at": started,
-                "identities": [asdict(identity) for identity in request.identities],
-                "budgets": [asdict(budget) for budget in request.budgets],
-                "stage": request.stage,
-                "model_dir": request.model_dir,
-                "preparation_path": inputs.get("preparation_path"),
-                "recording_step": inputs.get("recording_step"),
-            },
-        )
-        baseline = self.baseline(request)
-        max_plans = (
-            config.max_open_plans
-            if task["operation"] == "open"
-            else config.max_operation_plans
-        )
-        with closing(
-            clone_sim(
-                baseline, target=task["target_body"], handle=task.get("handle_body")
-            )
-        ) as sim:
+        _write_query(directory, request, started)
+        max_plans = config.max_open_plans if task["operation"] == "open" else config.max_operation_plans
+        on_query = partial(_consume_plan_budget, request.budgets, max_plans)
+        closed = request.stage == "pose"
+        with closing(clone_sim(self.baseline(request), target=task["target_body"],
+                               handle=task.get("handle_body"))) as sim:
             request.state.initialize(sim)
-            seeds = [identity.seed for identity in request.identities]
-            side = inputs.get("side", sim.robot.arms[0])
-            closed = request.stage == "pose"
-            options = (
-                replace(config, operation_base_mode="fixed")
-                if closed and sim.robot.lock_base_after_close
-                else config
-            )
-            options = planner_options(options, inputs["assets_dir"], seeds[0])
-            arguments = dict(
-                workspace=(task["anchor_world"], config.radius_m), batch_size=len(seeds)
-            )
-            lease = self.planners.acquire(sim, options, side, directory, **arguments)
+            side = inputs.side or sim.robot.arms[0]
+            options = config
+            if closed and sim.robot.lock_base_after_close:
+                options = replace(config, operation_base_mode="fixed")
+            options = planner_options(options, inputs.assets_dir, request.identities[0].seed)
+            lease = self.planners.acquire(sim, options, side, directory,
+                                          workspace=(task["anchor_world"], config.radius_m),
+                                          batch_size=len(request.identities))
             with lease as planner:
-                if not closed:
-                    context = SimpleNamespace(sim=sim, config=config)
-                    pools = [
-                        candidate_pool(context, inputs["candidates"], seed, None)
-                        for seed in seeds
-                    ]
-                    if not pools[0]:
-                        raise OperationFailure("no_grasp_candidates")
-                    goals = [
-                        grasp_goals(
-                            sim, config, pool, retreat=task["operation"] == "open"
-                        )
-                        for pool in pools
-                    ]
-                    write_json(
-                        directory / "grasp_candidates.json",
-                        {
-                            "lanes": [
-                                {
-                                    "identity": asdict(identity),
-                                    "seed": identity.seed,
-                                    "candidates": pool,
-                                }
-                                for (identity, pool) in zip(request.identities, pools)
-                            ]
-                        },
-                    )
-                    lanes = planner.grasp_batch(
-                        goals,
-                        seeds,
-                        partial(_consume_plan_budget, request.budgets, max_plans),
-                    )
-                    for lane in lanes:
-                        lane.update(
-                            side=side,
-                            joint_names=list(planner.names),
-                            reference_world=planner.base.tolist(),
-                        )
+                if closed:
+                    lanes = _pose_lanes(planner, request, side, on_query)
                 else:
-                    bind_batch_seeds(planner.motion, seeds)
-                    planner.single_phase = inputs["phase"]
-                    attached = None
-                    if inputs.get("attached"):
-                        attached = planner.attach_target_geometry()
-                    planner.on_query = partial(
-                        _consume_plan_budget, request.budgets, max_plans
-                    )
-                    result = planner.plan(inputs["goal"])
-                    lanes = [{"result": asdict(result), "side": side}]
-                    if attached is not None:
-                        lanes[0]["attached_object"] = attached
-        elapsed = time.monotonic() - started
-        responses = []
-        for index, (identity, lane) in enumerate(zip(request.identities, lanes)):
-            lane.setdefault("diagnostics", {}).update(
-                query_id=request.query_id,
-                identity=asdict(identity),
-                batch_slot=index,
-                query_ref=str((directory / "query.json").resolve()),
-            )
-            if not closed:
-                lane["diagnostics"]["planning_state_ref"] = str(
-                    Path(inputs["preparation_path"]) / "state.npz"
-                )
-            success = (
-                lane["result"]["status"] == "success" if closed else lane["success"]
-            )
-            status = "success" if success else "planning_no_solution"
-            if request.budgets[index].remaining_s <= elapsed:
-                status = "timeout"
-            responses.append(
-                PlanningResponse(
-                    request.query_id,
-                    identity,
-                    status,
-                    elapsed,
-                    request.budgets[index].plan_count,
-                    lane,
-                    {"stage": request.stage, "query_path": str(directory)},
-                    queue_s,
-                )
-            )
-        return responses
+                    lanes = _grasp_lanes(planner, sim, request, directory, side, on_query)
+        return _responses(request, lanes, directory, closed=closed,
+                          queue_s=started - request.enqueued_at, elapsed=time.monotonic() - started)
 
     def close(self):
         self.planners.close()
         self.scenes.close()
+
+
+def _failed(request, started, failure):
+    return [PlanningResponse(request.query_id, identity, failure["status"], time.monotonic() - started,
+                             budget.plan_count, diagnostics=failure, queue_s=started - request.enqueued_at)
+            for identity, budget in zip(request.identities, request.budgets)]
 
 
 def _planning_worker(index, gpu, requests, results, service_type, egl_device):
@@ -190,9 +143,6 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
     os.environ.update(
         OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1"
     )
-    from ..runtime.execution.lifecycle import classify_episode_exception
-    from ..runtime.execution.protocol import OperationFailure
-
     with closing(service_type()) as service:
         while True:
             request = requests.get()
@@ -201,29 +151,13 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
             started = time.monotonic()
             try:
                 responses = service.execute(request)
-            except Exception as exc:
-                if isinstance(exc, (TimeoutError, OperationFailure)):
-                    failure = {
-                        "status": "timeout"
-                        if isinstance(exc, TimeoutError)
-                        else "planning_no_solution",
-                        "reason": str(exc),
-                        "failure_scope": "episode",
-                    }
-                else:
-                    failure = classify_episode_exception(exc, "planning")
-                responses = [
-                    PlanningResponse(
-                        request.query_id,
-                        identity,
-                        failure["status"],
-                        time.monotonic() - started,
-                        budget.plan_count,
-                        diagnostics=failure,
-                        queue_s=started - request.enqueued_at,
-                    )
-                    for (identity, budget) in zip(request.identities, request.budgets)
-                ]
+            except TimeoutError as exc:
+                responses = _failed(request, started, {"status": "timeout", "reason": str(exc), "failure_scope": "episode"})
+            except OperationFailure as exc:
+                responses = _failed(request, started, {"status": "planning_no_solution", "reason": str(exc),
+                                                       "failure_scope": "episode"})
+            except Exception as exc:  # batch isolation: an infrastructure fault fails only this request
+                responses = _failed(request, started, classify_episode_exception(exc, "planning"))
             for response in responses:
                 response.diagnostics.update(
                     worker=index,

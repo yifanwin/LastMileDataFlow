@@ -12,6 +12,7 @@ from .context import clone_sim
 from .curobo import run_curobo_attempt
 from .lifecycle import classify_episode_exception, execute_isolated_episode
 from .preparation import prepare_station
+from .protocol import PlanningInputs
 from ...data.recorder import AttemptRecorder
 from ...planning.remote import PlanningClient
 from ...utils.io import write_json
@@ -150,14 +151,8 @@ def execution_worker(
                 return
             (scene, station_index, prepared, response, budget, candidates) = job
             identity = response.identity
-            inputs = {
-                "model_dir": scene["scene_path"],
-                "robot": scene["robot_config"],
-                "task": scene["task"],
-                "config": config,
-                "root": root,
-                "assets_dir": assets_dir,
-            }
+            inputs = PlanningInputs(scene["task"], scene["robot_config"], config, root, assets_dir,
+                                    model_dir=scene["scene_path"])
             try:
                 baseline = scenes.get(
                     scene["scene_path"],
