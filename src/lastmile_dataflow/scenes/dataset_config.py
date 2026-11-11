@@ -21,8 +21,6 @@ def house_number(value):
 class SceneStationConfig:
     radius_m: float = 1.0
     spacing_m: float = .25
-    require_target_visibility: bool = False
-    require_navigation_clearance: bool = False
     width: int = 320
     height: int = 240
     min_target_pixels: int = 24
@@ -101,7 +99,6 @@ class SceneRecipe:
     seed: int = 42
     task_timeout_s: float = 300.
     build_workers: int = 1
-    local_task_models: bool = False
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
 
     def __post_init__(self):
@@ -133,8 +130,6 @@ class SceneRecipe:
             raise ValueError('task-mode sampling requires 1 m / 0.25 m')
         if type(self.max_final_stations) is not int or not 1 <= self.max_final_stations <= 20:
             raise ValueError('task-mode pose budget is at most twenty, including yaw variants')
-        if self.local_task_models:
-            raise ValueError('initial task-mode validation uses complete source models')
         for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
             if type(getattr(self, key)) is not int or getattr(self, key) == 0 or getattr(self, key) < -1:
                 raise ValueError('target limit is -1 or positive: ' + key)

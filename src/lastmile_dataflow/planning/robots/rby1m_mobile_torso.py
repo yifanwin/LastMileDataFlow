@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 import numpy as np
 
-V080_SHA = '4ea77366ca48ee453e7df139e39fa6532af49f3b'
 
 
 def joint_names(side):

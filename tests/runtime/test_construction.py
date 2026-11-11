@@ -27,7 +27,7 @@ from lastmile_dataflow.scenes.edits.checks import (
     matched_source_effects,
 )
 from lastmile_dataflow.scenes.edits.checks import PhysicalLimits
-from lastmile_dataflow.scenes.loading.assets import EditAssetCatalog
+from lastmile_dataflow.scenes.loading.assets import RuntimeGeometryCache
 from tests.helpers import fixtures, table_scene
 
 
@@ -45,17 +45,9 @@ class TransactionTests(unittest.TestCase):
         asset.write_text(
             '<mujoco><worldbody><body name="chair"><freejoint/><geom name="chair_geom" type="box" size=".2 .2 .5" mass="2"/><site name="receptacle_debug" type="box" size=".1 .1 .1" rgba="1 0 0 1"/></body></worldbody></mujoco>'
         )
-        manifest = self.root / "assets.json"
-        write_json(
-            manifest,
-            {
-                "asset_catalog_version": "0.1",
-                "assets": [
-                    {"asset_id": "chair", "xml_path": str(asset), "root_body": "chair", "category": "Chair"}
-                ],
-            },
+        self.assets = RuntimeGeometryCache(
+            [{"asset_id": "chair", "xml_path": str(asset), "root_body": "chair", "category": "Chair"}]
         )
-        self.assets = EditAssetCatalog(manifest)
         self.session = ObstacleEditSession(
             self.sim, self.assets, SettleConfig(require_source_stability=False)
         )

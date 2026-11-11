@@ -60,6 +60,13 @@ class SupportRegion:
     def local(self, points):
         return (np.asarray(points) - self.origin) @ np.asarray(self.axes)
 
+    def contains(self, points, tolerance=0.):
+        """Every point's local xy lies inside the bounds; negative tolerance demands an inner margin."""
+        local = self.local(points)
+        a, b, c, d = self.bounds
+        return bool(local[:, 0].min() >= a - tolerance and local[:, 0].max() <= b + tolerance
+                    and local[:, 1].min() >= c - tolerance and local[:, 1].max() <= d + tolerance)
+
 
 def extract_regions(sim, support, geom_name=None):
     body = sim.model.body(support).id
@@ -109,6 +116,12 @@ def extract_regions(sim, support, geom_name=None):
 def quat_yaw(yaw): return np.array([np.cos(yaw/2), 0, 0, np.sin(yaw/2)])
 
 
+def rotated_extent(width, depth, yaw):
+    """Axis-aligned extent of a width x depth footprint rotated by yaw."""
+    c, s = abs(np.cos(yaw)), abs(np.sin(yaw))
+    return c * width + s * depth, s * width + c * depth
+
+
 def quat_angle(a, b):
     return float(2*np.arccos(np.clip(abs(np.dot(a, b)), 0, 1)))
 
@@ -130,26 +143,10 @@ def support_rays(sim, body, region, points):
     return all(hits)
 
 
-def placement_pose(sim, body, region, xy, yaw, gap=.003):
-    points = body_points(sim, body)
-    bpos, bmat = sim.data.xpos[body], sim.data.xmat[body].reshape(3,3)
-    local = (points-bpos) @ bmat
-    c, s = np.cos(yaw), np.sin(yaw)
-    rot = np.array([[c,-s,0],[s,c,0],[0,0,1]])
-    rotated = local @ rot.T
-    center = np.asarray(region.origin) + np.asarray(region.axes) @ [*xy, 0]
-    center[2] = region.height - rotated[:,2].min() + gap
-    projected = rotated + center
-    footprint = region.local(projected)
-    a,b,c,d = region.bounds
-    if not (footprint[:,0].min() >= a+.01 and footprint[:,0].max() <= b-.01 and footprint[:,1].min() >= c+.01 and footprint[:,1].max() <= d-.01):
-        return None
-    if not support_rays(sim, body, region, projected): return None
-    return np.r_[center, quat_yaw(yaw)].tolist()
-
-
-def body_pose(sim,body):
-    result=np.eye(4); result[:3,3]=sim.data.xpos[body]; result[:3,:3]=sim.data.xmat[body].reshape(3,3)
+def body_pose(sim, body):
+    result = np.eye(4)
+    result[:3, 3] = sim.data.xpos[body]
+    result[:3, :3] = sim.data.xmat[body].reshape(3, 3)
     return result
 
 

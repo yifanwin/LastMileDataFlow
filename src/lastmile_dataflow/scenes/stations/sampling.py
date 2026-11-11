@@ -5,8 +5,7 @@ import math
 import mujoco
 import numpy as np
 
-from ...data.rendering.head_views import head_frame, TaskVisibility
-from ...data.rendering.edit_views import ViewConfig
+from ...data.rendering.head_views import TaskVisibility
 from .initialization import floor_support, room_triangles
 from ...runtime.construction.preparation import preparation_guard
 from ...runtime.construction.session import clone_preparation
@@ -30,19 +29,6 @@ def disk_samples(anchor, radius, spacing):
     return result
 
 
-def yaw_variants(station, offsets=(-math.pi / 4, math.pi / 4)):
-    """Create explicit initial headings relative to an initialized nominal pose."""
-    xy_id = station['xy_id']
-    result = [station]
-    pose = {key: station[key] for key in ('xy_id', 'xy', 'grid_index', 'initial')}
-    for index, offset in enumerate(offsets, 1):
-        yaw = station['base'][2] + offset
-        yaw = float(math.atan2(math.sin(yaw), math.cos(yaw)))
-        result.append({**pose, 'station_id': f'{xy_id}-Y{index:02d}',
-                       'yaw': yaw, 'yaw_source': 'explicit', 'yaw_offset_rad': offset})
-    return result
-
-
 def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
     """Initialization overlap filter OR runtime record-only robot contacts.
 
@@ -56,7 +42,7 @@ def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
             and c['distance_m'] < (-.002 if c['kind']=='self_collision' else -.001)]
 
 
-def initialize_station(sim, station, anchor, config, *, renderer=None, check_visibility=True, evidence_path=None, floor_triangles=None):
+def initialize_station(sim, station, anchor, *, floor_triangles=None):
     if sim.started or sim.closed:
         raise RuntimeError('station initialization only before begin')
     original = sim.data.qpos.copy()
@@ -85,20 +71,6 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
            'geometry': 'valid' if ground and finite and not collisions else 'geometry_filtered',
            'ground': ground, 'collisions': collisions, 'non_robot_qpos_unchanged': True,
            'visibility': None, 'initial_yaw_adjustments':yaw_adjustments}
-    if row['geometry'] != 'valid' or not check_visibility:
-        return row
-    rgb,mask,visible = head_frame(sim, sim.model.body(sim.target_id).name,
-                                ViewConfig(width=config.width,height=config.height),renderer=renderer)
-    row['visibility'] = visible
-    if evidence_path is not None:
-        import imageio.v2 as imageio
-        from pathlib import Path
-        evidence_path=Path(evidence_path); evidence_path.mkdir(parents=True,exist_ok=True)
-        imageio.imwrite(evidence_path/'head.png',rgb)
-        imageio.imwrite(evidence_path/'target_mask.png',mask.astype(np.uint8)*255)
-        row['head_image']=str(evidence_path/'head.png')
-    if getattr(config, 'require_target_visibility', False) and visible['visible_pixels'] < config.min_target_pixels:
-        row['geometry'] = 'visibility_filtered'
     return row
 
 
@@ -155,75 +127,6 @@ def park_robot(sim, anchor, config):
     raise ValueError('no_legal_robot_parking_pose')
 
 
-def sample_stations(sim, task, config, *, frozen_stations=None, static_only=False, stop_after_valid=None, checked_stations=()):
-    stations = disk_samples(task['anchor_world'], config.radius_m, config.spacing_m)
-    if frozen_stations is not None:
-        keys = ('station_id', 'xy_id', 'xy', 'grid_index', 'yaw', 'yaw_source', 'yaw_offset_rad', 'initial')
-        stations = [{key: s[key] for key in keys if key in s} for s in frozen_stations]
-    renderer = None if static_only else mujoco.Renderer(sim.model, height=config.height, width=config.width)
-    navigation_grid = None
-    if config.navigation_whole_body and getattr(config, 'require_navigation_clearance', False):
-        from ...planning.navigation.astar import scene_grid, task_support_obstacles
-        from ..tasks.discovery import robot_footprint
-        footprint = robot_footprint(sim, whole_body=True)
-        navigation_grid = scene_grid(sim, task['anchor_world'], config.radius_m, config.map_resolution_m,
-            footprint['radius_m'], config.navigation_margin_m, robot_height=footprint['max'][2],
-            support_obstacles=task_support_obstacles(sim, task))
-    rows = []
-    checked = {row['station_id']: row for row in checked_stations}
-    floor_triangles = room_triangles(sim)
-    if stop_after_valid is not None and (not static_only or type(stop_after_valid) is not int or stop_after_valid <= 0):
-        raise ValueError('early-stop is only for positive-budget static discovery')
-    try:
-        for station in stations:
-            if station['station_id'] in checked:
-                rows.append(checked[station['station_id']])
-                continue
-            probe = clone_preparation(sim)
-            try:
-                warning_before = [w.number for w in probe.data.warning]
-                row = initialize_station(probe, station, task['anchor_world'], config, renderer=renderer,
-                                         check_visibility=not static_only, floor_triangles=floor_triangles)
-                new_warnings = [{'index': i, 'number': int(w.number), 'lastinfo': int(w.lastinfo)}
-                                for i, w in enumerate(probe.data.warning) if w.number > warning_before[i]]
-                row.update(independent_simulation=True, check_scope='static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
-                           initialization_attempt_id=station['station_id'], new_solver_warnings=new_warnings)
-                if navigation_grid is not None and row['geometry'] == 'valid':
-                    cell = navigation_grid.cell(row['xy'])
-                    if cell is None or not navigation_grid.free[cell]:
-                        row.update(geometry='geometry_filtered', reason='conservative_navigation_clearance')
-                if new_warnings:
-                    row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
-                if row['geometry'] != 'valid':
-                    row.setdefault('reason', 'target_visibility' if row['geometry'] == 'visibility_filtered' else 'robot_collision_or_floor_or_nonfinite')
-                rows.append(row)
-            except ValueError as exc:
-                rows.append({**station, 'geometry': 'geometry_filtered', 'reason': str(exc),
-                             'independent_simulation': True,
-                             'check_scope': 'static_geometry' if static_only else 'actual_robot_initialization_and_visibility',
-                             'initialization_attempt_id': station['station_id']})
-            finally:
-                probe.close()
-            if stop_after_valid is not None and sum(r['geometry'] == 'valid' for r in rows) >= stop_after_valid:
-                break
-    finally:
-        if renderer is not None:
-            renderer.close()
-    return rows
-
-
-def record_station_visibility(sim, stations, config):
-    """Render only selected stations after all candidates pass physical filtering."""
-    with mujoco.Renderer(sim.model, height=config.height, width=config.width) as renderer:
-        for station in stations:
-            with closing(clone_preparation(sim)) as probe:
-                place_frozen_station(probe, station)
-                _, _, visible = head_frame(probe, sim.model.body(sim.target_id).name,
-                    ViewConfig(width=config.width, height=config.height), renderer=renderer)
-                station['visibility'] = visible
-    return stations
-
-
 def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
     """Hints/explicit yaw first, then coverage; only valid initial poses consume slots."""
     free_lattice = [row for row in geometry.lattice
@@ -247,8 +150,8 @@ def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
             with closing(clone_preparation(sim)) as probe:
                 warnings = [warning.number for warning in probe.data.warning]
                 try:
-                    row = initialize_station(probe, candidate, geometry.task['anchor_world'], cfg,
-                                             check_visibility=False, floor_triangles=floor_triangles)
+                    row = initialize_station(probe, candidate, geometry.task['anchor_world'],
+                                             floor_triangles=floor_triangles)
                 except ValueError as exc:
                     row = {**candidate, 'geometry': 'geometry_filtered', 'reason': str(exc)}
                 fresh = [{'index': i, 'number': int(w.number)} for i, w in enumerate(probe.data.warning)

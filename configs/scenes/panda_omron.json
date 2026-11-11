@@ -36,7 +36,6 @@
   "split_seed": 42,
   "train_fraction": 0.8,
   "seed": 42,
-  "local_task_models": false,
   "settle": {
     "require_source_stability": false
   },

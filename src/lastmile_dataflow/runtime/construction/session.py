@@ -13,6 +13,14 @@ from ..simulation import closed_on_error
 MODEL_CACHE_SIZE = 4
 
 
+OBSTACLE_PREFIX = 'procedural_obstacle_'
+
+
+def obstacle_name(index):
+    """Body name of the index-th added obstacle."""
+    return f'{OBSTACLE_PREFIX}{index}'
+
+
 def clone_preparation(sim):
     preparation_guard(sim)
     with closed_on_error(sim.derive()) as new:
@@ -72,7 +80,7 @@ class ObstacleEditSession:
         spec = self.baseline_spec.copy()
         extra = []
         for i, asset_id in enumerate(asset_ids):
-            name = f'procedural_obstacle_{i}'
+            name = obstacle_name(i)
             if spec.body(name) is not None:
                 raise ValueError('obstacle instance name already exists')
             asset_spec, asset = self.assets.load(asset_id)
@@ -110,7 +118,7 @@ class ObstacleEditSession:
             # Otherwise 6–12 default roots at the origin can overflow contact arena.
             migrate_state(self.baseline, new, forward=False)
             for i, placement in enumerate(placements):
-                _set_free_pose(model, new.data, f'procedural_obstacle_{i}', placement['pose'])
+                _set_free_pose(model, new.data, obstacle_name(i), placement['pose'])
             mujoco.mj_forward(model, new.data)
         self.sim = new
         return new
@@ -123,7 +131,7 @@ class ObstacleEditSession:
         if duration_s is not None:
             # Continue candidate to the matched control duration, never move bodies manually.
             config = replace(config, settle_s=duration_s, max_settle_s=duration_s)
-        names = {c['instance_id'] for c in self.sim.catalog if c['instance_id'].startswith('procedural_obstacle_')}
+        names = {c['instance_id'] for c in self.sim.catalog if c['instance_id'].startswith(OBSTACLE_PREFIX)}
         return settle_scene(self.sim, config, deadline=deadline, stability_instances=names)
 
     def close(self):

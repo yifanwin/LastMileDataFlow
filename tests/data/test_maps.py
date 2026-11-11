@@ -15,7 +15,7 @@ from lastmile_dataflow.planning.navigation.astar import (
     Grid,
     distance_field,
     scene_grid,
-    search,
+    search_region,
     task_support_obstacles,
 )
 from lastmile_dataflow.utils.io import read_json
@@ -93,7 +93,7 @@ class SupportMapTests(unittest.TestCase):
         self.assertFalse(heat.free[heat.cell([0, 0])])
         self.assertTrue(heat.free[heat.cell([0.6, 0])])
         self.assertFalse(nav.free[nav.cell([0.6, 0])])
-        path = search(nav, [-1, 0], [1, 0])
+        path = search_region(nav, [-1, 0], [{'xy': [1, 0], 'yaw': 0.}])
         self.assertIsNotNone(path)
         self.assertTrue(all(abs(p[0]) > 0.5 or abs(p[1]) > 0.4 for p in path["xy"]))
         row = {

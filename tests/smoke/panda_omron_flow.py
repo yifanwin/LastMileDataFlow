@@ -79,7 +79,7 @@ def navigation(output, robot_config):
     from lastmile_dataflow.runtime.execution.context import ContinuousContext
     from lastmile_dataflow.runtime.execution.navigation import navigate
     from lastmile_dataflow.scenes.tasks.discovery import robot_footprint
-    from lastmile_dataflow.planning.navigation.astar import scene_grid, search
+    from lastmile_dataflow.planning.navigation.astar import scene_grid, search_region
     from lastmile_dataflow.planning.navigation.geometry import pose_path
     from lastmile_dataflow.utils.io import write_json
     output.mkdir(parents=True, exist_ok=False)
@@ -96,7 +96,7 @@ def navigation(output, robot_config):
     initial_arm = sim.robot.arm_positions('right').copy()
     try:
         grid = scene_grid(sim, [1.,0.,0.], 2., .05, robot_footprint(sim,whole_body=True)['radius_m'], .04, robot_height=robot_footprint(sim,whole_body=True)['max'][2])
-        path = search(grid, [0.,0.], [2.,0.])
+        path = search_region(grid, [0.,0.], [{'xy': [2.,0.], 'yaw': 0.}])
         if path is None:
             raise ValueError('navigation validation has no A* path')
         xy = np.asarray(path['xy'])
@@ -121,6 +121,23 @@ def navigation(output, robot_config):
         sim.close()
 
 
+def static_stations(sim, task, geometry):
+    """Initialize the robot at every disk lattice point in a fresh clone; geometry only, no rendering."""
+    from contextlib import closing
+    from lastmile_dataflow.runtime.construction.session import clone_preparation
+    from lastmile_dataflow.scenes.stations.initialization import room_triangles
+    from lastmile_dataflow.scenes.stations.sampling import disk_samples, initialize_station
+    triangles = room_triangles(sim)
+    rows = []
+    for station in disk_samples(task['anchor_world'], geometry.radius_m, geometry.spacing_m):
+        with closing(clone_preparation(sim)) as probe:
+            try:
+                rows.append(initialize_station(probe, station, task['anchor_world'], floor_triangles=triangles))
+            except ValueError as exc:
+                rows.append({**station, 'geometry': 'geometry_filtered', 'reason': str(exc)})
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument('--stage', choices=['prepare','navigation','align-mobile'], default='prepare')
@@ -137,7 +154,7 @@ def main():
     from lastmile_dataflow.runtime.simulation import Simulation
     from lastmile_dataflow.scenes.loading.source import SceneSource
     from lastmile_dataflow.scenes.tasks.discovery import discover_tasks
-    from lastmile_dataflow.scenes.stations.sampling import sample_stations
+    from lastmile_dataflow.scenes.stations.sampling import coverage_select
     from lastmile_dataflow.scenes.dataset_config import SceneStationConfig
     from lastmile_dataflow.utils.io import write_json, write_rows
     if args.stage == 'align-mobile':
@@ -160,11 +177,12 @@ def main():
     try:
         tasks, skipped = discover_tasks(sim, objects, geometry)
         task = next(t for t in tasks if t['target_body']==target and t['operation']=='pick')
-        stations = sample_stations(sim, task, geometry)
+        stations = static_stations(sim, task, geometry)
         valid = [s for s in stations if s['geometry']=='valid']
-        from lastmile_dataflow.scenes.dataset import select_stations
-        selected, selection = select_stations(stations, task['anchor_world'],
-            method='coverage' if args.max_stations else 'all_valid', limit=args.max_stations)
+        if args.max_stations:
+            selected, selection = coverage_select(stations, task['anchor_world'], args.max_stations)
+        else:
+            selected, selection = valid, {'method': 'all_valid', 'selected_ids': [s['station_id'] for s in valid]}
         print('stations', len(stations), 'valid', len(valid), 'selected', len(selected), flush=True)
         sim.freeze(args.output/'scene')
         write_json(args.output/'config.json', {'geometry':asdict(geometry)})

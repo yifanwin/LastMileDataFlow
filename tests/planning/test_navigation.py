@@ -6,13 +6,12 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.planning.navigation.astar import Grid, search, scene_grid
-from lastmile_dataflow.planning.waypoints import (
-    PlanResult,
-    arm_waypoint_action,
-    navigation_action,
-)
-from tests.helpers import make_sim
+from lastmile_dataflow.planning.navigation.astar import Grid, scene_grid, search_region
+from lastmile_dataflow.planning.waypoints import PlanResult
+
+
+def search(grid, start_xy, goal_xy):
+    return search_region(grid, start_xy, [{'xy': list(goal_xy), 'yaw': 0.}])
 
 
 class NavigationTests(unittest.TestCase):
@@ -59,28 +58,17 @@ class NavigationTests(unittest.TestCase):
         grid = Grid(np.zeros(2), 1.0, free)
         path = search(grid, [0, 0], [4, 0])
         self.assertIsNotNone(path)
-        self.assertTrue(all(free[tuple(cell)] for cell in path["cells"]))
+        self.assertTrue(all(free[grid.cell(xy)] for xy in path["xy"]))
 
 
-class WaypointTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.sim, self.robot = make_sim(self.root)
-
-    def tearDown(self):
-        self.sim.close()
-        self.tmp.cleanup()
-
-    def test_planning_navigation_bridge(self):
-        q = self.sim.robot.group("left_arm") + 0.01
-        p = PlanResult("success", tuple(f"left_arm_{i}" for i in range(7)), (q.tolist(),), {})
-        a = arm_waypoint_action(p, 0, self.sim.robot, "left")
-        np.testing.assert_allclose(a[3:10], [0.01] * 7)
+class PlanResultTests(unittest.TestCase):
+    def test_plan_result_requires_waypoints_only_on_success(self):
+        p = PlanResult("success", tuple(f"left_arm_{i}" for i in range(7)), ([0.] * 7,), {})
         with self.assertRaises(ValueError):
             PlanResult("no_solution", p.joint_names, p.positions, {})
         with self.assertRaises(ValueError):
             PlanResult("success", p.joint_names, (), {})
-        a = navigation_action([1, 0, 1], self.sim.robot)
-        self.assertLessEqual(np.linalg.norm(a[:2]), 0.1)
-        self.assertLessEqual(abs(a[2]), 0.2)
+
+
+if __name__ == "__main__":
+    unittest.main()

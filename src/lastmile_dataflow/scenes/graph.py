@@ -53,15 +53,6 @@ class SceneGraph:
         value['graph_id'] = f'{self.scene_id}:{self.stage}:{self.revision}'
         return value
 
-    @classmethod
-    def from_dict(cls, value):
-        if value.get('graph_version') != '0.1' or value.get('units') != 'SI' or value.get('pose_order') != 'xyz_wxyz':
-            raise ValueError('unsupported graph format')
-        if not isinstance(value.get('nodes'), dict) or not isinstance(value.get('edges'), list):
-            raise ValueError('invalid graph nodes/edges')
-        return cls(**{k: copy.deepcopy(value[k]) for k in
-                      ('scene_id', 'revision', 'time_s', 'nodes', 'edges', 'stage', 'issues')})
-
 
 def _pose(position, quaternion):
     return {'frame': 'world', 'position': np.asarray(position).tolist(),
@@ -98,11 +89,7 @@ def _geometry(node, points):
 
 
 def _region_check(sim, points, body, region, contacts, config):
-    local = region.local(points)
-    a, b, c, d = region.bounds
-    eps = config.boundary_tolerance_m
-    inside = bool(local[:, 0].min() >= a-eps and local[:, 0].max() <= b+eps and
-                  local[:, 1].min() >= c-eps and local[:, 1].max() <= d+eps)
+    inside = region.contains(points, config.boundary_tolerance_m)
     bottom = float(points[:, 2].min())
     height = abs(bottom-region.height) <= config.support_tolerance_m
     contact = any(-config.penetration_tolerance_m <= x['distance_m'] <= config.support_tolerance_m

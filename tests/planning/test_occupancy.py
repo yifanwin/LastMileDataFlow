@@ -5,7 +5,7 @@ import unittest
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.planning.navigation.astar import scene_occupancy, segment_free, search, distance_field
+from lastmile_dataflow.planning.navigation.astar import scene_occupancy, segment_free, search_region, distance_field
 
 
 class OccupancyTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class OccupancyTests(unittest.TestCase):
         self.assertTrue(occupancy.occupied[nav.cell([0., 0.])])
         self.assertFalse(nav.free[nav.cell([0., 0.])])
         self.assertFalse(segment_free(nav, [-.5, 0], [.5, 0]))
-        path = search(nav, [-.5, 0], [.5, 0])
+        path = search_region(nav, [-.5, 0], [{'xy': [.5, 0], 'yaw': 0.}])
         self.assertIsNotNone(path)
         self.assertGreater(path['length_m'], 1.)
         self.assertTrue(all(segment_free(nav, a, b) for a, b in zip(path['xy'], path['xy'][1:])))

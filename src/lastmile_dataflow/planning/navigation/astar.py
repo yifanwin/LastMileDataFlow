@@ -33,34 +33,6 @@ class Grid:
             yield (yy,xx), self.resolution*(math.sqrt(2) if dx and dy else 1.)
 
 
-def search(grid, start_xy, goal_xy):
-    start,goal = grid.cell(start_xy),grid.cell(goal_xy)
-    if start is None or goal is None or not grid.free[start] or not grid.free[goal]:
-        return None
-    if not segment_free(grid, start_xy, grid.xy(start)) or not segment_free(grid, grid.xy(goal), goal_xy):
-        return None
-    distance = {start: 0.}; parent = {}; queue = [(0.,0.,start)]
-    while queue:
-        _,cost,node = heapq.heappop(queue)
-        if cost > distance[node]+1e-10:
-            continue
-        if node == goal:
-            cells = [node]
-            while node in parent:
-                node = parent[node]; cells.append(node)
-            xy = [np.asarray(start_xy), *(grid.xy(c) for c in reversed(cells)), np.asarray(goal_xy)]
-            length = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
-            return {'xy': np.asarray(xy).tolist(), 'length_m': length,
-                    'cells': [list(c) for c in reversed(cells)]}
-        for neighbor,step in grid.neighbors(node):
-            value = cost+step
-            if value+1e-10 < distance.get(neighbor,float('inf')):
-                distance[neighbor] = value; parent[neighbor] = node
-                heuristic = np.linalg.norm(np.asarray(neighbor)-goal)*grid.resolution
-                heapq.heappush(queue,(value+heuristic,value,neighbor))
-    return None
-
-
 def distance_field(grid, source_xy, limit):
     distances = np.full(grid.free.shape,np.inf)
     start = grid.cell(source_xy)

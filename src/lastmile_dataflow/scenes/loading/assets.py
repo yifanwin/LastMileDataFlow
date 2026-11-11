@@ -12,7 +12,7 @@ import mujoco
 import numpy as np
 
 from ...utils.io import append_row, read_json, rows
-from ..geometry import body_points, descendants, extract_regions
+from ..geometry import body_points, descendants, extract_regions, rotated_extent
 from .mjcf import load_spec, save_spec
 
 
@@ -117,46 +117,6 @@ class RuntimeGeometryCache:
     def close(self):
         self._cache.clear()
 
-
-class EditAssetCatalog(RuntimeGeometryCache):
-    """Explicit catalog input used by construction sessions and edit tools."""
-    def __init__(self, path=None, *, assets=None):
-        self.path = Path(path).absolute() if path else None
-        value = {'asset_catalog_version': '0.1', 'assets': assets} if assets is not None else read_json(self.path) if path else {'asset_catalog_version': '0.1', 'assets': []}
-        if value['asset_catalog_version'] != '0.1':
-            raise ValueError('invalid edit asset catalog')
-        super().__init__(value['assets'], base_dir=self.path.parent if self.path else '.')
-
-    def select(self, selector, rng):
-        candidates = []
-        for asset_id in sorted(self.assets):
-            if selector.get('asset_id', asset_id) != asset_id:
-                continue
-            entry = self.assets[asset_id]
-            if 'category' in selector and entry.get('category') not in selector['category']:
-                continue
-            if 'type' in selector and entry.get('type') != selector['type']:
-                continue
-            try:
-                _, asset = self.load(asset_id)
-            except (ValueError, OSError):
-                continue
-            if any(not lo <= asset['size'][name] <= hi for name, (lo, hi) in selector.get('size', {}).items()):
-                continue
-            candidates.append(asset)
-        if not candidates:
-            raise ValueError('no_loadable_asset_matches_selector')
-        return candidates[int(rng.integers(len(candidates)))]
-
-    def describe(self):
-        result = []
-        for asset_id in sorted(self.assets):
-            try:
-                _, asset = self.load(asset_id)
-                result.append({k: asset[k] for k in ('asset_id', 'category', 'type', 'root_motion', 'size')})
-            except (ValueError, OSError) as exc:
-                result.append({'asset_id': asset_id, 'status': 'unsupported', 'reason': type(exc).__name__})
-        return result
 
 
 ROLE_CATEGORIES = {
@@ -288,16 +248,15 @@ def load_asset_profiles(path):
     return profiles
 
 
+PLACEMENT_MARGIN_M = .01
+
+
 @dataclass(frozen=True)
 class AssetRequest:
     role: str
-    size_bounds: dict = field(default_factory=dict)
     support: str | None = None
-    room: str | None = None
     excluded_categories: tuple = ()
     available_size_m: tuple | None = None
-    yaw_rad: float | None = None
-    placement_margin_m: float = .01
     limit: int = 5
 
 
@@ -315,19 +274,11 @@ class AssetSelector:
                 continue
             if request.support and request.support not in profile.compatible_supports:
                 continue
-            if request.room and '*' not in profile.compatible_rooms and request.room not in profile.compatible_rooms:
-                continue
-            if any(not bounds[0] <= getattr(profile, key) <= bounds[1]
-                   for key, bounds in request.size_bounds.items()):
-                continue
             if request.available_size_m is not None:
-                available = np.asarray(request.available_size_m) - 2 * request.placement_margin_m
-                yaws = (0., np.pi / 2) if request.yaw_rad is None else (request.yaw_rad,)
+                available = np.asarray(request.available_size_m) - 2 * PLACEMENT_MARGIN_M
                 fits = False
-                for yaw in yaws:
-                    c, s = abs(np.cos(yaw)), abs(np.sin(yaw))
-                    extent = [c * profile.width_m + s * profile.depth_m,
-                              s * profile.width_m + c * profile.depth_m]
+                for yaw in (0., np.pi / 2):
+                    extent = rotated_extent(profile.width_m, profile.depth_m, yaw)
                     fits |= bool(np.all(np.asarray(extent) <= available))
                 if not fits:
                     continue

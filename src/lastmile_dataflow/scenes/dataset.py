@@ -1,16 +1,6 @@
-"""最小场景记录读取与覆盖选点。"""
+"""最小场景记录读取。"""
 from pathlib import Path
 from ..utils.io import rows
-from .stations.sampling import coverage_select
-
-
-def select_stations(stations, anchor, method='coverage', limit=20):
-    if method == 'coverage':
-        return coverage_select(stations, anchor, limit)
-    if method != 'all_valid':
-        raise ValueError('unknown station selection')
-    selected = [s for s in stations if s['geometry'] == 'valid']
-    return selected, {'method': method, 'selected_ids': [s['station_id'] for s in selected]}
 
 
 def load_scenes(dataset, samples=None):

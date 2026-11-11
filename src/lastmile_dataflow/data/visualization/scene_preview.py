@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from ...config import RobotConfig
+from ...runtime.construction.session import obstacle_name
 from ...runtime.simulation import Simulation
 from ...scenes.geometry import descendants, geom_points
 from ...utils.logging_config import Progress
@@ -202,7 +203,7 @@ def render_scene_preview(root, record, destination):
         after = load(record['scene'])
         before_location = before_scene_location(record) if edited else None
         before = load(before_location) if before_location and (root / before_location).is_dir() else None
-        additions = [f'procedural_obstacle_{i}' for i in range(len(placements))]
+        additions = [obstacle_name(i) for i in range(len(placements))]
         names = [task['target_body']] + additions
         context = [object_points(after, name) for name in names]
         for support in task.get('support_obstacles', []):

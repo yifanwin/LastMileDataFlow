@@ -64,15 +64,13 @@ class AssetProfileTests(unittest.TestCase):
             asdict(replace(profile, asset_id='unloadable', loadable=False)),
             asdict(replace(profile, asset_id='large', width_m=2.))])
         request = AssetRequest('visual_occluder', support='Desk', excluded_categories=('vase',),
-                               available_size_m=(.45, .25), yaw_rad=np.pi / 2)
+                               available_size_m=(.45, .25))
         with (patch.object(Path, 'rglob', side_effect=AssertionError('online asset scan')),
               patch.object(assets, 'measure_asset', side_effect=AssertionError('online compile'))):
             selector = AssetSelector(index)
             chosen = selector.select(request, np.random.default_rng(42))
             self.assertEqual([p.asset_id for p in chosen], ['kettle'])
-            self.assertEqual(selector.select(replace(request, yaw_rad=0.), np.random.default_rng(42)), [])
             self.assertEqual(selector.select(replace(request, support='floor'), np.random.default_rng(42)), [])
-            self.assertEqual(selector.select(replace(request, size_bounds={'height_m': (0., .2)}), np.random.default_rng(42)), [])
 
     def test_shortlist_prefers_categories_and_actual_use_with_seeded_ties(self):
         index = self.root / 'assets.jsonl'

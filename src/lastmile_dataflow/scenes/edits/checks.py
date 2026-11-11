@@ -1,21 +1,49 @@
 """Full-height collision, physical support and matched-control effect checks."""
-import mujoco
 from contextlib import contextmanager
 from dataclasses import dataclass
-from ...runtime.construction.session import matched_control
+
+import mujoco
 import numpy as np
 
-from ..geometry import descendants, body_points, collision_geoms, extract_regions, support_rays, quat_angle
+from ...runtime.construction.session import OBSTACLE_PREFIX, matched_control, obstacle_name
+from ..geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
 from .placement import ground_coverage
 
+UP = np.array([0., 0., 1.])
 
-def collision_pairs(sim, placements, config, *, settled=False, body_names=None):
+
+@dataclass(frozen=True)
+class PhysicalLimits:
+    collision_tolerance_m: float = .001
+    support_contact_tolerance_m: float = .008
+    source_effect_tolerance_m: float = .006
+    source_effect_rotation_rad: float = .04
+    max_tilt_rad: float = .10
+
+
+LIMITS = PhysicalLimits()
+
+
+def _is_support_geom(model, geom, placement):
+    """Ground placements rest on a non-robot floor geom; surface placements on their measured support geom."""
+    if placement['kind'] == 'ground':
+        return 'floor' in model.geom(geom).name.lower() and not model.body(int(model.geom_bodyid[geom])).name.startswith('robot_0/')
+    return model.geom(geom).name == placement['support_geom']
+
+
+def _geom_identity(model, geom):
+    # Names of geoms can be empty; stable body name plus within-body index avoids conflation.
+    body = int(model.geom_bodyid[geom])
+    return model.body(body).name, int(geom) - int(model.body_geomadr[body])
+
+
+def collision_pairs(sim, placements, config):
     """Narrow phase against EACH geom; never exempt a whole table or all world geoms."""
     m, d = sim.model, sim.data
     added = {}
     owner = {}
     for i, placement in enumerate(placements):
-        name = body_names[i] if body_names is not None else f'procedural_obstacle_{i}'
+        name = obstacle_name(i)
         added[name] = collision_geoms(sim, m.body(name).id)
         for g in added[name]:
             owner[g] = i
@@ -39,7 +67,7 @@ def collision_pairs(sim, placements, config, *, settled=False, body_names=None):
                 if not (m.geom_contype[g] & m.geom_conaffinity[h] or m.geom_contype[h] & m.geom_conaffinity[g]):
                     continue
                 placement = placements[owner[g]]
-                support = ('floor' in m.geom(h).name.lower() and not m.body(int(m.geom_bodyid[h])).name.startswith('robot_0/')) if placement['kind'] == 'ground' else m.geom(h).name == placement['support_geom']
+                support = _is_support_geom(m, h, placement)
                 threshold = config.support_contact_tolerance_m if support else config.collision_tolerance_m
                 distance = float(mujoco.mj_geomDistance(m, d, g, h, .02, None))
                 # Native geomDistance can return zero for exactly coincident boxes.
@@ -58,11 +86,11 @@ def collision_pairs(sim, placements, config, *, settled=False, body_names=None):
             'scope': 'all_added_collision_geoms_against_full_height_scene_geoms'}
 
 
-def load_support(sim, placements, config, *, body_names=None):
+def load_support(sim, placements, config):
     m, d = sim.model, sim.data
     rows = []
     for i, placement in enumerate(placements):
-        name = body_names[i] if body_names is not None else f'procedural_obstacle_{i}'
+        name = obstacle_name(i)
         body = m.body(name).id
         geoms = set(collision_geoms(sim, body))
         contacts = []
@@ -70,8 +98,7 @@ def load_support(sim, placements, config, *, body_names=None):
             if c.geom1 not in geoms and c.geom2 not in geoms:
                 continue
             other = int(c.geom2 if c.geom1 in geoms else c.geom1)
-            correct_support = ('floor' in m.geom(other).name.lower() and not m.body(int(m.geom_bodyid[other])).name.startswith('robot_0/')) if placement['kind'] == 'ground' else m.geom(other).name == placement['support_geom']
-            if not correct_support:
+            if not _is_support_geom(m, other, placement):
                 continue
             force = np.zeros(6)
             mujoco.mj_contactForce(m, d, index, force)
@@ -79,8 +106,7 @@ def load_support(sim, placements, config, *, body_names=None):
                              'normal_vertical': abs(float(c.frame[2])), 'normal_force_n': float(force[0])})
         points = body_points(sim, body)
         height_error = abs(float(points[:, 2].min()) - placement['support_height_m'])
-        expected_up = np.asarray(placement.get('reference_up', [0., 0., 1.]))
-        tilt = float(np.arccos(np.clip(np.dot(d.xmat[body].reshape(3, 3)[:, 2], expected_up), -1, 1)))
+        tilt = float(np.arccos(np.clip(np.dot(d.xmat[body].reshape(3, 3)[:, 2], UP), -1, 1)))
         load = any(-config.support_contact_tolerance_m <= c['distance_m'] <= config.support_contact_tolerance_m
                    and c['normal_vertical'] > .7 and c['normal_force_n'] > 1e-8 for c in contacts)
         coverage = ground_coverage(sim, points) if placement['kind'] == 'ground' else False
@@ -88,11 +114,7 @@ def load_support(sim, placements, config, *, body_names=None):
             # Recheck the SETTLED footprint. A pre-placement flag is not support proof.
             regions = extract_regions(sim, placement['support_instance'], placement['support_geom'])
             for region in regions:
-                local = region.local(points)
-                a, b, c, dd = region.bounds
-                eps = config.collision_tolerance_m
-                inside = bool(local[:, 0].min() >= a - eps and local[:, 0].max() <= b + eps
-                              and local[:, 1].min() >= c - eps and local[:, 1].max() <= dd + eps)
+                inside = region.contains(points, config.collision_tolerance_m)
                 coverage |= bool(inside and support_rays(sim, body, region, points))
         valid = bool(load and coverage and height_error <= config.support_contact_tolerance_m and tilt <= config.max_tilt_rad)
         rows.append({'instance': name, 'valid': valid, 'load_bearing_contact': load,
@@ -104,22 +126,18 @@ def load_support(sim, placements, config, *, body_names=None):
 def contact_minima(sim):
     result = {}
     for c in sim.data.contact:
-        # Names of geoms can be empty; stable body name plus within-body index avoids conflation.
-        def identity(g):
-            b = int(sim.model.geom_bodyid[g])
-            return (sim.model.body(b).name, int(g) - int(sim.model.body_geomadr[b]))
-        key = tuple(sorted((identity(c.geom1), identity(c.geom2))))
+        key = tuple(sorted((_geom_identity(sim.model, c.geom1), _geom_identity(sim.model, c.geom2))))
         result[key] = min(result.get(key, 0.), float(c.dist))
     return result
 
 
-def matched_source_effects(control, candidate, config, *, edited_bodies=()):
+def matched_source_effects(control, candidate, config):
     if not np.isclose(control.data.time, candidate.data.time, atol=1e-8, rtol=0):
         raise ValueError('matched control must have the same simulation time')
     rows = []
     for entry in control.catalog:
         name = entry['mjcf_body']
-        if name.startswith(control.robot.config.namespace) or name in edited_bodies:
+        if name.startswith(control.robot.config.namespace):
             continue
         b0, b1 = control.model.body(name).id, candidate.model.body(name).id
         if not control.model.body_dofnum[b0]:
@@ -131,7 +149,7 @@ def matched_source_effects(control, candidate, config, *, edited_bodies=()):
     c0, c1 = contact_minima(control), contact_minima(candidate)
     added_contacts = []
     for key, value in c1.items():
-        if any(name.startswith('procedural_obstacle_') or name in edited_bodies for name, _ in key):
+        if any(name.startswith(OBSTACLE_PREFIX) for name, _ in key):
             continue
         if value < -config.collision_tolerance_m and value < c0.get(key, 0.) - config.collision_tolerance_m:
             added_contacts.append({'pair': key, 'candidate_distance_m': value, 'control_distance_m': c0.get(key)})
@@ -141,45 +159,28 @@ def matched_source_effects(control, candidate, config, *, edited_bodies=()):
             'scope': 'unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_unedited_control'}
 
 
-@dataclass(frozen=True)
-class PhysicalLimits:
-    collision_tolerance_m: float = .001
-    support_contact_tolerance_m: float = .008
-    source_effect_tolerance_m: float = .006
-    source_effect_rotation_rad: float = .04
-    max_tilt_rad: float = .10
 
 
 @contextmanager
 def proposal_scene(ctx, proposal, *, deadline=None):
     """Yield physical evidence; final proxy/station checks precede any freeze."""
-    changes = proposal.runtime_changes()
-    placements, moves = changes['placements'], changes['target_moves']
-    if not placements and not moves:
-        yield ctx.baseline, ctx.geometry, {'valid': True, 'path': 'no_edit',
-                                          'task_completion': 'unknown'}
-        return
-    limits = PhysicalLimits()
-    physical = placements + moves
-    names = [f'procedural_obstacle_{i}' for i in range(len(placements))] + [move['body'] for move in moves]
-    sim = ctx.session.candidate(placements, target_moves=moves, deadline=deadline)
+    placements = proposal.runtime_changes()['placements']
+    sim = ctx.session.candidate(placements, deadline=deadline)
     try:
-        collision = collision_pairs(sim, physical, limits, body_names=names)
+        collision = collision_pairs(sim, placements, LIMITS)
         if not collision['valid']:
             yield sim, None, {'valid': False, 'reason': 'initial_edit_collision', 'collision': collision}
             return
-        settling = ctx.session.settle(deadline=deadline, moved_bodies=[move['body'] for move in moves])
+        settling = ctx.session.settle(deadline=deadline)
         control, _ = matched_control(ctx.baseline, settling.simulated_s, ctx.settle_config, deadline)
         try:
-            excluded = {sim.model.body(b).name for move in moves
-                        for b in descendants(sim.model, sim.model.body(move['body']).id)}
-            collision = collision_pairs(sim, physical, limits, settled=True, body_names=names)
-            support = load_support(sim, physical, limits, body_names=names)
-            effects = matched_source_effects(control, sim, limits, edited_bodies=excluded)
+            collision = collision_pairs(sim, placements, LIMITS)
+            support = load_support(sim, placements, LIMITS)
+            effects = matched_source_effects(control, sim, LIMITS)
             healthy = bool(np.isfinite(sim.state_vector()).all() and not settling.new_warnings)
             checks = {'valid': bool(settling.stable and healthy and collision['valid'] and support['valid'] and effects['valid']),
                       'settling': settling, 'solver_health': healthy, 'collision': collision, 'support': support,
-                      'source_effects': effects, 'edited_source_bodies': sorted(excluded), 'task_completion': 'unknown'}
+                      'source_effects': effects, 'edited_source_bodies': [], 'task_completion': 'unknown'}
             geometry = ctx.derive(sim) if checks['valid'] else None
             yield sim, geometry, checks
         finally:
