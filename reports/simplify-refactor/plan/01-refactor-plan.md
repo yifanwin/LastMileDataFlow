@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 分支：`refactor/simplify`，从 `actor-critic` 的 `1b2f454` 拉出，worktree 在 `.worktrees/simplify`
-- 状态：已批准（2026-11-11）；阶段 0 基线已完成，阶段 1 进行中
+- 状态：已批准（2026-11-11）；阶段 0–2 已完成，停在阶段 3 之前，接手见 ../delivery/01-handover.md
 
 ## 1 范围（已和用户确认）
 
