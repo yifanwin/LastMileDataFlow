@@ -5,7 +5,7 @@ import mujoco
 import numpy as np
 
 from ..geometry import body_pose
-from ..geometry import body_points, descendants
+from ..geometry import body_points, descendants, geom_points
 
 
 LABELS = {'Cup': '杯子', 'Mug': '马克杯', 'Bottle': '瓶子', 'Bowl': '碗',
@@ -25,7 +25,6 @@ def local_bounds(sim, body):
 
 def robot_footprint(sim, *, whole_body=False):
     """Actual base and wheel geometry projected into the base frame."""
-    from ..geometry import geom_points
     base = body_pose(sim, sim.model.body(sim.robot.config.namespace+sim.robot.base_body).id)
     base[:2, 3] = sim.robot.base_pose()[:2]
     points = []

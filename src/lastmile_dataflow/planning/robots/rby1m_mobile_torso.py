@@ -3,6 +3,10 @@ import copy
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import numpy as np
+import yaml
+
+from ...runtime.control.action import local_yaw_bounds
+from ...scenes.geometry import body_pose
 
 
 
@@ -95,9 +99,6 @@ class PlanningModel:
     fk_limits = (.001, .001)
 
     def __init__(self, sim, config, side, path, workspace):
-        import yaml
-        from ...scenes.geometry import body_pose
-        from ...runtime.control.action import local_yaw_bounds
         if config.operation_base_mode == 'fixed':
             raise ValueError('RBY-1 V2 uses holonomic_joint_planning')
         self.sim, self.side = sim, side
@@ -127,7 +128,6 @@ class PlanningModel:
         return float(point[10])
 
     def current_joints(self):
-        from ...scenes.geometry import body_pose
         relative = np.linalg.solve(self.base, body_pose(self.sim, self.sim.model.body(self.sim.robot.config.namespace+'base').id))
         return np.r_[relative[:2, 3], float(self.sim.robot.group('base')[2])-self.reference_yaw,
                      self.sim.robot.group(self.side+'_arm'), self.sim.robot.group('torso')[1]]

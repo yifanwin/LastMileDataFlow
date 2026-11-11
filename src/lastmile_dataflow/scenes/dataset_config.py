@@ -5,6 +5,7 @@ import re
 import numpy as np
 
 from ..config import load_robot_config, read_config
+from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
 
 
 def house_number(value):
@@ -160,7 +161,6 @@ def load_scene_recipe(path):
         repo_fields=('robot_config',)))
     robot = load_robot_config(recipe.robot_config)
     if robot.control_profile == 'robocasa-v1':
-        from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
         if set(robot.cameras) != set(ROBOCASA_CAMERAS):
             raise ValueError('RoboCasa scenes require all three cameras')
     return recipe

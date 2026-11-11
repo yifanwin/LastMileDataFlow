@@ -2,7 +2,13 @@
 from dataclasses import dataclass
 import heapq
 import math
+
+import mujoco
 import numpy as np
+from scipy.ndimage import distance_transform_edt
+
+from ...scenes.geometry import body_points, collision_geoms, descendants, geom_points
+from ...scenes.stations.initialization import room_triangles
 
 
 @dataclass
@@ -33,20 +39,31 @@ class Grid:
             yield (yy,xx), self.resolution*(math.sqrt(2) if dx and dy else 1.)
 
 
+def _dijkstra(grid, start, limit=math.inf):
+    """Metric distances from start over free cells, and the parent of each reached cell."""
+    distance = {start: 0.}
+    parent = {}
+    queue = [(0., start)]
+    while queue:
+        cost, node = heapq.heappop(queue)
+        if cost > distance[node] + 1e-10:
+            continue
+        for neighbor, step in grid.neighbors(node):
+            value = cost + step
+            if value <= limit and value + 1e-10 < distance.get(neighbor, math.inf):
+                distance[neighbor] = value
+                parent[neighbor] = node
+                heapq.heappush(queue, (value, neighbor))
+    return distance, parent
+
+
 def distance_field(grid, source_xy, limit):
-    distances = np.full(grid.free.shape,np.inf)
+    distances = np.full(grid.free.shape, np.inf)
     start = grid.cell(source_xy)
     if start is None or not grid.free[start]:
         return distances
-    distances[start] = 0.; queue = [(0.,start)]
-    while queue:
-        cost,node = heapq.heappop(queue)
-        if cost > distances[node]+1e-10:
-            continue
-        for neighbor,step in grid.neighbors(node):
-            value = cost+step
-            if value <= limit and value+1e-10 < distances[neighbor]:
-                distances[neighbor] = value; heapq.heappush(queue,(value,neighbor))
+    for cell, value in _dijkstra(grid, start, limit)[0].items():
+        distances[cell] = value
     return distances
 
 
@@ -75,19 +92,7 @@ def search_region(grid, start_xy, goals):
     start = grid.cell(start_xy)
     if start is None or not segment_free(grid, start_xy, grid.xy(start)):
         return None
-    distance = {start: 0.}
-    parent = {}
-    queue = [(0., start)]
-    while queue:
-        cost, node = heapq.heappop(queue)
-        if cost > distance[node] + 1e-10:
-            continue
-        for neighbor, step in grid.neighbors(node):
-            value = cost + step
-            if value + 1e-10 < distance.get(neighbor, float('inf')):
-                distance[neighbor] = value
-                parent[neighbor] = node
-                heapq.heappush(queue, (value, neighbor))
+    distance, parent = _dijkstra(grid, start)
     reachable = []
     start_offset = float(np.linalg.norm(np.asarray(start_xy) - grid.xy(start)))
     for goal in goals:
@@ -129,20 +134,23 @@ class OccupancyMap:
         return self.obstacle_distance_m - chassis_radius
 
 
+def _mark_box(occupied, xy, lo, hi, resolution):
+    """Occupy raster cells intersecting a measured conservative AABB, including obstacles thinner
+    than one cell. No robot radius/margin enters here."""
+    occupied |= ((xy >= np.asarray(lo)[:2] - resolution / 2) &
+                 (xy <= np.asarray(hi)[:2] + resolution / 2)).all(axis=-1)
+
+
 def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), robot_height=.40):
     """Rasterize once without inflation, then measure distance to occupied cells.
 
     radius=None uses the full source floor. D is conservative at raster precision:
     occupied cells cover their whole square, including thin intersecting geoms.
     """
-    import mujoco
-    from scipy.ndimage import distance_transform_edt
-    from ...scenes.geometry import geom_points
-    from ...scenes.stations.initialization import room_triangles
     triangles = room_triangles(sim)
     if radius is None:
         if sim.local_model and sim.local_model.get('removed_roots'):
-            raise ValueError('room navigation requires a full scene; rebuild with local_task_models=false')
+            raise ValueError('room navigation requires a full scene')
         if not len(triangles):
             raise ValueError('room navigation requires bounded source floor geometry')
         points = triangles.reshape(-1, 2)
@@ -166,12 +174,6 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
         allowed &= floor
     occupied = ~allowed
 
-    def occupy(lo, hi):
-        # Raster cells intersecting the measured conservative AABB, including
-        # obstacles thinner than one cell. No robot radius/margin enters here.
-        occupied[:] |= ((xy >= np.asarray(lo)[:2] - resolution / 2) &
-                        (xy <= np.asarray(hi)[:2] + resolution / 2)).all(axis=-1)
-
     for g in range(sim.model.ngeom):
         name = sim.model.geom(g).name
         body = sim.model.body(int(sim.model.geom_bodyid[g])).name
@@ -184,9 +186,9 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
         points = geom_points(sim, g)
         lo, hi = points.min(axis=0), points.max(axis=0)
         if hi[2] > .005 and lo[2] < robot_height:
-            occupy(lo, hi)
+            _mark_box(occupied, xy, lo, hi, resolution)
     for obstacle in support_obstacles:
-        occupy(obstacle['min'], obstacle['max'])
+        _mark_box(occupied, xy, obstacle['min'], obstacle['max'], resolution)
     distance = distance_transform_edt(np.pad(~occupied, 1, constant_values=False))[1:-1, 1:-1] * resolution
     distance = np.maximum(0., distance - resolution / math.sqrt(2))
     return OccupancyMap(origin, resolution, occupied, distance, tuple(support_obstacles))
@@ -205,7 +207,6 @@ def task_support_obstacles(sim, task):
     below the target. Without a hint, search collision surfaces under the target.
     Open tasks reserve their articulated furniture instance instead.
     """
-    from ...scenes.geometry import body_points, collision_geoms, descendants, geom_points
     target = sim.model.body(task['target_body']).id
     target_bodies = descendants(sim.model,target)
     target_lo = body_points(sim,target).min(axis=0)

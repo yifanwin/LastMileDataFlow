@@ -1,6 +1,8 @@
 """One owned baseline and shared geometric preparation per discovered task."""
+from contextlib import ExitStack
 import copy
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
+from pathlib import Path
 import time
 
 import numpy as np
@@ -10,15 +12,12 @@ from ...planning.navigation.astar import scene_occupancy, task_support_obstacles
 from ...runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
 from ...runtime.construction.session import ObstacleEditSession, clone_preparation
 from ...runtime.simulation import InitializationError
-from .placement import support_regions
 from ..geometry import body_points, body_pose
-from ..loading.assets import AssetSelector
-from ..loading.assets import RuntimeGeometryCache
+from ..loading.assets import AssetSelector, RuntimeGeometryCache
 from ..stations.sampling import disk_samples, park_robot, select_task_stations
-from pathlib import Path
-from .placement import BuildProposal, propose_obstacles, resolve_assets
-from .checks import proposal_scene
 from ..tasks.discovery import grasp_candidates, robot_footprint
+from .checks import proposal_scene
+from .placement import BuildProposal, propose_obstacles, resolve_assets, support_regions
 
 
 @dataclass
@@ -68,52 +67,70 @@ def task_geometry(sim, source_task, config):
         occupancy.clearance_base(chassis['radius_m']), chassis, footprint)
 
 
+@dataclass
 class BuildContext:
     """Baseline is read-only after prepare; edited candidates derive new geometry."""
+    recipe: object
+    baseline: object
+    settle_config: SettleConfig
+    settling: object
+    geometry: TaskGeometry
+    grasp_evidence: dict
+    camera_calibration: dict | None
+    selector: AssetSelector
+    assets: RuntimeGeometryCache
+    session: ObstacleEditSession
+    timings: dict
+    baseline_snapshot: object = None
+
     @classmethod
     def prepare(cls, source_sim, source_task, recipe):
         preparation_guard(source_sim)
-        ctx = cls()
-        ctx.recipe, ctx.station_config = recipe, recipe.geometry
-        ctx.settings = recipe.edits
-        ctx.baseline = clone_preparation(source_sim)
-        ctx.assets = ctx.session = None
-        ctx.timings = {}
-        try:
-            ctx.baseline.target_id = ctx.baseline.model.body(source_task['target_body']).id
+        with ExitStack() as stack:
+            baseline = clone_preparation(source_sim)
+            stack.callback(baseline.close)
+            baseline.target_id = baseline.model.body(source_task['target_body']).id
             task = copy.deepcopy(source_task)
             grasps = grasp_candidates(task, recipe.assets_dir, allow_fallback=False)
             if not grasps:
-                raise ValueError('task_has_no_valid_data_grasps' if task['operation'] == 'pick' else 'task_has_no_contact_definition')
+                raise ValueError('task_has_no_valid_data_grasps' if task['operation'] == 'pick'
+                                 else 'task_has_no_contact_definition')
             if task['operation'] == 'pick':
                 task['require_data_grasps'] = True
-            ctx.grasp_evidence = {'count': len(grasps), 'sources': sorted({row['source'] for row in grasps})}
-            ctx.grasps = grasps
+            timings = {}
             start = time.monotonic()
-            ctx.parking = park_robot(ctx.baseline, task['anchor_world'], ctx.station_config)
-            ctx.settle_config = SettleConfig(**recipe.settle)
-            ctx.settling = settle_scene(ctx.baseline, ctx.settle_config,
-                                       require_stability=ctx.settle_config.require_source_stability)
-            if not ctx.settling.valid:
+            park_robot(baseline, task['anchor_world'], recipe.geometry)
+            settle_config = SettleConfig(**recipe.settle)
+            settling = settle_scene(baseline, settle_config, require_stability=settle_config.require_source_stability)
+            if not settling.valid:
                 raise InitializationError('task_baseline_settling_failed')
-            ctx.timings['parking_and_settle_s'] = time.monotonic() - start
+            timings['parking_and_settle_s'] = time.monotonic() - start
             start = time.monotonic()
-            ctx.geometry = task_geometry(ctx.baseline, task, ctx.station_config)
-            ctx.timings['geometry_s'] = time.monotonic() - start
-            ctx.profile = asdict(ctx.baseline.robot.config)
-            ctx.camera_calibration = None
-            if ctx.baseline.robot.config.control_profile == 'robocasa-v1':
-                ctx.camera_calibration = robocasa_camera_calibration(ctx.baseline)
-                if not ctx.camera_calibration['valid']:
+            geometry = task_geometry(baseline, task, recipe.geometry)
+            timings['geometry_s'] = time.monotonic() - start
+            calibration = None
+            if baseline.robot.config.control_profile == 'robocasa-v1':
+                calibration = robocasa_camera_calibration(baseline)
+                if not calibration['valid']:
                     raise ValueError('compiled_robocasa_camera_profile_mismatch')
-            ctx.selector = AssetSelector(recipe.asset_index)
-            ctx.assets = RuntimeGeometryCache([p.geometry_entry() for p in ctx.selector.profiles if p.loadable])
-            ctx.session = ObstacleEditSession(ctx.baseline, ctx.assets, ctx.settle_config)
-            ctx.baseline_snapshot = None
+            selector = AssetSelector(recipe.asset_index)
+            assets = RuntimeGeometryCache([p.geometry_entry() for p in selector.profiles if p.loadable])
+            stack.callback(assets.close)
+            session = ObstacleEditSession(baseline, assets, settle_config)
+            stack.callback(session.close)
+            ctx = cls(recipe, baseline, settle_config, settling, geometry,
+                      {'count': len(grasps), 'sources': sorted({row['source'] for row in grasps})},
+                      calibration, selector, assets, session, timings)
+            stack.pop_all()
             return ctx
-        except BaseException:
-            ctx.close()
-            raise
+
+    @property
+    def station_config(self):
+        return self.recipe.geometry
+
+    @property
+    def settings(self):
+        return self.recipe.edits
 
     @property
     def task(self):
@@ -123,10 +140,8 @@ class BuildContext:
         return task_geometry(sim, self.task, self.station_config)
 
     def close(self):
-        if self.session is not None:
-            self.session.close()
-        if self.assets is not None:
-            self.assets.close()
+        self.session.close()
+        self.assets.close()
         self.baseline.close()
 
     def __enter__(self):

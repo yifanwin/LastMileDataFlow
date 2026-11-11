@@ -4,6 +4,7 @@ import time
 
 from ..runtime.execution.protocol import PlanningRequest, SimulationState
 from ..utils.io import write_json
+from .curobo.planner import PlannerUnavailable
 from .robots import planning_model
 from .waypoints import PlanResult
 
@@ -47,7 +48,6 @@ class PlanningClient:
         self.accept(response)
         self.ctx.plan_count = self.budget.plan_count
         if response.status == 'infrastructure_error':
-            from .curobo.planner import PlannerUnavailable
             raise PlannerUnavailable(response.diagnostics['reason'])
         if response.status == 'timeout' and 'result' not in response.plan:
             raise TimeoutError(response.diagnostics.get('reason', 'attempt_active_budget'))
