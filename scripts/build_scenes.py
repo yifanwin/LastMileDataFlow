@@ -1,0 +1,21 @@
+"""(a)(b) 场景构建：按配方找目标、准备原场景和编辑后场景、采站位，保存场景库。"""
+import argparse
+from pathlib import Path
+
+
+def main():
+    cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument('--config', type=Path, required=True, help='场景配方 JSON（含 build_workers）')
+    cli.add_argument('--output', type=Path, required=True, help='新 run 目录，如 outputs/experiments/<单元>/runs/<run>')
+    cli.add_argument('--gpu', type=int, nargs='+', required=True)
+    args = cli.parse_args()
+    from lastmile_dataflow.gpu import select_devices
+    select_devices(args.gpu)
+    from lastmile_dataflow.utils.logging_config import setup_logging
+    from lastmile_dataflow.workflows.scene_datasets import build_scenes
+    setup_logging()
+    print(build_scenes(args.config, args.output.parent, args.output.name, gpu_ids=args.gpu))
+
+
+if __name__ == '__main__':
+    main()

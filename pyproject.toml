@@ -31,9 +31,6 @@ dependencies = [
 panda-factory = ["numba>=0.61", "qpsolvers[quadprog]>=4", "opencv-python-headless>=4.11", "termcolor>=3", "tqdm>=4"]
 pi05-data = ["lerobot==0.3.3", "datasets==3.6.0"]
 
-[project.scripts]
-lastmile-dataflow = "lastmile_dataflow.cli:main"
-
 [dependency-groups]
 rl = [
     "torch>=2.14.0",

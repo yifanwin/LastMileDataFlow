@@ -86,6 +86,7 @@ class TaskModeRecipe:
     train_fraction: float = .8
     seed: int = 42
     task_timeout_s: float = 300.
+    build_workers: int = 1
     local_task_models: bool = False
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
 

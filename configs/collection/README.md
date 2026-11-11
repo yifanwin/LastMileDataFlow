@@ -1,23 +1,19 @@
-# 记录配置
+# 逐站位运行配置
 
-`smoke.json` 是 Python `load_config(CollectionConfig, ...)` 的示例。**当前五个 CLI 命令不直接加载此 JSON**；evaluate-stations / collect-lastmile 在 CLI 中创建 CollectionConfig，记录开关通过命令行传入，输出目录用 `--output-dir`。
+`scripts/station_map.py` 和 `scripts/collect.py` 的 `--config` 读这里的 JSON，对应 `config.StationRun`。
+路径相对仓库根目录，也可写绝对路径。省略的字段取下表的默认值。
 
-## 重点手动配置
+| 字段 | 默认 | 含义 |
+|---|---|---|
+| `execution` | 必填 | 执行配置，见 [execution](../execution/README.md) |
+| `assets_dir` | `configs/local.json` 的 `assets_dir` | 资产目录 |
+| `max_trials` | 不限 | 每场景标定预算；不完整的标定不能用于正式配对 |
+| `record_video` / `record_depth` / `record_physics` | `false` | 额外记录视频、深度、逐物理步日志 |
+| `recording_mode` | 有视频或深度时 `visual`，否则 `numerical` | Panda 标定默认只存数值 |
+| `station_workers` | 1 | cuRobo 站位进程数 |
+| `planning_workers_per_gpu` | `[1]` | 每张卡的规划 worker 数（1–4），一个值或每卡一个值 |
+| `cpu_workers` | 60 | 独立 trial 执行容量 |
+| `preparation_workers` | 12 | 站位准备并发 |
 
-- Python 直接加载本文件时，先改 `data_root` 和 `output_dir`。当前 `data_root=data`、`output_dir=../outputs`，解析后为仓库下 outputs，不是 configs/outputs。
-- CLI 运行用 `--record-video`、`--record-depth`、`--record-physics` 开启相应记录；不要只改 smoke.json 然后期待 CLI 生效。
-- CLI 执行图像尺寸取 [execution](../execution/README.md)；本文件 width/height 不是对执行配置的全局覆盖。
-
-| smoke.json 字段 | 含义 |
-|---|---|
-| `data_root` | output_dir 的数据根目录，相对仓库根目录 |
-| `output_dir` | 输出位置，相对 data_root；具体工作流显式传输出根目录时以工作流参数为准 |
-| `seed` | CollectionConfig 种子；当前逐点执行 trial 的种子由 ExecutionConfig.seed 生成 |
-| `max_steps` | 通用记录/采集步数配置，当前示例 6；当前 cuRobo/MolmoBot 执行不以它作为 episode 终止预算 |
-| `max_initialization_trials` | 初始化候选尝试上限，当前 80；不表示 episode 内可重置次数 |
-| `width` / `height` | 通用图像尺寸，320×240；当前执行器绑定相机时取 ExecutionConfig 的尺寸 |
-| `record_video` | 是否编码原始相机视频，示例 true |
-
-可选记录字段：`record_images=true` 保存图像、`record_depth=false` 保存深度开关、`record_physics=false` 保存逐物理步日志开关。其余通用参数见包根 `config.py` 的 CollectionConfig，不建议为了增加通过率修改物理判定参数。
-
-真实执行只记录一份 trajectory.npz；图像默认开启。没有 raw-first/canonical 协议开关，也不会因为启用记录而产生未执行的轨迹。
+`curobo_v2.json` 是 RBY-1，`panda_omron_robocasa_curobo.json` 是 Panda RoboCasa。要改记录或并行就复制一份新文件，
+不要改动已有 run 用过的文件。

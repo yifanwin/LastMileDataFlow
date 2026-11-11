@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lastmile_dataflow.cli import parser
 from lastmile_dataflow.runtime.resources import RunResources
 from lastmile_dataflow.scenes.build.builder import build_task
 from lastmile_dataflow.scenes.dataset_config import TaskModeRecipe
@@ -57,16 +56,6 @@ class NoEditRecipeTests(unittest.TestCase):
             records = list(build_task(ctx, {}, Path('.'), house=0, seed=1))
         self.assertEqual(records, [{'status': 'accepted'}])
         natural.assert_called_once()
-
-    def test_recipe_cli_is_mutually_exclusive_with_dataset(self):
-        args = parser().parse_args(['evaluate-stations', '--recipe', 'configs/x.json',
-                                    '--assets-dir', '/tmp', '--output-dir', '/tmp',
-                                    '--run-id', 'r', '--gpu', '0'])
-        self.assertEqual(str(args.recipe), 'configs/x.json')
-        with self.assertRaises(SystemExit):
-            parser().parse_args(['evaluate-stations', '--recipe', 'a', '--dataset', 'b',
-                                 '--assets-dir', '/tmp', '--output-dir', '/tmp',
-                                 '--run-id', 'r', '--gpu', '0'])
 
     def test_trial_record_keeps_execution_attribution(self):
         result = {'status': 'failure', 'reason': 'lift_contact_hold_or_slip',

@@ -146,6 +146,30 @@ def repo_path(value):
 
 
 @dataclass(frozen=True)
+class StationRun:
+    """Recording switches and process resources of one calibration or collection run."""
+    execution: str
+    assets_dir: str | None = None
+    max_trials: int | None = None
+    record_video: bool = False
+    record_depth: bool = False
+    record_physics: bool = False
+    recording_mode: str | None = None
+    station_workers: int = 1
+    planning_workers_per_gpu: list = field(default_factory=lambda: [1])
+    cpu_workers: int = 60
+    preparation_workers: int = 12
+
+    def __post_init__(self):
+        if self.recording_mode not in (None, 'numerical', 'visual'):
+            raise ValueError('recording_mode must be numerical or visual')
+
+
+def load_station_run(path):
+    return StationRun(**read_config(path, repo_fields=('execution', 'assets_dir')))
+
+
+@dataclass(frozen=True)
 class LocalConfig:
     assets_dir: Path | None = None
     output_dir: Path = Path('outputs')

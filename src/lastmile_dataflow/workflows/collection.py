@@ -9,7 +9,7 @@ import time
 import multiprocessing
 from queue import Empty
 
-from ..config import read_config
+from ..config import CollectionConfig, load_local_config, load_station_run, read_config
 from ..config import RobotConfig
 from ..utils.io import append_row, create_run, read_json, rows, write_json, write_rows
 from ..utils.logging_config import Progress, trial_logging
@@ -671,3 +671,27 @@ def collect_lastmile(dataset, assets_dir, config, collection, output_dir, *, run
         station_workers=station_workers, egl_devices=egl_devices, reuse_planners=reuse_planners,
         cpu_workers=cpu_workers, preparation_workers=preparation_workers, recording_mode=recording_mode,
         planning_workers_per_gpu=planning_workers_per_gpu)
+
+
+def run_stations(dataset, run_config, output, *, gpu_ids, collect, calibration=None, samples=None,
+                 egl_devices=None):
+    """Script entry: calibrate every station, or collect S0→S1 on top of a calibration."""
+    from ..runtime.execution_config import load_execution_config
+    run = load_station_run(run_config)
+    config = load_execution_config(run.execution)
+    recording = CollectionConfig(record_video=run.record_video, record_depth=run.record_depth,
+                                 record_physics=run.record_physics,
+                                 record_images=collect or not config.shared_station_preparation or run.record_depth)
+    mode = run.recording_mode or ('visual' if run.record_video or run.record_depth else 'numerical')
+    assets_dir = run.assets_dir or load_local_config().assets_dir
+    if assets_dir is None:
+        raise ValueError('assets_dir must be set in the run config or configs/local.json')
+    output = Path(output)
+    options = dict(run_id=output.name, gpu_ids=gpu_ids, samples=samples, max_trials=run.max_trials,
+                   station_workers=run.station_workers, egl_devices=egl_devices,
+                   planning_workers_per_gpu=run.planning_workers_per_gpu, cpu_workers=run.cpu_workers,
+                   preparation_workers=run.preparation_workers, recording_mode=mode)
+    if collect:
+        return collect_lastmile(dataset, assets_dir, config, recording, output.parent, calibration=calibration,
+                                **options)
+    return evaluate_stations(dataset, assets_dir, config, recording, output.parent, **options)

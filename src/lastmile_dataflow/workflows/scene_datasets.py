@@ -455,10 +455,11 @@ def _build_worker_limit():
     return min(64, max(1, os.cpu_count() or 1))
 
 
-def build_scenes(config, output_dir, run_id, *, gpu_ids, workers=1):
+def build_scenes(config, output_dir, run_id, *, gpu_ids, workers=None):
+    recipe = load_task_mode_recipe(config)
+    workers = recipe.build_workers if workers is None else workers
     if not 1 <= workers <= _build_worker_limit():
         raise ValueError(f'build workers must be between 1 and {_build_worker_limit()}')
-    recipe = load_task_mode_recipe(config)
     robot = load_robot_config(recipe.robot_config)
     root = _create_build_root(Path(output_dir) / run_id, recipe, robot)
     return _build_into_root(recipe, robot, root, gpu_ids, workers)

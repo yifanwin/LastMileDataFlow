@@ -29,6 +29,16 @@ def isolate_from_argv(argv=None):
     return physical
 
 
+def select_devices(gpu_ids, egl_devices=None):
+    """Pipeline entries: bind CUDA and EGL to the first requested card before workflow imports.
+
+    Workers spawned for further cards set their own devices from the full list.
+    """
+    egl = egl_devices[0] if egl_devices else gpu_ids[0]
+    os.environ.update(CUDA_VISIBLE_DEVICES=str(gpu_ids[0]), MUJOCO_EGL_DEVICE_ID=str(egl))
+    os.environ.setdefault('MUJOCO_GL', 'egl')
+
+
 def sampler_entry(physical_gpu, *args):
     """Spawn target: isolate before importing CUDA-dependent worker code."""
     os.environ['CUDA_VISIBLE_DEVICES'] = str(physical_gpu)

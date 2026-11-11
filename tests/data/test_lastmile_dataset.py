@@ -3,8 +3,6 @@ import builtins
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -137,13 +135,3 @@ class MaterializationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             load_training_batch(output, [0], steps=1)
 
-    def test_installed_cli_materializes_without_gpu_or_assets_outside_repo(self):
-        result = subprocess.run(
-            [sys.executable, '-m', 'lastmile_dataflow.cli', 'collect-lastmile',
-             '--materialize-from', str(self.reference), '--output-dir', str(self.root),
-             '--run-id', 'cli-materialized'], cwd=self.root, check=True, capture_output=True, text=True,
-            env={**os.environ, 'CUDA_VISIBLE_DEVICES': ''})
-        self.assertIn('GPU=CPU', result.stderr)
-        output = Path(result.stdout.strip())
-        batch = load_training_batch(output, [0, 1], steps=1)
-        self.assertEqual(batch['actions'].shape, (2, 1, 20))
