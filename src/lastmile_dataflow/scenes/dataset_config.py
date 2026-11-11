@@ -5,7 +5,6 @@ import re
 import numpy as np
 
 from ..config import load_robot_config, read_config
-from .mode_config import MODE_NAMES, load_mode_config
 
 
 def house_number(value):
@@ -59,18 +58,33 @@ class SceneStationConfig:
 
 
 @dataclass(frozen=True)
-class TaskModeRecipe:
+class SceneEditConfig:
+    enabled: bool = True
+    tabletop_count: tuple[int, int] = (1, 3)
+    floor_count: tuple[int, int] = (0, 2)
+    tabletop_radius_m: float = .3
+    max_proposals: int = 32
+    asset_shortlist: int = 5
+    variant_timeout_s: float = 1800.
+
+    def __post_init__(self):
+        for limits in (self.tabletop_count, self.floor_count):
+            if len(limits) != 2 or not 0 <= limits[0] <= limits[1]:
+                raise ValueError('obstacle count must be a nonnegative min/max pair')
+        if min(self.tabletop_radius_m, self.max_proposals, self.asset_shortlist, self.variant_timeout_s) <= 0:
+            raise ValueError('positive edit geometry and budgets required')
+
+
+@dataclass(frozen=True)
+class SceneRecipe:
     dataset_dir: str
     assets_dir: str
     asset_index: str
     robot_config: str
-    mode_config: str
     houses: list
-    schema_version: str = 'scene-dataset-recipe-v2'
-    execution_config: str = 'configs/task_modes/panda_omron_calibration.json'
-    modes: list = field(default_factory=lambda: list(MODE_NAMES))
+    schema_version: str = 'scene-recipe-v1'
+    edits: SceneEditConfig = field(default_factory=SceneEditConfig)
     operations: list = field(default_factory=lambda: ['pick', 'open'])
-    variants_per_intent: int = 1
     max_final_stations: int = 20
     max_pick_targets_per_house: int = 3
     max_open_targets_per_house: int = 1
@@ -91,15 +105,14 @@ class TaskModeRecipe:
     settle: dict = field(default_factory=lambda: {'require_source_stability': False})
 
     def __post_init__(self):
-        if self.schema_version != 'scene-dataset-recipe-v2':
-            raise ValueError('expected task-mode recipe v2')
+        if self.schema_version != 'scene-recipe-v1':
+            raise ValueError('expected scene-recipe-v1')
+        if isinstance(self.edits, dict):
+            object.__setattr__(self, 'edits', SceneEditConfig(**self.edits))
         houses = [house_number(h) for h in self.houses]
         if not houses or len(set(houses)) != len(houses):
             raise ValueError('explicit unique source houses required')
         object.__setattr__(self, 'houses', houses)
-        if len(set(self.modes)) != len(self.modes) or set(self.modes) - set(MODE_NAMES):
-            raise ValueError('unknown or duplicate task mode')
-        # Empty modes = natural/no-edit dataset: freeze the raw scene and its valid stations.
         if not isinstance(self.exclude_categories, list) or any(
                 not isinstance(category, str) or not category for category in self.exclude_categories):
             raise ValueError('invalid excluded target categories')
@@ -120,8 +133,6 @@ class TaskModeRecipe:
             raise ValueError('task-mode sampling requires 1 m / 0.25 m')
         if type(self.max_final_stations) is not int or not 1 <= self.max_final_stations <= 20:
             raise ValueError('task-mode pose budget is at most twenty, including yaw variants')
-        if type(self.variants_per_intent) is not int or self.variants_per_intent < 1:
-            raise ValueError('positive variants_per_intent required')
         if self.local_task_models:
             raise ValueError('initial task-mode validation uses complete source models')
         for key in ('max_pick_targets_per_house', 'max_open_targets_per_house'):
@@ -148,15 +159,13 @@ class TaskModeRecipe:
         return [t for h, values in self.targets.items() if house_number(h) == house for t in values]
 
 
-def load_task_mode_recipe(path):
-    recipe = TaskModeRecipe(**read_config(path,
+def load_scene_recipe(path):
+    recipe = SceneRecipe(**read_config(path,
         data_fields=('dataset_dir', 'assets_dir', 'asset_index', 'input_snapshots'),
-        repo_fields=('robot_config', 'mode_config', 'execution_config')))
+        repo_fields=('robot_config',)))
     robot = load_robot_config(recipe.robot_config)
-    if robot.name != 'panda_omron' or robot.control_profile != 'robocasa-v1':
-        raise ValueError('task modes require PandaOmron robocasa-v1')
-    from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
-    if set(robot.cameras) != set(ROBOCASA_CAMERAS):
-        raise ValueError('task modes require all three RoboCasa cameras')
-    load_mode_config(recipe.mode_config)
+    if robot.control_profile == 'robocasa-v1':
+        from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
+        if set(robot.cameras) != set(ROBOCASA_CAMERAS):
+            raise ValueError('RoboCasa scenes require all three cameras')
     return recipe

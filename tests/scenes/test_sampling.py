@@ -6,9 +6,9 @@ from unittest.mock import patch
 import numpy as np
 
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.scenes.augmentation.selection import coverage_select
+from lastmile_dataflow.scenes.stations.sampling import coverage_select
 from lastmile_dataflow.scenes.stations.sampling import disk_samples, sample_stations, yaw_variants
-from lastmile_dataflow.scenes.dataset_config import load_task_mode_recipe
+from lastmile_dataflow.scenes.dataset_config import load_scene_recipe
 
 
 class SamplingTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class SamplingTests(unittest.TestCase):
             self.assertEqual(initialize_station(sim,{'xy':[0,0]},[1,0,1],config)['geometry'],'visibility_filtered')
 
     def test_sampling_defaults_are_independent_of_embodiment(self):
-        config = load_task_mode_recipe('configs/task_modes/panda_omron_task_modes.json')
+        config = load_scene_recipe('configs/scene_datasets/panda_omron.json')
         self.assertEqual(config.geometry.radius_m, 1.)
         self.assertEqual(config.geometry.spacing_m, .25)
         self.assertEqual(config.max_final_stations, 20)

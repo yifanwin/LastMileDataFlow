@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from lastmile_dataflow.utils.io import read_json, rows, write_json
-from lastmile_dataflow.scenes.dataset_config import TaskModeRecipe
+from lastmile_dataflow.scenes.dataset_config import SceneRecipe
 from lastmile_dataflow.workflows import scene_datasets as workflow
 from tests.helpers import DatasetTestCase
 
@@ -54,12 +54,11 @@ class SpatialSelectionTests(unittest.TestCase):
 class SceneDatasetTests(DatasetTestCase):
     def setUp(self):
         super().setUp()
-        self.recipe = TaskModeRecipe(dataset_dir=str(self.root), assets_dir=str(self.root),
-            asset_index='unused', robot_config='unused', houses=[0, 1],
-            mode_config='configs/task_modes/mode_defaults.json')
+        self.recipe = SceneRecipe(dataset_dir=str(self.root), assets_dir=str(self.root),
+            asset_index='unused', robot_config='unused', houses=[0, 1])
 
     def build(self, name, worker, **kwargs):
-        with (patch.object(workflow, 'load_task_mode_recipe', return_value=self.recipe),
+        with (patch.object(workflow, 'load_scene_recipe', return_value=self.recipe),
               patch.object(workflow, 'load_robot_config', return_value=self.robot),
               patch.object(workflow, '_build_house', side_effect=worker)):
             return workflow.build_scenes('unused', self.root, name, gpu_ids=[6], **kwargs)
@@ -119,13 +118,13 @@ class SceneDatasetTests(DatasetTestCase):
         self.assertNotIn('error', result['source'])
         load.assert_called_once()
         prepare.assert_called_once_with(sim, task, self.recipe)
-        self.assertEqual(set(build.call_args.args[1]), set(self.recipe.modes))
+        self.assertEqual(build.call_args.args[1], self.root)
         sim.close.assert_called_once()
         ctx.__exit__.assert_called_once()
 
     def test_preparation_rejections_skip_articulated_pick_and_keep_real_reason(self):
         records = list(workflow._task_preparation_rejections(candidate('pick', 0.)['task'],
                        self.recipe, 0, 'missing support'))
-        self.assertEqual(len(records), 8)
-        self.assertEqual(sum(r['status'] == 'skipped' for r in records), 1)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(r['status'] == 'rejected' for r in records))
         self.assertTrue(all(r['reason'] == 'task_preparation_failed' for r in records if r['status'] == 'rejected'))

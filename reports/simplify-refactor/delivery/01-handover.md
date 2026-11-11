@@ -2,7 +2,8 @@
 
 - 状态：active；已恢复工作，阶段 0–2 完成，阶段 7 的控制、策略配置、本体公共工具已实施
 - 替代：无
-- 本轮进度：[04-collection-benchmark.md](04-collection-benchmark.md)，包含采集自包含导出、benchmark 分支删除与固定抓取后端删除；阶段 3、4、执行配置和整体收尾仍待完成。
+- 当前进度：[05-scene-edits.md](05-scene-edits.md)：阶段 3 已替换旧模式构建并删除旧目录，局部测试通过；真实构建验证和阶段 4 等继续处理。
+- 前轮进度：[04-collection-benchmark.md](04-collection-benchmark.md)，包含采集自包含导出、benchmark 分支删除与固定抓取后端删除；阶段 3、4、执行配置和整体收尾仍待完成。
 - 上轮交付：[03-egl-device-binding.md](03-egl-device-binding.md)；控制精简见 [02-control-policy-refactor.md](02-control-policy-refactor.md)
 - 日期：2026-11-11
 - 关联：[../plan/01-refactor-plan.md](../plan/01-refactor-plan.md)（计划、已确认的决定、阶段 0 基线结果）

@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from lastmile_dataflow.runtime.resources import RunResources
-from lastmile_dataflow.scenes.build.builder import build_task
-from lastmile_dataflow.scenes.dataset_config import TaskModeRecipe
+from lastmile_dataflow.scenes.edits.search import build_task
+from lastmile_dataflow.scenes.dataset_config import SceneRecipe
 from lastmile_dataflow.workflows.collection import _trial_record
 from lastmile_dataflow.workflows.scene_datasets import _task_preparation_rejections
 
@@ -15,14 +15,14 @@ from lastmile_dataflow.workflows.scene_datasets import _task_preparation_rejecti
 class NoEditRecipeTests(unittest.TestCase):
     def recipe(self, **overrides):
         values = dict(dataset_dir='.', assets_dir='.', asset_index='unused',
-                      robot_config='unused', mode_config='unused', houses=[0, 1],
-                      modes=[], train_fraction=0.0, exclude_categories=[])
+                      robot_config='unused', houses=[0, 1],
+                      edits={'enabled': False}, train_fraction=0.0, exclude_categories=[])
         values.update(overrides)
-        return TaskModeRecipe(**values)
+        return SceneRecipe(**values)
 
     def test_empty_modes_and_all_val_split(self):
         recipe = self.recipe()
-        self.assertEqual(recipe.modes, [])
+        self.assertFalse(recipe.edits.enabled)
         self.assertEqual(recipe.house_splits, {'0': 'val', '1': 'val'})
 
     def test_invalid_excluded_categories_rejected(self):
@@ -48,12 +48,12 @@ class NoEditRecipeTests(unittest.TestCase):
                                     'detail': 'boom'}])
 
     def test_empty_modes_dispatch_to_natural_task(self):
-        ctx = SimpleNamespace(recipe=SimpleNamespace(modes=[]),
+        ctx = SimpleNamespace(settings=SimpleNamespace(enabled=False),
                               baseline=SimpleNamespace(source=SimpleNamespace(split='val')),
                               task={'task_id': 'pick-x'})
-        with patch('lastmile_dataflow.scenes.build.builder.build_natural_task',
+        with patch('lastmile_dataflow.scenes.edits.search.build_natural_task',
                    return_value={'status': 'accepted'}) as natural:
-            records = list(build_task(ctx, {}, Path('.'), house=0, seed=1))
+            records = list(build_task(ctx, Path('.'), house=0, seed=1))
         self.assertEqual(records, [{'status': 'accepted'}])
         natural.assert_called_once()
 

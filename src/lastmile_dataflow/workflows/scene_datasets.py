@@ -1,4 +1,4 @@
-"""Build a mode candidate library with one shared context per task.
+"""Build natural and obstacle-edited scenes with shared task preparation.
 
 House workers reuse their read-only source model. Only the parent writes scenes.jsonl;
 actual stepping and edits remain in the shared runtime construction session.
@@ -21,13 +21,10 @@ from ..gpu import bind_device
 from ..config import load_robot_config
 from ..runtime.execution_config import load_execution_config
 from ..runtime.simulation import Simulation
-from ..scenes.build.context import BuildContext
-from ..scenes.build.builder import build_task
-from ..scenes.augmentation.regions import support_regions
-from ..scenes.dataset_config import load_task_mode_recipe
+from ..scenes.edits.search import BuildContext, build_task
+from ..scenes.edits.placement import support_regions
+from ..scenes.dataset_config import load_scene_recipe
 from ..scenes.loading.source import SceneSource
-from ..scenes.mode_config import load_mode_config
-from ..scenes.modes import create_builders
 from ..scenes.stations.initialization import inside_triangles, room_triangles
 from ..scenes.stations.sampling import disk_samples
 from ..scenes.tasks.discovery import discover_tasks, grasp_candidates
@@ -151,18 +148,9 @@ def _select_tasks(sim, recipe, house):
 
 
 def _task_preparation_rejections(task, recipe, house, reason):
-    if not recipe.modes:
-        yield {'house': house, 'task_id': task['task_id'], 'proposal_intent': 'no_edit',
+    for kind in (('no_edit', 'edit') if recipe.edits.enabled else ('no_edit',)):
+        yield {'house': house, 'task_id': task['task_id'], 'proposal_intent': kind,
                'status': 'rejected', 'reason': 'task_preparation_failed', 'detail': reason}
-        return
-    for mode in recipe.modes:
-        if mode == 'articulated_interaction' and task['operation'] != 'open':
-            yield {'house': house, 'task_id': task['task_id'], 'proposal_intent': mode,
-                   'status': 'skipped', 'reason': 'mode_not_applicable_to_operation'}
-            continue
-        for variant in range(recipe.variants_per_intent):
-            yield {'house': house, 'task_id': task['task_id'], 'proposal_intent': mode,
-                   'variant': variant, 'status': 'rejected', 'reason': 'task_preparation_failed', 'detail': reason}
 
 
 class _TaskTimeout(Exception):
@@ -209,7 +197,7 @@ def _build_house(job):
             for task_index, task in enumerate(tasks):
                 logger.info('构建 house=%s task=%s 共享准备', house, task['task_id'])
                 try:
-                    with _task_deadline(recipe.task_timeout_s if not recipe.modes else None):
+                    with _task_deadline(recipe.task_timeout_s):
                         try:
                             ctx = BuildContext.prepare(sim, task, recipe)
                         except ValueError as exc:
@@ -217,9 +205,8 @@ def _build_house(job):
                             report['tasks'].append({'task_id': task['task_id'], 'status': 'preparation_rejected', 'reason': str(exc)})
                             continue
                         with ctx:
-                            builders = create_builders(recipe.modes)
                             seed = recipe.seed + house * 10000 + task_index
-                            records.extend(build_task(ctx, builders, root, house=house, seed=seed,
+                            records.extend(build_task(ctx, root, house=house, seed=seed,
                                                       baseline_cache=baseline_cache))
                             report['tasks'].append({'task_id': task['task_id'], 'preparation_s': ctx.timings,
                                 'grasp_evidence': ctx.grasp_evidence, 'asset_compiles': ctx.assets.compile_count,
@@ -448,8 +435,7 @@ def _build_into_root_isolated(recipe, robot, root, gpu_ids, workers, house_timeo
 def _create_build_root(root, recipe, robot):
     return create_run(Path(root),
         {'recipe': asdict(recipe), 'robot': asdict(robot), 'geometry': asdict(recipe.geometry),
-         'mode_settings': asdict(load_mode_config(recipe.mode_config)),
-         'execution': asdict(load_execution_config(recipe.execution_config)), 'seed': recipe.seed})
+         'seed': recipe.seed})
 
 
 def _build_worker_limit():
@@ -457,7 +443,7 @@ def _build_worker_limit():
 
 
 def build_scenes(config, output_dir, run_id, *, gpu_ids, workers=None):
-    recipe = load_task_mode_recipe(config)
+    recipe = load_scene_recipe(config)
     workers = recipe.build_workers if workers is None else workers
     if not 1 <= workers <= _build_worker_limit():
         raise ValueError(f'build workers must be between 1 and {_build_worker_limit()}')
@@ -470,7 +456,7 @@ def prepare_scene_inputs(config, root, *, gpu_ids, workers=1, exclude_categories
     """One-shot no-edit inputs for direct calibration; isolated house errors do not stop the batch."""
     if not 1 <= workers <= _build_worker_limit():
         raise ValueError(f'build workers must be between 1 and {_build_worker_limit()}')
-    recipe = load_task_mode_recipe(config)
+    recipe = load_scene_recipe(config)
     if exclude_categories:
         recipe = replace(recipe, exclude_categories=list(exclude_categories))
     robot = load_robot_config(recipe.robot_config)

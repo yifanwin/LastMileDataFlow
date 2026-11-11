@@ -21,12 +21,12 @@ from lastmile_dataflow.runtime.construction.session import (
     matched_control,
 )
 from lastmile_dataflow.runtime.simulation import InitializationError, Simulation
-from lastmile_dataflow.scenes.augmentation.checks import (
+from lastmile_dataflow.scenes.edits.checks import (
     collision_pairs,
     load_support,
     matched_source_effects,
 )
-from lastmile_dataflow.scenes.build.validation import PhysicalLimits
+from lastmile_dataflow.scenes.edits.checks import PhysicalLimits
 from lastmile_dataflow.scenes.loading.assets import EditAssetCatalog
 from tests.helpers import fixtures, table_scene
 

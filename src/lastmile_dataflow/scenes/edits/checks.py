@@ -1,9 +1,12 @@
 """Full-height collision, physical support and matched-control effect checks."""
 import mujoco
+from contextlib import contextmanager
+from dataclasses import dataclass
+from ...runtime.construction.session import matched_control
 import numpy as np
 
-from ..geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
-from .regions import ground_coverage
+from ..geometry import descendants, body_points, collision_geoms, extract_regions, support_rays, quat_angle
+from .placement import ground_coverage
 
 
 def collision_pairs(sim, placements, config, *, settled=False, body_names=None):
@@ -136,3 +139,50 @@ def matched_source_effects(control, candidate, config, *, edited_bodies=()):
             'same_time_s': float(control.data.time), 'source_objects': rows,
             'new_or_worse_source_penetrations': added_contacts,
             'scope': 'unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_unedited_control'}
+
+
+@dataclass(frozen=True)
+class PhysicalLimits:
+    collision_tolerance_m: float = .001
+    support_contact_tolerance_m: float = .008
+    source_effect_tolerance_m: float = .006
+    source_effect_rotation_rad: float = .04
+    max_tilt_rad: float = .10
+
+
+@contextmanager
+def proposal_scene(ctx, proposal, *, deadline=None):
+    """Yield physical evidence; final proxy/station checks precede any freeze."""
+    changes = proposal.runtime_changes()
+    placements, moves = changes['placements'], changes['target_moves']
+    if not placements and not moves:
+        yield ctx.baseline, ctx.geometry, {'valid': True, 'path': 'no_edit',
+                                          'task_completion': 'unknown'}
+        return
+    limits = PhysicalLimits()
+    physical = placements + moves
+    names = [f'procedural_obstacle_{i}' for i in range(len(placements))] + [move['body'] for move in moves]
+    sim = ctx.session.candidate(placements, target_moves=moves, deadline=deadline)
+    try:
+        collision = collision_pairs(sim, physical, limits, body_names=names)
+        if not collision['valid']:
+            yield sim, None, {'valid': False, 'reason': 'initial_edit_collision', 'collision': collision}
+            return
+        settling = ctx.session.settle(deadline=deadline, moved_bodies=[move['body'] for move in moves])
+        control, _ = matched_control(ctx.baseline, settling['simulated_s'], ctx.settle_config, deadline)
+        try:
+            excluded = {sim.model.body(b).name for move in moves
+                        for b in descendants(sim.model, sim.model.body(move['body']).id)}
+            collision = collision_pairs(sim, physical, limits, settled=True, body_names=names)
+            support = load_support(sim, physical, limits, body_names=names)
+            effects = matched_source_effects(control, sim, limits, edited_bodies=excluded)
+            healthy = bool(np.isfinite(sim.state_vector()).all() and not settling['new_warnings'])
+            checks = {'valid': bool(settling['stable'] and healthy and collision['valid'] and support['valid'] and effects['valid']),
+                      'settling': settling, 'solver_health': healthy, 'collision': collision, 'support': support,
+                      'source_effects': effects, 'edited_source_bodies': sorted(excluded), 'task_completion': 'unknown'}
+            geometry = ctx.derive(sim) if checks['valid'] else None
+            yield sim, geometry, checks
+        finally:
+            control.close()
+    finally:
+        ctx.session.reject()

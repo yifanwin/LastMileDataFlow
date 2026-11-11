@@ -1,7 +1,7 @@
 """最小场景记录读取与覆盖选点。"""
 from pathlib import Path
 from ..utils.io import rows
-from .augmentation.selection import coverage_select
+from .stations.sampling import coverage_select
 
 
 def select_stations(stations, anchor, method='coverage', limit=20):

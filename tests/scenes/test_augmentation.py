@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import mujoco
 import numpy as np
 from lastmile_dataflow.runtime.construction.preparation import SettleConfig, settle_scene
-from lastmile_dataflow.scenes.augmentation.checks import load_support
-from lastmile_dataflow.scenes.augmentation.regions import rotated_placement, support_regions
-from lastmile_dataflow.scenes.build.validation import PhysicalLimits
+from lastmile_dataflow.scenes.edits.checks import load_support
+from lastmile_dataflow.scenes.edits.placement import rotated_placement, support_regions
+from lastmile_dataflow.scenes.edits.checks import PhysicalLimits
 
 
 def config():
