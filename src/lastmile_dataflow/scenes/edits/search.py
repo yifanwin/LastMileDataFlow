@@ -1,6 +1,6 @@
 """One owned baseline and shared geometric preparation per discovered task."""
 import copy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 import time
 
 import numpy as np
@@ -32,8 +32,6 @@ class TaskGeometry:
     clearance_base: np.ndarray
     chassis: dict
     navigation_footprint: dict
-    pose_checks: dict = field(default_factory=dict)
-    proxy_obstacles: object = None
 
 
 def task_geometry(sim, source_task, config):
@@ -111,7 +109,6 @@ class BuildContext:
             ctx.selector = AssetSelector(recipe.asset_index)
             ctx.assets = RuntimeGeometryCache([p.geometry_entry() for p in ctx.selector.profiles if p.loadable])
             ctx.session = ObstacleEditSession(ctx.baseline, ctx.assets, ctx.settle_config)
-            ctx.station_checks = {}
             ctx.baseline_snapshot = None
             return ctx
         except BaseException:
@@ -162,7 +159,7 @@ def build_natural_task(ctx, root, *, house, seed, baseline_cache=None):
     prefix = f'{ctx.baseline.source.split}{house}-{ctx.task["task_id"]}'
     scene_id = f'{prefix}-no_edit-v000'
     proposal = BuildProposal('no_edit-000', 'no_edit')
-    stations, sampling = select_task_stations(ctx, ctx.baseline, ctx.geometry, proposal,
+    stations, sampling = select_task_stations(ctx, ctx.baseline, ctx.geometry,
                                               measure_visibility=False)
     metrics = {'proposals': 1, 'cheap_rejected': 0, 'physical_candidates': 0,
                'physical_trials': 0, 'repairs': 0, 'asset_compiles': 0,
@@ -221,7 +218,7 @@ def search_edit(ctx, root, scene_id, rng):
                 metrics['physical_trials'] += 1
                 with proposal_scene(ctx, proposal, deadline=deadline) as (sim, geometry, checks):
                     if checks['valid']:
-                        stations, sampling = select_task_stations(ctx, sim, geometry, proposal)
+                        stations, sampling = select_task_stations(ctx, sim, geometry)
                         metrics['station_initializations'] += sampling['new_initializations']
                         if stations:
                             return {**result, **_freeze_candidate(ctx, sim, geometry, proposal, stations,

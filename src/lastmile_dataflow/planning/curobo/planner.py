@@ -3,6 +3,7 @@
 import importlib.metadata
 from collections import OrderedDict
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 import time
 import numpy as np
@@ -89,10 +90,32 @@ def reset_motion_seed(motion, seed):
     motion.reset_seed()
 
 
-def bind_batch_seeds(motion, seeds):
-    """Bind core and default LM-IK random samples to individual trial seeds."""
+def _batch_actions(streams, batch_size, num_seeds):
     import torch
 
+    return torch.cat(
+        [stream.generate_random_actions(1, num_seeds) for stream in streams], dim=0
+    )
+
+
+def _batch_ik_seeds(seed_solver, streams, batch_size, seed_config=None):
+    import torch
+
+    provided = 0 if seed_config is None else seed_config.shape[1]
+    remaining = seed_solver.config.num_seeds - provided
+    if not remaining:
+        return seed_config
+    samples = torch.stack(
+        [stream.get_samples(remaining, bounded=True) for stream in streams]
+    )
+    if seed_config is not None:
+        return torch.cat((seed_config, samples), dim=1)
+    samples[:, -1] = seed_solver._robot_model.default_joint_state.position
+    return samples
+
+
+def bind_batch_seeds(motion, seeds):
+    """Bind core and default LM-IK random samples to individual trial seeds."""
     for solver in (motion.ik_solver, motion.trajopt_solver):
         core = solver.core
         streams = [
@@ -106,15 +129,7 @@ def bind_batch_seeds(motion, seeds):
             )
             for seed in seeds
         ]
-
-        def generate(batch_size, num_seeds, streams=streams):
-            return torch.cat(
-                [stream.generate_random_actions(1, num_seeds) for stream in streams],
-                dim=0,
-            )
-
-        core.seed_manager.generate_random_actions = generate
-
+        core.seed_manager.generate_random_actions = partial(_batch_actions, streams)
     seed_solver = motion.ik_solver.seed_ik_solver
     if seed_solver is not None:
         from curobo._src.util.sampling import SampleBuffer
@@ -129,21 +144,9 @@ def bind_batch_seeds(motion, seeds):
             )
             for seed in seeds
         ]
-
-        def generate_lm(batch_size, seed_config=None):
-            provided = 0 if seed_config is None else seed_config.shape[1]
-            remaining = seed_solver.config.num_seeds - provided
-            if not remaining:
-                return seed_config
-            samples = torch.stack(
-                [stream.get_samples(remaining, bounded=True) for stream in streams]
-            )
-            if seed_config is not None:
-                return torch.cat((seed_config, samples), dim=1)
-            samples[:, -1] = seed_solver._robot_model.default_joint_state.position
-            return samples
-
-        seed_solver._generate_seed_configs = generate_lm
+        seed_solver._generate_seed_configs = partial(
+            _batch_ik_seeds, seed_solver, streams
+        )
 
 
 class PlannerResources:

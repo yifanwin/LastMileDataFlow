@@ -67,7 +67,7 @@ class SamplingTests(unittest.TestCase):
             self.assertEqual(initialize_station(sim,{'xy':[0,0]},[1,0,1],config)['geometry'],'visibility_filtered')
 
     def test_sampling_defaults_are_independent_of_embodiment(self):
-        config = load_scene_recipe('configs/scene_datasets/panda_omron.json')
+        config = load_scene_recipe('configs/scenes/panda_omron.json')
         self.assertEqual(config.geometry.radius_m, 1.)
         self.assertEqual(config.geometry.spacing_m, .25)
         self.assertEqual(config.max_final_stations, 20)

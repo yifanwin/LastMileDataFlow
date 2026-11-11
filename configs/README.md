@@ -4,7 +4,7 @@
 
 | 目录 | 用途 |
 |---|---|
-| scene_datasets | SceneRecipe：房屋、目标筛选、障碍数量、站位与构建进程 |
+| scenes | SceneRecipe：房屋、目标筛选、障碍数量、站位与构建进程 |
 | collection | StationRun：执行配置路径、资产目录、进程数、记录模式与预算 |
 | execution | ExecutionConfig：物理执行、规划、导航和成功率阈值 |
 | benchmark | BenchmarkConfig：困难起点、恢复区域与评测预算 |

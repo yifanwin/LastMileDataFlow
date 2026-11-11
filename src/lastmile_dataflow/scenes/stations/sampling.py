@@ -224,7 +224,7 @@ def record_station_visibility(sim, stations, config):
     return stations
 
 
-def select_task_stations(ctx, sim, geometry, proposal, *, measure_visibility=True):
+def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
     """Hints/explicit yaw first, then coverage; only valid initial poses consume slots."""
     free_lattice = [row for row in geometry.lattice
                     if (cell := geometry.navigation.cell(row['xy'])) is not None
@@ -235,7 +235,6 @@ def select_task_stations(ctx, sim, geometry, proposal, *, measure_visibility=Tru
     seen, selected, checked = set(), [], []
     initializations = 0
     floor_triangles = room_triangles(sim)
-    cached = ctx.station_checks if sim is ctx.baseline else {}
     cfg = ctx.station_config
     visibility_context = TaskVisibility(sim, geometry.task, cfg) if measure_visibility else nullcontext(None)
     with visibility_context as visibility:
@@ -244,35 +243,22 @@ def select_task_stations(ctx, sim, geometry, proposal, *, measure_visibility=Tru
             if identity in seen:
                 continue
             seen.add(identity)
-            if identity in cached:
-                row = copy.deepcopy(cached[identity])
-            else:
-                prepared = geometry.pose_checks.get(identity)
-                if prepared is None:
-                    initializations += 1
-                with closing(clone_preparation(sim)) as probe:
-                    warnings = [warning.number for warning in probe.data.warning]
-                    if prepared is not None:
-                        row = copy.deepcopy(prepared)
-                        row.pop('visibility_proxy', None)
-                        if row['geometry'] == 'valid':
-                            place_frozen_station(probe, row)
-                    else:
-                        try:
-                            row = initialize_station(probe, candidate, geometry.task['anchor_world'], cfg,
-                                                     check_visibility=False, floor_triangles=floor_triangles)
-                        except ValueError as exc:
-                            row = {**candidate, 'geometry': 'geometry_filtered', 'reason': str(exc)}
-                    fresh = [{'index': i, 'number': int(w.number)} for i, w in enumerate(probe.data.warning)
-                             if w.number > warnings[i]]
-                    if fresh:
-                        row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
-                    row.update(new_solver_warnings=fresh, independent_simulation=True,
-                               initialization_attempt_id=identity, check_scope='actual_robot_initialization_and_three_camera_roi')
-                    if row['geometry'] == 'valid' and visibility is not None:
-                        row['visibility'] = visibility.measure(probe)
-                if sim is ctx.baseline:
-                    cached[identity] = copy.deepcopy(row)
+            initializations += 1
+            with closing(clone_preparation(sim)) as probe:
+                warnings = [warning.number for warning in probe.data.warning]
+                try:
+                    row = initialize_station(probe, candidate, geometry.task['anchor_world'], cfg,
+                                             check_visibility=False, floor_triangles=floor_triangles)
+                except ValueError as exc:
+                    row = {**candidate, 'geometry': 'geometry_filtered', 'reason': str(exc)}
+                fresh = [{'index': i, 'number': int(w.number)} for i, w in enumerate(probe.data.warning)
+                         if w.number > warnings[i]]
+                if fresh:
+                    row.update(geometry='geometry_filtered', reason='robot_initialization_solver_warning')
+                row.update(new_solver_warnings=fresh, independent_simulation=True,
+                           initialization_attempt_id=identity, check_scope='actual_robot_initialization_and_three_camera_roi')
+                if row['geometry'] == 'valid' and visibility is not None:
+                    row['visibility'] = visibility.measure(probe)
             checked.append(row)
             if row['geometry'] == 'valid':
                 selected.append(row)
@@ -284,8 +270,14 @@ def select_task_stations(ctx, sim, geometry, proposal, *, measure_visibility=Tru
                        'lattice_count': len(geometry.lattice), 'free_lattice_count': len(free_lattice),
                        'visibility_measured': measure_visibility,
                        'selected_ids': [row['station_id'] for row in selected],
-                       'priority': 'station_hints_then_explicit_yaw_then_coverage',
+                       'priority': 'coverage',
                        'rejected_stations': [row for row in checked if row['geometry'] != 'valid']}
+
+
+def _add_coverage_index(selected, limit, index):
+    index = int(index)
+    if len(selected) < limit and index not in selected:
+        selected.append(index)
 
 
 def coverage_select(stations, anchor, limit=20):
@@ -304,11 +296,8 @@ def coverage_select(stations, anchor, limit=20):
                                 np.cos(theta), np.sin(theta), 2 * rnorm))
     # Seed with both range extremes, then one representative per angular/radial bin.
     selected = []
-    def add(index):
-        index = int(index)
-        if index not in selected and len(selected) < limit:
-            selected.append(index)
-    add(np.argmin(radius)); add(np.argmax(radius))
+    _add_coverage_index(selected, limit, np.argmin(radius))
+    _add_coverage_index(selected, limit, np.argmax(radius))
     sector = np.minimum(7, ((theta + np.pi) / (2 * np.pi) * 8).astype(int))
     radial = np.minimum(1, (rnorm * 2).astype(int))
     for band in range(2):
@@ -316,11 +305,11 @@ def coverage_select(stations, anchor, limit=20):
             ids = np.flatnonzero((sector == angle) & (radial == band))
             if len(ids):
                 center = features[ids].mean(axis=0)
-                add(ids[np.argmin(np.linalg.norm(features[ids] - center, axis=1))])
+                _add_coverage_index(selected, limit, ids[np.argmin(np.linalg.norm(features[ids] - center, axis=1))])
     while len(selected) < min(limit, len(valid)):
         distance = np.min(np.linalg.norm(features[:, None, :] - features[selected][None, :, :], axis=2), axis=1)
         distance[selected] = -1
-        add(np.argmax(distance))
+        _add_coverage_index(selected, limit, np.argmax(distance))
     # Do not shuffle small sets unnecessarily; still no [:limit] selection.
     kept = valid if len(valid) <= limit else [valid[i] for i in selected]
     ids = {s['station_id'] for s in kept}

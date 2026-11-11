@@ -16,7 +16,7 @@
 
 `rby1.json` 配置 RBY-1 的规划与控制。场景配方引用具体机器人配置；不使用已删除的旧 Case 配方。
 
-执行流程会从场景快照读取机器人配置，修改此文件不会追溯修改已有快照。控制实现位于 `runtime/control/`。position 与 native motor 动作语义不同；改变控制模式、步长、相机或分辨率后，重新生成匹配的场景/标定。相机分辨率不在本 JSON 中设置，见 [场景配方](../scene_datasets/README.md) 和 [执行配置](../execution/README.md)。
+执行流程会从场景快照读取机器人配置，修改此文件不会追溯修改已有快照。控制实现位于 `runtime/control/`。position 与 native motor 动作语义不同；改变控制模式、步长、相机或分辨率后，重新生成匹配的场景/标定。相机分辨率不在本 JSON 中设置，见 [场景配方](../scenes/README.md) 和 [执行配置](../execution/README.md)。
 
 ## PandaOmron
 

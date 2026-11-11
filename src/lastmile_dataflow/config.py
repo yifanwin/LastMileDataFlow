@@ -198,8 +198,3 @@ def read_config(path, *, data_fields=(), repo_fields=()):
         if value.get(key):
             value[key] = repo_path(value[key])
     return value
-
-
-def load_config(cls, path):
-    data_fields = ('model_path',) if cls is RobotConfig else ('output_dir',)
-    return cls(**read_config(path, data_fields=data_fields))

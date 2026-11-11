@@ -1,5 +1,6 @@
 """Run-owned GPU processes; one native query per device, post-close work first."""
 
+from functools import partial
 from contextlib import closing
 from dataclasses import asdict, replace
 import heapq
@@ -9,10 +10,19 @@ from pathlib import Path
 from queue import Empty
 import time
 from types import SimpleNamespace
-
 from ..gpu import bind_device, resolve_egl_devices
 from ..runtime.execution.protocol import PlanningResponse
 from ..utils.io import write_json
+
+
+def _consume_plan_budget(budgets, max_plans, phase):
+    from ..runtime.execution.context import OperationFailure
+
+    for budget in budgets:
+        budget.check()
+        if budget.plan_count >= max_plans:
+            raise OperationFailure("planning_budget_no_solution")
+        budget.plan_count += 1
 
 
 class PlanningService:
@@ -44,7 +54,7 @@ class PlanningService:
         started = time.monotonic()
         queue_s = started - request.enqueued_at
         inputs = request.inputs
-        task, config = inputs["task"], inputs["config"]
+        (task, config) = (inputs["task"], inputs["config"])
         directory = Path(inputs["root"]) / "planning" / request.query_id
         directory.mkdir(parents=True, exist_ok=False)
         write_json(
@@ -66,14 +76,6 @@ class PlanningService:
             if task["operation"] == "open"
             else config.max_operation_plans
         )
-
-        def query(phase):
-            for budget in request.budgets:
-                budget.check()
-                if budget.plan_count >= max_plans:
-                    raise OperationFailure("planning_budget_no_solution")
-                budget.plan_count += 1
-
         with closing(
             clone_sim(
                 baseline, target=task["target_body"], handle=task.get("handle_body")
@@ -117,11 +119,15 @@ class PlanningService:
                                     "seed": identity.seed,
                                     "candidates": pool,
                                 }
-                                for identity, pool in zip(request.identities, pools)
+                                for (identity, pool) in zip(request.identities, pools)
                             ]
                         },
                     )
-                    lanes = planner.grasp_batch(goals, seeds, query)
+                    lanes = planner.grasp_batch(
+                        goals,
+                        seeds,
+                        partial(_consume_plan_budget, request.budgets, max_plans),
+                    )
                     for lane in lanes:
                         lane.update(
                             side=side,
@@ -134,7 +140,9 @@ class PlanningService:
                     attached = None
                     if inputs.get("attached"):
                         attached = planner.attach_target_geometry()
-                    planner.on_query = query
+                    planner.on_query = partial(
+                        _consume_plan_budget, request.budgets, max_plans
+                    )
                     result = planner.plan(inputs["goal"])
                     lanes = [{"result": asdict(result), "side": side}]
                     if attached is not None:
@@ -214,7 +222,7 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
                         diagnostics=failure,
                         queue_s=started - request.enqueued_at,
                     )
-                    for identity, budget in zip(request.identities, request.budgets)
+                    for (identity, budget) in zip(request.identities, request.budgets)
                 ]
             for response in responses:
                 response.diagnostics.update(
@@ -224,7 +232,9 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
                     cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"],
                 )
             results.put((index, responses))
-            if any(response.status == "infrastructure_error" for response in responses):
+            if any(
+                (response.status == "infrastructure_error" for response in responses)
+            ):
                 return
 
 
@@ -238,7 +248,7 @@ class PlanningPool:
         if len(values) == 1:
             values = values * len(gpu_ids)
         if len(values) != len(gpu_ids) or any(
-            not isinstance(value, int) or not 1 <= value <= 4 for value in values
+            (not isinstance(value, int) or not 1 <= value <= 4 for value in values)
         ):
             raise ValueError(
                 "planning workers per GPU must be one value or one 1-4 value per GPU"
@@ -248,7 +258,7 @@ class PlanningPool:
         self.results = self.context.Queue()
         self.workers_per_gpu = tuple(values)
         self.worker_gpu = [
-            gpu for gpu, count in zip(gpu_ids, values) for _ in range(count)
+            gpu for (gpu, count) in zip(gpu_ids, values) for _ in range(count)
         ]
         self.requests = [self.context.Queue() for _ in self.worker_gpu]
         self.processes = [
@@ -282,8 +292,8 @@ class PlanningPool:
         idle = [
             index for index in range(len(self.processes)) if index not in self.active
         ]
-        while idle and self.pending and self.failure is None:
-            _, _, request = heapq.heappop(self.pending)
+        while idle and self.pending and (self.failure is None):
+            (_, _, request) = heapq.heappop(self.pending)
             index = next(
                 (i for i in idle if self.models.get(i) == request.model_dir), idle[0]
             )
@@ -294,7 +304,7 @@ class PlanningPool:
 
     def poll(self, timeout=0.0):
         try:
-            index, responses = self.results.get(timeout=timeout)
+            (index, responses) = self.results.get(timeout=timeout)
         except Empty:
             for index, process in enumerate(self.processes):
                 if process.exitcode is not None and self.failure is None:
@@ -310,7 +320,7 @@ class PlanningPool:
         )
         if shared is not None:
             self.failure = shared.diagnostics
-        return request, responses
+        return (request, responses)
 
     def close(self):
         for index, process in enumerate(self.processes):

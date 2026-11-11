@@ -405,6 +405,36 @@ def _parallel_station_records(
             raise RuntimeError(f"station worker exited with code {process.exitcode}")
 
 
+def _serial_station_records(
+    baseline,
+    scene,
+    assets_dir,
+    config,
+    collection,
+    root,
+    policy,
+    planned,
+    trials,
+    attempt_ids,
+):
+    for index in range(len(scene["stations"])):
+        size = min(config.trials_per_station, planned - len(trials))
+        if size <= 0:
+            break
+        yield from _station_records(
+            baseline,
+            scene,
+            index,
+            size,
+            assets_dir,
+            config,
+            collection,
+            root,
+            policy,
+            attempt_ids=attempt_ids,
+        )
+
+
 def _station_trials(
     baseline,
     scene,
@@ -426,28 +456,20 @@ def _station_trials(
     planned = total if budget is None else min(total, budget)
     started = time.monotonic()
     progress = Progress(logger)
-    outcomes, valid_points, reasons = Counter(), Counter(), Counter()
-
-    def serial():
-        for index in range(len(scene["stations"])):
-            size = min(config.trials_per_station, planned - len(trials))
-            if size <= 0:
-                break
-            yield from _station_records(
-                baseline,
-                scene,
-                index,
-                size,
-                assets_dir,
-                config,
-                collection,
-                root,
-                policy,
-                attempt_ids=attempt_ids,
-            )
-
+    (outcomes, valid_points, reasons) = (Counter(), Counter(), Counter())
     records = (
-        serial()
+        _serial_station_records(
+            baseline,
+            scene,
+            assets_dir,
+            config,
+            collection,
+            root,
+            policy,
+            planned,
+            trials,
+            attempt_ids,
+        )
         if workers == 1
         else _parallel_station_records(
             scene,
@@ -486,15 +508,13 @@ def _station_trials(
                 break
     finally:
         records.close()
-        # 试验记录数不等于有效试验数；仅有效次数齐全的站位计为有效完成。
         valid = sum(valid_points.values())
         progress.update(
-            "标定收尾 scene=%s 已处理站位=%s/%s 有效完成站位=%s/%s trial=%s/%s 完整计划=%s "
-            "有效=%s 成功=%s 异常或未知=%s 原因=%s 耗时=%.1fs",
+            "标定收尾 scene=%s 已处理站位=%s/%s 有效完成站位=%s/%s trial=%s/%s 完整计划=%s 有效=%s 成功=%s 异常或未知=%s 原因=%s 耗时=%.1fs",
             scene["scene_id"],
             len(trials) // config.trials_per_station,
             len(scene["stations"]),
-            sum(n == config.trials_per_station for n in valid_points.values()),
+            sum((n == config.trials_per_station for n in valid_points.values())),
             len(scene["stations"]),
             len(trials),
             planned,

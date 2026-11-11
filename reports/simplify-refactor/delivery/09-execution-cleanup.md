@@ -1,8 +1,8 @@
 # 执行流程收尾
 
 - 状态：active
-- 日期：2026-11-11
-- 时间：2026-11-11 23:47:00 +08:00
+- 日期：2026-11-12
+- 时间：2026-11-12T00:02:59+08:00
 - 替代：无
 - 关联：../plan/01-refactor-plan.md、01-handover.md
 
@@ -21,3 +21,16 @@ VLA 执行改为顶层 _VLARollout，导航适配通过 _PolicyNavigation datacl
 ## 剩余
 
 固定代码后的必要真实标定/数据导出/benchmark与RL接口检查，以及最终计划逐项结论尚待完成。完整目标继续active。
+
+## 固定版本真实结果（c1b5b7f）
+
+- 2026-11-11 23:46:31–23:47:15 +08:00：GPU0上真实Panda S0020标定trial成功，235个控制步，recording/observation完整；三路RGB各236帧、三路视频各236帧，无physics/depth文件。max_trials=1为主动缩小的集成检查，不属于完整标定。
+- 2026-11-11 23:48:15–23:51:02 +08:00：复用既有完整标定，ground_obstacle场景3个配对均连续采集成功，3条自包含训练索引没有source_run/source外部引用。load_training_batch读出state(1,1,16)、actions(1,1,12)和三路256×256 RGB。三条轨迹所有数组与基线完全一致（397/400/395个动作）。
+- benchmark-check：CPU重建2个episode，episodes.jsonl/oracle.json与基线字节一致，summary仅elapsed_s不同。
+- RL专属文件无改动；PandaOmronConfig、disk_samples、robot_contacts、floor_support、room_triangles、body_pose、descendants、geom_points、local_bounds、update_hold_window和video_writer的AST与起点版本一致。
+
+## 最后代码清理
+
+批量seed回调、CPU规划回调、物理检查回调、失败记录回调与串行标定生成器改为具名函数/成员和显式参数绑定；未新增抽象层。删除已无生产者的场景代理初始化缓存和未使用proposal参数。删除仅旧CLI使用的通用load_config。场景配置归入计划要求的configs/scenes，调用和说明同步。
+
+相关局部测试分别36项、30项、28项通过；不重复运行已确认的其他领域测试。完整目标仍待最终固定版本策略/回归检查与计划结论更新。

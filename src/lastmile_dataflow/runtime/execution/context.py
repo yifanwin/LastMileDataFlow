@@ -1,5 +1,6 @@
 """Continuous control context and shared execution helpers."""
 
+from functools import partial
 import copy
 from dataclasses import asdict
 from pathlib import Path
@@ -123,6 +124,46 @@ class ContinuousContext:
             target = self.sim.robot.control_height()
         return target
 
+    def _check_tick(self, failures, semantic):
+        health = simulation_failure(self.sim)
+        if health:
+            failures.append(health)
+            return {"valid": False, "issues": [{"severity": "error", "code": health}]}
+        mujoco.mj_forward(self.sim.model, self.sim.data)
+        contacts = self.contact_sampler.capture(
+            target_bodies=self.target_bodies, fingers=self.fingers
+        )
+        self.contact_stats.update_frame(contacts)
+        if self.phase in ("navigation", "arrival"):
+            if self.navigation_contacts.observe(
+                self.sim, self.contact_sampler, self.config.navigation_max_penetration_m
+            ):
+                failures.append("navigation_severe_collision")
+        if not semantic:
+            h_actual = float(self.sim.robot.group("torso")[1])
+            margin = torso_feedback_margin(h_actual, self.sim.robot.config.torso_limits)
+            if margin > TORSO_SEVERE_FEEDBACK_RAD:
+                failures.append("torso_feedback_limit")
+        if self.monitor:
+            self.monitor.phase = self.phase
+            self.monitor.command_h = self.sim.robot.control_height()
+            facts = self.monitor.sample(contacts)
+            if "torso" in facts:
+                facts.update(
+                    torso_tracking_error_rad=torso_tracking_error(facts),
+                    torso_error_policy=self.config.torso_error_policy,
+                )
+            self.samples.append(facts)
+            fail = mobile_constraint_failure(facts, self.monitor.initial)
+            if fail:
+                failures.append(fail)
+            if self.open_joint is not None:
+                facts["joint_value"] = float(self.sim.data.qpos[self.open_joint])
+        return {
+            "valid": not failures,
+            "issues": [{"severity": "error", "code": v} for v in failures],
+        }
+
     def tick(self, action, *, fixed_base=False):
         if isinstance(action, RobotCommand):
             action = self.sim.robot.execution_action(action)
@@ -166,59 +207,11 @@ class ContinuousContext:
         self.deadline()
         self.begin()
         failures = []
-
-        def check():
-            health = simulation_failure(self.sim)
-            if health:
-                failures.append(health)
-                return {
-                    "valid": False,
-                    "issues": [{"severity": "error", "code": health}],
-                }
-            mujoco.mj_forward(self.sim.model, self.sim.data)
-            contacts = self.contact_sampler.capture(
-                target_bodies=self.target_bodies, fingers=self.fingers
-            )
-            self.contact_stats.update_frame(contacts)
-            if self.phase in ("navigation", "arrival"):
-                if self.navigation_contacts.observe(
-                    self.sim,
-                    self.contact_sampler,
-                    self.config.navigation_max_penetration_m,
-                ):
-                    failures.append("navigation_severe_collision")
-            if not semantic:
-                h_actual = float(self.sim.robot.group("torso")[1])
-                margin = torso_feedback_margin(
-                    h_actual, self.sim.robot.config.torso_limits
-                )
-                if margin > TORSO_SEVERE_FEEDBACK_RAD:
-                    failures.append("torso_feedback_limit")
-            if self.monitor:
-                self.monitor.phase = self.phase
-                self.monitor.command_h = self.sim.robot.control_height()
-                facts = self.monitor.sample(contacts)
-                if "torso" in facts:
-                    facts.update(
-                        torso_tracking_error_rad=torso_tracking_error(facts),
-                        torso_error_policy=self.config.torso_error_policy,
-                    )
-                self.samples.append(facts)
-                fail = mobile_constraint_failure(facts, self.monitor.initial)
-                if fail:
-                    failures.append(fail)
-                if self.open_joint is not None:
-                    facts["joint_value"] = float(self.sim.data.qpos[self.open_joint])
-            return {
-                "valid": not failures,
-                "issues": [{"severity": "error", "code": v} for v in failures],
-            }
-
         with timed(self, "simulation_and_physics_evidence"):
             (command, stop) = self.sim.step(
                 action,
                 fixed_base=fixed_base,
-                substep_check=check,
+                substep_check=partial(self._check_tick, failures, semantic),
                 command_raw=raw_action,
             )
         self.last_legal_torso_target = (
@@ -389,21 +382,25 @@ def planner_options(config, assets_dir, seed):
     )
 
 
+def _check_semantic_tick(sim, sample):
+    failure = simulation_failure(sim)
+    if failure:
+        return {"valid": False, "issues": [{"severity": "error", "code": failure}]}
+    if sample is not None:
+        mujoco.mj_forward(sim.model, sim.data)
+        sample()
+    return {"valid": True}
+
+
 def semantic_tick(sim, command, *, sample=None, fixed_base=False):
     """Shared physical stepping for semantic commands, independent of recorder."""
     if not sim.started:
         sim.begin()
-
-    def check():
-        failure = simulation_failure(sim)
-        if failure:
-            return {"valid": False, "issues": [{"severity": "error", "code": failure}]}
-        if sample is not None:
-            mujoco.mj_forward(sim.model, sim.data)
-            sample()
-        return {"valid": True}
-
-    (result, stop) = sim.step(command, fixed_base=fixed_base, substep_check=check)
+    (result, stop) = sim.step(
+        command,
+        fixed_base=fixed_base,
+        substep_check=partial(_check_semantic_tick, sim, sample),
+    )
     if stop:
         raise OperationFailure(stop["issues"][0]["code"])
     return result

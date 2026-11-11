@@ -3,7 +3,7 @@
 当前入口使用 scene-recipe-v1，示例为 panda_omron.json。
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/build_scenes.py --config configs/scene_datasets/panda_omron.json --output <新目录> --gpu 0
+PYTHONPATH=src .venv/bin/python scripts/build_scenes.py --config configs/scenes/panda_omron.json --output <新目录> --gpu 0
 ```
 
 配置显式填写 data_root、dataset_dir、assets_dir、asset_index、robot_config 和 houses。路径规则见 configs/README.md。

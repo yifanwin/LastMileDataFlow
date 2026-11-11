@@ -8,6 +8,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import closing, contextmanager
 from dataclasses import asdict
+from functools import partial
 import logging
 import multiprocessing
 import os
@@ -235,16 +236,16 @@ class _TaskTimeout(Exception):
     pass
 
 
+def _raise_task_timeout(seconds, signum, frame):
+    raise _TaskTimeout(f"task exceeded {seconds:g}s")
+
+
 @contextmanager
 def _task_deadline(seconds):
     if not seconds:
         yield
         return
-
-    def handler(signum, frame):
-        raise _TaskTimeout(f"task exceeded {seconds:g}s")
-
-    previous = signal.signal(signal.SIGALRM, handler)
+    previous = signal.signal(signal.SIGALRM, partial(_raise_task_timeout, seconds))
     signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
         yield
