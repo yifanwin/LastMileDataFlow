@@ -1,4 +1,4 @@
-"""Explicit factory/control/alignment/fixed-pick validation; no station sampling."""
+"""Explicit factory/control/alignment validation; no station sampling."""
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -8,11 +8,10 @@ from pathlib import Path
 
 def arguments():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--stage", choices=("factory", "control", "align", "pick"), required=True)
+    p.add_argument("--stage", choices=("factory", "control", "align"), required=True)
     p.add_argument("--robot", default="configs/robots/panda_omron.json")
     p.add_argument("--factory-root", type=Path)
     p.add_argument("--asset-output", type=Path)
-    p.add_argument("--case", type=Path)
     p.add_argument("--gpu", type=int, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--seed", type=int, default=42)
@@ -282,23 +281,19 @@ def main():
                 raise ValueError("factory stage requires --factory-root")
             model = export_factory(args.factory_root, args.asset_output or args.output/"assets")
             config = replace(config, model_path=str(model.resolve()))
-        if args.stage == "pick":
-            from lastmile_dataflow.runtime.execution.fixed_pick import run_fixed_pick
-            result.update(run_fixed_pick(config, args.case, args.output, args.seed))
+        sim = Simulation.from_source(floor_source(args.output), config)
+        if args.stage == "control":
+            result.update(control(sim, args.output))
+        elif args.stage == "align":
+            result.update(alignment(sim, args.output, args.seed))
         else:
-            sim = Simulation.from_source(floor_source(args.output), config)
-            if args.stage == "control":
-                result.update(control(sim, args.output))
-            elif args.stage == "align":
-                result.update(alignment(sim, args.output, args.seed))
-            else:
-                from lastmile_dataflow.runtime.control.interface import RobotCommand
-                from lastmile_dataflow.runtime.execution.context import semantic_tick
-                for _ in range(100):
-                    semantic_tick(sim, RobotCommand())
-                result.update(valid=not any(w.number for w in sim.data.warning),
-                              model_path=config.model_path, nq=sim.model.nq, nu=sim.model.nu,
-                              physics_time_s=float(sim.data.time), state=sim.robot.state())
+            from lastmile_dataflow.runtime.control.interface import RobotCommand
+            from lastmile_dataflow.runtime.execution.context import semantic_tick
+            for _ in range(100):
+                semantic_tick(sim, RobotCommand())
+            result.update(valid=not any(w.number for w in sim.data.warning),
+                          model_path=config.model_path, nq=sim.model.nq, nu=sim.model.nu,
+                          physics_time_s=float(sim.data.time), state=sim.robot.state())
         result["status"] = "passed" if result["valid"] else "failed"
     except Exception as error:
         result.update(error_type=type(error).__name__, error=str(error))

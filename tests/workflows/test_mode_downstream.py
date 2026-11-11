@@ -3,12 +3,10 @@ from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
-from lastmile_dataflow.data.evaluation.benchmark_config import BenchmarkConfig
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.mode_config import ModeConfig
 from lastmile_dataflow.utils.io import create_run, write_json, write_rows, read_json, rows
 from lastmile_dataflow.workflows.collection import _plan_collection
-from lastmile_dataflow.workflows import lastmilebench
 from tests.helpers import DatasetTestCase
 
 
@@ -116,51 +114,3 @@ class ModeDownstreamWorkflowTests(DatasetTestCase):
         self.assertEqual(len(continuous), 2)
         self.assertTrue(all(row['observation_source'] == 'measured_state_replay' for row in continuous))
         self.assertEqual(set(continuous[0]['labels']), {'reachability', 'narrow_space'})
-
-    def test_mode_summary_counts_one_third_starts_and_two_thirds_goals(self):
-        dataset = self.dataset()
-        self.raw[0].update(status='success', task_outcome={'status': 'success'})
-        calibration = create_run(self.root/'calibration-counts', {'dataset': str(dataset),
-            'config': asdict(self.config), 'profiles': {'one': {'robot': asdict(self.robot)}},
-            'mode_settings': asdict(ModeConfig())})
-        write_rows(calibration/'trials.jsonl', self.raw)
-        self.diagnosis.update(trials_ref=str(calibration/'trials.jsonl'), s0_results=[])
-        write_rows(calibration/'diagnosis.jsonl', [self.diagnosis])
-        settings = self.root/'generic-thresholds.json'
-        write_json(settings, asdict(BenchmarkConfig(low=0., high=1.)))
-        root = lastmilebench.build(dataset, self.root/'bench-counts', calibration_dir=calibration, config_path=settings)
-        report = read_json(root/'summary.json')['scenes'][0]
-        self.assertEqual(report['low_stations'], 1)
-        self.assertEqual(report['high_stations'], 3)
-
-    def test_mode_bench_uses_per_episode_qualified_anchors_and_private_labels(self):
-        dataset = self.dataset()
-        calibration = create_run(self.root/'calibration', {'dataset': str(dataset), 'config': asdict(self.config),
-            'profiles': {'one': {'robot': asdict(self.robot)}}, 'mode_settings': asdict(ModeConfig())})
-        write_rows(calibration/'trials.jsonl', self.raw)
-        self.diagnosis['trials_ref'] = str(calibration/'trials.jsonl')
-        write_rows(calibration/'diagnosis.jsonl', [self.diagnosis])
-        settings = self.root/'benchmark.json'
-        write_json(settings, asdict(BenchmarkConfig(navigation_whole_body=False)))
-        before = (calibration/'trials.jsonl').read_bytes()
-        root = lastmilebench.build(dataset, self.root/'bench', calibration_dir=calibration, config_path=settings)
-        episodes = rows(root/'episodes.jsonl')
-        oracle = read_json(root/'oracle.json')
-        self.assertEqual(len(episodes), 2)
-        for episode in episodes:
-            self.assertNotIn('labels', episode)
-            self.assertNotIn('s1', episode)
-            evidence = oracle['episodes'][episode['episode_id']]
-            region = oracle['regions'][evidence['region_id']]
-            anchors = [patch['anchor']['station_id'] for patch in region['patches']]
-            if episode['station']['station_id'] == 'low':
-                self.assertEqual(anchors, ['secondary'])  # An unrelated 3/3 must not replace this 2/3.
-                self.assertEqual(evidence['labels'], ['reachability', 'narrow_space'])
-            else:
-                self.assertEqual(anchors, ['primary'])
-                self.assertEqual(evidence['start_success_rate'], 1.)
-                self.assertEqual(evidence['labels'], ['visibility'])
-            self.assertNotIn('case', evidence)
-        self.assertEqual((calibration/'trials.jsonl').read_bytes(), before)
-        self.assertEqual(read_json(root/'summary.json')['new_calibration_rollouts'], 0)
-        self.assertTrue((root/'visualization/e000000.png').is_file())

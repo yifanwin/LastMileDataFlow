@@ -21,7 +21,7 @@ from ..scenes.dataset import load_scenes
 from ..runtime.execution_config import execution_profile, calibration_execution
 from ..data.evaluation.selection import station_calibration, eligible_stations, generate_pairs, evaluable
 from ..data.evaluation.statistics import aggregate
-from ..data.export.lastmile_dataset import successful, training_record
+from ..data.export.lastmile_dataset import successful, training_record, finalize_dataset
 from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
 from ..planning.navigation.astar import scene_grid, task_support_obstacles
 from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
@@ -616,6 +616,7 @@ def _run_dataset(dataset, assets_dir, config, collection, output_dir, process_sc
                 if pair['status'] == 'not_executed':
                     pair['reason'] = 'shared_failure' if stopped else 'run_interrupted'
             write_rows(root / 'pair_index.jsonl', pairs)
+            finalize_dataset(root)
         training = rows(root / 'train_index.jsonl')
         executed_pairs = sum((pair.get('executed_steps') or 0) > 0 for pair in pairs)
         write_json(root / 'summary.json', {

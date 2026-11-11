@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.data.evaluation.benchmark_config import BenchmarkConfig
+from lastmile_dataflow.data.evaluation.benchmark import BenchmarkConfig
 from lastmile_dataflow.data.evaluation.recovery import RecoveryRegion, difficulty
 from lastmile_dataflow.planning.navigation.astar import Grid
 from lastmile_dataflow.planning.navigation.geometry import GeometryNavigation, GeometryCheck, NavigationSettings, pose_samples, sampled_cost

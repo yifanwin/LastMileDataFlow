@@ -54,7 +54,7 @@ class PandaRecordingTests(unittest.TestCase):
                 sim.close()
 
     def test_materialization_reads_panda_fields_without_rby_state(self):
-        from lastmile_dataflow.data.export.lastmile_dataset import materialize_lastmile, load_training_batch
+        from lastmile_dataflow.data.export.lastmile_dataset import finalize_dataset, load_training_batch
         from lastmile_dataflow.utils.io import write_json, write_rows
         layout = panda_adapter().record_layout()
         size = len(layout['state_fields'])
@@ -74,7 +74,7 @@ class PandaRecordingTests(unittest.TestCase):
                       'executed_steps':2,'rollout_id':'fixture'}
             write_rows(source/'train_index.jsonl',[record])
             write_rows(source/'pair_index.jsonl',[])
-            output = materialize_lastmile(source,root/'materialized')
+            output = finalize_dataset(source)
             batch = load_training_batch(output,[0],steps=2)
             self.assertEqual(batch['state'].shape,(1,2,size))
             self.assertEqual(batch['actions'].shape,(1,2,size))

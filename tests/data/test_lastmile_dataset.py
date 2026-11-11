@@ -11,9 +11,14 @@ import imageio.v2 as imageio
 import numpy as np
 
 from lastmile_dataflow.data.export.lastmile_dataset import (
-    load_training_batch, materialize_lastmile, training_record,
+    load_training_batch, finalize_dataset, training_record,
 )
 from lastmile_dataflow.utils.io import create_run, read_json, rows, write_json, write_rows
+
+
+def export_fixture(reference, output):
+    shutil.copytree(reference, output)
+    return finalize_dataset(output)
 
 
 class MaterializationTests(unittest.TestCase):
@@ -70,7 +75,7 @@ class MaterializationTests(unittest.TestCase):
         direct = rows(self.reference/'train_index.jsonl')[0]
         direct.update(observations_ref=str(observation), observation_source='measured_state_replay', observation_complete=True)
         write_rows(self.reference/'train_index.jsonl', [direct])
-        output = materialize_lastmile(self.reference, self.root/'numeric-materialized')
+        output = export_fixture(self.reference, self.root/'numeric-materialized')
         shutil.rmtree(self.calibration)
         shutil.rmtree(self.reference)
         batch = load_training_batch(output, [0], steps=2)
@@ -79,15 +84,14 @@ class MaterializationTests(unittest.TestCase):
         self.assertEqual(rows(output/'train_index.jsonl')[0]['observation_source'], 'measured_state_replay')
 
     def test_copy_deduplicate_and_load_batch_after_relocation_without_sources(self):
-        output = materialize_lastmile(self.reference, self.root / 'materialized')
+        output = export_fixture(self.reference, self.root / 'materialized')
         training = rows(output / 'train_index.jsonl')
         self.assertEqual(len(training), 2)
-        self.assertEqual(len(list((output / 'rollouts').iterdir())), 2)
+        self.assertEqual(len(list((output / 'rollouts').iterdir())), 3)
         self.assertNotEqual(training[0]['rollout_path'], training[1]['rollout_path'])
         self.assertNotIn('navigation', training[0])
         self.assertNotIn('s0', training[0])
-        self.assertEqual(training[0]['source']['rollout_id'], training[1]['source']['rollout_id'])
-        self.assertNotEqual(training[0]['source']['run'], training[1]['source']['run'])
+        self.assertTrue(all('source_run' not in row and 'source' not in row for row in training))
         pairs = rows(output / 'pair_index.jsonl')
         self.assertEqual(len(pairs), 3)
         self.assertEqual(pairs[0]['rollout_path'], training[1]['rollout_path'])
@@ -123,14 +127,14 @@ class MaterializationTests(unittest.TestCase):
         self.assertEqual(batch['source_types'], ['s1_direct_operation', 's0_to_s1_continuous'])
         self.assertTrue((self.calibration / 'rollouts/r0/trajectory.npz').exists())
         with self.assertRaises(FileExistsError):
-            materialize_lastmile(self.reference, output)
+            export_fixture(self.reference, output)
 
     def test_missing_required_observation_is_incomplete_not_silently_dropped(self):
         # 仅移除本测试临时生成的合成附件，不触碰真实资产。
         (self.calibration / 'rollouts/r0/images/head_camera/000001.png').unlink()
         output = self.root / 'incomplete'
         with self.assertRaises(FileNotFoundError):
-            materialize_lastmile(self.reference, output)
+            export_fixture(self.reference, output)
         self.assertEqual(read_json(output / 'summary.json')['status'], 'incomplete')
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             load_training_batch(output, [0], steps=1)

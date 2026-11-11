@@ -9,7 +9,7 @@ from pathlib import Path
 import imageio.v2 as imageio
 import numpy as np
 
-from .lastmile_dataset import materialize_lastmile, successful, training_record
+from .lastmile_dataset import finalize_dataset, successful, training_record
 from ...policies.task import instruction
 from ...utils.io import create_run, read_json, rows, write_json, write_rows
 
@@ -30,7 +30,7 @@ def prepare_reference(evaluations, output):
     root = create_run(output, {'kind': 'lastmile', 'evaluation_sources': list(map(str, evaluations))})
     write_rows(root / 'train_index.jsonl', training)
     write_rows(root / 'pair_index.jsonl', [])
-    return root
+    return finalize_dataset(root)
 
 
 def convert(dataset, output, *, repo_id='lastmile/rby1_position'):
@@ -39,8 +39,6 @@ def convert(dataset, output, *, repo_id='lastmile/rby1_position'):
 
     dataset, output = Path(dataset).resolve(), Path(output).resolve()
     datasets.config.HF_DATASETS_CACHE = output.parent / 'dependencies' / 'datasets-cache'
-    if read_json(dataset / 'config.json')['kind'] != 'materialized_lastmile':
-        raise ValueError('materialize the lastmile dataset before conversion')
     if read_json(dataset / 'summary.json')['status'] != 'completed':
         raise ValueError('materialization is incomplete')
     records = rows(dataset / 'train_index.jsonl')
@@ -124,8 +122,6 @@ def main():
     dataset = args.dataset
     if args.evaluations:
         dataset = prepare_reference(args.evaluations, args.output / 'reference')
-    if read_json(dataset / 'config.json')['kind'] != 'materialized_lastmile':
-        dataset = materialize_lastmile(dataset, args.output / 'materialized')
     print(convert(dataset, args.output / 'lerobot'))
 
 

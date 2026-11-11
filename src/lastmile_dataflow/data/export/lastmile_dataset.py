@@ -6,7 +6,7 @@ import shutil
 import imageio.v2 as imageio
 import numpy as np
 
-from ...utils.io import create_run, read_json, rows, write_json, write_rows
+from ...utils.io import read_json, rows, write_json, write_rows
 
 
 def successful(record, *, continuous=False, observations=False):
@@ -78,21 +78,11 @@ def _copy_rollout(source, target, config, record):
                'state_key': state_key, 'layout': layout})
 
 
-def materialize_lastmile(dataset, output):
-    """独立 CPU 后处理；输入引用型数据集，输出新的自包含训练数据集。"""
-    dataset = Path(dataset).resolve()
-    for name in ('config.json', 'train_index.jsonl', 'pair_index.jsonl'):
-        if not (dataset / name).is_file():
-            raise FileNotFoundError(dataset / name)
-    source_config = read_json(dataset / 'config.json')
-    if source_config.get('kind') == 'materialized_lastmile':
-        raise ValueError('materialization expects a reference dataset; copy an already materialized dataset directly')
-    training, pairs = rows(dataset / 'train_index.jsonl'), rows(dataset / 'pair_index.jsonl')
-    output = Path(output).resolve()
-    if output.is_relative_to(dataset):
-        raise ValueError('materialization output must be outside the input dataset')
-    root = create_run(output, {'kind': 'materialized_lastmile', 'source': str(dataset),
-                               'action_layout': 'per_rollout', 'source_config': source_config})
+def finalize_dataset(root):
+    """Finish collection with self-contained trajectories and relative index paths."""
+    root = Path(root).resolve()
+    training, pairs = rows(root / 'train_index.jsonl'), rows(root / 'pair_index.jsonl')
+    dataset = root
     copied, views, configs = {}, [], {}
     complete = False
     try:
@@ -101,7 +91,7 @@ def materialize_lastmile(dataset, output):
             if record['source_type'] not in ('s1_direct_operation', 's0_to_s1_continuous') or not successful(record, continuous=continuous):
                 raise ValueError('train_index contains a non-successful demonstration')
             source_run, rollout_id = identity = _source(dataset, record)
-            view = {key: value for key, value in record.items() if key not in ('source_run', 'rollout_id')}
+            view = {key: value for key, value in record.items() if key not in ('source_run', 'rollout_id', 'observations_ref')}
             if identity in copied:
                 previous = views[copied[identity][1]]
                 # 保留不同的关联，不因重复引用复制轨迹或扩增样本。
@@ -113,7 +103,7 @@ def materialize_lastmile(dataset, output):
             if source_run not in configs:
                 configs[source_run] = read_json(source_run / 'config.json')
             _copy_rollout(source_run / 'rollouts' / rollout_id, root / relative, configs[source_run], record)
-            view.update(rollout_path=relative, source={'run': str(source_run), 'rollout_id': rollout_id})
+            view.update(rollout_path=relative)
             copied[identity] = (relative, len(views))
             views.append(view)
         for pair in pairs:
@@ -121,7 +111,6 @@ def materialize_lastmile(dataset, output):
             source_run = pair.pop('source_run', '.')
             if rollout_id:
                 identity = ((dataset / source_run).resolve(), rollout_id)
-                pair['source'] = {'run': str(identity[0]), 'rollout_id': rollout_id}
                 if identity in copied:
                     pair['rollout_path'] = copied[identity][0]
         write_rows(root / 'train_index.jsonl', views)
