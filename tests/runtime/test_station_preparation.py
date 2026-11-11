@@ -8,7 +8,7 @@ from lastmile_dataflow.runtime.execution.context import clone_sim
 from lastmile_dataflow.runtime.execution.preparation import prepare_station
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.utils.io import read_json
-from lastmile_dataflow.workflows.collection import _station_records
+from lastmile_dataflow.workflows.collect import _station_records
 from tests.helpers import DatasetTestCase
 
 
@@ -31,7 +31,7 @@ class StationPreparationTests(DatasetTestCase):
             return {'status': 'failure', 'reason': 'fixture', 'executed_steps': 1}
 
         with (patch('lastmile_dataflow.runtime.execution.preparation.prepare_station', wraps=prepare_station) as prepare,
-              patch('lastmile_dataflow.workflows.collection._execute', side_effect=execute)):
+              patch('lastmile_dataflow.workflows.collect._execute', side_effect=execute)):
             records = list(_station_records(self.sim, self.scene, 0, 3, self.root, config,
                                            self.collection, self.root, attempt_ids=count()))
         self.assertEqual(prepare.call_count, 1)
@@ -46,7 +46,7 @@ class StationPreparationTests(DatasetTestCase):
     def test_preparation_failure_is_not_copied_into_three_trial_failures(self):
         config = ExecutionConfig(shared_station_preparation=True, trials_per_station=3)
         with (patch('lastmile_dataflow.runtime.execution.preparation.floor_support', return_value=False),
-              patch('lastmile_dataflow.workflows.collection._execute') as execute):
+              patch('lastmile_dataflow.workflows.collect._execute') as execute):
             records = list(_station_records(self.sim, self.scene, 0, 3, self.root, config,
                                            self.collection, self.root, attempt_ids=count()))
         self.assertEqual(records, [])

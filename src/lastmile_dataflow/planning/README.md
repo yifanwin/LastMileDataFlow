@@ -8,8 +8,7 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
 
 - **planner.py**：V2Planner 主类，cuRobo 0.8.0 适配
   - `PlannerResources`：GPU 进程保留至多 2 个兼容 solver 家族
-  - `StationPlannerCache`：每侧臂至多 1 个预闭合 planner，限同一冻结站位
-  - `V2Planner`：规划主类，grasp/diagnostic_ik/grasp_batch/plan 入口
+  - `V2Planner`：规划主类，grasp/grasp_batch/plan 入口
 - **context.py**：PlannerContext
 - **costs.py**：ContactManager，目标/把手接触掩码，FOV 代价；导入即加载 cuRobo，仅由 planner 建 solver 时导入
 - **tracing.py**：solver/phase 追踪
@@ -32,7 +31,7 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
 
 - **pool.py**：多进程规划服务（PlanningPool、PlanningService）
 - **waypoints.py**：PlanResult、GRASP_APPROACH_DISTANCE_M 等规划结果定义
-- **evidence.py**：solver 证据记录（solver_evidence、phase_evidence、ik_probe_evidence）
+- **evidence.py**：solver 证据记录（solver_evidence、phase_evidence）
 - **remote.py**：远程规划客户端（PlanningClient、RemotePlanner）
 
 ## 使用示例
@@ -124,7 +123,6 @@ planner 统一调用 `robot.planning_model(sim, config, side, path, workspace)`�
 ### 任务绑定与复用
 
 - `PlannerResources`：GPU 进程保留至多 2 个兼容家族，跨任务复用 solver
-- `StationPlannerCache`：同站位预闭合阶段复用 planner，frozen state 验证
 - 跨任务复用时必须重新计算当前任务的 `target_bodies`、`handle_bodies`
 - Pick/Open 通过 key 区分，ContactManager 不串用
 

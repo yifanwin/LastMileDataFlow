@@ -15,7 +15,7 @@ from lastmile_dataflow.data.evaluation.selection import (
 )
 from lastmile_dataflow.utils.io import read_json, rows, write_json
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.workflows.collection import (
+from lastmile_dataflow.workflows.collect import (
     _execute,
     _recovery_trials,
     _plan_collection,
@@ -27,8 +27,15 @@ from tests.helpers import DatasetTestCase
 
 
 class CollectionTests(DatasetTestCase):
+    def setUp(self):
+        super().setUp()
+        # These scheduler fixtures do not write trajectories; export has its own file tests.
+        export = patch('lastmile_dataflow.workflows.collect.finalize_dataset')
+        export.start()
+        self.addCleanup(export.stop)
+
     def test_prepared_run_keeps_inputs_and_logs_and_refuses_overwrite(self):
-        from lastmile_dataflow.workflows.collection import _prepare_run
+        from lastmile_dataflow.workflows.collect import _prepare_run
 
         dataset = self.dataset()
         root = self.root / 'prepared'
@@ -42,7 +49,7 @@ class CollectionTests(DatasetTestCase):
             _prepare_run(*args)
 
     def test_sampling_geometry_does_not_override_execution_workspace(self):
-        from lastmile_dataflow.workflows.collection import _prepare_run
+        from lastmile_dataflow.workflows.collect import _prepare_run
 
         dataset = self.dataset()
         write_json(dataset / 'config.json', {'geometry': {
@@ -73,9 +80,9 @@ class CollectionTests(DatasetTestCase):
             }
 
         with (
-            patch("lastmile_dataflow.workflows.collection._execute", side_effect=execute),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
-            patch("lastmile_dataflow.workflows.collection._recovery_trials") as recovery,
+            patch("lastmile_dataflow.workflows.station_map._execute", side_effect=execute),
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collect._recovery_trials") as recovery,
         ):
             output = evaluate_stations(
                 dataset,
@@ -106,16 +113,16 @@ class CollectionTests(DatasetTestCase):
             }
 
         with (
-            patch("lastmile_dataflow.workflows.collection._execute", side_effect=execute),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.station_map._execute", side_effect=execute),
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
         ):
             calibration = evaluate_stations(
                 dataset, self.root, config, self.collection, self.root, run_id="calibration", gpu_ids=[0]
             )
         with (
-            patch("lastmile_dataflow.workflows.collection._station_trials") as station_trials,
-            patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collect._station_trials") as station_trials,
+            patch("lastmile_dataflow.workflows.collect._recovery_trials", return_value=[]),
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset,
@@ -150,11 +157,11 @@ class CollectionTests(DatasetTestCase):
         config = ExecutionConfig(trials_per_station=1)
         with (
             patch(
-                "lastmile_dataflow.workflows.collection._execute",
+                "lastmile_dataflow.workflows.station_map._execute",
                 return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ) as execute,
-            patch("lastmile_dataflow.workflows.collection._recovery_trials", return_value=[]) as recovery,
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collect._recovery_trials", return_value=[]) as recovery,
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset, self.root, config, self.collection, self.root, run_id="continuous", gpu_ids=[0]
@@ -170,10 +177,10 @@ class CollectionTests(DatasetTestCase):
         config = ExecutionConfig(trials_per_station=2)
         with (
             patch(
-                "lastmile_dataflow.workflows.collection._execute",
+                "lastmile_dataflow.workflows.station_map._execute",
                 return_value={"status": "failure", "reason": "mocked", "recording_complete": True, "observation_complete": True},
             ),
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
         ):
             calibration = evaluate_stations(
                 dataset,
@@ -186,9 +193,9 @@ class CollectionTests(DatasetTestCase):
                 max_trials=1,
             )
         with (
-            patch("lastmile_dataflow.workflows.collection._station_trials") as trials,
-            patch("lastmile_dataflow.workflows.collection._execute") as execute,
-            patch("lastmile_dataflow.workflows.collection.export_heatmap"),
+            patch("lastmile_dataflow.workflows.collect._station_trials") as trials,
+            patch("lastmile_dataflow.workflows.station_map._execute") as execute,
+            patch("lastmile_dataflow.workflows.station_map.export_heatmap"),
         ):
             output = collect_lastmile(
                 dataset,
@@ -216,9 +223,9 @@ class CollectionTests(DatasetTestCase):
         records = [{**trial, 'scene_id': 'one', 'task_id': 'pick-target'} for trial in trials]
         choices = _plan_collection([self.scene], records, config, self.root, '.')
         with (
-            patch("lastmile_dataflow.workflows.collection.GeometryNavigation.plan",
+            patch("lastmile_dataflow.workflows.collect.GeometryNavigation.plan",
                   return_value={'path': None, 'reason': 'navigation_search_exhausted'}),
-            patch("lastmile_dataflow.workflows.collection._execute") as execute,
+            patch("lastmile_dataflow.workflows.collect._execute") as execute,
         ):
             records = _recovery_trials(
                 self.sim,
@@ -266,11 +273,11 @@ class CollectionTests(DatasetTestCase):
                   'recording_complete': True, 'observation_complete': True, 'executed_steps': 3, 'rollout_id': 'new',
                   'navigation': {'status': 'success', 'steps': 2}}
         with (
-            patch('lastmile_dataflow.workflows.collection.scene_grid'),
-            patch('lastmile_dataflow.workflows.collection.robot_footprint', return_value={'radius_m': .1}),
-            patch('lastmile_dataflow.workflows.collection.task_support_obstacles'),
-            patch('lastmile_dataflow.workflows.collection.GeometryNavigation') as navigator,
-            patch('lastmile_dataflow.workflows.collection._execute',
+            patch('lastmile_dataflow.workflows.collect.scene_grid'),
+            patch('lastmile_dataflow.workflows.collect.robot_footprint', return_value={'radius_m': .1}),
+            patch('lastmile_dataflow.workflows.collect.task_support_obstacles'),
+            patch('lastmile_dataflow.workflows.collect.GeometryNavigation') as navigator,
+            patch('lastmile_dataflow.workflows.collect._execute',
                   side_effect=[{**result, 'rollout_id': f'new{i}'} for i in range(5)]) as execute,
         ):
             navigator.return_value.plan.side_effect = [
@@ -291,15 +298,15 @@ class CollectionTests(DatasetTestCase):
         failure = {'status': 'infrastructure_error', 'failure_scope': 'shared', 'reason': 'cuda error',
                    'rollout_id': 'failed', 'executed_steps': 2, 'navigation': {'status': 'unknown', 'steps': 2}}
         with (
-            patch('lastmile_dataflow.workflows.collection._prepare_run',
+            patch('lastmile_dataflow.workflows.collect._prepare_run',
                   return_value=(self.root, [scene, other], config, self.collection, prior)),
-            patch('lastmile_dataflow.workflows.collection.Simulation.from_snapshot'),
-            patch('lastmile_dataflow.workflows.collection._station_summary', return_value={'successes': 0}),
-            patch('lastmile_dataflow.workflows.collection.scene_grid'),
-            patch('lastmile_dataflow.workflows.collection.robot_footprint', return_value={'radius_m': .1}),
-            patch('lastmile_dataflow.workflows.collection.task_support_obstacles'),
-            patch('lastmile_dataflow.workflows.collection.GeometryNavigation') as navigator,
-            patch('lastmile_dataflow.workflows.collection._execute', return_value=failure) as execute,
+            patch('lastmile_dataflow.workflows.collect.Simulation.from_snapshot'),
+            patch('lastmile_dataflow.workflows.collect._station_summary', return_value={'successes': 0}),
+            patch('lastmile_dataflow.workflows.collect.scene_grid'),
+            patch('lastmile_dataflow.workflows.collect.robot_footprint', return_value={'radius_m': .1}),
+            patch('lastmile_dataflow.workflows.collect.task_support_obstacles'),
+            patch('lastmile_dataflow.workflows.collect.GeometryNavigation') as navigator,
+            patch('lastmile_dataflow.workflows.collect._execute', return_value=failure) as execute,
         ):
             navigator.return_value.plan.return_value = {'path': {'xy': [[0, 0], [2, 0]],
                 'poses': [[0, 0, 0], [2, 0, 0]]}, 'reason': 'valid'}
@@ -318,15 +325,15 @@ class CollectionTests(DatasetTestCase):
     def test_calibration_reuse_allows_selection_changes_but_not_execution_changes(self):
         dataset = self.dataset()
         config = ExecutionConfig(trials_per_station=1)
-        with (patch('lastmile_dataflow.workflows.collection._execute', return_value={'status': 'failure'}),
-              patch('lastmile_dataflow.workflows.collection.export_heatmap')):
+        with (patch('lastmile_dataflow.workflows.station_map._execute', return_value={'status': 'failure'}),
+              patch('lastmile_dataflow.workflows.station_map.export_heatmap')):
             calibration = evaluate_stations(dataset, self.root, config, self.collection, self.root,
                                             run_id='cal-selection', gpu_ids=[0])
         changed = replace(config, lastmile_low=.1, lastmile_high=.9, start_count=1,
                           max_s1_candidates=1, lastmile_nearby_m=.01, navigation_margin_m=.03,
                           navigation_clearance_weight=3., navigation_max_penetration_m=.004)
-        with (patch('lastmile_dataflow.workflows.collection._execute') as execute,
-              patch('lastmile_dataflow.workflows.collection.export_heatmap')):
+        with (patch('lastmile_dataflow.workflows.station_map._execute') as execute,
+              patch('lastmile_dataflow.workflows.station_map.export_heatmap')):
             collect_lastmile(dataset, self.root, changed, self.collection, self.root,
                              run_id='reuse-selection', gpu_ids=[0], calibration=calibration)
         execute.assert_not_called()
@@ -338,9 +345,9 @@ class AttemptCounterTests(DatasetTestCase):
         config = ExecutionConfig(trials_per_station=1)
         result = {"status": "failure", "reason": "fixture", "recording_complete": True, "observation_complete": True}
         with (
-            patch("lastmile_dataflow.workflows.collection.run_curobo_attempt", return_value=result) as run,
-            patch("lastmile_dataflow.workflows.collection.grasp_candidates", return_value=[]),
-            patch("lastmile_dataflow.workflows.collection.rows", side_effect=AssertionError("no scans")),
+            patch("lastmile_dataflow.workflows.station_map.run_curobo_attempt", return_value=result) as run,
+            patch("lastmile_dataflow.workflows.station_map.grasp_candidates", return_value=[]),
+            patch("lastmile_dataflow.workflows.collect.rows", side_effect=AssertionError("no scans")),
         ):
             for scene_id in ("one", "two"):
                 scene = {
@@ -356,6 +363,11 @@ class AttemptCounterTests(DatasetTestCase):
 
 
 class PolicyBatchStopTests(unittest.TestCase):
+    def setUp(self):
+        candidate = patch('lastmile_dataflow.workflows.station_map.grasp_candidates', return_value=[])
+        candidate.start()
+        self.addCleanup(candidate.stop)
+
     def test_partial_budget_progress_does_not_inflate_completed_points(self):
         scene = {"scene_id": "one", "task": {"task_id": "pick"},
                  "stations": [{"station_id": "S0"}, {"station_id": "S1"}]}
@@ -363,8 +375,8 @@ class PolicyBatchStopTests(unittest.TestCase):
                    ("success", "episode_error", "planning_no_solution")]
         with (
             tempfile.TemporaryDirectory() as tmp,
-            patch("lastmile_dataflow.workflows.collection._execute", side_effect=results),
-            self.assertLogs("lastmile_dataflow.workflows.collection", level="INFO") as logs,
+            patch("lastmile_dataflow.workflows.station_map._execute", side_effect=results),
+            self.assertLogs("lastmile_dataflow.workflows.station_map", level="INFO") as logs,
         ):
             trials = _station_trials(None, scene, None, SimpleNamespace(seed=17, trials_per_station=2),
                                      None, Path(tmp), budget=3, attempt_ids=count())
@@ -382,8 +394,8 @@ class PolicyBatchStopTests(unittest.TestCase):
                               ("recording_error", "ERROR"), ("infrastructure_error", "ERROR")]:
             with (
                 self.subTest(status=status),
-                patch("lastmile_dataflow.workflows.collection.run_vla_attempt", return_value={"status": status}),
-                self.assertLogs("lastmile_dataflow.workflows.collection", level="DEBUG") as logs,
+                patch("lastmile_dataflow.workflows.station_map.run_curobo_attempt", return_value={"status": status}),
+                self.assertLogs("lastmile_dataflow.workflows.station_map", level="DEBUG") as logs,
             ):
                 result = _execute(None, scene, {"station_id": "S0"}, None, config, None,
                                   Path("unused"), 17, attempt_ids=count())
@@ -405,7 +417,7 @@ class PolicyBatchStopTests(unittest.TestCase):
         }
         with (
             tempfile.TemporaryDirectory() as tmp,
-            patch("lastmile_dataflow.workflows.collection._execute", return_value=result) as execute,
+            patch("lastmile_dataflow.workflows.station_map._execute", return_value=result) as execute,
         ):
             trials = _station_trials(None, scene, None, config, None, Path(tmp), attempt_ids=count())
             self.assertEqual(len(trials), 1)

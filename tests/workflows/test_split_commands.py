@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.utils.io import append_row, read_json
-from lastmile_dataflow.workflows.collection import collect_lastmile, evaluate_stations, _plan_collection
+from lastmile_dataflow.workflows.collect import collect_lastmile, evaluate_stations, _plan_collection
 from tests.helpers import DatasetTestCase
 
 
@@ -33,9 +33,9 @@ class SplitCommandTests(DatasetTestCase):
 
         for name, command in [('evaluate', evaluate_stations), ('collect', collect_lastmile)]:
             with (self.subTest(command=name),
-                  patch('lastmile_dataflow.workflows.station_calibration.calibrate_stations', side_effect=calibrate) as run,
-                  patch('lastmile_dataflow.workflows.collection._station_trials') as old,
-                  patch('lastmile_dataflow.workflows.collection.export_heatmap')):
+                  patch('lastmile_dataflow.workflows.station_map.calibrate_stations', side_effect=calibrate) as run,
+                  patch('lastmile_dataflow.workflows.collect._station_trials') as old,
+                  patch('lastmile_dataflow.workflows.station_map.export_heatmap')):
                 output = command(dataset, self.root, config,
                     replace(self.collection, record_images=True), self.root, run_id=name,
                     gpu_ids=[1, 4], cpu_workers=5, preparation_workers=2)

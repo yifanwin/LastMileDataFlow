@@ -47,24 +47,3 @@ def phase_evidence(queries, solves, slot):
         if phase in GRASP_PHASES:
             eligible = eligible and success
     return rows
-
-
-def ik_probe_evidence(result, grasp_count, requested_seeds):
-    """Full selected-seed permutation proves coverage; top-k alone stays unresolved."""
-    success = array(result.success).reshape(grasp_count, -1)
-    seed_ids = array(result.debug_info['seed_idx']).reshape(grasp_count, -1)
-    optimized = result.optimized_seeds
-    total_seeds = int(optimized.shape[1])
-    coverage = success.shape[1] == requested_seeds == total_seeds
-    coverage = coverage and all(set(seed_ids[g].tolist()) == set(range(g * total_seeds, (g + 1) * total_seeds))
-                                for g in range(grasp_count))
-    count = int(success.sum())
-    observed = int(success.size)
-    return {'status': 'measured' if coverage else 'unresolved',
-            'reason': 'full_seed_coverage' if coverage else 'partial_seed_coverage',
-            'input_grasps': grasp_count, 'requested_seeds_per_grasp': requested_seeds,
-            'observed_evaluation_count': observed, 'feasible_count': count,
-            'feasible_ratio': count / observed if coverage else None,
-            'success_definition': 'pose_convergence_and_enabled_constraints',
-            'seed_indices': seed_ids.tolist(), 'per_seed_success': success.tolist(),
-            'finite_budget_not_impossibility': True}

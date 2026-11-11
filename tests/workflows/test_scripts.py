@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from lastmile_dataflow.config import REPO_ROOT, StationRun, load_station_run
 from lastmile_dataflow.gpu import select_devices
-from lastmile_dataflow.workflows import collection
+from lastmile_dataflow.workflows import collect as collection
 
 SCRIPTS = ('build_scenes', 'station_map', 'collect', 'bench_build', 'bench_evaluate')
 

@@ -1,8 +1,9 @@
-# workflows
+# 流程编排
 
-- `scene_datasets.py`：任务发现、资格检查和场景库构建。
-- `obstacle_augmentation.py`：准备输入并调用 scenes 的物理增强算法。
-- `collection.py`：两个公开入口 `evaluate_stations` / `collect_lastmile`；共用运行准备和执行器。
-- `lastmilebench.py`：复用既有开放底盘标定构建困难 S0、恢复区域/路径；独立策略评测与行为/Macro 汇总。
+- scene_datasets.py：逐房屋发现目标，生成原场景及桌面/地面障碍编辑场景，冻结快照与预览。
+- station_map.py：站位标定、全 run 调度、CPU 准备、GPU 规划、CPU 执行与热图；RunResources 与 CalibrationInputs 显式保存输入。
+- collect.py：运行准备、标定复用、S0→S1 连续采集及自包含数据导出。
+- lastmilebench.py：根据实测成功次数选起点、构建恢复区域并评测 MolmoBot/π0.5。
+- rl_training.py、rl_evaluation.py、rl_sampling.py：RL 研究流程，本次逻辑不改。
 
-不保留 no_edit 或 lastmile_datasets 兼容文件，没有 manager/factory、父子发布或重复索引。
+入口位于 scripts/，算法与实际执行分别由领域模块和 runtime 提供。标定和采集只使用 cuRobo，策略推理保留在 benchmark 中。

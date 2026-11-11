@@ -21,7 +21,7 @@ from .manipulation import manipulate_v2 as manipulate
 logger = logging.getLogger(__name__)
 
 @isolated_episode
-def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None,planner_cache=None,prepared=None,planning_client=None):
+def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collection,*,root,attempt_id,seed,path=None,goal=None,winning_control=None,prepared=None,planning_client=None):
     sim=clone_sim(baseline,target=task['target_body'],handle=task.get('handle_body'))
     if prepared is None:
         place_frozen_station(sim,station)
@@ -39,7 +39,6 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
     recorder=AttemptRecorder(root,packet,attempt_id=attempt_id)
     recorder.bind_simulation(sim, width=config.width, height=config.height)
     ctx=ContinuousContext(sim,recorder,config, budget=None if planning_client is None else planning_client.budget)
-    ctx.planner_cache=planner_cache
     if planning_client is not None:
         planning_client.bind(ctx)
     if config.third_person_enabled:

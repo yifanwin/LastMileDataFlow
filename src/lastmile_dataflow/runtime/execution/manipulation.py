@@ -54,17 +54,13 @@ def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
     sim = ctx.sim
     options = planner_options(ctx.config, assets_dir, seed)
     planner = None
-    cache = getattr(ctx, 'planner_cache', None)
-    factory = getattr(ctx, 'planner_factory', V2Planner if cache is None else cache.acquire)
+    factory = getattr(ctx, 'planner_factory', V2Planner)
 
     def release():
         nonlocal planner
         if planner is not None:
-            if cache is None:
-                planner.detach()
-                planner.close()
-            else:
-                cache.release(planner)
+            planner.detach()
+            planner.close()
             planner = None
     def query(phase):
         ctx.deadline()

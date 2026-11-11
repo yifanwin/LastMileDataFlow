@@ -3,7 +3,7 @@ from itertools import count
 from unittest.mock import patch
 
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.workflows.collection import _station_trials, _station_worker, _trial_record
+from lastmile_dataflow.workflows.station_map import _station_trials, _station_worker, _trial_record
 from lastmile_dataflow.utils.io import rows
 from tests.helpers import DatasetTestCase
 
@@ -18,8 +18,8 @@ def fixture_worker(worker, gpu, egl_device, requests, results, stop, scene, *arg
         return {'status': 'planning_no_solution', 'reason': 'synthetic no solution',
                 'rollout_id': options['attempt_id'], 'executed_steps': 0}
 
-    with (patch('lastmile_dataflow.workflows.collection.run_curobo_attempt', side_effect=execute),
-          patch('lastmile_dataflow.workflows.collection.grasp_candidates', return_value=[])):
+    with (patch('lastmile_dataflow.workflows.station_map.run_curobo_attempt', side_effect=execute),
+          patch('lastmile_dataflow.workflows.station_map.grasp_candidates', return_value=[])):
         _station_worker(worker, gpu, egl_device, requests, results, stop, scene, *args)
 
 
@@ -28,7 +28,7 @@ def crashed_worker(*args):
 
 
 def error_and_inflight_worker(worker, gpu, egl_device, requests, results, stop, scene,
-                              assets_dir, config, collection, root, reuse_planners):
+                              assets_dir, config, collection, root):
     index, ids = requests.get()
     if worker == 0:
         results.put(('error', worker, 'synthetic startup error'))
@@ -57,7 +57,7 @@ class StationParallelTests(DatasetTestCase):
         for number in range(2):
             root = self.root / str(number)
             root.mkdir()
-            with patch('lastmile_dataflow.workflows.collection._station_worker', fixture_worker):
+            with patch('lastmile_dataflow.workflows.station_map._station_worker', fixture_worker):
                 records = _station_trials(self.sim, scene, self.root, config, self.collection, root,
                     budget=5, attempt_ids=ids, workers=2, gpu_ids=[0, 1], egl_devices=[1, 0])
             self.assertEqual(len(records), 5)
@@ -70,7 +70,7 @@ class StationParallelTests(DatasetTestCase):
 
     def test_shared_fault_keeps_observed_records_and_stops_other_trials(self):
         scene = {**self.frozen_scene(), 'shared_fault': True}
-        with patch('lastmile_dataflow.workflows.collection._station_worker', fixture_worker):
+        with patch('lastmile_dataflow.workflows.station_map._station_worker', fixture_worker):
             records = _station_trials(self.sim, scene, self.root, ExecutionConfig(trials_per_station=5),
                 self.collection, self.root, attempt_ids=count(), workers=2, gpu_ids=[0], egl_devices=[0])
         self.assertTrue(records)
@@ -79,14 +79,14 @@ class StationParallelTests(DatasetTestCase):
         self.assertEqual(rows(self.root / 'trials.jsonl'), records)
 
     def test_worker_exit_is_an_error_without_fabricated_trial(self):
-        with patch('lastmile_dataflow.workflows.collection._station_worker', crashed_worker):
+        with patch('lastmile_dataflow.workflows.station_map._station_worker', crashed_worker):
             with self.assertRaisesRegex(RuntimeError, 'exited with code 7'):
                 _station_trials(self.sim, self.frozen_scene(), self.root, ExecutionConfig(), self.collection,
                     self.root, attempt_ids=count(), workers=2, gpu_ids=[0], egl_devices=[0])
         self.assertFalse((self.root / 'trials.jsonl').exists())
 
     def test_worker_error_drains_inflight_records_before_reporting_failure(self):
-        with patch('lastmile_dataflow.workflows.collection._station_worker', error_and_inflight_worker):
+        with patch('lastmile_dataflow.workflows.station_map._station_worker', error_and_inflight_worker):
             with self.assertRaisesRegex(RuntimeError, 'synthetic startup error'):
                 _station_trials(self.sim, self.frozen_scene(), self.root, ExecutionConfig(), self.collection,
                     self.root, attempt_ids=count(), workers=2, gpu_ids=[0], egl_devices=[0])

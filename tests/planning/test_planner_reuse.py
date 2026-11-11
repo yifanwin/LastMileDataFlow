@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.planning.curobo.planner import StationPlannerCache, V2Planner, reset_motion_seed, _compute_target_bodies, _compute_handle_bodies
+from lastmile_dataflow.planning.curobo.planner import V2Planner, reset_motion_seed, _compute_target_bodies, _compute_handle_bodies
 from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 
@@ -19,34 +19,6 @@ class PlannerReuseTests(unittest.TestCase):
                 V2Planner(None, None, None, None, workspace=None)
         self.assertEqual(classify_episode_exception(caught.exception)['failure_scope'], 'shared')
 
-    def test_only_identical_unstarted_station_reuses_preclose_planners(self):
-        model = object()
-        def sim(value=0., started=False):
-            return SimpleNamespace(model=model, started=started, state_vector=lambda: np.array([value]))
-
-        def create(simulation, config, side, path, *, workspace):
-            planner = Mock()
-            planner.initial_model, planner.initial_state = simulation.model, simulation.state_vector()
-            planner.matches_initial = lambda candidate: V2Planner.matches_initial(planner, candidate)
-            return planner
-
-        cache = StationPlannerCache()
-        with patch('lastmile_dataflow.planning.curobo.planner.V2Planner', side_effect=create) as factory:
-            first = cache.acquire(sim(), SimpleNamespace(seed=17), 'left', Path('one'), workspace=None)
-            cache.release(first)
-            second = cache.acquire(sim(), SimpleNamespace(seed=18), 'left', Path('two'), workspace=None)
-            self.assertIs(first, second)
-            self.assertEqual(factory.call_count, 1)
-            self.assertEqual(second.bind_trial.call_args.args[1].seed, 18)
-            closed = cache.acquire(sim(started=True), None, 'left', Path('closed'), workspace=None)
-            self.assertIsNot(closed, first)
-            cache.release(closed)
-            closed.close.assert_called_once()
-            changed = cache.acquire(sim(1.), None, 'left', Path('changed'), workspace=None)
-            self.assertIsNot(changed, first)
-            first.close.assert_called_once()
-            cache.close()
-            changed.close.assert_called_once()
 
     def test_new_seed_recreates_managers_and_resets_all_native_streams(self):
         class Manager:
@@ -68,40 +40,6 @@ class PlannerReuseTests(unittest.TestCase):
             np.testing.assert_array_equal(core.seed_manager.rng.random(5), np.random.default_rng(18).random(5))
         motion.reset_seed.assert_called_once()
 
-    def test_bind_updates_model_fov_callback_and_log_ownership(self):
-        from lastmile_dataflow.planning.curobo import planner as planner_module
-        planner = V2Planner.__new__(V2Planner)
-        planner.detach = Mock()
-        planner.model = SimpleNamespace(sim=object())
-        planner.context = PlannerContext(target_checker=None, contact_allowed=True)
-        planner.base = np.eye(4)
-        planner.names = ('base_x',)
-        planner.side = 'left'
-        planner.query_log, planner.solver_log, planner.fov_log = [1], [2], [3]
-        planner.fov_definition = {'camera_id': 0}
-        planner.args = SimpleNamespace(to_device=lambda value: value)
-        planner.motion = SimpleNamespace(tool_frames=['tcp'], update_tool_pose_criteria=Mock())
-        simulation = SimpleNamespace(data=SimpleNamespace(xpos=np.array([[1., 2., 3.]])), target_id=0)
-        config = SimpleNamespace(head_fov_enabled=True, head_fov_min_depth_m=.01, seed=18)
-        criteria_module = SimpleNamespace(ToolPoseCriteria=object)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            planner.resource_path = root / 'rollouts/r0/open'
-            target = root / 'rollouts/r1/open'
-            target.mkdir(parents=True)
-            with (patch.dict('sys.modules', {'curobo._src.cost.tool_pose_criteria': criteria_module}),
-                  patch.object(planner_module, 'SparseFOVValidator') as validator,
-                  patch.object(planner_module, 'reset_motion_seed') as reset):
-                planner.bind_trial(simulation, config, target)
-            self.assertIs(planner.sim, simulation)
-            self.assertIs(planner.model.sim, simulation)
-            self.assertIs(validator.call_args.args[0], simulation)
-            self.assertIs(validator.call_args.args[2].__self__, planner)
-            reset.assert_called_once_with(planner.motion, 18)
-            self.assertEqual(planner.query_log + planner.solver_log + planner.fov_log, [])
-            self.assertFalse(planner.context.contact_allowed)
-            self.assertIsNone(planner.on_query)
-            self.assertTrue((target / 'planner_reuse.json').exists())
 
     def test_target_binding_uses_current_simulation_not_first_task(self):
         """Different models or same model with different target recompute body sets."""
@@ -192,4 +130,3 @@ class PlannerReuseTests(unittest.TestCase):
         with patch('lastmile_dataflow.planning.curobo.planner.body_pose', return_value=np.eye(4)):
             with self.assertRaisesRegex(ValueError, r'empty target world.*target_id=42.*cabinet/door_left_handle'):
                 planner.attach_target_geometry()
-

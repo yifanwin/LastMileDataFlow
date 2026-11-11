@@ -72,7 +72,7 @@ def record_unexecuted(scene, index, prepared, response, budget, config, collecti
 
 
 def execution_worker(index, jobs, planning_requests, planning_responses, results, stop,
-                     config, collection, assets_dir, root, reuse_planners=True, *, runner=run_curobo_attempt):
+                     config, collection, assets_dir, root, *, runner=run_curobo_attempt):
     bind_cpu_renderer()
     with closing(SnapshotCache()) as scenes:
         while True:
@@ -83,7 +83,7 @@ def execution_worker(index, jobs, planning_requests, planning_responses, results
             identity = response.identity
             inputs = {'model_dir': scene['scene_path'], 'robot': scene['robot_config'],
                       'task': scene['task'], 'config': config, 'root': root, 'assets_dir': assets_dir,
-                      'reuse_planners': reuse_planners}
+                      }
             try:
                 baseline = scenes.get(scene['scene_path'], scene['robot_config'], scene['task']['target_body'])
                 baseline.scene_id = scene['scene_id']

@@ -15,9 +15,9 @@ from lastmile_dataflow.runtime.execution.lifecycle import isolated_episode
 from lastmile_dataflow.runtime.execution.protocol import PlanningResponse
 from lastmile_dataflow.runtime.execution.workers import execution_worker
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.resources import RunResources
+from lastmile_dataflow.workflows.station_map import RunResources
 from lastmile_dataflow.utils.io import read_json, rows
-from lastmile_dataflow.workflows.station_calibration import calibrate_stations
+from lastmile_dataflow.workflows.station_map import calibrate_stations
 from tests.helpers import DatasetTestCase
 
 
@@ -83,7 +83,7 @@ class SplitCalibrationTests(DatasetTestCase):
         config = ExecutionConfig(shared_station_preparation=True, initial_settle_s=.1, trials_per_station=3)
         resources = RunResources((0,), cpu_workers=cpus, preparation_workers=2)
         output.mkdir()
-        with patch('lastmile_dataflow.workflows.station_calibration.grasp_candidates', return_value=[]):
+        with patch('lastmile_dataflow.workflows.station_map.grasp_candidates', return_value=[]):
             return calibrate_stations(scenes, self.root, config, self.collection, output, resources,
                 attempt_ids=count(), service_type=FixtureService,
                 trial_worker=partial(execution_worker, runner=fixture_runner))

@@ -56,7 +56,7 @@ def reference_calibration(stations, trials, expected, binding, backend):
         if any(row.get(key) != value for key, value in binding.items()):
             raise ValueError('calibration trial binding mismatch')
     value = station_calibration(stations, trials, expected, binding,
-                                SimpleNamespace(operation_backend=backend, mode_config=None))
+                                SimpleNamespace(operation_backend=backend))
     for row in value['stations']:
         row['complete'] = row['trials'] == expected
     return value

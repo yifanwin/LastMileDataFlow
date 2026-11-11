@@ -25,8 +25,8 @@ src/lastmile_dataflow/
 │   └── logging_config.py          # 统一日志格式与终端颜色
 ├── workflows/                     # 短编排，不放核心算法
 │   ├── scene_datasets.py          # build_scenes：每任务共享准备与模式循环
-│   ├── collection.py              # evaluate_stations / collect_lastmile
-│   ├── station_calibration.py     # 全 run 标定调度：CPU 准备 / GPU 规划 / CPU trial
+│   ├── collect.py              # evaluate_stations / collect_lastmile
+│   ├── station_map.py     # 全 run 标定调度：CPU 准备 / GPU 规划 / CPU trial
 │   └── lastmilebench.py           # build / evaluate
 ├── scenes/                        # 场景、任务与候选站位
 │   ├── dataset.py                 # 场景库读取与站位选择
@@ -41,7 +41,7 @@ src/lastmile_dataflow/
 │       └── checks.py              # 增强场景物理检查
 ├── planning/                      # 规划，不直接替代真实执行
 │   ├── curobo/                    # cuRobo V2 适配
-│   │   ├── planner.py             # V2Planner、PlannerResources、StationPlannerCache
+│   │   ├── planner.py             # V2Planner、PlannerResources
 │   │   ├── context.py             # PlannerContext
 │   │   ├── costs.py               # ContactManager、FOV 代价
 │   │   ├── tracing.py             # solver/phase 追踪
@@ -91,7 +91,7 @@ src/lastmile_dataflow/
 `evaluate_stations` 才产生真实 rollout，两者不混用。
 cuRobo 和 VLA 共用 `Simulation`、接触/任务判定及 `data.recorder`；原生 motor 和 position 的实际语义仍由各自适配器处理。
 
-cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始的场景基线，每个 trial 仍经 `run_curobo_attempt` 新建仿真。父进程分配编号、汇总唯一的 `trials.jsonl`；共享故障通过进程事件停止新增试验。`StationPlannerCache` 每站位最多保留每臂一个闭爪前 planner，相同初态时重绑仿真、FOV 和日志，并为新 seed 重建原生种子管理器；闭爪后继续重建。`ContactSampler` 缓存静态名称与分类，每物理步读取一次接触力，供任务 monitor 和接触统计共用，详细遥测只在需要时生成。
+cuRobo 标定可按站位使用 spawn worker：每 worker 独立载入未开始的场景基线，每个 trial 仍经 `run_curobo_attempt` 新建仿真。父进程分配编号、汇总唯一的 `trials.jsonl`；共享故障通过进程事件停止新增试验。`ContactSampler` 缓存静态名称与分类，每物理步读取一次接触力，供任务 monitor 和接触统计共用，详细遥测只在需要时生成。
 
 `config.py` 和 `cli.py` 是包根的共用配置和薄入口；`utils/io.py` 管理读写，`utils/logging_config.py` 统一日志配置。CLI 仅五个核心命令，build-scenes 在内部调用发现/资格检查/构建；不保留旧 workflow 文件、旧命令别名或 Shell 包装。
 
@@ -327,6 +327,6 @@ flowchart TD
 
 ## Panda 标定双池
 
-`workflows/station_calibration.py` 调度全 run 的有界准备、GPU 查询与 CPU trial 队列，父进程唯一写原始 trial。`planning/pool.py` 的 spawn 进程拥有 CUDA、solver 和规划视图；`planning/remote.py` 在 CPU 侧将实测状态转为后续请求。
+`workflows/station_map.py` 调度全 run 的有界准备、GPU 查询与 CPU trial 队列，父进程唯一写原始 trial。`planning/pool.py` 的 spawn 进程拥有 CUDA、solver 和规划视图；`planning/remote.py` 在 CPU 侧将实测状态转为后续请求。
 
 `runtime/execution/workers.py` 创建独立 MjData，并继续调用原 `run_curobo_attempt`、`ContinuousContext`、跟踪器和任务判定。`protocol.py` 传递数值状态、身份及累计活跃预算；`SnapshotCache` 仅在进程内保留少量只读模型。`data/rendering/replay.py` 使用独立 MjData 逐帧 mj_forward 回放，不参与任务成败；`rollout_video.py` 在同一实测边界组合三路相机与俯视底盘轨迹。
