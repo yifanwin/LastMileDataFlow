@@ -36,7 +36,9 @@ class BaseFrameDLS(DifferentialIKAction):
         if self._num_joints != len(cfg.joint_velocity_limits) or self._action_dim != 6:
             raise ValueError('DLS requires one speed limit per controlled joint and six TCP actions')
         self.base_id = env.sim.mj_model.site(cfg.base_site).id
-        self.velocity_step = torch.tensor(cfg.joint_velocity_limits, device=self.device) * env.physics_dt
+        limits = dict(zip(cfg.actuator_names, cfg.joint_velocity_limits))
+        ordered_limits = [limits[self._entity.joint_names[i]] for i in self._joint_ids.tolist()]
+        self.velocity_step = torch.tensor(ordered_limits, device=self.device) * env.physics_dt
         self.limit_fraction = torch.zeros(self.num_envs, device=self.device)
         self.q_command = torch.zeros(self.num_envs, self._num_joints, device=self.device)
 
