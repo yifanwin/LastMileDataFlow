@@ -7,6 +7,7 @@ import torch
 
 from ..data.evaluation.station_q import action_sampled_q, select_acceptance_stations, summarize_trials
 from ..policies.sac.agent import SAC
+from ..scenes.rl_observation import REWARD_COMPONENTS
 from .rl_training import graph_observation, seed_all
 
 
@@ -35,7 +36,7 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     """One episode per vector slot; ended slots reset without entering results twice.
 
     Stage facts (closest pose, both fingers, lift, hold) locate the earliest
-    failing phase; they do not replace strict-pick success.
+    failing phase; they do not replace the configured RL success protocol.
     """
     torch.manual_seed(seed)
     obs = reset_stations(env, station_ids)
@@ -47,6 +48,8 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     both_fingers = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     max_lift = torch.full_like(best_position, -float('inf'))
     max_hold = torch.zeros_like(best_position)
+    stage_time = torch.zeros(env.num_envs, 4, device=env.device)
+    component_sums = torch.zeros_like(task.reward_components)
     returns = torch.zeros(env.num_envs, device=env.device)
     discounted = torch.zeros_like(returns)
     discount = 1.
@@ -56,10 +59,10 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     while not finished.all():
         active = ~finished
         action, _ = agent.actor.sample(obs, deterministic=deterministic)
-        if capture is not None:
-            capture.sample(env, active)
         action[finished] = 0
         observations, reward, terminated, truncated, _ = env.step(action)
+        if capture is not None:
+            capture.sample(env, active)
         position, rotation = (e.norm(dim=-1) for e in task.goal_error())
         reached_pose |= active & (position < .01) & (rotation < np.deg2rad(10))
         lift = env.sim.data.xpos[:, task.target, 2] - task.height_reference
@@ -68,6 +71,12 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
         both_fingers |= active & (task.forces > 1e-6).all(-1)
         max_lift = torch.where(active, torch.maximum(max_lift, lift), max_lift)
         max_hold = torch.where(active, torch.maximum(max_hold, task.hold.float()), max_hold)
+        both = (task.forces > 1e-6).all(-1)
+        grasp = ~both & (position < .01) & (rotation < np.deg2rad(10))
+        pre = ~both & ~grasp & (position < .04)
+        approach = ~both & ~grasp & ~pre
+        stage_time += torch.stack((approach, pre, grasp, both), -1) * active[:, None] * env.step_dt
+        component_sums += task.reward_components * active[:, None]
         returns += torch.where(active, reward, 0.)
         discounted += discount * torch.where(active, reward, 0.)
         discount *= gamma
@@ -91,6 +100,11 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
                 'reached_pose': bool(reached_pose[index]),
                 'both_fingers': bool(both_fingers[index]), 'max_lift_m': float(max_lift[index]),
                 'max_hold_s': float(max_hold[index]),
+                'failed': bool(task.failed[index]),
+                'contact_bonus_count': int(task.contact_bonus_paid[index]),
+                'stage_seconds': dict(zip(('Approach', 'Pre-grasp', 'Grasp', 'LIFT'), stage_time[index].cpu().tolist())),
+                'reward_components': component_sums[index].cpu().tolist(),
+                'reward_component_names': list(REWARD_COMPONENTS),
             }
         finished |= first_done
         obs = graph_observation(observations).clone()
@@ -129,7 +143,7 @@ def stage_summary(rows):
             'max_hold_s': max(r['max_hold_s'] for r in healthy)}
 
 
-def monitor_validation(agent, env, config, transitions, output):
+def monitor_validation(agent, env, config, transitions, output, force_video=False):
     """Fixed validation points/seeds and frozen online Q throughout evaluation."""
     from ..data.visualization.sac_monitor import station_evaluation
     output = Path(output)
@@ -145,7 +159,7 @@ def monitor_validation(agent, env, config, transitions, output):
         'stations': selection, 'seed': seed, 'rollouts_per_station': settings['validation_rollouts_per_station']}, indent=2))
     video = config['video']
     previous = getattr(env, '_video_transitions', -video['every'])
-    record_video = transitions == 0 or transitions - previous >= video['every'] or transitions >= config['training']['max_transitions']
+    record_video = force_video or transitions == 0 or transitions - previous >= video['every'] or transitions >= config['training']['max_transitions']
     captures = []
     with torch.random.fork_rng(devices=[torch.device(env.device).index]):
         torch.manual_seed(seed)

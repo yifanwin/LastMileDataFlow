@@ -11,6 +11,10 @@ from ..utils.io import append_row, write_json
 from ..runtime.execution.lifecycle import recording_operation, track_recorder
 
 
+def video_writer(path, fps):
+    return imageio.get_writer(path, fps=fps, codec='libx264', macro_block_size=2)
+
+
 class AttemptRecorder:
     def __init__(self, root, config, *, attempt_id=None):
         self.output_root = Path(root)
@@ -120,12 +124,7 @@ class AttemptRecorder:
             if camera not in self.writers:
                 directory = self.path / 'videos'
                 directory.mkdir(exist_ok=True)
-                self.writers[camera] = imageio.get_writer(
-                    directory / f'{name}.mp4',
-                    fps=self.sim.robot.config.control_hz,
-                    codec='libx264',
-                    macro_block_size=2,
-                )
+                self.writers[camera] = video_writer(directory / f'{name}.mp4', self.sim.robot.config.control_hz)
             self.writers[camera].append_data(pixels)
             self.video_counts[name] = self.video_counts.get(name, 0) + 1
 

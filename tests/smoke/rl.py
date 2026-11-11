@@ -350,7 +350,8 @@ def main():
         if not args.scripted:
             before = env.sim.data.qpos.clone()
             caches = {name: getattr(env.task, name).clone() for name in
-                      ('elapsed', 'window_start', 'last_action', 'reference_position', 'fixed_reference')}
+                      ('elapsed', 'window_start', 'last_action', 'reference_position', 'fixed_reference',
+                       'contact_bonus_paid', 'previous_both', 'lift_peak')}
             ids = torch.unique(torch.cat((done.nonzero(as_tuple=True)[0], torch.tensor([0], device=env.device))))
             ongoing = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
             ongoing[ids] = False

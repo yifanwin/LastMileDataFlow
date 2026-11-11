@@ -2,7 +2,7 @@
 from pathlib import Path
 import time
 
-import imageio.v2 as imageio
+from ..recorder import video_writer
 import mujoco
 import numpy as np
 from PIL import Image, ImageDraw
@@ -22,8 +22,7 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
         cameras.append(camera)
     path = Path(path)
     path.parent.mkdir(exist_ok=True)
-    with mujoco.Renderer(model, height=height, width=width) as renderer, imageio.get_writer(
-            path, fps=round(1 / dt), codec='libx264', macro_block_size=2) as writer:
+    with mujoco.Renderer(model, height=height, width=width) as renderer, video_writer(path, round(1 / dt)) as writer:
         for qpos, row in zip(states, metrics):
             data.qpos[:] = qpos
             mujoco.mj_forward(model, data)
@@ -38,4 +37,5 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
             draw.text((8, 5), text, fill='white')
             writer.append_data(np.asarray(picture))
     return {'path': str(path), 'frames': len(states), 'duration_s': len(states) * dt,
+            'simulation_duration_s': (len(states) - 1) * dt,
             'render_seconds': time.perf_counter() - started}

@@ -88,11 +88,11 @@ def record_episodes(log, env, done, transitions, returns, components, steps):
     steps[done] = 0
 
 
-def validation_checkpoint(agent, env, config, transitions, output, log, metadata, best_score):
+def validation_checkpoint(agent, env, config, transitions, output, log, metadata, best_score, force_video=False):
     from .rl_evaluation import monitor_validation
     from ..data.visualization.sac_monitor import training_curves
     started = time.perf_counter()
-    event = monitor_validation(agent, env, config, transitions, output)
+    event = monitor_validation(agent, env, config, transitions, output, force_video=force_video)
     event['seconds'] = time.perf_counter() - started
     log.write(json.dumps(event) + '\n')
     log.flush()
@@ -220,11 +220,11 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                     contact_interval = 0
                     log_at += settings['log_every']
                 if transitions >= evaluate_at:
-                    best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
+                    best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score, force_video=transitions >= limit)
                     last_evaluation = transitions
                     evaluate_at += settings['eval_every']
             if last_evaluation != transitions:
-                validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
+                validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score, force_video=True)
         agent.save(output / 'latest.pt', metadata=metadata, transitions=transitions)
         return {'transitions': transitions, 'updates': agent.updates, 'checkpoint': str(output / 'latest.pt')}
     finally:

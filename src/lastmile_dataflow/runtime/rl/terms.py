@@ -128,9 +128,18 @@ class TaskState:
         action._point_torch[:] = self.env.sim.data.site_xpos[:, self.tcp]
         action._compute_jacobian()
         velocity = self.env.sim.data.qvel
-        base_r = self.poses()[3]
-        return tuple(torch.einsum('bji,bj->bi', base_r, torch.einsum('bij,bj->bi', jac, velocity))
-                     for jac in (action._jacp_torch, action._jacr_torch))
+        tcp_p, _, base_p, base_r, _, _ = self.poses()
+        data = self.env.sim.data
+        body = int(self.model.site_bodyid[self.base])
+        root = int(self.model.body_rootid[body])
+        motion = data.cvel[:, body]
+        omega = motion[:, :3]
+        base_linear = motion[:, 3:] + torch.cross(omega, base_p - data.subtree_com[:, root], dim=-1)
+        linear = torch.einsum('bij,bj->bi', action._jacp_torch, velocity)
+        angular = torch.einsum('bij,bj->bi', action._jacr_torch, velocity)
+        relative_linear = linear - base_linear - torch.cross(omega, tcp_p - base_p, dim=-1)
+        return (torch.einsum('bji,bj->bi', base_r, relative_linear),
+                torch.einsum('bji,bj->bi', base_r, angular - omega))
 
     def begin_step(self, action):
         self.step_collision.zero_()

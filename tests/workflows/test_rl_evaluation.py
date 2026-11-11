@@ -20,6 +20,7 @@ class ObservationActor:
 class TwoEpisodeEnv:
     num_envs = 2
     device = 'cpu'
+    step_dt = .05
 
     def __init__(self):
         self.stage = 0
@@ -31,6 +32,9 @@ class TwoEpisodeEnv:
                                     collision_free=torch.ones(2, dtype=torch.bool),
                                     collision_time=torch.zeros(2), max_drift=torch.zeros(2),
                                     max_yaw_drift=torch.zeros(2), max_lift_drift=torch.zeros(2),
+                                    failed=torch.zeros(2, dtype=torch.bool),
+                                    contact_bonus_paid=torch.zeros(2, dtype=torch.bool),
+                                    reward_components=torch.zeros(2, 13),
                                     target=0, height_reference=torch.zeros(2), forces=torch.zeros(2, 2),
                                     hold=torch.zeros(2), goal_error=lambda: (torch.ones(2, 3), torch.ones(2, 3)))
         self.sim = SimpleNamespace(data=SimpleNamespace(xpos=torch.zeros(2, 1, 3)))

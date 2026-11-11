@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 
 import numpy as np
+import torch
 
 from .rl_video import render_rollout
 
@@ -20,6 +21,7 @@ class RolloutCapture:
         self.mode = 'mean' if deterministic else 'stochastic'
         self.states = [[] for _ in stations]
         self.metrics = [[] for _ in stations]
+        self.sample(env, torch.ones(env.num_envs, dtype=torch.bool, device=env.device))
 
     def sample(self, env, active):
         task = env.task
@@ -43,7 +45,9 @@ class RolloutCapture:
             station = env.task.stations[self.stations[i]]
             if self.representatives:
                 category = 'success' if row['success'] else 'collision' if not row['collision_free'] else None
-                if category is None or (self.output / 'replays' / f'first-{category}.json').exists():
+                if not hasattr(env, '_representative_video_categories'):
+                    env._representative_video_categories = set()
+                if category is None or category in env._representative_video_categories:
                     continue
             else:
                 category = station['split']
@@ -58,7 +62,7 @@ class RolloutCapture:
                 continue
             states = np.asarray(self.states[i])
             np.savez_compressed(replay, qpos=states, metrics=np.asarray(self.metrics[i]), dt=env.step_dt)
-            result = 'success' if row['success'] else 'failure' if row['infrastructure_failure'] else 'terminated/timeout'
+            result = 'success' if row['success'] else 'failure' if row['infrastructure_failure'] or row['failed'] else 'timeout'
             result += f' collision_free={row["collision_free"]}'
             label = f'{self.transitions} {station["split"]} {station["station_id"]} seed={self.seed} {self.mode}'
             settings = {**self.config['video'], 'lookat': env.prepared.target_position.tolist()}
@@ -67,4 +71,4 @@ class RolloutCapture:
             self.videos.append({**video, 'replay': str(replay), 'seed': self.seed, 'result': row,
                                 'transitions': self.transitions, 'policy': self.mode})
             if self.representatives:
-                (replay_dir / f'first-{category}.json').write_text(json.dumps(self.videos[-1], indent=2))
+                env._representative_video_categories.add(category)
