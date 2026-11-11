@@ -61,17 +61,6 @@ class CliTests(unittest.TestCase):
                                        rollouts=['r0', 'r1'], camera='overview')
         evaluate.assert_not_called()
 
-    def test_measured_replay_grid_dispatch_needs_no_camera(self):
-        with (patch('lastmile_dataflow.data.rendering.rollout_video.render_run_grid',
-                    return_value=Path('video')) as grid,
-              patch('lastmile_dataflow.workflows.collection.evaluate_stations') as evaluate,
-              patch('builtins.print')):
-            main(['evaluate-stations', '--replay-from', 'run', '--rollouts', 'r0',
-                  '--replay-layout', 'grid', '--output-dir', 'out', '--run-id', 'video',
-                  '--gpu', '0'])
-        grid.assert_called_once_with(Path('run'), Path('run/videos/video'), rollouts=['r0'])
-        evaluate.assert_not_called()
-
     def test_materialization_dispatch_needs_neither_gpu_nor_assets(self):
         with (
             patch('lastmile_dataflow.data.export.lastmile_dataset.materialize_lastmile', return_value=Path('out/one')) as materialize,

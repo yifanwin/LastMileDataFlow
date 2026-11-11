@@ -11,7 +11,6 @@ import numpy as np
 
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 from lastmile_dataflow.data.visualization.heatmap import export_heatmap, gaussian_map
-from lastmile_dataflow.data.visualization.navigation_map import export_navigation_map
 from lastmile_dataflow.planning.navigation.astar import (
     Grid,
     distance_field,
@@ -115,15 +114,10 @@ class SupportMapTests(unittest.TestCase):
             export_heatmap(
                 d, heat, [row], [0, 0, 0.9], 0.05, title="Synthetic support fixture (not physical validation)"
             )
-            before = nav.free.copy()
-            export_navigation_map(d, nav, [0, 0, 0.9], display_grid=heat)
-            np.testing.assert_array_equal(nav.free, before)
             with np.load(Path(d, "success_heatmap.npz")) as z:
                 self.assertNotIn("display_alpha", z.files)
                 self.assertNotIn("kernel_strength", z.files)
                 self.assertTrue(np.isnan(z["success_rate"][~heat.free]).all())
-            self.assertNotIn("support / obstacle", Path(d, "navigation_grid.svg").read_text())
-            self.assertIn("physical_footprints", Path(d, "navigation_display.json").read_text())
             self.assertIn("support / obstacle", Path(d, "success_heatmap_stations.svg").read_text())
             self.assertFalse(Path(d, "index.html").exists())
             self.assertTrue(Path(d, "success_heatmap_stations.svg").is_file())

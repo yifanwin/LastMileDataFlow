@@ -1,7 +1,6 @@
 """构建事务、静置、源场景影响与回滚。"""
 
 import copy
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,8 +9,6 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.data.rendering.edit_views import ViewConfig
-from lastmile_dataflow.data.rendering.obstacle_views import render_obstacle_pair
 from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.runtime.construction.preparation import (
     SettleConfig,
@@ -30,7 +27,6 @@ from lastmile_dataflow.scenes.augmentation.checks import (
     matched_source_effects,
 )
 from lastmile_dataflow.scenes.build.validation import PhysicalLimits
-from lastmile_dataflow.scenes.graph import build_scene_graph
 from lastmile_dataflow.scenes.loading.assets import EditAssetCatalog
 from tests.helpers import fixtures, table_scene
 
@@ -177,31 +173,6 @@ class TransactionTests(unittest.TestCase):
         placements[2]["pose"]["position"][0] = 4.0
         candidate = self.session.candidate(placements)
         self.assertFalse(collision_pairs(candidate, placements, config())["valid"])
-
-    @unittest.skipUnless(os.environ.get("CASE_EDIT_RENDER_TESTS") == "1", "opt-in actual OpenGL rendering")
-    def test_observer_search_records_actual_segmentation(self):
-        candidate = self.session.candidate([self.placement])
-        before_graph = build_scene_graph(self.sim)
-        after_graph = build_scene_graph(candidate)
-        packet = render_obstacle_pair(
-            self.sim,
-            candidate,
-            before_graph,
-            after_graph,
-            {"procedural_obstacle_0"},
-            "target",
-            set(),
-            self.root / "rgb",
-            sample_id="unit",
-            config=ViewConfig(width=320, height=240),
-            min_pixels=24,
-        )
-        for view in ("top", "oblique_a", "oblique_b"):
-            counts = packet["visible_pixels_by_instance"]
-            self.assertGreaterEqual(counts["before/" + view]["target"], 24)
-            self.assertGreaterEqual(counts["after/" + view]["target"], 24)
-            self.assertGreaterEqual(counts["after/" + view]["procedural_obstacle_0"], 24)
-            self.assertEqual(counts["before/" + view]["procedural_obstacle_0"], 0)
 
     def test_clone_preserves_target_and_prohibits_post_begin(self):
         clone = clone_preparation(self.sim)

@@ -34,9 +34,7 @@ def parser():
             source.add_argument('--recipe', type=Path,
                                 help='直接从 v2 配方发现任务、采样站位并标定；不产出独立 build run')
             command.add_argument('--rollouts', nargs='+', help='离线回放的 rollout ID')
-            command.add_argument('--replay-camera', help='recording.json 中的相机别名；grid 布局不需要')
-            command.add_argument('--replay-layout', choices=('camera', 'grid'), default='camera',
-                                 help='camera: 单相机 mp4；grid: 三相机 + 俯视底盘轨迹 2×2')
+            command.add_argument('--replay-camera', help='recording.json 中的相机别名')
             command.add_argument('--build-workers', type=int, default=1,
                                  help='--recipe 时内部场景准备进程数（1 至 CPU 核数，上限 64）')
             command.add_argument('--exclude-categories', nargs='+', default=None,
@@ -89,7 +87,7 @@ def main(argv=None):
     replaying = args.command == 'evaluate-stations' and args.replay_from is not None
     if replaying and not args.rollouts:
         cli.error('--replay-from requires --rollouts')
-    if replaying and args.replay_layout == 'camera' and not args.replay_camera:
+    if replaying and not args.replay_camera:
         cli.error('camera replay requires --replay-camera')
     if args.command == 'evaluate-stations' and not replaying and args.assets_dir is None:
         cli.error('evaluate-stations --dataset requires --assets-dir (or local assets_dir)')
@@ -105,14 +103,9 @@ def main(argv=None):
                           MUJOCO_EGL_DEVICE_ID=str(egl_devices[0] if egl_devices else gpu_ids[0]))
         os.environ.setdefault('MUJOCO_GL', 'egl')
     if replaying:
-        if args.replay_layout == 'grid':
-            from .data.rendering.rollout_video import render_run_grid
-            output = render_run_grid(args.replay_from, args.replay_from / 'videos' / args.run_id,
-                                     rollouts=args.rollouts)
-        else:
-            from .data.rendering.replay import render_run
-            output = render_run(args.replay_from, args.replay_from / 'videos' / args.run_id,
-                                rollouts=args.rollouts, camera=args.replay_camera)
+        from .data.rendering.replay import render_run
+        output = render_run(args.replay_from, args.replay_from / 'videos' / args.run_id,
+                            rollouts=args.rollouts, camera=args.replay_camera)
     elif materializing:
         from .data.export.lastmile_dataset import materialize_lastmile
         output = materialize_lastmile(args.materialize_from, args.output_dir / args.run_id)

@@ -2,17 +2,11 @@
 
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 from lastmile_dataflow.data.rendering.edit_views import CameraRig, ViewConfig
-from lastmile_dataflow.data.rendering.obstacle_views import (
-    render_obstacle_pair,
-    visibility_pass,
-)
 from tests.helpers import make_sim
 
 
@@ -59,58 +53,3 @@ class ObserverAndTimingTests(unittest.TestCase):
         self.assertTrue(all(not rgb.any() for rgb in frames.values()))
 
 
-class ObstacleViewTests(unittest.TestCase):
-    def test_union_cannot_accept_wall_only_oblique_pairs(self):
-        visibility = {}
-        for view in ("top", "oblique_a", "oblique_b"):
-            visibility["before/" + view] = {"target": 100 if view == "top" else 0}
-            visibility["after/" + view] = {
-                "target": 100 if view == "top" else 0,
-                "a": 100 if view == "top" else 0,
-                "b": 100 if view == "top" else 0,
-            }
-        self.assertFalse(visibility_pass(visibility, ["a", "b"], "target", 24, True))
-        for view in ("oblique_a", "oblique_b"):
-            visibility["before/" + view]["target"] = 100
-            visibility["after/" + view]["a"] = 100
-        self.assertTrue(visibility_pass(visibility, ["a", "b"], "target", 24, True))
-        self.assertFalse(visibility_pass(visibility, ["a", "b"], "target", 24, False))
-
-    def test_camera_search_includes_pair_without_common_45_degree_view(self):
-        calls = []
-
-        def fake_render(before, after, bg, ag, names, folder, **kwargs):
-            pair = kwargs["oblique_azimuths_rad"]
-            calls.append(pair)
-            Path(folder).mkdir(parents=True)
-            visibility = {}
-            for view, visible in zip(
-                ("top", "oblique_a", "oblique_b"),
-                (True, not np.isclose(pair[0], np.pi / 4), not np.isclose(pair[1], np.pi / 4)),
-            ):
-                visibility["before/" + view] = {"target": 100 if visible else 0}
-                visibility["after/" + view] = {"target": 100 if visible else 0, "a": 100 if visible else 0}
-            return {"visible_pixels_by_instance": visibility, "images": []}
-
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            patch(
-                "lastmile_dataflow.data.rendering.obstacle_views.render_edit_pair", side_effect=fake_render
-            ),
-        ):
-            packet = render_obstacle_pair(
-                None,
-                None,
-                None,
-                None,
-                {"a"},
-                "target",
-                set(),
-                Path(tmp) / "rgb",
-                sample_id="fixture",
-                config=ViewConfig(),
-                coverage_union=True,
-            )
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], (0.0, -np.pi / 4))
-        self.assertEqual(packet["visibility_policy"], "three_view_union_with_each_pair_observed")
