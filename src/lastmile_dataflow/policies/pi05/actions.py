@@ -2,7 +2,7 @@
 import numpy as np
 
 from ...runtime.control.action import vector
-from ...runtime.control.action_limits import sanitize_action
+from ...runtime.control.action import sanitize_action
 
 
 def execution_action(robot, prediction):

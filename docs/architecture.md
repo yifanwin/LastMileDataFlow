@@ -54,7 +54,7 @@ src/lastmile_dataflow/
 │   ├── pool.py                    # 每 GPU 一个常驻规划进程
 │   └── remote.py                  # CPU 侧规划 RPC 客户端
 ├── policies/                      # MolmoBot / π0.5 策略
-│   ├── molmobot_config.py         # 策略配置
+│   ├── config.py         # 策略配置
 │   ├── molmobot.py                # 客户端
 │   ├── molmobot_service.py        # 推理服务
 │   ├── multitask/                 # MolmoBot 模型与推理实现

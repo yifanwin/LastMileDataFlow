@@ -11,7 +11,7 @@ from unittest.mock import patch
 import numpy as np
 
 from lastmile_dataflow.runtime.control.action import InvalidAction
-from lastmile_dataflow.runtime.control.torso_command import (
+from lastmile_dataflow.runtime.control.action import (
     FEEDBACK_TOLERANCE_RAD,
     TORSO_SEVERE_FEEDBACK_RAD,
     bounded_torso_command,

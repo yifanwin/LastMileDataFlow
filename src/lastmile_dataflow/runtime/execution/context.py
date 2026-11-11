@@ -10,8 +10,8 @@ from .lifecycle import track_resource
 from ...utils.io import canonical, write_json
 from ...scenes.geometry import tcp_pose
 from ..control.interface import RobotCommand
-from ..control.action_limits import sanitize_action
-from ..control.torso_command import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
+from ..control.action import sanitize_action
+from ..control.action import bounded_torso_command, torso_feedback_margin, COMMAND_TOLERANCE_RAD, FEEDBACK_TOLERANCE_RAD, TORSO_SEVERE_FEEDBACK_RAD
 from ...scenes.geometry import descendants
 from ..outcomes.evaluation import mobile_constraint_failure, torso_tracking_error
 from ..outcomes.pick import rotation_error

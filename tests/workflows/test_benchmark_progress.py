@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from lastmile_dataflow.data.evaluation.benchmark_config import BenchmarkConfig
-from lastmile_dataflow.policies.molmobot_config import MolmoBotConfig
+from lastmile_dataflow.policies.config import MolmoBotConfig
 from lastmile_dataflow.runtime.construction.session import clone_preparation
 from lastmile_dataflow.utils.io import read_json, rows, create_run, write_rows, write_json
 from lastmile_dataflow.workflows import lastmilebench as workflow

@@ -7,7 +7,7 @@ import time
 
 from ...utils.logging_config import trial_progress
 from ..evidence import lane_success, solver_evidence
-from ..robots.rby1m_mobile_torso import static_ik_state, chain_state
+from ..robots.common import static_ik_state, chain_state
 
 CONTACT_PHASES = ('goalset', 'grasp', 'approach_contact')
 

@@ -203,12 +203,14 @@ class RBY1Adapter:
         return a
 
 
+    def _legal_initial_yaw(self, value, adjustments):
+        from .action import project, yaw_interval, ANGULAR_TOLERANCE_RAD
+        return project(value, yaw_interval(self), ANGULAR_TOLERANCE_RAD, 'base_theta', adjustments)
+
     def aim_station(self, initial, anchor):
-        yaw_adjustments=[]
-        def legal_initial_yaw(value):
-            from .action_limits import project, yaw_interval, ANGULAR_TOLERANCE_RAD
-            return project(value,yaw_interval(self),ANGULAR_TOLERANCE_RAD,'base_theta',yaw_adjustments)
-        initial[self.initial_base_field][2]=legal_initial_yaw(initial[self.initial_base_field][2])
+        yaw_adjustments = []
+        initial[self.initial_base_field][2] = self._legal_initial_yaw(
+            initial[self.initial_base_field][2], yaw_adjustments)
         initial['head'] = [0., .6]
         self.initialize(initial)
         cid = self.model.camera(self.camera_names['head_camera']).id
@@ -217,7 +219,9 @@ class RBY1Adapter:
             forward = -self.data.cam_xmat[cid].reshape(3,3)[:,2]
             delta = np.asarray(anchor[:2])-self.data.cam_xpos[cid,:2]
             error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
-            initial[self.initial_base_field][2] = legal_initial_yaw(float((initial[self.initial_base_field][2]+error+np.pi)%(2*np.pi)-np.pi))
+            initial[self.initial_base_field][2] = self._legal_initial_yaw(
+                float((initial[self.initial_base_field][2]+error+np.pi)%(2*np.pi)-np.pi),
+                yaw_adjustments)
             self.initialize(initial)
         joint = self.joints['head_1']
         low,high = self.model.jnt_range[joint]
@@ -261,7 +265,7 @@ class RBY1Adapter:
         self._hold_targets = None if held is None else {k: np.asarray(v) for k, v in held.items()}
 
     def control_height(self):
-        from .torso_command import bounded_torso_command
+        from .action import bounded_torso_command
         return bounded_torso_command(float(self.neutral_action()[19]), self.config.torso_limits)
 
     def execution_action(self, command):

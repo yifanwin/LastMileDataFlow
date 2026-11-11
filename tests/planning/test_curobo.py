@@ -10,10 +10,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from lastmile_dataflow.planning.robots.rby1m_mobile_torso import (
+from lastmile_dataflow.planning.robots.rby1m_mobile_torso import derive_urdf, joint_names
+from lastmile_dataflow.planning.robots.common import (
     chain_state,
-    derive_urdf,
-    joint_names,
     minimum_mesh_query_dimension,
     ordered_points,
     retime_points,

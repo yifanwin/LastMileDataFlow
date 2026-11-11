@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from lastmile_dataflow.config import CollectionConfig, LocalConfig, RobotConfig, load_local_config, read_config
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
-from lastmile_dataflow.policies.molmobot_config import load_policy_config
+from lastmile_dataflow.policies.config import load_molmobot_config as load_policy_config
 from lastmile_dataflow.config import load_robot_config
 
 

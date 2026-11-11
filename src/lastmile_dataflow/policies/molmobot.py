@@ -9,7 +9,7 @@ import time
 from multiprocessing.connection import Client
 
 from ..runtime.control.action import InvalidAction
-from .molmobot_config import load_policy_config
+from .config import load_molmobot_config as load_policy_config
 
 logger = logging.getLogger(__name__)
 

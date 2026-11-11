@@ -12,7 +12,7 @@ from ...utils.logging_config import trial_progress
 from ..waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
 from ..evidence import lane_success, phase_evidence, solver_evidence, ik_probe_evidence
 from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
-from ..robots.rby1m_mobile_torso import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
+from ..robots.common import ordered_points, retime_points, static_ik_state, chain_state, minimum_mesh_query_dimension
 from .collision_world import collision_world
 
 # cuRobo launches spheres x cache-size threads for cuboids (empty slots still cost), so

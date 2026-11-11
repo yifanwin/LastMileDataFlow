@@ -19,7 +19,8 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
 ### 机器人模型（`robots/`）
 
 - **panda_omron.py**：PandaOmron V2 模型（URDF、spheres、FK、bounds）
-- **rby1m_mobile_torso.py**：RBY-1 V2 模型 + 轨迹工具（ordered_points、retime_points、chain_state 等）
+- **rby1m_mobile_torso.py**：RBY-1 V2 模型
+- **common.py**：Panda/RBY-1 共用的轨迹排序、重采样和 cuRobo 状态工具
 - **assets/**：机器人资产（URDF、spheres.yml）
 
 ### 导航（`navigation/`）

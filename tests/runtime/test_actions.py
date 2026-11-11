@@ -11,7 +11,7 @@ from lastmile_dataflow.runtime.control.action import (
     torso_joints,
     validate_action,
 )
-from lastmile_dataflow.runtime.control.action_limits import (
+from lastmile_dataflow.runtime.control.action import (
     local_yaw_bounds,
     sanitize_action,
 )

@@ -9,7 +9,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.policies.molmobot_config import load_policy_config
+from lastmile_dataflow.policies.config import load_molmobot_config as load_policy_config
 from lastmile_dataflow.runtime.control.action import InvalidAction
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.outcomes.vla import constraint

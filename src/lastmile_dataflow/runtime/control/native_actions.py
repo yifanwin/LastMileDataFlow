@@ -2,7 +2,7 @@
 import numpy as np
 
 from .action import InvalidAction, torso_joints, vector
-from .action_limits import joint_command_interval
+from .action import joint_command_interval
 
 PROTOCOL = 'rby1-multitask-molmobot-native-v1'
 
