@@ -33,12 +33,12 @@ def limit_joint_command(current, displacement, previous_command, lower, upper, m
 class BaseFrameDLS(DifferentialIKAction):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        if self._num_joints != 7 or self._action_dim != 6:
-            raise ValueError('Panda DLS requires seven arm joints and six relative TCP actions')
+        if self._num_joints != len(cfg.joint_velocity_limits) or self._action_dim != 6:
+            raise ValueError('DLS requires one speed limit per controlled joint and six TCP actions')
         self.base_id = env.sim.mj_model.site(cfg.base_site).id
         self.velocity_step = torch.tensor(cfg.joint_velocity_limits, device=self.device) * env.physics_dt
         self.limit_fraction = torch.zeros(self.num_envs, device=self.device)
-        self.q_command = torch.zeros(self.num_envs, 7, device=self.device)
+        self.q_command = torch.zeros(self.num_envs, self._num_joints, device=self.device)
 
     def process_actions(self, actions):
         # Use the measured site rotation, not a nominal yaw from the station grid.

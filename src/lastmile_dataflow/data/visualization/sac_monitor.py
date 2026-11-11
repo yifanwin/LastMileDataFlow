@@ -22,6 +22,7 @@ def training_curves(log_path, output):
             elif row['event'] == 'evaluation':
                 evaluations.append(row)
 
+    reward_breakdown(episodes, learners, output)
     figure, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
     for axis, key, title in zip(axes, ('actor_loss', 'critic_loss'), ('Actor Loss', 'Critic Loss')):
         axis.plot([r['transitions'] for r in learners], [r[key] for r in learners], marker='.', markersize=3)
@@ -54,6 +55,34 @@ def training_curves(log_path, output):
     for axis in axes:
         axis.grid(alpha=.2)
     figure.savefig(output / 'training-effect.png', dpi=150)
+    plt.close(figure)
+
+
+def reward_breakdown(episodes, learners, output):
+    keys = ('position', 'rotation', 'close', 'contact', 'lift', 'held', 'collision')
+    titles = ('Position Reward', 'Rotation Reward', 'Close Reward', 'Contact Bonus Count',
+              'Lift Progress Reward', 'Held Reward', 'Collision Penalty')
+    boundaries = sorted({r['transitions'] for r in learners})
+    if episodes and (not boundaries or episodes[-1]['transitions'] > boundaries[-1]):
+        boundaries.append(episodes[-1]['transitions'])
+    figure, axes = plt.subplots(4, 2, figsize=(12, 12), constrained_layout=True)
+    for axis, key, title in zip(axes.flat, keys, titles):
+        points = []
+        previous = -1
+        for boundary in boundaries:
+            rows = [r for r in episodes if previous < r['transitions'] <= boundary
+                    and 'reward_component_names' in r]
+            if rows:
+                values = [r['contact_bonus_count'] if key == 'contact' else
+                          r['reward_components'][r['reward_component_names'].index(key)] for r in rows]
+                points.append((boundary, np.mean(values)))
+            previous = boundary
+        if points:
+            axis.plot(*zip(*points), marker='.')
+        axis.set(title=title, xlabel='Valid transitions (training episodes)', ylabel='Episode mean')
+        axis.grid(alpha=.2)
+    axes.flat[-1].set_visible(False)
+    figure.savefig(Path(output) / 'reward-breakdown.png', dpi=150)
     plt.close(figure)
 
 

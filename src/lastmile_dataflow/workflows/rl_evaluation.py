@@ -31,7 +31,7 @@ def station_scores(agent, env, samples):
 
 
 @torch.no_grad()
-def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False):
+def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False, capture=None):
     """One episode per vector slot; ended slots reset without entering results twice.
 
     Stage facts (closest pose, both fingers, lift, hold) locate the earliest
@@ -43,6 +43,7 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     task = env.task
     best_position = torch.full((env.num_envs,), float('inf'), device=env.device)
     best_rotation = torch.full_like(best_position, float('inf'))
+    reached_pose = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     both_fingers = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     max_lift = torch.full_like(best_position, -float('inf'))
     max_hold = torch.zeros_like(best_position)
@@ -50,12 +51,17 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     discounted = torch.zeros_like(returns)
     discount = 1.
     records = [None] * env.num_envs
+    if capture is not None:
+        capture.initialize(env, station_ids, seed, deterministic)
     while not finished.all():
         active = ~finished
         action, _ = agent.actor.sample(obs, deterministic=deterministic)
+        if capture is not None:
+            capture.sample(env, active)
         action[finished] = 0
         observations, reward, terminated, truncated, _ = env.step(action)
         position, rotation = (e.norm(dim=-1) for e in task.goal_error())
+        reached_pose |= active & (position < .01) & (rotation < np.deg2rad(10))
         lift = env.sim.data.xpos[:, task.target, 2] - task.height_reference
         best_position = torch.where(active, torch.minimum(best_position, position), best_position)
         best_rotation = torch.where(active, torch.minimum(best_rotation, rotation), best_rotation)
@@ -82,6 +88,7 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
                 'policy': 'mean' if deterministic else 'stochastic',
                 'best_position_error_m': float(best_position[index]),
                 'best_rotation_error_rad': float(best_rotation[index]),
+                'reached_pose': bool(reached_pose[index]),
                 'both_fingers': bool(both_fingers[index]), 'max_lift_m': float(max_lift[index]),
                 'max_hold_s': float(max_hold[index]),
             }
@@ -91,6 +98,8 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
             ids = done.nonzero(as_tuple=True)[0]
             reset_obs = reset_stations(env, [station_ids[i] for i in ids.tolist()], env_ids=ids)
             obs.replace(ids, reset_obs)
+    if capture is not None:
+        capture.finish(env, records)
     return records
 
 
@@ -110,11 +119,12 @@ def stage_summary(rows):
     healthy = [r for r in rows if not r['infrastructure_failure']]
     if not healthy:
         return {'healthy': 0}
-    near = [r['best_position_error_m'] < .03 and r['best_rotation_error_rad'] < .3 for r in healthy]
+    near = [r['reached_pose'] for r in healthy]
     return {'healthy': len(healthy), 'success': sum(r['success'] for r in healthy),
             'collision_free_success': sum(r['success'] and r['collision_free'] for r in healthy),
             'reached_pose': sum(near), 'both_fingers': sum(r['both_fingers'] for r in healthy),
-            'lift_5cm': sum(r['max_lift_m'] >= .05 for r in healthy),
+            'lift_1cm': sum(r['max_lift_m'] >= .01 for r in healthy),
+            'held_1s': sum(r['max_hold_s'] >= 1. - 1e-9 for r in healthy),
             'best_position_error_m_median': float(np.median([r['best_position_error_m'] for r in healthy])),
             'max_hold_s': max(r['max_hold_s'] for r in healthy)}
 
@@ -133,6 +143,10 @@ def monitor_validation(agent, env, config, transitions, output):
     selection = [{**env.task.stations[i], 'group': 'validation'} for i in station_ids]
     (analysis / 'validation-selection.json').write_text(json.dumps({
         'stations': selection, 'seed': seed, 'rollouts_per_station': settings['validation_rollouts_per_station']}, indent=2))
+    video = config['video']
+    previous = getattr(env, '_video_transitions', -video['every'])
+    record_video = transitions == 0 or transitions - previous >= video['every'] or transitions >= config['training']['max_transitions']
+    captures = []
     with torch.random.fork_rng(devices=[torch.device(env.device).index]):
         torch.manual_seed(seed)
         rows = station_scores(agent, env, config['evaluation']['action_samples'])
@@ -140,7 +154,25 @@ def monitor_validation(agent, env, config, transitions, output):
         selection = [{**row, 'q_mean': values[row['station_id']]['q_mean']} for row in selection]
         trials = []
         for repeat in range(settings['validation_rollouts_per_station']):
-            trials.extend(validation_rollout(agent, env, station_ids, seed + repeat, config['sac']['gamma']))
+            capture = None
+            if record_video:
+                from ..data.rendering.rl_capture import RolloutCapture
+                capture = RolloutCapture(output, transitions, config, representatives=True)
+                captures.append(capture)
+            trials.extend(validation_rollout(agent, env, station_ids, seed + repeat, config['sac']['gamma'], capture=capture))
+        if record_video:
+            from ..data.rendering.rl_capture import RolloutCapture
+            training_id = int(env.task.pool[0])
+            fixed = [training_id, station_ids[0]]
+            for deterministic in (False, True):
+                capture = RolloutCapture(output, transitions, config)
+                captures.append(capture)
+                slots = [fixed[i % 2] for i in range(env.num_envs)]
+                # A one-slot evaluation still records both splits.
+                for selected in ([slots] if env.num_envs > 1 else [[i] for i in fixed]):
+                    validation_rollout(agent, env, selected, seed, config['sac']['gamma'],
+                                       deterministic=deterministic, capture=capture)
+            env._video_transitions = transitions
         debug = debug_station_rollouts(agent, env, settings, seed)
     summary = summarize_trials(selection, trials, seed=seed)
     healthy = [row for row in trials if not row['infrastructure_failure']]
@@ -148,6 +180,8 @@ def monitor_validation(agent, env, config, transitions, output):
              'evaluation_success_rate': float(np.mean([r['success'] for r in healthy])) if healthy else None,
              'successes': sum(r['success'] for r in healthy), 'healthy_trials': len(healthy), 'total_trials': len(trials),
              'infrastructure_failures': len(trials) - len(healthy),
+             'videos': [row for capture in captures for row in capture.videos],
+             'success_protocol': config['success'],
              'episode_return_mean': float(np.mean([r['episode_return'] for r in healthy])) if healthy else None,
              'value_success_correlation': summary['q_success_spearman']}
     if debug:

@@ -1,4 +1,5 @@
 """Off-policy vector sampling with explicit final observations and local reset."""
+from ..scenes.rl_observation import REWARD_COMPONENTS
 import json
 import importlib.metadata
 import os
@@ -73,6 +74,8 @@ def record_episodes(log, env, done, transitions, returns, components, steps):
                               'station_id': env.task.stations[int(env.task.station_ids[index])]['station_id'],
                               'return': float(returns[index]), 'steps': int(steps[index]),
                               'reward_components': components[index].cpu().tolist(),
+                              'reward_component_names': REWARD_COMPONENTS,
+                              'contact_bonus_count': int(env.task.contact_bonus_paid[index]),
                               'success': bool(env.task.success[index]),
                               'collision_free': bool(env.task.collision_free[index]),
                               'collision_time_s': float(env.task.collision_time[index]),
@@ -123,7 +126,8 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
         state_dim = obs.arm_task_state.shape[-1]
         metadata = {'config': config, 'seed': seed, **runtime_metadata(config, gpu),
                     'node_capacity': obs.nodes.shape[1], 'state_dim': state_dim,
-                    'arm_state_fields': ARM_STATE_FIELDS,
+                    'arm_state_fields': ARM_STATE_FIELDS, 'reward_component_names': REWARD_COMPONENTS,
+                    'success_protocol': config['success'],
                     'node_fields': 'type4,center3,size3,rotation6,distance1,bottom1,linear3,angular3/5',
                     'stations': env.task.stations,
                     'resume': 'parameters/optimizers; fresh environment and replay'}
@@ -145,7 +149,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
         limit = max_transitions or settings['max_transitions']
         collected = 0
         episode_return = torch.zeros(env.num_envs, device=env.device)
-        episode_components = torch.zeros(env.num_envs, 7, device=env.device)
+        episode_components = torch.zeros(env.num_envs, len(REWARD_COMPONENTS), device=env.device)
         steps = torch.zeros(env.num_envs, device=env.device)
         started = time.perf_counter()
         log_at = transitions + settings['log_every']
@@ -153,6 +157,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
         loss_sums = {}
         loss_count = 0
         last_evaluation = None
+        contact_interval = 0
         with (output / 'metrics.jsonl').open('a') as log:
             best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)
             last_evaluation = transitions
@@ -182,6 +187,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                 episode_components += env.task.reward_components
                 steps += 1
                 done = terminated | env.task.unhealthy
+                contact_interval += int(env.task.contact_bonus_paid[done & healthy].sum())
                 record_episodes(log, env, done, transitions, episode_return, episode_components, steps)
                 # Replay already owns terminal state. Reset returns the whole batch;
                 # replace only done rows, preserving ongoing environments' history.
@@ -201,6 +207,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                 if transitions >= log_at:
                     log.write(json.dumps({'event': 'learner', 'transitions': transitions,
                                           'updates': agent.updates, 'replay_size': replay.size,
+                                          'completed_episode_contact_bonus_total': contact_interval,
                                           'transitions_per_s': collected / (time.perf_counter() - started),
                                           'updates_per_transition': settings['updates_per_step'] / env.num_envs,
                                           **{name: float(value / loss_count) for name, value in loss_sums.items()}}) + '\n')
@@ -210,6 +217,7 @@ def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, nu
                     for value in loss_sums.values():
                         value.zero_()
                     loss_count = 0
+                    contact_interval = 0
                     log_at += settings['log_every']
                 if transitions >= evaluate_at:
                     best_score = validation_checkpoint(agent, evaluation_env, config, transitions, output, log, metadata, best_score)

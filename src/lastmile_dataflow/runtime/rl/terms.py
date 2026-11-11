@@ -3,9 +3,9 @@ import numpy as np
 import torch
 from mjlab.utils.lab_api.math import compute_pose_error, quat_from_matrix
 
-from ...scenes.rl_observation import GeometryObservation
+from ...scenes.rl_observation import GeometryObservation, REWARD_COMPONENTS
 from ...scenes.stations.rl import prepare_stations
-from ..outcomes.pick_state import PICK_THRESHOLDS as P, update_hold_window
+from ..outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 
 
 def contact_addresses(model, prefixes, field, device):
@@ -14,6 +14,13 @@ def contact_addresses(model, prefixes, field, device):
     return torch.tensor([int(model.sensor_adr[i]) for i in range(model.nsensor)
                          if model.sensor(i).name.startswith(prefixes) and
                          model.sensor(i).name.endswith('_' + field)], dtype=torch.long, device=device)
+
+
+def grasp_events(both, previous_both, paid, progress, peak, near):
+    event = ~previous_both & both & ~paid & near
+    new_peak = torch.maximum(peak, progress)
+    reward_progress = (both & previous_both).float() * (new_peak - peak)
+    return event, paid | event, new_peak, reward_progress
 
 
 class TaskState:
@@ -74,9 +81,14 @@ class TaskState:
         self.last_action = torch.zeros(n, 7, device=self.device)
         self.previous_distance = torch.zeros(n, device=self.device)
         self.previous_angle = torch.zeros(n, device=self.device)
-        self.previous_grasp = torch.zeros(n, device=self.device)
+        self.contact_bonus_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.previous_both = torch.zeros_like(self.contact_bonus_paid)
+        self.lift_peak = torch.zeros(n, device=self.device)
+        self.step_contact = torch.zeros(n, device=self.device)
+        self.step_lift = torch.zeros(n, device=self.device)
+        self.held_time = torch.zeros(n, device=self.device)
         self.needs_baseline = torch.ones(n, dtype=torch.bool, device=self.device)
-        self.reward_components = torch.zeros(n, 7, device=self.device)
+        self.reward_components = torch.zeros(n, len(REWARD_COMPONENTS), device=self.device)
         # The fixed object-local TCP is an explicit input, shared with scoring.
         from ...scenes.loading.rl_scene import RLSceneConfig
         scene_config = RLSceneConfig(**env.research_config['scene'])
@@ -111,22 +123,20 @@ class TaskState:
         dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
         return torch.einsum('bji,bj->bi', base_r, dp), torch.einsum('bji,bj->bi', base_r, dr)
 
-    def grasp_potential(self):
-        '''Staged grasp potential: close near the pose, bear on both fingers, lift while held.
-
-        Rewarded only as a difference between policy steps (potential-based shaping),
-        so it adds no return for loitering in any state.
-        '''
-        dp, _ = self.goal_error()
-        q = self.robot.data.joint_pos
-        width = q[:, self.fingers[0]] - q[:, self.fingers[1]]
-        closed_near = (dp.norm(dim=-1) < .03).float() * (1 - width / .08).clamp(0, 1)
-        both = (self.forces > P['finger_force_min_n']).all(-1).float()
-        lift = ((self.env.sim.data.xpos[:, self.target, 2] - self.height_reference) / P['lift_m']).clamp(0, 1)
-        return .5 * closed_near + both + 2 * both * lift
+    def tcp_velocity(self):
+        action = self.env.action_manager.get_term('tcp')
+        action._point_torch[:] = self.env.sim.data.site_xpos[:, self.tcp]
+        action._compute_jacobian()
+        velocity = self.env.sim.data.qvel
+        base_r = self.poses()[3]
+        return tuple(torch.einsum('bji,bj->bi', base_r, torch.einsum('bij,bj->bi', jac, velocity))
+                     for jac in (action._jacp_torch, action._jacr_torch))
 
     def begin_step(self, action):
         self.step_collision.zero_()
+        self.step_contact.zero_()
+        self.step_lift.zero_()
+        self.held_time.zero_()
         self.last_action[:] = action
 
     def contact_facts(self):
@@ -150,10 +160,23 @@ class TaskState:
         relative_p = torch.einsum('bji,bj->bi', tcp_r, target_p - tcp_p)
         relative_r = tcp_r.transpose(-1, -2) @ target_r
         lift = target_p[:, 2] - self.height_reference
-        held = (self.forces > P['finger_force_min_n']).all(-1) & ~support & (lift >= P['lift_m'])
+        both = (self.forces > P['finger_force_min_n']).all(-1)
+        dp, dr = self.goal_error()
+        cfg = self.env.research_config['reward']
+        near = (dp.norm(dim=-1) < cfg['grasp_distance_m']) & (dr.norm(dim=-1) < cfg['grasp_angle_rad'])
+        progress = (lift / P['lift_m']).clamp(0, 1)
+        event, paid, peak, reward_progress = grasp_events(
+            both, self.previous_both, self.contact_bonus_paid, progress, self.lift_peak, near)
+        self.step_contact += event.float()
+        self.contact_bonus_paid[:] = paid
+        self.step_lift += reward_progress
+        self.lift_peak[:] = peak
+        self.previous_both[:] = both
+        self.held_time += (both & ~support).float() * self.env.physics_dt
+        held = both & ~support & (lift >= P['lift_m'])
         self.window_start, self.reference_position, self.reference_rotation, self.hold = update_hold_window(
             self.elapsed, held, relative_p, relative_r, self.window_start,
-            self.reference_position, self.reference_rotation, xp=torch)
+            self.reference_position, self.reference_rotation, xp=torch, thresholds=P)
         fixed = self.robot.data.joint_pos[:, self.fixed]
         delta = fixed - self.fixed_reference
         drift = delta[:, :2].norm(dim=-1)
@@ -162,8 +185,7 @@ class TaskState:
         self.max_yaw_drift = torch.maximum(self.max_yaw_drift, yaw)
         self.max_lift_drift = torch.maximum(self.max_lift_drift, delta[:, 3].abs())
         active = ~(self.success | self.failed | self.unhealthy)
-        fixed_failure = ((drift > P['base_translation_m']) | (yaw > P['base_yaw_rad']) |
-                         (delta[:, 3].abs() > P['lift_hold_error_m']))
+        fixed_failure = (drift > P['base_translation_m']) | (yaw > P['base_yaw_rad'])
         self.control_failed |= active & fixed_failure
         self.failed |= active & (fixed_failure | (lift < -.3))
         data = self.env.sim.data
@@ -182,7 +204,6 @@ class TaskState:
         self.previous_distance[self.needs_baseline] = distance[self.needs_baseline]
         self.previous_angle[self.needs_baseline] = angle[self.needs_baseline]
         self.height_reference[self.needs_baseline] = target_p[self.needs_baseline, 2]
-        self.previous_grasp[self.needs_baseline] = self.grasp_potential()[self.needs_baseline]
         self.needs_baseline.zero_()
         q, v = self.robot.data.joint_pos, self.robot.data.joint_vel
         width = (q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None]
@@ -200,6 +221,7 @@ class TaskState:
         slip_p = relative_p - self.reference_position
         slip_r = self.reference_rotation.transpose(-1, -2) @ relative_r
         remaining = (self.env.cfg.episode_length_s - self.elapsed) / self.env.cfg.episode_length_s
+        linear, angular = self.tcp_velocity()
         return torch.cat((q[:, self.arm] / 3.14, v[:, self.arm] / 3., tcp_local_p,
                           tcp_local_r[..., :2].transpose(-1, -2).flatten(-2), width / .08,
                           width_velocity / .2, dp, dr / 3.14, target_linear, target_angular / 5.,
@@ -209,7 +231,8 @@ class TaskState:
                           slip_r[..., :2].transpose(-1, -2).flatten(-2), remaining[:, None],
                           q[:, self.fixed] - self.fixed_reference,
                           torch.stack((self.previous_distance, self.previous_angle), -1),
-                          self.last_action), -1).float()
+                          self.last_action, q[:, self.fixed[3:4]] / .34, v[:, self.fixed[3:4]] / .05,
+                          linear, angular, self.contact_bonus_paid.float()[:, None], self.lift_peak[:, None]), -1).float()
 
 
 def nodes(env):
@@ -245,7 +268,8 @@ def reset(env, env_ids):
     task.reference_rotation[ids] = torch.eye(3, device=env.device)
     for name in ('elapsed', 'hold', 'forces', 'support', 'success', 'failed', 'unhealthy',
                  'control_failed', 'step_collision', 'collision_time', 'collision_hits', 'max_drift', 'max_yaw_drift',
-                 'max_lift_drift', 'last_action', 'reward_components'):
+                 'max_lift_drift', 'last_action', 'reward_components', 'contact_bonus_paid', 'previous_both',
+                 'lift_peak', 'step_contact', 'step_lift', 'held_time'):
         getattr(task, name)[ids] = 0
     task.collision_free[ids] = True
     task.needs_baseline[ids] = True
@@ -260,8 +284,18 @@ def reward(env):
     task = env.task
     dp, dr = task.goal_error()
     distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
-    grasp = task.grasp_potential()
     cfg = env.research_config['reward']
+    both = (task.forces > P['finger_force_min_n']).all(-1)
+    grasp = ~both & (distance < cfg['grasp_distance_m']) & (angle < cfg['grasp_angle_rad'])
+    pre = ~both & ~grasp & (distance < cfg['pregrasp_distance_m'])
+    approach = ~both & ~grasp & ~pre
+    opening = ((task.robot.data.joint_pos[:, task.fingers[0]] -
+                task.robot.data.joint_pos[:, task.fingers[1]]) / .08).clamp(0, 1)
+    pose = torch.exp(-(distance / cfg['pose_distance_m'])**2 - (angle / cfg['pose_angle_rad'])**2)
+    linear, angular = task.tcp_velocity()
+    slow = torch.exp(-(linear.norm(dim=-1) / cfg['slow_linear_m_s'])**2 -
+                     (angular.norm(dim=-1) / cfg['slow_angular_rad_s'])**2)
+    dt = env.step_dt
     task.reward_components[:] = torch.stack((
         cfg['position'] * (task.previous_distance - distance),
         cfg['rotation'] * (task.previous_angle - angle),
@@ -269,10 +303,15 @@ def reward(env):
         -cfg['limit'] * env.action_manager.get_term('tcp').limit_fraction,
         -cfg['control_failure'] * task.control_failed.float(),
         cfg['success'] * task.success.float(),
-        cfg['grasp'] * (grasp - task.previous_grasp)), -1)
+        cfg['open'] * dt * approach * opening,
+        cfg['pose'] * dt * (pre | grasp) * pose,
+        cfg['slow'] * dt * pre * pose * slow,
+        cfg['close'] * dt * grasp * (1 - opening),
+        cfg['contact'] * task.step_contact,
+        cfg['lift'] * task.step_lift,
+        cfg['held'] * both * task.held_time), -1)
     task.previous_distance[:] = distance
     task.previous_angle[:] = angle
-    task.previous_grasp[:] = grasp
     return task.reward_components.sum(-1)
 
 

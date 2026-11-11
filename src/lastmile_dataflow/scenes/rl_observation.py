@@ -4,6 +4,9 @@ from dataclasses import dataclass, fields
 import torch
 
 
+REWARD_COMPONENTS = ('position', 'rotation', 'collision', 'limit', 'control_failure',
+                     'success', 'open', 'pose', 'slow', 'close', 'contact', 'lift', 'held')
+
 NODE_DIM = 24
 NODE_TYPES = ("goal", "tabletop_obstacle", "ground_obstacle", "container")
 ARM_STATE_FIELDS = (
@@ -12,11 +15,13 @@ ARM_STATE_FIELDS = (
     ('gripper_velocity', 1, .2), ('grasp_position_error_base', 3, 1.),
     ('grasp_rotation_vector_base', 3, 3.14), ('target_linear_velocity_base', 3, 1.),
     ('target_angular_velocity_base', 3, 5.), ('lift_height', 1, 1.),
-    ('finger_force_log1p', 2, 5.), ('support', 1, 1.), ('hold_time', 1, 2.),
+    ('finger_force_log1p', 2, 5.), ('support', 1, 1.), ('hold_time', 1, 1.),
     ('relative_translation_from_reference', 3, 1.),
     ('relative_rotation_from_reference_6d', 6, 1.), ('remaining_time_fraction', 1, 1.),
     ('fixed_joint_drift_from_reset', 4, 1.), ('previous_reward_distance_angle', 2, 1.),
-    ('previous_action', 7, 1.),
+    ('previous_action', 7, 1.), ('lift_position', 1, .34), ('lift_velocity', 1, .05),
+    ('tcp_linear_velocity_base', 3, 1.), ('tcp_angular_velocity_base', 3, 1.),
+    ('contact_bonus_paid', 1, 1.), ('lift_peak_progress', 1, 1.),
 )
 
 

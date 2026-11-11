@@ -16,16 +16,21 @@ PICK_THRESHOLDS = {
 }
 
 
+RL_PICK_THRESHOLDS = {**PICK_THRESHOLDS, 'version': 'rl-pick-1cm-1s-v1',
+                      'lift_m': .01, 'hold_s': 1., 'relative_translation_m': float('inf'),
+                      'relative_rotation_rad': float('inf')}
+
+
 def update_hold_window(time, held, position, rotation, start, reference_position,
-                       reference_rotation, *, xp):
+                       reference_rotation, *, xp, thresholds=PICK_THRESHOLDS):
     """Return updated window and duration; xp is numpy or torch."""
     displacement = xp.sqrt(xp.sum((position - reference_position) ** 2, axis=-1))
     # trace(R_ref.T R) is the Frobenius inner product.
     cosine = (xp.sum(reference_rotation * rotation, axis=(-2, -1)) - 1) / 2
     angle = xp.arccos(xp.clip(cosine, -1., 1.))
     reopen = held & ((start < 0) |
-                     (displacement > PICK_THRESHOLDS['relative_translation_m']) |
-                     (angle > PICK_THRESHOLDS['relative_rotation_rad']))
+                     (displacement > thresholds['relative_translation_m']) |
+                     (angle > thresholds['relative_rotation_rad']))
     start = xp.where(held, xp.where(reopen, time, start), -1.)
     reference_position = xp.where(reopen[..., None], position, reference_position)
     reference_rotation = xp.where(reopen[..., None, None], rotation, reference_rotation)

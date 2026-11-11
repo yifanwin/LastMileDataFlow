@@ -97,6 +97,10 @@ def build_sensors(prepared):
 
 class StationEnv(ManagerBasedRlEnv):
     def __init__(self, config, *, gpu, seed, num_envs=None):
+        from ..outcomes.pick_state import RL_PICK_THRESHOLDS
+        for key, value in config['success'].items():
+            if RL_PICK_THRESHOLDS[key] != value:
+                raise ValueError('RL success configuration must match the named protocol')
         self.research_config = config
         self.prepared = prepare_rl_scene(RLSceneConfig(**config['scene']))
         self.task = None
@@ -123,11 +127,12 @@ class StationEnv(ManagerBasedRlEnv):
             seed=seed, decimation=env_cfg['decimation'], episode_length_s=env_cfg['episode_s'],
             auto_reset=False, is_finite_horizon=True, scale_rewards_by_dt=False,
             actions={
-                'tcp': BaseFrameDLSCfg(entity_name='robot', actuator_names=[f'robot0_joint{i}' for i in range(1, 8)],
+                'tcp': BaseFrameDLSCfg(entity_name='robot', actuator_names=[f'robot0_joint{i}' for i in range(1, 8)] + ['mobilebase0_joint_torso_height'],
                                       frame_type='site', frame_name='gripper0_right_grip_site',
                                       base_site=ROBOT_PREFIX + 'base_site',
                                       delta_pos_scale=action['translation_m'], delta_ori_scale=action['rotation_rad'],
-                                      damping=action['damping'], joint_limit_weight=action['joint_limit_weight']),
+                                      damping=action['damping'], joint_limit_weight=action['joint_limit_weight'],
+                                      joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action['lift_velocity_m_s'])),
                 'gripper': GripperCfg(entity_name='robot')},
             observations={'policy': ObservationGroupCfg(terms={
                 'nodes': ObservationTermCfg(func=terms.nodes),
