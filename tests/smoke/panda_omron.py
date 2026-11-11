@@ -29,7 +29,7 @@ def floor_source(output):
 
 def pose_errors(a, b):
     import numpy as np
-    from lastmile_dataflow.runtime.outcomes.pick import rotation_error
+    from lastmile_dataflow.runtime.outcomes.task import rotation_error
     return {"position_m": float(np.linalg.norm(a[:3, 3]-b[:3, 3])),
             "rotation_rad": rotation_error(a[:3, :3], b[:3, :3])}
 

@@ -20,8 +20,7 @@ from ..control.action import (
     TORSO_SEVERE_FEEDBACK_RAD,
 )
 from ...scenes.geometry import descendants
-from ..outcomes.evaluation import mobile_constraint_failure, torso_tracking_error
-from ..outcomes.pick import rotation_error
+from ..outcomes.task import mobile_constraint_failure, rotation_error, torso_tracking_error
 from ..outcomes.contacts import (
     ContactSampler,
     ContactStatistics,
@@ -30,7 +29,7 @@ from ..outcomes.contacts import (
 )
 from .navigation import base_step_limits
 from .protocol import OperationFailure, SimulationState
-from ..outcomes.pick import checkpoint_pick_success, timed
+from .checkpoint import checkpoint_pick_success, timed
 
 
 def joint_base_error(target, base):

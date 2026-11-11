@@ -106,7 +106,7 @@ def main():
                 from lastmile_dataflow.runtime.control.interface import RobotCommand
                 from stepping import semantic_tick
                 from lastmile_dataflow.scenes.geometry import tcp_pose
-                from lastmile_dataflow.runtime.outcomes.pick import rotation_error
+                from lastmile_dataflow.runtime.outcomes.task import rotation_error
                 goal = sim.robot.base_pose() + np.array([.15,.08,.2])
                 command = RobotCommand(base_xyyaw=goal,arm_q={'right':sim.robot.arm_positions('right').copy()})
                 sim.robot.execution_action(command)

@@ -3,7 +3,8 @@ import copy
 import mujoco
 import numpy as np
 
-from ...runtime.outcomes.health import inspect_state
+from ...runtime.control.action import torso_joints
+from ...runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler, simulation_failure
 
 
 def room_triangles(sim):
@@ -111,3 +112,45 @@ def initialize_robot(sim, collection, *, base=None):
             return {"status": "valid", "selected_base": candidate.tolist(), "trials": trials,
                     "check": check, "method": "explicit" if base is not None else "bounded_floor_sampling"}
     return {"status": "invalid", "reason": "initialization_budget_exhausted", "trials": trials}
+
+
+def inspect_state(sim, config, *, initialization=False):
+    """检查当前物理状态，返回 {valid, issues, contacts, protocol}。
+
+    valid=False 一定会让调用方（runner/execution）停止执行并给出失败结论。
+    运行时接触只记录；initialization=True 才检查初态严重重叠。
+    """
+    m, d = sim.model, sim.data
+    issues = []
+    # 廉价的第一道闸：任何非有限值立即返回，避免后面算出 NaN 比较。
+    if simulation_failure(sim) == "nonfinite_physics":
+        issues.append({"severity": "error", "code": "nonfinite_physics"})
+        return {"valid": False, "issues": issues, "contacts": []}
+    # MuJoCo 自身的警告（求解器不稳、约束冲突等）一律当 error。
+    for i, warning in enumerate(d.warning):
+        if warning.number:
+            issues.append({"severity": "error", "code": "mujoco_warning",
+                           "warning_id": i, "count": int(warning.number)})
+    contacts = ContactSampler(sim).capture().observations()
+    if initialization:
+        for entry in contacts:
+            scales = [float(m.geom_rbound[g]) for g in entry['geom_ids'] if m.geom_rbound[g] > 0]
+            scale = min(scales) if scales else config.penetration_ceiling_m
+            threshold = float(np.clip(scale * config.penetration_ratio,
+                                      config.penetration_floor_m, config.penetration_ceiling_m))
+            if entry['distance_m'] < -threshold and not (entry['allowed_floor_base']
+                                                         and entry['distance_m'] >= -FLOOR_PENETRATION_M):
+                issues.append({'severity': 'error', 'code': 'severe_penetration', **entry,
+                               'initialization_threshold_m': threshold})
+    robot = sim.robot
+    if 'torso' in robot.joints.groups:
+        # 躯干 6 个关节必须满足 [0,h,-2h,h,0,0] 的联动关系；偏离说明伺服跟不上或影子状态不一致。
+        torso = robot.group("torso")
+        if np.max(np.abs(torso - torso_joints(torso[1]))) > config.feedback_warning_rad:
+            issues.append({"severity": "warning", "code": "torso_coupling_feedback",
+                           "actual": torso.tolist()})
+        # 头部锁定目标也应保持不变（头部没有动作维度）。
+        if np.max(np.abs(robot.group("head") - robot.fixed_head)) > config.feedback_warning_rad:
+            issues.append({"severity": "warning", "code": "head_feedback_drift"})
+    return {"valid": not any(i["severity"] == "error" for i in issues),
+            "issues": issues, "contacts": contacts}

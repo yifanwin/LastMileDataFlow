@@ -10,6 +10,7 @@ from ...data.rendering.edit_views import ViewConfig
 from .initialization import floor_support, room_triangles
 from ...runtime.construction.preparation import preparation_guard
 from ...runtime.construction.session import clone_preparation
+from ...runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler
 
 
 def disk_samples(anchor, radius, spacing):
@@ -47,12 +48,11 @@ def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
 
     Never use the initialization filter to stop an already-running simulation.
     """
-    from ...runtime.outcomes.contacts import contact_observations
-    contacts = [c for c in contact_observations(sim, target_bodies=target_bodies, fingers=fingers)
-                if c['robot_contact']]
+    frame = ContactSampler(sim).capture(target_bodies=target_bodies, fingers=fingers)
+    contacts = [c for c in frame.observations() if c['robot_contact']]
     if not initialization:
         return contacts
-    return [c for c in contacts if not (c['allowed_floor_base'] and c['distance_m'] >= -.005) and not c['intended_target_contact']
+    return [c for c in contacts if not (c['allowed_floor_base'] and c['distance_m'] >= -FLOOR_PENETRATION_M) and not c['intended_target_contact']
             and c['distance_m'] < (-.002 if c['kind']=='self_collision' else -.001)]
 
 

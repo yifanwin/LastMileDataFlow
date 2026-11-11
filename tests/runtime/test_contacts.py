@@ -17,14 +17,16 @@ from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.outcomes.contacts import (
+    ContactPair,
+    ContactSample,
     ContactSampler,
     ContactStatistics,
     NavigationContacts,
     simulation_failure,
 )
-from lastmile_dataflow.runtime.outcomes.evaluation import attribute
-from lastmile_dataflow.runtime.outcomes.health import inspect_state
-from lastmile_dataflow.runtime.outcomes.pick import constraint_failure, evaluate_pick
+from lastmile_dataflow.runtime.outcomes.task import attribute
+from lastmile_dataflow.scenes.stations.initialization import inspect_state
+from lastmile_dataflow.runtime.outcomes.task import constraint_failure, evaluate_pick
 from lastmile_dataflow.scenes.stations.sampling import robot_contacts
 from tests.helpers import fixtures, make_sim
 
@@ -49,7 +51,8 @@ class ContactPolicyTests(unittest.TestCase):
           <body name="robot_0/arm" pos="0 0 1"><freejoint/><geom type="sphere" size=".1"/></body>
           <body name="wall" pos=".198 0 1"><geom type="sphere" size=".1"/></body>
         </worldbody></mujoco>''')
-        sim = SimpleNamespace(model=model, data=mujoco.MjData(model), robot=None)
+        sim = SimpleNamespace(model=model, data=mujoco.MjData(model),
+                              robot=SimpleNamespace(config=SimpleNamespace(namespace='robot_0/')))
         sampler, stats = ContactSampler(sim), NavigationContacts()
         mujoco.mj_forward(model, sim.data)
         self.assertFalse(stats.observe(sim, sampler, .005))
@@ -95,20 +98,27 @@ class ContactPolicyTests(unittest.TestCase):
             sim.close()
 
     def test_pair_tick_count_not_mesh_manifold_count(self):
+        pair = ContactPair((1, 2), ("robot_0/left_arm_3_link", "table"), (1, 2), ("arm", "table"),
+                           (True, False), False, False)
+
+        def frame(*forbidden):
+            samples = [ContactSample(0, pair, 1000.0, True, False, value) for value in forbidden]
+            return SimpleNamespace(contacts=samples, observations=lambda limit: [CONTACT] * min(limit, len(samples)))
+
         stats = ContactStatistics()
-        stats.update([CONTACT, CONTACT])
-        stats.update([CONTACT, dict(CONTACT, forbidden=False)])
+        stats.update_frame(frame(True, True))
+        stats.update_frame(frame(True, False))
         self.assertEqual(stats.metrics()["forbidden_contact_count"], 2)
         self.assertEqual(stats.metrics()["contact_count"], 4)
         for _ in range(100):
-            stats.update([CONTACT])
+            stats.update_frame(frame(True))
         self.assertEqual(len(stats.examples), 32)
 
     def test_runtime_observer_does_not_apply_initialization_depth_filter(self):
         shallow = dict(CONTACT, distance_m=-0.0001)
-        with patch(
-            "lastmile_dataflow.runtime.outcomes.contacts.contact_observations", return_value=[shallow]
-        ):
+        frame = SimpleNamespace(observations=lambda: [shallow])
+        with patch("lastmile_dataflow.scenes.stations.sampling.ContactSampler",
+                   return_value=SimpleNamespace(capture=lambda **_: frame)):
             self.assertEqual(robot_contacts(None), [])
             self.assertEqual(robot_contacts(None, initialization=False), [shallow])
 
@@ -126,7 +136,7 @@ class ContactPolicyTests(unittest.TestCase):
         self.assertEqual(evaluate_pick(rows, initial)["status"], "simulation_failure")
 
     def test_open_contact_flags_do_not_fail_and_health_does(self):
-        from lastmile_dataflow.runtime.outcomes.evaluation import evaluate_open
+        from lastmile_dataflow.runtime.outcomes.task import evaluate_open
 
         task = {"joint_goal": 1.0, "joint_initial": 0.0}
         rows = [
@@ -168,7 +178,7 @@ class ContactPolicyTests(unittest.TestCase):
                 from lastmile_dataflow.runtime.outcomes.contacts import ContactPair
                 pair = ContactPair((0, 1), tuple(CONTACT['body_names']), (0, 1),
                                    tuple(CONTACT['geom_names']), (True, False), False, False)
-                frame.contacts = [(0, pair, 1000., True, False, True)]
+                frame.contacts = [ContactSample(0, pair, 1000., True, False, True)]
                 ctx.tick(a)
                 ctx.tick(a)
             self.assertEqual(recorder.steps, 2)
@@ -179,7 +189,7 @@ class ContactPolicyTests(unittest.TestCase):
             sim.close()
 
     def test_shared_contact_frame_preserves_pick_facts_and_counts_without_second_force_read(self):
-        from lastmile_dataflow.runtime.outcomes.pick import PickMonitor
+        from lastmile_dataflow.runtime.outcomes.task import PickMonitor
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
             self.addCleanup(sim.close)
@@ -199,13 +209,13 @@ class ContactPolicyTests(unittest.TestCase):
             self.assertEqual(force.call_count, len(details))
             self.assertEqual(facts, expected)
             self.assertTrue(facts['support_contact'])
-            reference = ContactStatistics()
-            reference.update(details)
-            self.assertEqual(stats.metrics(), reference.metrics())
-            self.assertEqual(stats.examples, reference.examples)
+            self.assertEqual(stats.contact_count, len(details))
+            self.assertEqual(stats.forbidden_contact_count,
+                             len({tuple(sorted(c['body_names'])) for c in details if c['forbidden']}))
+            self.assertEqual(stats.examples, details[:32])
 
     def test_no_trace_skips_serialization_but_keeps_physics_samples(self):
-        from lastmile_dataflow.runtime.outcomes.pick import PickMonitor
+        from lastmile_dataflow.runtime.outcomes.task import PickMonitor
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
             self.addCleanup(sim.close)

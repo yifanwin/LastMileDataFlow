@@ -18,8 +18,7 @@ from ...utils.io import write_json
 from ...utils.logging_config import trial_progress
 from ..control.action import InvalidAction
 from ..outcomes.contacts import CONTACT_POLICY, ContactSampler, ContactStatistics, NavigationContacts, simulation_failure
-from ..outcomes.evaluation import VLA_PROTOCOL as PROTOCOL, constraint, evaluate, torso_tracking_error
-from ..outcomes.pick import PickMonitor
+from ..outcomes.task import VLA_PROTOCOL as PROTOCOL, PickMonitor, constraint, evaluate, torso_tracking_error
 from .attempt import (attempt_result, failure_status, finish_navigation, open_attempt_sim,
                       trajectory_metrics, unexpected_failure)
 from .lifecycle import isolated_episode, mark_episode_phase

@@ -11,7 +11,7 @@ from lastmile_dataflow.config import PandaOmronConfig, robot_config
 from lastmile_dataflow.runtime.control.interface import RobotCommand
 from lastmile_dataflow.runtime.control.panda_omron import PandaOmronAdapter
 from lastmile_dataflow.runtime.control.action import InvalidAction
-from lastmile_dataflow.runtime.outcomes.pick import evaluate_pick
+from lastmile_dataflow.runtime.outcomes.task import evaluate_pick
 from tests.helpers import make_sim, evidence
 
 

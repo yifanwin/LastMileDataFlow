@@ -13,8 +13,8 @@ from ...utils.io import write_json
 from ..control.action import InvalidAction
 from ..control.interface import RobotCommand
 from ..outcomes.contacts import CONTACT_POLICY
-from ..outcomes.evaluation import attribute
-from ..outcomes.pick import PickEvidenceComplete, resolve_timeout, timed
+from ..outcomes.task import attribute
+from .checkpoint import PickEvidenceComplete, resolve_timeout, timed
 from .attempt import (attempt_result, failure_status, finish_navigation, open_attempt_sim,
                       trajectory_metrics, unexpected_failure)
 from .context import ContinuousContext

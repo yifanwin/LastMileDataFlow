@@ -58,6 +58,7 @@ class TorsoCommandTests(unittest.TestCase):
         for feedback, fails in [(0.739327605117437, False), (0.745, False), (0.80, True)]:
             with self.subTest(feedback=feedback), tempfile.TemporaryDirectory() as directory:
                 ctx = ContinuousContext.__new__(ContinuousContext)
+                ctx.budget = None
                 ctx.config = ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5)
                 ctx.phase = "close"
                 ctx.deadline = lambda: None

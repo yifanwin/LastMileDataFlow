@@ -8,21 +8,10 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.outcomes.pick import (
-    PickEvidenceComplete,
-    checkpoint_pick_success,
-    hold_pick,
-    resolve_timeout,
-    timed,
-)
+from lastmile_dataflow.runtime.execution.checkpoint import PickEvidenceComplete, checkpoint_pick_success, hold_pick, resolve_timeout, timed
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.outcomes.evaluation import (
-    attribute,
-    evaluate_mobile_pick,
-    evaluate_open,
-    torso_tracking_error,
-)
-from lastmile_dataflow.runtime.outcomes.pick import evaluate_pick
+from lastmile_dataflow.runtime.outcomes.task import attribute, evaluate_mobile_pick, evaluate_open, torso_tracking_error
+from lastmile_dataflow.runtime.outcomes.task import evaluate_pick
 from tests.helpers import evidence, make_sim
 
 
@@ -89,7 +78,7 @@ class EvidenceTests(unittest.TestCase):
     def test_timers_account_exception(self):
         ctx = SimpleNamespace(timings={})
         with (
-            patch("lastmile_dataflow.runtime.outcomes.pick.time.monotonic", side_effect=[1.0, 4.0]),
+            patch("lastmile_dataflow.runtime.execution.checkpoint.time.monotonic", side_effect=[1.0, 4.0]),
             self.assertRaises(ValueError),
         ):
             with timed(ctx, "planning"):

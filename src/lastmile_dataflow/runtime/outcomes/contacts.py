@@ -1,11 +1,14 @@
 """Contact telemetry and the shared, navigation-only penetration rule."""
-import mujoco
-import numpy as np
 from dataclasses import dataclass
 
+import mujoco
+import numpy as np
+
 CONTACT_POLICY = 'runtime-record-only-v1'
+# nonfinite_physics_state / nonfinite_state are labels written by older runs.
 SIMULATION_FAILURES = frozenset(('nonfinite_physics', 'nonfinite_physics_state',
                                  'nonfinite_state', 'mujoco_warning'))
+FLOOR_PENETRATION_M = .005
 
 
 def simulation_failure(sim):
@@ -44,11 +47,21 @@ class NavigationContacts:
             depth = max(0., -float(contact.dist))
             if pair.floor_base:
                 self.max_floor_penetration_m = max(self.max_floor_penetration_m, depth)
-                self.severe_collision |= depth > .005
+                self.severe_collision |= depth > FLOOR_PENETRATION_M
             else:
                 self.max_penetration_m = max(self.max_penetration_m, depth)
                 self.severe_collision |= depth > limit
         return self.severe_collision
+
+
+@dataclass(frozen=True)
+class ContactSample:
+    index: int
+    pair: ContactPair
+    force: float
+    active: bool
+    intended: bool
+    forbidden: bool
 
 
 class ContactFrame:
@@ -58,15 +71,16 @@ class ContactFrame:
 
     def observations(self, limit=None):
         result = []
-        for index, pair, force, bearing, intended, forbidden in self.contacts[:limit]:
-            contact = self.sim.data.contact[index]
+        for sample in self.contacts[:limit]:
+            pair = sample.pair
+            contact = self.sim.data.contact[sample.index]
             result.append({
                 'body_names': list(pair.body_names), 'geom_names': list(pair.geom_names),
                 'geom_ids': list(pair.geom_ids), 'distance_m': float(contact.dist),
-                'position_world': contact.pos.tolist(), 'normal_force_n': force,
+                'position_world': contact.pos.tolist(), 'normal_force_n': sample.force,
                 'time_s': float(self.sim.data.time), 'robot_contact': any(pair.robot),
-                'allowed_floor_base': pair.floor_base, 'intended_target_contact': intended,
-                'forbidden': forbidden, 'kind': 'self_collision' if all(pair.robot) else
+                'allowed_floor_base': pair.floor_base, 'intended_target_contact': sample.intended,
+                'forbidden': sample.forbidden, 'kind': 'self_collision' if all(pair.robot) else
                 'environment_collision' if any(pair.robot) else 'object_contact'})
         return result
 
@@ -82,7 +96,7 @@ class ContactSampler:
         key = (g1, g2)
         if key not in self.pairs:
             model = self.sim.model
-            namespace = self.sim.robot.config.namespace if self.sim.robot else 'robot_0/'
+            namespace = self.sim.robot.config.namespace
             bodies = tuple(int(model.geom_bodyid[g]) for g in key)
             names = tuple(model.body(b).name or '' for b in bodies)
             geometry = tuple(model.geom(g).name or '' for g in key)
@@ -105,13 +119,8 @@ class ContactSampler:
             force = float(self.force[0])
             intended = a in fingers and b in target_bodies or b in fingers and a in target_bodies
             forbidden = any(pair.robot) and not (pair.floor_base or intended or pair.same_hand)
-            result.append((index, pair, force, contact.efc_address >= 0, intended, forbidden))
+            result.append(ContactSample(index, pair, force, contact.efc_address >= 0, intended, forbidden))
         return ContactFrame(self.sim, result)
-
-
-def contact_observations(sim, *, target_bodies=(), fingers=()):
-    """All named contacts. `forbidden` is a quality flag, NOT physical illegality."""
-    return ContactSampler(sim).capture(target_bodies=target_bodies, fingers=fingers).observations()
 
 
 class ContactStatistics:
@@ -121,16 +130,10 @@ class ContactStatistics:
         self.contact_count = 0
         self.examples = []
 
-    def update(self, contacts):
-        self.contact_count += len(contacts)
-        self.forbidden_contact_count += len({tuple(sorted(c['body_names'])) for c in contacts
-                                             if c.get('forbidden', False)})
-        self.examples.extend(contacts[:max(0, 32-len(self.examples))])
-
     def update_frame(self, frame):
         self.contact_count += len(frame.contacts)
-        self.forbidden_contact_count += len({tuple(sorted(pair.body_names))
-            for _, pair, _, _, _, forbidden in frame.contacts if forbidden})
+        self.forbidden_contact_count += len({tuple(sorted(sample.pair.body_names))
+                                             for sample in frame.contacts if sample.forbidden})
         remaining = 32 - len(self.examples)
         if remaining > 0:
             self.examples.extend(frame.observations(remaining))
