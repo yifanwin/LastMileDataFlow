@@ -8,8 +8,8 @@ from unittest.mock import patch
 import numpy as np
 
 from lastmile_dataflow.scenes.loading import assets
-from lastmile_dataflow.scenes.loading.asset_library import AssetRequest, AssetSelector
-from lastmile_dataflow.scenes.loading.asset_profiles import (
+from lastmile_dataflow.scenes.loading.assets import AssetRequest, AssetSelector
+from lastmile_dataflow.scenes.loading.assets import (
     AssetProfile, build_asset_index, load_asset_profiles,
 )
 from lastmile_dataflow.utils.io import write_rows

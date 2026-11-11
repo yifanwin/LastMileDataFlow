@@ -13,7 +13,6 @@ class ExecutionConfig:
     policy_config: str | None = None
     lastmile_low: float = 0.2
     lastmile_high: float = 0.8
-    lastmile_nearby_m: float = 1.0
     planner_backend: str = "curobo_v2_v080"
     # merged_hull: every environment geom as a closed hull in one mesh;
     # box_cuboids: native box geoms within the robot's reach as posed cuboids, the rest still merged
@@ -33,12 +32,10 @@ class ExecutionConfig:
     radius_m: float = 2.0
     spacing_m: float | None = None
     trials_per_station: int = 5
-    start_count: int = 3
     operation_retries: int = 1
     min_target_pixels: int = 24
     map_resolution_m: float = 0.05
     smoothing_sigma_m: float | None = None
-    smoothing_support_distance_m: float = 0.35
     navigation_margin_m: float = 0.02
     navigation_clearance_weight: float = 2.0
     navigation_max_penetration_m: float = 0.005
@@ -50,7 +47,6 @@ class ExecutionConfig:
     arrival_tolerance_m: float = 0.015
     arrival_tolerance_rad: float = 0.025
     max_navigation_steps: int = 2400
-    max_s1_candidates: int = 0  # 不参与 lastmile-datasets 全组合配对
     attempt_timeout_s: float = 300.0
     max_operation_plans: int = 12
     max_open_plans: int = 128
@@ -60,7 +56,6 @@ class ExecutionConfig:
     max_attempts: int = 5
     time_dilation: float = 0.5
     approach_offset_m: float = 0.01
-    torso_heights: list = field(default_factory=lambda: [0.0, 0.369, 0.738])
     operations: list = field(default_factory=lambda: ["pick", "open"])
     export_figures: bool = True
     seed: int = 42
@@ -121,7 +116,6 @@ class ExecutionConfig:
             raise ValueError("V2 torso error policy must be record_only")
         for key in (
             "trials_per_station",
-            "start_count",
             "min_target_pixels",
             "max_navigation_steps",
             "max_operation_plans",
@@ -135,16 +129,14 @@ class ExecutionConfig:
         ):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError("invalid " + key)
-        for key in ("seed", "operation_retries", "max_s1_candidates"):
+        for key in ("seed", "operation_retries"):
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError("invalid " + key)
         for key in (
             "local_base_radius_m",
-            "lastmile_nearby_m",
             "head_fov_min_depth_m",
             "radius_m",
             "map_resolution_m",
-            "smoothing_support_distance_m",
             "navigation_speed_m_s",
             "navigation_yaw_speed_rad_s",
             "arrival_tolerance_m",
@@ -180,10 +172,6 @@ class ExecutionConfig:
             raise ValueError("image dimensions must be even")
         if not self.operations or set(self.operations) - {"pick", "open"}:
             raise ValueError("unsupported operation")
-        if not self.torso_heights or any(
-            not 0 <= h <= 0.738 for h in self.torso_heights
-        ):
-            raise ValueError("invalid torso heights")
 
 
 def load_execution_config(path):
@@ -205,6 +193,8 @@ def execution_profile(robot, config):
 def calibration_execution(config):
     """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
     selection = {
+        "mode_config",
+        "torso_heights",
         "lastmile_low",
         "lastmile_high",
         "lastmile_nearby_m",

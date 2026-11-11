@@ -19,7 +19,7 @@ class SplitCommandTests(DatasetTestCase):
             self.assertEqual(len(scenes), 2)
             self.assertEqual(resources.gpu_ids, (1, 4))
             self.assertEqual(resources.cpu_workers, 5)
-            self.assertFalse(recording.record_images or recording.record_video or recording.record_depth)
+            self.assertFalse(recording.record_images or recording.record_video)
             records = []
             for scene in scenes:
                 for station in scene['stations']:

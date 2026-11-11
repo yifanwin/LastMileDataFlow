@@ -210,7 +210,7 @@ class ContactPolicyTests(unittest.TestCase):
             sim = self.pick_sim(directory)
             self.addCleanup(sim.close)
             recorder = AttemptRecorder(directory, {'collection': asdict(CollectionConfig(
-                record_images=False, record_video=False, record_physics=False))})
+                record_images=False, record_video=False))})
             recorder.bind_simulation(sim)
             ctx = ContinuousContext(sim, recorder, ExecutionConfig())
             self.addCleanup(ctx.finish)

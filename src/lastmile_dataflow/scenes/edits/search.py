@@ -12,7 +12,7 @@ from ...runtime.construction.session import ObstacleEditSession, clone_preparati
 from ...runtime.simulation import InitializationError
 from .placement import support_regions
 from ..geometry import body_points, body_pose
-from ..loading.asset_library import AssetSelector
+from ..loading.assets import AssetSelector
 from ..loading.assets import RuntimeGeometryCache
 from ..stations.sampling import disk_samples, park_robot, select_task_stations
 from pathlib import Path

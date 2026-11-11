@@ -8,8 +8,8 @@
 | `execution` | 必填 | 执行配置，见 [execution](../execution/README.md) |
 | `assets_dir` | `configs/local.json` 的 `assets_dir` | 资产目录 |
 | `max_trials` | 不限 | 每场景标定预算；不完整的标定不能用于正式配对 |
-| `record_video` / `record_depth` / `record_physics` | `false` | 额外记录视频、深度、逐物理步日志 |
-| `recording_mode` | 有视频或深度时 `visual`，否则 `numerical` | Panda 标定默认只存数值 |
+| `record_video` | `false` | 额外记录视频；RGB 和数值轨迹按运行模式保存 |
+| `recording_mode` | 有视频时 `visual`，否则 `numerical` | Panda 标定默认只存数值 |
 | `station_workers` | 1 | cuRobo 站位进程数 |
 | `planning_workers_per_gpu` | `[1]` | 每张卡的规划 worker 数（1–4），一个值或每卡一个值 |
 | `cpu_workers` | 60 | 独立 trial 执行容量 |

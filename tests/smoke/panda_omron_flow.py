@@ -88,7 +88,7 @@ def navigation(output, robot_config):
         '<body name="target" pos="4 4 .1"><geom type="sphere" size=".05"/></body></worldbody></mujoco>')
     sim = Simulation.from_source(SceneSource('navigation',str(scene.resolve())), robot_config, target='target')
     config = ExecutionConfig(head_fov_enabled=False, third_person_enabled=False, attempt_timeout_s=300.)
-    collection = CollectionConfig(record_images=False, record_video=False, record_physics=True)
+    collection = CollectionConfig(record_images=False, record_video=False, )
     recorder = AttemptRecorder(output, {'collection':asdict(collection), 'robot':asdict(robot_config)},attempt_id='navigation')
     recorder.bind_simulation(sim)
     ctx = ContinuousContext(sim, recorder, config)

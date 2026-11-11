@@ -113,8 +113,6 @@ class CollectionConfig:
     record_video: bool = True
     video_cameras: dict[str, str] | None = None
     record_images: bool = True
-    record_physics: bool = False
-    record_depth: bool = False
     penetration_ratio: float = 0.10
     penetration_floor_m: float = 0.010
     penetration_ceiling_m: float = 0.030
@@ -152,8 +150,6 @@ class StationRun:
     assets_dir: str | None = None
     max_trials: int | None = None
     record_video: bool = False
-    record_depth: bool = False
-    record_physics: bool = False
     recording_mode: str | None = None
     station_workers: int = 1
     planning_workers_per_gpu: list = field(default_factory=lambda: [1])

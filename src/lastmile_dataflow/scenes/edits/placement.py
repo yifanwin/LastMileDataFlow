@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 from ..geometry import extract_regions, support_rays
 from ..stations.initialization import floor_support, inside_triangles, room_triangles, floor_height
-from ..loading.asset_library import AssetRequest
+from ..loading.assets import AssetRequest
 
 @dataclass(frozen=True)
 class AddObject:

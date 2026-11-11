@@ -26,17 +26,29 @@ class DatasetTests(DatasetTestCase):
     def test_scene_selection_ignores_nonmaterialized_task_mode_records(self):
         dataset = self.dataset()
         accepted = load_scenes(dataset)[0]
-        append_row(dataset / 'scenes.jsonl', {'status': 'skipped', 'proposal_intent': 'articulated_interaction'})
-        append_row(dataset / 'scenes.jsonl', {'status': 'rejected', 'reason': 'task_preparation_failed'})
-        self.assertEqual(load_scenes(dataset, [accepted['scene_id']]), [accepted])
+        append_row(
+            dataset / "scenes.jsonl",
+            {"status": "skipped", "proposal_intent": "articulated_interaction"},
+        )
+        append_row(
+            dataset / "scenes.jsonl",
+            {"status": "rejected", "reason": "task_preparation_failed"},
+        )
+        self.assertEqual(load_scenes(dataset, [accepted["scene_id"]]), [accepted])
 
     def test_scene_roundtrip_and_xml_payload(self):
         dataset = self.dataset()
         record = load_scenes(dataset)[0]
-        restored = Simulation.from_snapshot(record["scene_path"], self.robot, target="target")
+        restored = Simulation.from_snapshot(
+            record["scene_path"], self.robot, target="target"
+        )
         try:
-            np.testing.assert_array_equal(restored.state_vector(), self.sim.state_vector())
-            model = mujoco.MjModel.from_xml_path(str(Path(record["scene_path"]) / "model.xml"))
+            np.testing.assert_array_equal(
+                restored.state_vector(), self.sim.state_vector()
+            )
+            model = mujoco.MjModel.from_xml_path(
+                str(Path(record["scene_path"]) / "model.xml")
+            )
             self.assertEqual(model.nq, self.sim.model.nq)
             self.assertEqual(
                 {p.name for p in Path(record["scene_path"]).iterdir()},
@@ -46,28 +58,39 @@ class DatasetTests(DatasetTestCase):
             restored.close()
 
     def test_rates_exclude_errors_and_require_complete_points(self):
-        config = ExecutionConfig(trials_per_station=2, start_count=1)
+        config = ExecutionConfig(trials_per_station=2)
         trials = [
-            {"station_id": s, "trial": i, "status": "failure" if s == "s0" else "success"}
+            {
+                "station_id": s,
+                "trial": i,
+                "status": "failure" if s == "s0" else "success",
+            }
             for s in ("s0", "s1")
             for i in range(2)
         ]
         binding = {"scene_id": "one", "task_id": "pick-target"}
         rates = station_calibration(self.points, trials, 2, binding, config)
-        self.assertEqual(len(generate_pairs(*eligible_stations(self.points, rates, config))), 1)
+        self.assertEqual(
+            len(generate_pairs(*eligible_stations(self.points, rates, config))), 1
+        )
         incomplete = station_calibration(
             self.points,
-            trials[:-1] + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
+            trials[:-1]
+            + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
             2,
             binding,
             config,
         )
         self.assertFalse(incomplete["complete"])
-        self.assertEqual(generate_pairs(*eligible_stations(self.points, incomplete, config)), [])
+        self.assertEqual(
+            generate_pairs(*eligible_stations(self.points, incomplete, config)), []
+        )
 
     def test_model_export_keeps_source_and_requires_motor_calibration(self):
         recorder = AttemptRecorder(
-            self.root, {"collection": asdict(self.collection), "task": self.task}, attempt_id="r0"
+            self.root,
+            {"collection": asdict(self.collection), "task": self.task},
+            attempt_id="r0",
         )
         recorder.bind_simulation(self.sim)
         self.sim.begin()
@@ -75,7 +98,9 @@ class DatasetTests(DatasetTestCase):
         recorder.finish("failure", "fixture")
         with self.assertRaisesRegex(ValueError, "motor map"):
             export_molmobot(recorder.path, self.root / "bad")
-        output = export_molmobot(recorder.path, self.root / "state", state_images_only=True)
+        output = export_molmobot(
+            recorder.path, self.root / "state", state_images_only=True
+        )
         with np.load(output / "data.npz") as data:
             self.assertNotIn("actions", data.files)
             self.assertEqual(data["state"].shape, (2, 22))

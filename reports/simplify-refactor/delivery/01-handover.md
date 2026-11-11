@@ -2,7 +2,8 @@
 
 - 状态：active；已恢复工作，阶段 0–2 完成，阶段 7 的控制、策略配置、本体公共工具已实施
 - 替代：无
-- 最新进度：[06-station-map.md](06-station-map.md)：标定/采集已拆分，诊断、旧 recipe、StationPlannerCache 和 mode_config 已删除，58 项相关局部测试通过；其余收尾继续。
+- 本轮进度：[07-runtime-assets-recording.md](07-runtime-assets-recording.md)：资产与 runtime 合并、physics/depth 录制和无用执行字段已删除；完整文档/配置清理及验证仍待处理。
+- 前轮进度：[06-station-map.md](06-station-map.md)：标定/采集已拆分，诊断、旧 recipe、StationPlannerCache 和 mode_config 已删除，58 项相关局部测试通过；其余收尾继续。
 - 上轮进度：[05-scene-edits.md](05-scene-edits.md)：阶段 3 已替换旧模式构建并删除旧目录，局部测试通过；真实构建验证和阶段 4 等继续处理。
 - 前轮进度：[04-collection-benchmark.md](04-collection-benchmark.md)，包含采集自包含导出、benchmark 分支删除与固定抓取后端删除；阶段 3、4、执行配置和整体收尾仍待完成。
 - 上轮交付：[03-egl-device-binding.md](03-egl-device-binding.md)；控制精简见 [02-control-policy-refactor.md](02-control-policy-refactor.md)

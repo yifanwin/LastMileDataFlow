@@ -48,7 +48,6 @@ def calibration_recording(collection, mode):
         collection,
         record_images=visual,
         record_video=visual and collection.record_video,
-        record_depth=visual and collection.record_depth,
     )
 
 

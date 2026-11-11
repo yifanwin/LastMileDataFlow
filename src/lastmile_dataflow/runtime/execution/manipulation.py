@@ -8,7 +8,7 @@ from ...planning.curobo.planner import V2Planner
 from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import evaluate_open
-from .checks import hold_pick, timed
+from ..outcomes.pick import hold_pick, timed
 from dataclasses import replace
 
 

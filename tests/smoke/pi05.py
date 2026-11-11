@@ -79,7 +79,7 @@ def main():
             policy.config = replace(policy.config,task_horizon=args.horizon)
             packet = run_vla_attempt(sim,task,{'station_id':'fixed-smoke','initial':initial,
                 'xy':case['base_xyyaw'][:2]},execution,
-                CollectionConfig(record_physics=True),root=args.output,attempt_id='policy',seed=args.seed,policy=policy)
+                CollectionConfig(),root=args.output,attempt_id='policy',seed=args.seed,policy=policy)
             packet.update(stage='real_policy_rollout',uncalibrated_fixed_station=True)
         finally:
             if policy is not None: policy.close()

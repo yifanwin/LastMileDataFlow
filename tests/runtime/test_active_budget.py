@@ -10,7 +10,7 @@ import numpy as np
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.planning.remote import PlanningClient
-from lastmile_dataflow.runtime.execution.checks import timed
+from lastmile_dataflow.runtime.outcomes.pick import timed
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
 from lastmile_dataflow.runtime.execution.protocol import PlanningResponse, TrialBudget, TrialIdentity
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig

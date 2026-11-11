@@ -60,7 +60,7 @@ def _copy_rollout(source, target, config, record):
         raise ValueError('incomplete replayed training observations')
     cameras = (replayed['cameras'] if replayed else
                config['profiles'][record['scene_id']]['robot']['cameras'] if collection['record_images'] else [])
-    record_depth = replayed['record_depth'] if replayed else collection['record_depth']
+    record_depth = replayed['record_depth'] if replayed else collection.get('record_depth', False)
     for camera in cameras:
         destination = target / 'images' / camera
         destination.mkdir(parents=True)

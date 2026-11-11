@@ -12,7 +12,7 @@ from ...data.recorder import AttemptRecorder
 from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.evaluation import attribute
 from ..outcomes.contacts import SIMULATION_FAILURES, CONTACT_POLICY
-from .checks import EXECUTION_SEMANTICS, SPLIT_EXECUTION_SEMANTICS, PickEvidenceComplete, resolve_timeout, timed
+from ..outcomes.pick import EXECUTION_SEMANTICS, SPLIT_EXECUTION_SEMANTICS, PickEvidenceComplete, resolve_timeout, timed
 
 from .context import ContinuousContext, clone_sim, OperationFailure
 from .navigation import navigate

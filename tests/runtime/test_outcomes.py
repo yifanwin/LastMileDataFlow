@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution.checks import (
+from lastmile_dataflow.runtime.outcomes.pick import (
     PickEvidenceComplete,
     checkpoint_pick_success,
     hold_pick,
@@ -89,7 +89,7 @@ class EvidenceTests(unittest.TestCase):
     def test_timers_account_exception(self):
         ctx = SimpleNamespace(timings={})
         with (
-            patch("lastmile_dataflow.runtime.execution.checks.time.monotonic", side_effect=[1.0, 4.0]),
+            patch("lastmile_dataflow.runtime.outcomes.pick.time.monotonic", side_effect=[1.0, 4.0]),
             self.assertRaises(ValueError),
         ):
             with timed(ctx, "planning"):

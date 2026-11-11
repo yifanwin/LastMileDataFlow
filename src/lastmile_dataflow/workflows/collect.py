@@ -619,15 +619,9 @@ def run_stations(
     config = load_execution_config(run.execution)
     recording = CollectionConfig(
         record_video=run.record_video,
-        record_depth=run.record_depth,
-        record_physics=run.record_physics,
-        record_images=collect
-        or not config.shared_station_preparation
-        or run.record_depth,
+        record_images=collect or not config.shared_station_preparation,
     )
-    mode = run.recording_mode or (
-        "visual" if run.record_video or run.record_depth else "numerical"
-    )
+    mode = run.recording_mode or ("visual" if run.record_video else "numerical")
     assets_dir = run.assets_dir or load_local_config().assets_dir
     if assets_dir is None:
         raise ValueError(

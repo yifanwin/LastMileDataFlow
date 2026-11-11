@@ -69,13 +69,11 @@ class TorsoCommandTests(unittest.TestCase):
                 )
 
                 ctx.contact_stats = ContactStatistics()
-                ctx.record_physics = True
                 ctx.state = lambda: {"time_s": 0.0}
                 ctx.monitor = None
                 ctx.collisions = []
                 ctx.fingers = set()
                 ctx.target_bodies = set()
-                ctx.physics = io.BytesIO()
                 ctx.record_video = False
                 ctx.timings = {}
                 ctx.recorder = SimpleNamespace(path=Path(directory), steps=0)
@@ -120,10 +118,6 @@ class TorsoCommandTests(unittest.TestCase):
                 self.assertEqual(ctx.last_legal_torso_target, 0.738)
                 event = json.loads((Path(directory) / "torso_command_adjustments.jsonl").read_text())
                 self.assertEqual(event["submitted_h"], 0.738)
-                row = json.loads(ctx.physics.getvalue())
-                self.assertEqual(row["torso_feedback_tolerance_rad"], 0.003)
-                # the raw measurement is still recorded even when it does not stop.
-                self.assertAlmostEqual(row["torso_limit_excess_rad"], max(0.0, feedback - 0.738))
 
 
 class NavigateTorsoLoopTests(unittest.TestCase):
