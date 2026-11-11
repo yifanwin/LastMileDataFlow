@@ -12,3 +12,7 @@ TCP and collision alignment must be validated against the factory-composed model
 
 The mobile integration replaces chassis/support sphere coverage using the actual
 factory MuJoCo geometry, including the rear chassis and fixed/lift columns.
+
+URDF translations, slide limits and collision spheres are scaled to 0.9.
+Simulation applies frame scale=0.9 with scaling=geometry on scene attachment
+(MuJoCo 3.16). Source factory assets must remain unscaled.

@@ -4,11 +4,20 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from lastmile_dataflow.planning.robots.panda_omron import configuration, robot_description, ASSETS, ARM_NAMES, FULL_NAMES
+from lastmile_dataflow.planning.robots.panda_omron import configuration, robot_description, ASSETS, ARM_NAMES, FULL_NAMES, SCALE
 from tests.runtime.test_robot_interface import panda_adapter
 
 
 class PandaPlanningTests(unittest.TestCase):
+    def test_scaled_planning_dimensions(self):
+        root = robot_description()[0]
+        joint = root.find("joint[@name='panda_joint1']/origin")
+        self.assertAlmostEqual(float(joint.get("xyz").split()[2]), .333 * SCALE)
+        lift = root.find("joint[@name='torso_height']/limit")
+        self.assertAlmostEqual(float(lift.get("upper")), .34 * SCALE)
+        finger = root.find("joint[@name='panda_finger_joint1']/limit")
+        self.assertAlmostEqual(float(finger.get("upper")), .04 * SCALE)
+
     def test_fixed_pick_locks_base_lift_and_measured_fingers(self):
         robot = panda_adapter()
         cfg = configuration(robot)["kinematics"]
@@ -38,7 +47,9 @@ class PandaPlanningTests(unittest.TestCase):
         # on omron_base above the chassis top, the lift column on panda_link0 above the
         # part that stays inside the fixed column over the torso travel. The former 8-sphere
         # sets overhung by ~14 cm and rejected stations 3-10 cm clear of the table.
-        spheres = robot_description()[1]
+        spheres = {link: [{"center": np.asarray(s["center"]) / SCALE,
+                           "radius": s["radius"] / SCALE} for s in values]
+                   for link, values in robot_description()[1].items()}
         columns = {"omron_base": (lambda z: z >= .382, .12, .382, .70),
                    "panda_link0": (lambda z: z < 0, .1125, -.34, 0.)}
         buffer = configuration(panda_adapter())["kinematics"]["collision_sphere_buffer"]
