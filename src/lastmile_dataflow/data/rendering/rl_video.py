@@ -15,10 +15,13 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
     model.vis.global_.offwidth = max(model.vis.global_.offwidth, width)
     model.vis.global_.offheight = max(model.vis.global_.offheight, height)
     cameras = []
-    for distance, elevation in ((2.6, -25), (.45, -20)):
+    target = np.asarray(settings['lookat'])
+    base = np.asarray(settings['base_position'])
+    azimuth = np.degrees(np.arctan2(base[1] - target[1], base[0] - target[0])) + 30
+    for index, (distance, elevation) in enumerate(((2.3, -25), (.45, -20))):
         camera = mujoco.MjvCamera()
-        camera.distance, camera.azimuth, camera.elevation = distance, 135, elevation
-        camera.lookat[:] = settings['lookat']
+        camera.distance, camera.azimuth, camera.elevation = distance, azimuth, elevation
+        camera.lookat[:] = (target + base) / 2 if index == 0 else target
         cameras.append(camera)
     path = Path(path)
     path.parent.mkdir(exist_ok=True)

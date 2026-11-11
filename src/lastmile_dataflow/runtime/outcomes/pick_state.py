@@ -17,8 +17,7 @@ PICK_THRESHOLDS = {
 
 
 RL_PICK_THRESHOLDS = {**PICK_THRESHOLDS, 'version': 'rl-pick-1cm-1s-v1',
-                      'lift_m': .01, 'hold_s': 1., 'relative_translation_m': float('inf'),
-                      'relative_rotation_rad': float('inf')}
+                      'lift_m': .01, 'hold_s': 1., 'enforce_relative_pose': False}
 
 
 def update_hold_window(time, held, position, rotation, start, reference_position,
@@ -28,9 +27,9 @@ def update_hold_window(time, held, position, rotation, start, reference_position
     # trace(R_ref.T R) is the Frobenius inner product.
     cosine = (xp.sum(reference_rotation * rotation, axis=(-2, -1)) - 1) / 2
     angle = xp.arccos(xp.clip(cosine, -1., 1.))
-    reopen = held & ((start < 0) |
-                     (displacement > thresholds['relative_translation_m']) |
-                     (angle > thresholds['relative_rotation_rad']))
+    slipped = ((displacement > thresholds['relative_translation_m']) |
+               (angle > thresholds['relative_rotation_rad'])) & thresholds.get('enforce_relative_pose', True)
+    reopen = held & ((start < 0) | slipped)
     start = xp.where(held, xp.where(reopen, time, start), -1.)
     reference_position = xp.where(reopen[..., None], position, reference_position)
     reference_rotation = xp.where(reopen[..., None, None], rotation, reference_rotation)

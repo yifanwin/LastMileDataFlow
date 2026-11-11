@@ -118,7 +118,9 @@
   "success": {
     "version": "rl-pick-1cm-1s-v1",
     "lift_m": 0.01,
-    "hold_s": 1.0
+    "hold_s": 1.0,
+    "finger_force_min_n": 1e-06,
+    "enforce_relative_pose": false
   },
   "video": {
     "every": 100000,
