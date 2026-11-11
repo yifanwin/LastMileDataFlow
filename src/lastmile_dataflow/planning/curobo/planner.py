@@ -9,6 +9,7 @@ import time
 import numpy as np
 
 from ...utils.io import write_json
+from ...runtime.execution_config import NATIVE_MAX_ATTEMPTS
 from ...utils.logging_config import trial_progress
 
 from ..waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
@@ -835,7 +836,7 @@ class V2Planner:
                     "batch_seeds": list(seeds),
                     "queries": list(self.query_log),
                     "planning_s": elapsed,
-                    "native_max_attempts": self.config.max_attempts,
+                    "native_max_attempts": NATIVE_MAX_ATTEMPTS,
                     "joint_names": list(self.names),
                     "reference_world": self.base.tolist(),
                     "control_dt_s": 1 / self.sim.robot.config.control_hz,

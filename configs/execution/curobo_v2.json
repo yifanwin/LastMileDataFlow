@@ -1,6 +1,5 @@
 {
   "operation_base_mode": "holonomic_joint_planning",
-  "torso_error_policy": "record_only",
   "third_person_enabled": true,
   "radius_m": 0.7928056080178096,
   "spacing_m": 0.1108796040001314,
@@ -16,10 +15,5 @@
   "attempt_timeout_s": 300.0,
   "width": 320,
   "height": 240,
-  "seed": 42,
-  "planner_backend": "curobo_v2_v080",
-  "max_attempts": 5,
-  "head_fov_enabled": false,
-  "require_target_visibility": false,
-  "require_navigation_clearance": false
+  "seed": 42
 }

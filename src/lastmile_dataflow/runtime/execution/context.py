@@ -12,6 +12,7 @@ from .lifecycle import track_resource
 from ...utils.io import canonical, write_json
 from ...scenes.geometry import tcp_pose
 from ..control.interface import RobotCommand
+from ..execution_config import TORSO_ERROR_POLICY
 from ..control.action import sanitize_action
 from ..control.action import (
     bounded_torso_command,
@@ -51,9 +52,12 @@ def clone_sim(sim, *, target=None, handle=None):
 
 
 class ContinuousContext:
-    def __init__(self, sim, recorder, config, *, budget=None):
+    def __init__(self, sim, recorder, config, *, budget=None, max_plans=None, prepared_state=None):
         (self.sim, self.recorder, self.config) = (sim, recorder, config)
         self.budget = budget
+        # Split calibration plans from the prepared station state; remote planning swaps the factory.
+        self.prepared_state = prepared_state
+        self.planner_factory = None
         self.stop = None
         self.phase = "initialize"
         self.started_at = time.monotonic()
@@ -75,7 +79,7 @@ class ContinuousContext:
         self.plan_serial = self.plan_count
         self.analysis = None
         self.initial_target_height = float(sim.data.xpos[sim.target_id, 2])
-        self.max_plans = config.max_operation_plans
+        self.max_plans = config.max_operation_plans if max_plans is None else max_plans
         self.last_legal_torso_target = None
         self.open_joint = None
         self.manip_base_target = None
@@ -142,7 +146,7 @@ class ContinuousContext:
             if "torso" in facts:
                 facts.update(
                     torso_tracking_error_rad=torso_tracking_error(facts),
-                    torso_error_policy=self.config.torso_error_policy,
+                    torso_error_policy=TORSO_ERROR_POLICY,
                 )
             self.samples.append(facts)
             fail = mobile_constraint_failure(facts, self.monitor.initial)

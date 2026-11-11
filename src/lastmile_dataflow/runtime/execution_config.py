@@ -1,10 +1,25 @@
 """Execution parameters and the shared robot/camera/backend profile."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 import math
 
 from ..config import read_config
-from ..policies.config import load_policy_config
+
+# Fixed execution contract; written into results, not configurable.
+PLANNER_BACKEND = "curobo_v2_v080"
+NATIVE_MAX_ATTEMPTS = 5            # cuRobo V2 native plan_pose default; not a trial count
+TORSO_ERROR_POLICY = "record_only"
+MAX_OPERATION_RETRIES = 1          # S1 permits at most one outer retry after navigation
+
+_POSITIVE_INTS = ("trials_per_station", "min_target_pixels", "max_navigation_steps", "max_operation_plans",
+                  "max_open_plans", "max_grasp_candidates", "num_ik_seeds", "num_trajopt_seeds", "width", "height")
+_NONNEGATIVE_INTS = ("seed", "operation_retries")
+_POSITIVE = ("local_base_radius_m", "head_fov_min_depth_m", "radius_m", "map_resolution_m", "navigation_speed_m_s",
+             "navigation_yaw_speed_rad_s", "arrival_tolerance_m", "arrival_tolerance_rad", "attempt_timeout_s",
+             "gripper_width_m", "open_hinge_rad", "open_slide_m", "open_hold_s", "open_waypoint_step_rad",
+             "open_waypoint_step_m")
+_NONNEGATIVE = ("navigation_margin_m", "navigation_clearance_weight", "navigation_max_penetration_m")
+_UNIT = ("time_dilation", "open_fraction")   # (0, 1]
 
 
 @dataclass(frozen=True)
@@ -13,19 +28,17 @@ class ExecutionConfig:
     policy_config: str | None = None
     lastmile_low: float = 0.2
     lastmile_high: float = 0.8
-    planner_backend: str = "curobo_v2_v080"
     # merged_hull: every environment geom as a closed hull in one mesh;
     # box_cuboids: native box geoms within the robot's reach as posed cuboids, the rest still merged
     environment_representation: str = "merged_hull"
     operation_base_mode: str = "holonomic_joint_planning"
-    torso_error_policy: str = "record_only"
     initial_settle_s: float = 0.0
     shared_station_preparation: bool = False
     grasp_roll_rad: float = 0.0
     grasp_candidate_order: str = "facing"
     local_base_radius_m: float = 0.35
     third_person_enabled: bool = True
-    head_fov_enabled: bool = True
+    head_fov_enabled: bool = False
     head_fov_margin: float = 0.9
     head_fov_weight: float = 10000.0
     head_fov_min_depth_m: float = 0.01
@@ -40,8 +53,6 @@ class ExecutionConfig:
     navigation_clearance_weight: float = 2.0
     navigation_max_penetration_m: float = 0.005
     navigation_whole_body: bool = False
-    require_target_visibility: bool = False
-    require_navigation_clearance: bool = False
     navigation_speed_m_s: float = 0.20
     navigation_yaw_speed_rad_s: float = 0.4
     arrival_tolerance_m: float = 0.015
@@ -53,7 +64,6 @@ class ExecutionConfig:
     max_grasp_candidates: int = 4
     num_ik_seeds: int = 32
     num_trajopt_seeds: int = 4
-    max_attempts: int = 5
     time_dilation: float = 0.5
     approach_offset_m: float = 0.01
     operations: list = field(default_factory=lambda: ["pick", "open"])
@@ -61,9 +71,7 @@ class ExecutionConfig:
     seed: int = 42
     width: int = 320
     height: int = 240
-    gripper_width_m: float = (
-        0.10  # RBY1M model jaw travel; measured geometry saved per scene
-    )
+    gripper_width_m: float = 0.10  # RBY1M model jaw travel; measured geometry saved per scene
     open_fraction: float = 0.3
     open_hinge_rad: float = math.pi / 6
     open_slide_m: float = 0.10
@@ -84,88 +92,31 @@ class ExecutionConfig:
             raise ValueError("invalid head FOV weight")
         if self.grasp_candidate_order not in ("facing", "tcp_distance"):
             raise ValueError("unknown grasp candidate order")
-        if (
-            not math.isfinite(self.grasp_roll_rad)
-            or not math.isfinite(self.initial_settle_s)
-            or self.initial_settle_s < 0
-        ):
+        if not math.isfinite(self.grasp_roll_rad) or not math.isfinite(self.initial_settle_s) or self.initial_settle_s < 0:
             raise ValueError("invalid grasp roll/settling")
-        if self.planner_backend != "curobo_v2_v080":
-            raise ValueError("unknown planner backend")
         if self.environment_representation not in ("merged_hull", "box_cuboids"):
             raise ValueError("unknown environment representation")
-        if self.operation_retries > 1:
+        if self.operation_retries > MAX_OPERATION_RETRIES:
             raise ValueError("S1 permits at most one outer retry")
-        if self.max_attempts != 5:
-            raise ValueError("V2 uses native plan_pose default max_attempts=5")
-        base_mode = (
-            "policy_relative"
-            if self.operation_backend in ("molmobot", "pi05")
-            else "holonomic_joint_planning"
-        )
-        if self.operation_base_mode not in (
-            (base_mode, "fixed") if self.operation_backend == "curobo" else (base_mode,)
-        ):
+        base_mode = "policy_relative" if self.operation_backend in ("molmobot", "pi05") else "holonomic_joint_planning"
+        allowed = (base_mode, "fixed") if self.operation_backend == "curobo" else (base_mode,)
+        if self.operation_base_mode not in allowed:
             raise ValueError("operation base mode does not match backend")
-        if self.operation_backend == "molmobot" and (self.width, self.height) != (
-            1024,
-            576,
-        ):
+        if self.operation_backend == "molmobot" and (self.width, self.height) != (1024, 576):
             raise ValueError("MolmoBot evaluation requires 1024x576")
-        if self.torso_error_policy != "record_only":
-            raise ValueError("V2 torso error policy must be record_only")
-        for key in (
-            "trials_per_station",
-            "min_target_pixels",
-            "max_navigation_steps",
-            "max_operation_plans",
-            "max_open_plans",
-            "max_grasp_candidates",
-            "num_ik_seeds",
-            "num_trajopt_seeds",
-            "max_attempts",
-            "width",
-            "height",
-        ):
-            if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
-                raise ValueError("invalid " + key)
-        for key in ("seed", "operation_retries"):
-            if type(getattr(self, key)) is not int or getattr(self, key) < 0:
-                raise ValueError("invalid " + key)
-        for key in (
-            "local_base_radius_m",
-            "head_fov_min_depth_m",
-            "radius_m",
-            "map_resolution_m",
-            "navigation_speed_m_s",
-            "navigation_yaw_speed_rad_s",
-            "arrival_tolerance_m",
-            "arrival_tolerance_rad",
-            "attempt_timeout_s",
-            "gripper_width_m",
-            "open_hinge_rad",
-            "open_slide_m",
-            "open_hold_s",
-            "open_waypoint_step_rad",
-            "open_waypoint_step_m",
-        ):
-            value = getattr(self, key)
-            if not math.isfinite(value) or value <= 0:
-                raise ValueError("invalid " + key)
+        for key in _POSITIVE_INTS:
+            _check(key, type(getattr(self, key)) is int and getattr(self, key) > 0)
+        for key in _NONNEGATIVE_INTS:
+            _check(key, type(getattr(self, key)) is int and getattr(self, key) >= 0)
+        for key in _POSITIVE:
+            _check(key, math.isfinite(getattr(self, key)) and getattr(self, key) > 0)
+        for key in _NONNEGATIVE:
+            _check(key, math.isfinite(getattr(self, key)) and getattr(self, key) >= 0)
+        for key in _UNIT:
+            _check(key, 0 < getattr(self, key) <= 1)
         for value in (self.spacing_m, self.smoothing_sigma_m):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError("spacing and smoothing must be positive")
-        for key in (
-            "navigation_margin_m",
-            "navigation_clearance_weight",
-            "navigation_max_penetration_m",
-        ):
-            if not math.isfinite(getattr(self, key)) or getattr(self, key) < 0:
-                raise ValueError("invalid " + key)
-        for key in ("time_dilation", "open_fraction"):
-            value = getattr(self, key)
-            if not 0 < value <= 1:
-                raise ValueError("invalid " + key)
         if not 0 <= self.approach_offset_m <= 0.02:
             raise ValueError("invalid approach offset")
         if self.width % 2 or self.height % 2:
@@ -174,36 +125,10 @@ class ExecutionConfig:
             raise ValueError("unsupported operation")
 
 
+def _check(key, ok):
+    if not ok:
+        raise ValueError("invalid " + key)
+
+
 def load_execution_config(path):
     return ExecutionConfig(**read_config(path, repo_fields=("policy_config",)))
-
-
-def execution_profile(robot, config):
-    return {
-        "robot": asdict(robot),
-        "width": config.width,
-        "height": config.height,
-        "backend": config.operation_backend,
-        "policy": asdict(load_policy_config(config.policy_config))
-        if config.policy_config
-        else None,
-    }
-
-
-def calibration_execution(config):
-    """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
-    selection = {
-        "mode_config",
-        "torso_heights",
-        "lastmile_low",
-        "lastmile_high",
-        "lastmile_nearby_m",
-        "start_count",
-        "max_s1_candidates",
-        "smoothing_sigma_m",
-        "smoothing_support_distance_m",
-        "navigation_margin_m",
-        "navigation_clearance_weight",
-        "navigation_max_penetration_m",
-    }
-    return {key: value for key, value in config.items() if key not in selection}

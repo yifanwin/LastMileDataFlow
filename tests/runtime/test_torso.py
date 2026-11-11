@@ -59,7 +59,7 @@ class TorsoCommandTests(unittest.TestCase):
             with self.subTest(feedback=feedback), tempfile.TemporaryDirectory() as directory:
                 ctx = ContinuousContext.__new__(ContinuousContext)
                 ctx.budget = None
-                ctx.config = ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5)
+                ctx.config = ExecutionConfig()
                 ctx.phase = "close"
                 ctx.deadline = lambda: None
                 ctx.begin = lambda: None
@@ -129,7 +129,6 @@ class NavigateTorsoLoopTests(unittest.TestCase):
             navigation_yaw_speed_rad_s=0.4,
             arrival_tolerance_m=0.015,
             arrival_tolerance_rad=0.025,
-            planner_backend="curobo_v2_v080",
         )
         robot = SimpleNamespace(
             config=SimpleNamespace(control_hz=20.0, max_base_delta=0.1, max_yaw_delta=0.2),

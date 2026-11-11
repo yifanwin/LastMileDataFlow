@@ -110,14 +110,14 @@ class V2ModelTests(unittest.TestCase):
         self.assertIs(manager_type(second).create({}).context, second)
 
     def test_version_and_retry_layers(self):
-        cfg = ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5)
+        cfg = ExecutionConfig()
         self.assertEqual(cfg.operation_retries + 1, 2)
         self.assertEqual(cfg.trials_per_station, 5)
         self.assertEqual(cfg.max_operation_plans, 12)
+        with self.assertRaises(TypeError):
+            ExecutionConfig(max_attempts=5)
         with self.assertRaises(ValueError):
-            ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=3)
-        with self.assertRaises(ValueError):
-            ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5, operation_retries=2)
+            ExecutionConfig(operation_retries=2)
 
     def test_11d_waypoint_maps_h_absolute_not_delta(self):
         groups = {"base": np.zeros(3), "left_arm": np.zeros(7), "torso": np.array([0, 0.3, -0.6, 0.3, 0, 0])}

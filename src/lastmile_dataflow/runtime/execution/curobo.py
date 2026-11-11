@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass, field
 import logging
 import os
+from pathlib import Path
 import time
 
 import numpy as np
@@ -11,6 +12,7 @@ from ...data.rendering.analysis_video import AnalysisVideo
 from ...scenes.tasks.discovery import robot_footprint
 from ...utils.io import write_json
 from ..control.action import InvalidAction
+from ..execution_config import PLANNER_BACKEND, TORSO_ERROR_POLICY
 from ..control.interface import RobotCommand
 from ..outcomes.contacts import CONTACT_POLICY
 from ..outcomes.task import attribute
@@ -67,7 +69,10 @@ def run_curobo_attempt(baseline, task, station, candidates, assets_dir, config, 
                                  'requested_station': station, 'elapsed_s': prepared.elapsed_s}
     recorder = AttemptRecorder(root, packet, attempt_id=attempt_id)
     recorder.bind_simulation(sim, width=config.width, height=config.height)
-    ctx = ContinuousContext(sim, recorder, config, budget=None if planning_client is None else planning_client.budget)
+    max_plans = config.max_open_plans if task['operation'] == 'open' else config.max_operation_plans
+    ctx = ContinuousContext(sim, recorder, config, budget=None if planning_client is None else planning_client.budget,
+                            max_plans=max_plans,
+                            prepared_state=None if planning_client is None else Path(prepared.path) / 'state.npz')
     if planning_client is not None:
         planning_client.bind(ctx)
     if config.third_person_enabled:
@@ -75,8 +80,6 @@ def run_curobo_attempt(baseline, task, station, candidates, assets_dir, config, 
     write_json(recorder.path / 'initial_state.json', sim.observe_state())
     initial_target = sim.data.xpos[sim.target_id].copy()
     mark_episode_phase('execution')
-    if task['operation'] == 'open':
-        ctx.max_plans = config.max_open_plans
     outcome = CuroboOutcome(navigation={'status': 'running' if path else 'not_requested'})
     try:
         if path:
@@ -191,9 +194,9 @@ def _finalize(ctx, outcome, task, config, semantics, path, planning_client):
               'status': status, 'reason': reason, 'attribution': outcome.attribution, 'control': outcome.control,
               'exception_detail': outcome.exception_detail, 'navigation': outcome.navigation,
               'retry_history': outcome.retries, 'continuous_simulation': True,
-              'operation_base_mode': config.operation_base_mode, 'planner_backend': config.planner_backend,
+              'operation_base_mode': config.operation_base_mode, 'planner_backend': PLANNER_BACKEND,
               'manipulation_protocol': 'mobile-pick-v2' if task['operation'] == 'pick' else 'mobile-open-v2',
-              'torso_error_policy': config.torso_error_policy, 'contact_policy': CONTACT_POLICY,
+              'torso_error_policy': TORSO_ERROR_POLICY, 'contact_policy': CONTACT_POLICY,
               'trajectory_metrics': trajectory_metrics(ctx.contact_stats, sim, status=status,
                                                        task_status=task_outcome['status'])}
     finish_started = time.monotonic()

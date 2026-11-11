@@ -18,6 +18,7 @@ import numpy as np
 
 from ...scenes.geometry import body_pose, descendants, tcp_pose
 from ..control.action import torso_joints
+from ..execution_config import TORSO_ERROR_POLICY
 from .contacts import CONTACT_POLICY, SIMULATION_FAILURES, ContactSampler, simulation_failure
 from .pick_state import PICK_THRESHOLDS, update_hold_window
 
@@ -182,7 +183,7 @@ def constraint(row, initial):
 def evaluate_mobile_pick(samples,initial):
     result=evaluate_pick(samples,initial,constraint_checker=mobile_constraint_failure)
     result['protocol']='mobile-pick-v2'
-    result['torso_error_policy']='record_only'
+    result['torso_error_policy']=TORSO_ERROR_POLICY
     if result['status']=='success': result['reason']='mobile_pick'
     return result
 
@@ -271,4 +272,4 @@ def evaluate(task, samples, initials, hold_s):
         status, reason = 'failure', 'task_not_completed'
     return {'status':status, 'reason':reason,
             'winning_hand':success if status=='success' else None, 'hands':verdicts, 'protocol':VLA_PROTOCOL,
-            'torso_error_policy':'record_only', 'both_arms_commanded':len(samples)>1}
+            'torso_error_policy':TORSO_ERROR_POLICY, 'both_arms_commanded':len(samples)>1}

@@ -17,6 +17,7 @@ from ...policies.task import instruction
 from ...utils.io import write_json
 from ...utils.logging_config import trial_progress
 from ..control.action import InvalidAction
+from ..execution_config import TORSO_ERROR_POLICY
 from ..outcomes.contacts import CONTACT_POLICY, ContactSampler, ContactStatistics, NavigationContacts, simulation_failure
 from ..outcomes.task import VLA_PROTOCOL as PROTOCOL, PickMonitor, constraint, evaluate, torso_tracking_error
 from .attempt import (attempt_result, failure_status, finish_navigation, open_attempt_sim,
@@ -180,7 +181,7 @@ class VLARollout:
             facts["torso_tracking_error_rad"] = torso_tracking_error(facts)
         else:
             facts["lift_tracking_error_m"] = abs(facts["lift"] - robot.control_height())
-        facts["torso_error_policy"] = "record_only"
+        facts["torso_error_policy"] = TORSO_ERROR_POLICY
         if self.task["operation"] == "open":
             joint = self.sim.model.joint(self.task["joint_name"]).id
             facts["joint_value"] = float(self.sim.data.qpos[self.sim.model.jnt_qposadr[joint]])

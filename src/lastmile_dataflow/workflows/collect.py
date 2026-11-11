@@ -9,12 +9,12 @@ from pathlib import Path
 import time
 
 from ..gpu import bind_device, select_devices
-from ..config import CollectionConfig, load_local_config, load_station_run, read_config
+from ..config import CollectionConfig, load_local_config, load_station_run, read_config, robot_config
+from ..policies.config import check_profile, load_policy_config
 from ..utils.io import append_row, create_run, rows, write_json, write_rows
 from ..utils.logging_config import Progress, trial_logging
 from ..runtime.simulation import Simulation
 from ..scenes.dataset import load_scenes
-from ..runtime.execution_config import execution_profile, calibration_execution
 from ..data.evaluation.selection import (
     station_calibration,
     eligible_stations,
@@ -40,6 +40,21 @@ from .station_map import (
 
 logger = logging.getLogger(__name__)
 
+
+# Selection and display parameters do not change physical execution, so calibrations stay reusable across them.
+_SELECTION_KEYS = {"lastmile_low", "lastmile_high", "smoothing_sigma_m", "navigation_margin_m",
+                   "navigation_clearance_weight", "navigation_max_penetration_m"}
+
+
+def execution_profile(robot, config):
+    return {"robot": asdict(robot), "width": config.width, "height": config.height,
+            "backend": config.operation_backend,
+            "policy": asdict(load_policy_config(config.policy_config)) if config.policy_config else None}
+
+
+def calibration_execution(config):
+    """标定匹配执行条件，不把选点和展示参数当作物理执行条件。"""
+    return {key: value for key, value in config.items() if key not in _SELECTION_KEYS}
 
 def _plan_collection(scenes, trials, config, root, source):
     """先落盘全部 pair 和已有成功示教，再启动任何连续执行。"""
@@ -268,13 +283,9 @@ def _prepare_run(
     # 检查场景控制模式，并生成各场景的执行配置档案。
     profiles = {}
     for scene in scenes:
-        from ..config import robot_config
-
         robot = robot_config(
             read_config(Path(scene["scene_path"]) / "config.json")["robot"]
         )
-        from ..policies.config import check_profile
-
         check_profile(robot, config.operation_backend, config.policy_config)
         scene["robot_config"] = robot
         profiles[scene["scene_id"]] = execution_profile(robot, config)

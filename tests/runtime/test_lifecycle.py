@@ -182,6 +182,8 @@ class RetryDirectoryTests(unittest.TestCase):
             config=ExecutionConfig(),
             sim=SimpleNamespace(model=Mock(), save_snapshot=Mock(), robot=Mock(control_height=Mock(return_value=0.), open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False)),
             budget=None,
+            planner_factory=None,
+            prepared_state=None,
             plan_count=0,
             plan_serial=0,
             max_plans=10,

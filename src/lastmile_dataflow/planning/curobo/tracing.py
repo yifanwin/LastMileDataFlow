@@ -5,6 +5,7 @@ state through closures, so they can be constructed and tested in isolation.
 """
 import time
 
+from ...runtime.execution_config import NATIVE_MAX_ATTEMPTS
 from ...utils.logging_config import trial_progress
 from ..evidence import lane_success, solver_evidence
 from ..robots.common import static_ik_state, chain_state
@@ -23,7 +24,7 @@ class TracedPlanPose:
         owner.query_index = len(owner.query_log) + 1
         if owner.on_query is not None:
             owner.on_query(phase)
-        kwargs.setdefault('max_attempts', owner.config.max_attempts)
+        kwargs.setdefault('max_attempts', NATIVE_MAX_ATTEMPTS)
         owner.context.contact_allowed = phase in CONTACT_PHASES
         if phase == 'lift':
             owner.attach_target_geometry(current_state)
@@ -51,7 +52,7 @@ class TracedPlanPose:
             'query_index': owner.query_index, 'goal_count': goal_tool_poses.num_goalset,
             'lane_success': lane_success(None if result is None else result.success, owner.evidence_batch_size),
             'fov_rejected_lanes': fov_rejected,
-            'max_attempts': kwargs.get('max_attempts', 5),
+            'max_attempts': kwargs['max_attempts'],
             'success': result is not None and bool(result.success.any().item())})
         return result
 

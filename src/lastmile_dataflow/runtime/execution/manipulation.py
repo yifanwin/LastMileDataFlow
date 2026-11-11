@@ -1,16 +1,19 @@
 """Native grasp planning and semantic physical execution; no scene resets."""
 
 import copy
+from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
+
 import numpy as np
-from ...utils.io import write_json
-from ...scenes.geometry import body_pose, tcp_pose
+
 from ...planning.curobo.planner import V2Planner
 from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
+from ...scenes.geometry import body_pose, tcp_pose
+from ...utils.io import write_json
+from ..execution_config import NATIVE_MAX_ATTEMPTS, PLANNER_BACKEND
 from ..outcomes.task import PickMonitor, evaluate_open
 from .checkpoint import hold_pick, timed
-from dataclasses import replace
-from functools import partial
 from .context import planner_options
 from .protocol import OperationFailure
 
@@ -59,13 +62,7 @@ def grasp_goals(sim, config, pool, *, retreat=False):
         body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in pool
     ]
     angle = config.grasp_roll_rad
-    roll = np.array(
-        [
-            [np.cos(angle), -np.sin(angle), 0.0],
-            [np.sin(angle), np.cos(angle), 0.0],
-            [0.0, 0.0, 1.0],
-        ]
-    )
+    roll = np.array([[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]])
     offset = -config.approach_offset_m if retreat else config.approach_offset_m
     for goal in goals:
         goal[:3, 3] += goal[:3, 2] * offset
@@ -73,26 +70,36 @@ def grasp_goals(sim, config, pool, *, retreat=False):
     return goals
 
 
+@dataclass
+class GraspPlan:
+    """The arm and grasp the planner accepted, plus where its artefacts live."""
+    side: str
+    candidate: dict
+    goal: np.ndarray
+    pregrasp: np.ndarray
+    stages: dict
+    directory: Path
+
+
+def _rotation_about(axis, angle):
+    """Rodrigues rotation about a unit axis."""
+    skew = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + np.sin(angle) * skew + (1 - np.cos(angle)) * (skew @ skew)
+
+
 class _Manipulation:
     def __init__(self, ctx, task, candidates, assets_dir, seed, forced=None):
-        self.ctx = ctx
-        self.task = task
-        self.seed = seed
-        self.assets_dir = assets_dir
-        self.forced = forced
-        self.candidates = candidates
-        self.pool = candidate_pool(self.ctx, self.candidates, self.seed, self.forced)
-        self.sides = (
-            [self.forced["arm"]]
-            if self.forced
-            else list(self.ctx.sim.robot.arms)
-            if self.seed % 2 == 0
-            else list(reversed(self.ctx.sim.robot.arms))
-        )
-        self.sim = self.ctx.sim
-        self.options = planner_options(self.ctx.config, self.assets_dir, self.seed)
+        self.ctx, self.sim, self.task = ctx, ctx.sim, task
+        self.seed, self.assets_dir = seed, assets_dir
+        self.pool = candidate_pool(ctx, candidates, seed, forced)
+        if forced:
+            self.sides = [forced["arm"]]
+        else:
+            arms = list(self.sim.robot.arms)
+            self.sides = arms if seed % 2 == 0 else arms[::-1]
+        self.options = planner_options(ctx.config, assets_dir, seed)
         self.planner = None
-        self.factory = getattr(self.ctx, "planner_factory", V2Planner)
+        self.factory = ctx.planner_factory or V2Planner
 
     def close(self):
         if self.planner is not None:
@@ -101,280 +108,168 @@ class _Manipulation:
             self.planner = None
 
     def _query(self, phase):
-        self.ctx.deadline()
-        if self.ctx.plan_count >= self.ctx.max_plans:
+        ctx = self.ctx
+        ctx.deadline()
+        if ctx.plan_count >= ctx.max_plans:
             raise OperationFailure("planning_budget_no_solution")
-        self.ctx.plan_count += 1
-        self.ctx.plan_serial += 1
-        self.ctx.phase = "plan_" + phase
-        self.ctx.plans.append(
-            {
-                "phase": self.ctx.phase,
-                "query_index": self.ctx.plan_count,
-                "plan_serial": self.ctx.plan_serial,
-                "planner": "curobo_v2_v080",
-                "native_max_attempts": 5,
-            }
-        )
-        write_json(self.ctx.recorder.path / "planning.json", self.ctx.plans)
+        ctx.plan_count += 1
+        ctx.plan_serial += 1
+        ctx.phase = "plan_" + phase
+        ctx.plans.append({"phase": ctx.phase, "query_index": ctx.plan_count, "plan_serial": ctx.plan_serial,
+                          "planner": PLANNER_BACKEND, "native_max_attempts": NATIVE_MAX_ATTEMPTS})
+        write_json(ctx.recorder.path / "planning.json", ctx.plans)
+
+    def _make_planner(self, options, side, directory):
+        directory.mkdir(parents=True, exist_ok=True)
+        with timed(self.ctx, "planner_setup"):
+            self.planner = self.factory(self.sim, options, side, directory,
+                                        workspace=(self.task["anchor_world"], self.ctx.config.radius_m))
+
+    def _operation_state(self):
+        """Measured state the planner starts from; split calibration reuses the prepared station state."""
+        if self.ctx.prepared_state is not None:
+            return self.ctx.prepared_state
+        path = self.ctx.recorder.path / f"operation-state-{self.ctx.plan_serial}.npz"
+        self.sim.save_snapshot(path)
+        return path
 
     def _plan(self):
-        self.diagnostic = None
-        self.operation_state = None
-        for self.side in self.sides:
-            self.ctx.deadline()
-            self.directory = (
-                self.ctx.recorder.path / f"v080-{self.ctx.plan_serial}-{self.side}"
-            )
-            self.directory.mkdir(parents=True, exist_ok=True)
-            with timed(self.ctx, "planner_setup"):
-                self.planner = self.factory(
-                    self.sim,
-                    self.options,
-                    self.side,
-                    self.directory,
-                    workspace=(self.task["anchor_world"], self.ctx.config.radius_m),
-                )
-            self.goals = grasp_goals(
-                self.sim,
-                self.ctx.config,
-                self.pool,
-                retreat=self.task["operation"] == "open",
-            )
-            write_json(
-                self.directory / "grasp_candidates.json",
-                {
-                    "lanes": [
-                        {"seed": self.seed, "arm": self.side, "candidates": self.pool}
-                    ]
-                },
-            )
-            if not self.goals:
+        ctx = self.ctx
+        diagnostic = None
+        operation_state = None
+        lift = self.task["operation"] == "pick" and self.sim.robot.plan_lift_before_close
+        for side in self.sides:
+            ctx.deadline()
+            directory = ctx.recorder.path / f"v080-{ctx.plan_serial}-{side}"
+            self._make_planner(self.options, side, directory)
+            goals = grasp_goals(self.sim, ctx.config, self.pool, retreat=self.task["operation"] == "open")
+            write_json(directory / "grasp_candidates.json",
+                       {"lanes": [{"seed": self.seed, "arm": side, "candidates": self.pool}]})
+            if not goals:
                 raise OperationFailure("no_grasp_candidates")
-            if self.operation_state is None:
-                if self.ctx.budget is not None:
-                    self.operation_state = (
-                        Path(self.ctx.recorder.config["preparation"]["path"])
-                        / "state.npz"
-                    )
-                else:
-                    self.operation_state = (
-                        self.ctx.recorder.path
-                        / f"operation-state-{self.ctx.plan_serial}.npz"
-                    )
-                    self.sim.save_snapshot(self.operation_state)
-            if self.task["operation"] == "pick":
-                with timed(self.ctx, "grasp_planning"):
-                    (success, self.index, self.stages, self.diagnostic) = (
-                        self.planner.grasp(
-                            self.goals,
-                            self._query,
-                            lift=self.sim.robot.plan_lift_before_close,
-                        )
-                    )
-            else:
-                with timed(self.ctx, "grasp_planning"):
-                    (success, self.index, self.stages, self.diagnostic) = (
-                        self.planner.grasp(self.goals, self._query, lift=False)
-                    )
-            self.ctx.deadline()
-            self.ctx.plans.append(
-                {
-                    "phase": "native_grasp_result",
-                    "planning_state_ref": str(self.operation_state.resolve()),
-                    **self.diagnostic,
-                }
-            )
+            if operation_state is None:
+                operation_state = self._operation_state()
+            with timed(ctx, "grasp_planning"):
+                success, index, stages, diagnostic = self.planner.grasp(goals, self._query, lift=lift)
+            ctx.deadline()
+            ctx.plans.append({"phase": "native_grasp_result",
+                              "planning_state_ref": str(Path(operation_state).resolve()), **diagnostic})
             if success:
-                break
+                goal = goals[index]
+                pregrasp = goal.copy()
+                pregrasp[:3, 3] -= goal[:3, 2] * GRASP_APPROACH_DISTANCE_M
+                return GraspPlan(side, self.pool[index], goal, pregrasp, stages, directory)
             self.close()
-        else:
-            raise OperationFailure(
-                (self.diagnostic or {}).get("failure_reason") or "planning_no_solution",
-                self.diagnostic,
-            )
+        raise OperationFailure((diagnostic or {}).get("failure_reason") or "planning_no_solution", diagnostic)
 
-    def _initialize_monitor(self):
-        self.c = self.pool[self.index]
-        self.goal = self.goals[self.index]
-        self.pre = self.goal.copy()
-        self.pre[:3, 3] -= self.goal[:3, 2] * GRASP_APPROACH_DISTANCE_M
-        self.ctx.monitor = PickMonitor(self.sim, self.side)
-        self.ctx.fingers = self.ctx.monitor.allowed_target_fingers
-        self.ctx.samples = []
-        self.ctx.monitor.initial.update(
-            workspace_center_xy=self.task["anchor_world"][:2],
-            workspace_radius_m=self.ctx.config.radius_m,
-        )
-        initial = copy.deepcopy(self.ctx.monitor.initial)
-        self.ctx.pick_initial = initial if self.task["operation"] == "pick" else None
-        self.ctx.active_control = {
-            "arm": self.side,
-            "height_target": self.sim.robot.control_height(),
-            "grasp_row": self.c["row"],
-            "grasp_source": self.c["source"],
-            "seed": self.seed,
-        }
-        write_json(
-            self.ctx.recorder.path / "task_evidence_initial.json",
-            {
-                "operation": self.task["operation"],
-                "initial": initial,
-                "control": self.ctx.active_control,
-            },
-        )
-        self.ctx.manip_base_target = self.sim.robot.group("base").copy()
+    def _control_record(self, plan):
+        return {"arm": plan.side, "height_target": self.sim.robot.control_height(),
+                "grasp_row": plan.candidate["row"], "grasp_source": plan.candidate["source"], "seed": self.seed}
+
+    def _initialize_monitor(self, plan):
+        ctx = self.ctx
+        ctx.monitor = PickMonitor(self.sim, plan.side)
+        ctx.fingers = ctx.monitor.allowed_target_fingers
+        ctx.samples = []
+        ctx.monitor.initial.update(workspace_center_xy=self.task["anchor_world"][:2],
+                                   workspace_radius_m=ctx.config.radius_m)
+        initial = copy.deepcopy(ctx.monitor.initial)
+        ctx.pick_initial = initial if self.task["operation"] == "pick" else None
+        ctx.active_control = self._control_record(plan)
+        write_json(ctx.recorder.path / "task_evidence_initial.json",
+                   {"operation": self.task["operation"], "initial": initial, "control": ctx.active_control})
+        ctx.manip_base_target = self.sim.robot.group("base").copy()
         if self.task["operation"] == "open":
-            self.j = self.sim.model.joint(self.task["joint_name"]).id
-            self.ctx.open_joint = int(self.sim.model.jnt_qposadr[self.j])
+            joint = self.sim.model.joint(self.task["joint_name"]).id
+            ctx.open_joint = int(self.sim.model.jnt_qposadr[joint])
 
-    def _approach_and_close(self):
-        self.ctx.begin()
-        self.ctx.phase = "pregrasp"
-        self.ctx.follow_points(
-            self.planner,
-            self.stages["pregrasp"],
-            self.side,
-            self.sim.robot.open_grip,
-            self.pre,
-        )
-        self.ctx.phase = "approach"
-        self.ctx.follow_points(
-            self.planner,
-            self.stages["approach"],
-            self.side,
-            self.sim.robot.open_grip,
-            self.goal,
-        )
-        self.ctx.phase = "close"
-        q = self.sim.robot.arm_positions(self.side).copy()
-        self.h = self.ctx.hold_torso_target()
+    def _approach_and_close(self, plan):
+        ctx, robot = self.ctx, self.sim.robot
+        ctx.begin()
+        ctx.phase = "pregrasp"
+        ctx.follow_points(self.planner, plan.stages["pregrasp"], plan.side, robot.open_grip, plan.pregrasp)
+        ctx.phase = "approach"
+        ctx.follow_points(self.planner, plan.stages["approach"], plan.side, robot.open_grip, plan.goal)
+        ctx.phase = "close"
+        q = robot.arm_positions(plan.side).copy()
+        torso = ctx.hold_torso_target()
         for _ in range(20):
-            self.ctx.arm_tick(self.side, q, 0.0, self.h)
+            ctx.arm_tick(plan.side, q, 0.0, torso)
 
-    def _closed_planner(self):
+    def _closed_planner(self, plan):
+        """Re-plan with the grasp closed; Panda locks its base once the object is held."""
         self.close()
-        self.directory = (
-            self.ctx.recorder.path / f"v080-closed-{self.ctx.plan_serial}-{self.side}"
-        )
-        self.directory.mkdir(parents=True, exist_ok=True)
-        with timed(self.ctx, "planner_setup"):
-            closed_options = (
-                replace(self.ctx.config, operation_base_mode="fixed")
-                if self.sim.robot.lock_base_after_close
-                else self.ctx.config
-            )
-            closed_options = planner_options(closed_options, self.assets_dir, self.seed)
-            self.planner = self.factory(
-                self.sim,
-                closed_options,
-                self.side,
-                self.directory,
-                workspace=(self.task["anchor_world"], self.ctx.config.radius_m),
-            )
+        config = self.ctx.config
+        if self.sim.robot.lock_base_after_close:
+            config = replace(config, operation_base_mode="fixed")
+        plan.directory = self.ctx.recorder.path / f"v080-closed-{self.ctx.plan_serial}-{plan.side}"
+        self._make_planner(planner_options(config, self.assets_dir, self.seed), plan.side, plan.directory)
 
-    def _lift_and_hold(self):
-        write_json(
-            self.ctx.recorder.path / "attached_object.json",
-            self.planner.attach_target_geometry(),
-        )
-        self.ctx.phase = "lift_actual"
-        lift = tcp_pose(self.sim, self.side).copy()
+    def _lift_and_hold(self, plan):
+        ctx = self.ctx
+        write_json(ctx.recorder.path / "attached_object.json", self.planner.attach_target_geometry())
+        ctx.phase = "lift_actual"
+        lift = tcp_pose(self.sim, plan.side).copy()
         lift[2, 3] += 0.1
-        self.ctx.follow(self.planner, lift, self.side, 0.0)
-        self.ctx.phase = "hold"
-        q = self.sim.robot.arm_positions(self.side).copy()
-        self.h = self.ctx.hold_torso_target()
-        self.verdict = hold_pick(self.ctx, self.side, q, self.h)
+        ctx.follow(self.planner, lift, plan.side, 0.0)
+        ctx.phase = "hold"
+        q = self.sim.robot.arm_positions(plan.side).copy()
+        return hold_pick(ctx, plan.side, q, ctx.hold_torso_target())
 
-    def _open_target(self, delta):
-        tcp = tcp_pose(self.sim, self.side).copy()
-        axis = self.sim.data.xaxis[self.j].copy()
+    def _open_target(self, side, delta):
+        tcp = tcp_pose(self.sim, side).copy()
+        joint = self.sim.model.joint(self.task["joint_name"]).id
+        axis = self.sim.data.xaxis[joint].copy()
         if self.task["joint_kind"] == "slide":
             tcp[:3, 3] += axis * delta
-        else:
-            skew = np.array(
-                [
-                    [0, -axis[2], axis[1]],
-                    [axis[2], 0, -axis[0]],
-                    [-axis[1], axis[0], 0],
-                ]
-            )
-            rotation = (
-                np.eye(3) + np.sin(delta) * skew + (1 - np.cos(delta)) * (skew @ skew)
-            )
-            origin = self.sim.data.xanchor[self.j]
-            tcp[:3, 3] = origin + rotation @ (tcp[:3, 3] - origin)
-            tcp[:3, :3] = rotation @ tcp[:3, :3]
+            return tcp
+        rotation = _rotation_about(axis, delta)
+        origin = self.sim.data.xanchor[joint]
+        tcp[:3, 3] = origin + rotation @ (tcp[:3, 3] - origin)
+        tcp[:3, :3] = rotation @ tcp[:3, :3]
         return tcp
 
-    def _open_and_hold(self):
-        if not self.ctx.samples or len(self.ctx.samples[-1]["finger_forces_n"]) != 2:
+    def _open_and_hold(self, plan):
+        ctx, task = self.ctx, self.task
+        if not ctx.samples or len(ctx.samples[-1]["finger_forces_n"]) != 2:
             raise OperationFailure("open_no_grip")
         self.planner.single_phase = "approach_contact"
-        step = (
-            self.ctx.config.open_waypoint_step_m
-            if self.task["joint_kind"] == "slide"
-            else self.ctx.config.open_waypoint_step_rad
-        )
-        count = (
-            int(abs(self.task["joint_goal"] - self.task["joint_initial"]) / step) * 3
-            + 12
-        )
-        direction = np.sign(self.task["joint_goal"] - self.task["joint_initial"])
+        slide = task["joint_kind"] == "slide"
+        step = ctx.config.open_waypoint_step_m if slide else ctx.config.open_waypoint_step_rad
+        count = int(abs(task["joint_goal"] - task["joint_initial"]) / step) * 3 + 12
+        direction = np.sign(task["joint_goal"] - task["joint_initial"])
+        torso = ctx.hold_torso_target()
         for index in range(count):
-            remaining = direction * (
-                self.task["joint_goal"] - float(self.sim.data.qpos[self.ctx.open_joint])
-            )
+            remaining = direction * (task["joint_goal"] - float(self.sim.data.qpos[ctx.open_joint]))
             if remaining <= 0.001:
                 break
-            delta = direction * min(step, remaining + 0.002)
-            tcp = self._open_target(delta)
-            world = self.directory / f"world-{index}"
+            tcp = self._open_target(plan.side, direction * min(step, remaining + 0.002))
+            world = plan.directory / f"world-{index}"
             world.mkdir(parents=True, exist_ok=True)
             self.planner.refresh_world(world)
-            self.ctx.phase = "open"
-            self.ctx.follow(self.planner, tcp, self.side, 0.0)
-            self.h = self.ctx.hold_torso_target()
-            if len(self.ctx.samples[-1]["finger_forces_n"]) != 2:
+            ctx.phase = "open"
+            ctx.follow(self.planner, tcp, plan.side, 0.0)
+            torso = ctx.hold_torso_target()
+            if len(ctx.samples[-1]["finger_forces_n"]) != 2:
                 raise OperationFailure("open_contact_lost")
-        self.ctx.phase = "open_hold"
-        q = self.sim.robot.arm_positions(self.side).copy()
-        for _ in range(
-            int(
-                np.ceil(
-                    (self.ctx.config.open_hold_s + 0.1)
-                    * self.sim.robot.config.control_hz
-                )
-            )
-        ):
-            self.ctx.arm_tick(self.side, q, 0.0, self.h)
-        self.verdict = evaluate_open(
-            self.task, self.ctx.samples, self.ctx.config.open_hold_s
-        )
+        ctx.phase = "open_hold"
+        q = self.sim.robot.arm_positions(plan.side).copy()
+        for _ in range(int(np.ceil((ctx.config.open_hold_s + 0.1) * self.sim.robot.config.control_hz))):
+            ctx.arm_tick(plan.side, q, 0.0, torso)
+        return evaluate_open(task, ctx.samples, ctx.config.open_hold_s)
 
     def run(self):
         try:
-            self._plan()
-            self._initialize_monitor()
-            self._approach_and_close()
-            self._closed_planner()
+            plan = self._plan()
+            self._initialize_monitor(plan)
+            self._approach_and_close(plan)
+            self._closed_planner(plan)
             if self.task["operation"] == "pick":
-                self._lift_and_hold()
+                verdict = self._lift_and_hold(plan)
             else:
-                self._open_and_hold()
-            control = {
-                "arm": self.side,
-                "height_target": self.sim.robot.control_height(),
-                "grasp_row": self.c["row"],
-                "grasp_source": self.c["source"],
-                "seed": self.seed,
-            }
-            write_json(
-                self.ctx.recorder.path / f"verdict-{len(self.ctx.plans)}.json",
-                self.verdict,
-            )
-            return (self.verdict, control)
+                verdict = self._open_and_hold(plan)
+            write_json(self.ctx.recorder.path / f"verdict-{len(self.ctx.plans)}.json", verdict)
+            return verdict, self._control_record(plan)
         finally:
             self.close()
 
