@@ -29,7 +29,7 @@ def prepare_stations(model, prepared, config):
                                     namespace='robot/robot_0/', physics_dt=scene.physics_dt,
                                     initial={'base_xyyaw': [0., 0., 0.], 'lift': scene.lift,
                                              'arm_q': {'right': list(scene.home)},
-                                             'gripper_width': {'right': .08}})
+                                             'gripper_width': {}})
     sim = Simulation(model, robot_config, prepared.catalog, prepared.target_body)
     parked = deepcopy(robot_config.initial)
     parked['base_xyyaw'] = [-10., -10., 0.]
@@ -44,11 +44,20 @@ def prepare_stations(model, prepared, config):
     points = disk_samples(prepared.target_position, setting['radius_m'], setting['spacing_m'])
     splits = spatial_split(points, setting['block_m'], setting['split'], setting['seed'])
     triangles = room_triangles(sim)
+    from ..geometry import descendants, geom_points
+    base = model.body(robot_config.namespace + 'mobilebase0_base').id
+    support = model.body(robot_config.namespace + 'mobilebase0_support').id
+    bodies = set(descendants(model, base)) - set(descendants(model, support))
+    points_base = np.concatenate([geom_points(sim, g) for g in range(model.ngeom)
+                                 if model.geom_bodyid[g] in bodies
+                                 and (model.geom_contype[g] or model.geom_conaffinity[g])])
+    radius = np.linalg.norm(points_base[:, :2] - sim.data.site_xpos[
+        model.site(robot_config.namespace + 'base_site').id, :2], axis=1).max()
     rows = []
     for point, split in zip(points, splits):
         xy = np.asarray(point['xy'])
         # The conservative circular footprint does not depend on yaw.
-        footprint = [xy, *[xy + .4383 * np.array([math.cos(a), math.sin(a)])
+        footprint = [xy, *[xy + radius * np.array([math.cos(a), math.sin(a)])
                            for a in np.linspace(0, 2 * math.pi, 16, endpoint=False)]]
         supported = all(floor_support(sim, p, triangles=triangles) for p in footprint)
         for index in range(setting['yaw_bins']):

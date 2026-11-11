@@ -350,6 +350,27 @@ def make_robot_adapter(model, data, config):
     return adapter_class(config)(model, data, config)
 
 
+def load_robot_spec(config, scale=None):
+    """Prepare and scale factory geometry once for both simulation backends."""
+    from ...scenes.loading.mjcf import load_spec
+    from ...planning.robots.panda_omron import SCALE
+    source = load_spec(config.model_path)
+    prepare_robot_spec(source, config)
+    if scale is None:
+        scale = SCALE if config.name == 'panda_omron' else 1.
+    if scale == 1.:
+        return source
+    frames = [frame for frame in source.worldbody.frames if frame.frame is None]
+    bodies = [body for body in source.worldbody.bodies if body.frame is None]
+    scaled = source.worldbody.add_frame(scale=scale, scaling=mujoco.mjtScaling.mjSCALING_GEOMETRY)
+    for frame in frames:
+        frame.set_frame(scaled)
+    for body in bodies:
+        body.set_frame(scaled)
+    return source
+
+
+
 def prepare_robot_spec(spec, config):
     if config.name == 'panda_omron' and config.control_profile == 'robocasa-v1':
         from .panda_robocasa import prepare_spec

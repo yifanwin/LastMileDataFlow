@@ -29,7 +29,7 @@ class RewardTests(unittest.TestCase):
         config = json.loads((Path(__file__).parents[2] / 'configs/rl/val103_cup30.json').read_text())
         task = SimpleNamespace(goal_error=lambda: (torch.tensor([[.02,0,0]]), torch.zeros(1,3)),
                                forces=torch.zeros(1,2), robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[.04,-.04]]))),
-                               fingers=[0,1], tcp_velocity=lambda: (torch.zeros(1,3),torch.zeros(1,3)),
+                               fingers=[0,1], open_grip=.08, tcp_velocity=lambda: (torch.zeros(1,3),torch.zeros(1,3)),
                                previous_distance=torch.tensor([.01]), previous_angle=torch.tensor([0.]),
                                step_collision=torch.tensor([False]), control_failed=torch.tensor([False]),success=torch.tensor([False]),
                                step_contact=torch.zeros(1),step_lift=torch.zeros(1),held_time=torch.zeros(1),

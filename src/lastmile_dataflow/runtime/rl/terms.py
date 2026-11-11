@@ -44,6 +44,9 @@ class TaskState:
         self.fingers, _ = self.robot.find_joints(['gripper0_right_finger_joint1', 'gripper0_right_finger_joint2'], preserve_order=True)
         self.fixed, _ = self.robot.find_joints(['mobilebase0_joint_mobile_forward', 'mobilebase0_joint_mobile_side',
                                                'mobilebase0_joint_mobile_yaw', 'mobilebase0_joint_torso_height'], preserve_order=True)
+        self.open_grip = float(self.model.joint('robot/robot_0/gripper0_right_finger_joint1').range[1]
+                               - self.model.joint('robot/robot_0/gripper0_right_finger_joint2').range[0])
+        self.lift_range = self.model.joint('robot/robot_0/mobilebase0_joint_torso_height').range.copy()
         self.graph = GeometryObservation(self.model, self.target, env.prepared.target_position,
                                          env.research_config['scene']['local_radius_m'], self.device)
         self.stations, initial = prepare_stations(self.model, env.prepared, env.research_config)
@@ -232,7 +235,7 @@ class TaskState:
         remaining = (self.env.cfg.episode_length_s - self.elapsed) / self.env.cfg.episode_length_s
         linear, angular = self.tcp_velocity()
         return torch.cat((q[:, self.arm] / 3.14, v[:, self.arm] / 3., tcp_local_p,
-                          tcp_local_r[..., :2].transpose(-1, -2).flatten(-2), width / .08,
+                          tcp_local_r[..., :2].transpose(-1, -2).flatten(-2), width / self.open_grip,
                           width_velocity / .2, dp, dr / 3.14, target_linear, target_angular / 5.,
                           (target_p[:, 2] - self.height_reference)[:, None],
                           torch.log1p(self.forces) / 5., self.support.float()[:, None],
@@ -240,7 +243,7 @@ class TaskState:
                           slip_r[..., :2].transpose(-1, -2).flatten(-2), remaining[:, None],
                           q[:, self.fixed] - self.fixed_reference,
                           torch.stack((self.previous_distance, self.previous_angle), -1),
-                          self.last_action, q[:, self.fixed[3:4]] / .34, v[:, self.fixed[3:4]] / .05,
+                          self.last_action, (q[:, self.fixed[3:4]] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]), v[:, self.fixed[3:4]] / .05,
                           linear, angular, self.contact_bonus_paid.float()[:, None], self.lift_peak[:, None]), -1).float()
 
 
@@ -299,7 +302,7 @@ def reward(env):
     pre = ~both & ~grasp & (distance < cfg['pregrasp_distance_m'])
     approach = ~both & ~grasp & ~pre
     opening = ((task.robot.data.joint_pos[:, task.fingers[0]] -
-                task.robot.data.joint_pos[:, task.fingers[1]]) / .08).clamp(0, 1)
+                task.robot.data.joint_pos[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
     pose = torch.exp(-(distance / cfg['pose_distance_m'])**2 - (angle / cfg['pose_angle_rad'])**2)
     linear, angular = task.tcp_velocity()
     slow = torch.exp(-(linear.norm(dim=-1) / cfg['slow_linear_m_s'])**2 -

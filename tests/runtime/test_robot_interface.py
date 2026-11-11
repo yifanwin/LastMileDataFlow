@@ -1,6 +1,7 @@
 """Semantic controls and real hold groups, without external robot assets."""
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import mujoco
@@ -60,6 +61,34 @@ class RobotInterfaceTests(unittest.TestCase):
                 np.testing.assert_equal(sim.data.ctrl, before)
             finally:
                 sim.close()
+
+    def test_scaled_factory_preserves_frames_limits_and_xml_roundtrip(self):
+        from lastmile_dataflow.runtime.control.robot import load_robot_spec
+        xml = """<mujoco><worldbody><frame pos=".2 0 0">
+          <body pos="0 0 .3"><joint type="slide" range="0 .04"/>
+          <geom type="box" size=".1 .1 .1" mass="1"/></body>
+          </frame></worldbody></mujoco>"""
+        for scale in (.9, .8):
+            with patch('lastmile_dataflow.scenes.loading.mjcf.load_spec',
+                       return_value=mujoco.MjSpec.from_string(xml)), patch(
+                       'lastmile_dataflow.runtime.control.robot.prepare_robot_spec'):
+                spec = load_robot_spec(PandaOmronConfig('unused'), scale)
+            model = spec.compile()
+            np.testing.assert_allclose(model.body_pos[1], np.array([.2, 0, .3]) * scale)
+            self.assertAlmostEqual(model.jnt_range[0, 1], .04 * scale)
+            self.assertAlmostEqual(model.body_mass[1], scale ** 3)
+            restored = mujoco.MjSpec.from_string(spec.to_xml()).compile()
+            np.testing.assert_allclose(restored.body_pos, model.body_pos)
+
+    def test_default_opening_tracks_model_joint_limits(self):
+        robot = panda_adapter()
+        for scale in (.9, .8):
+            for name in robot.groups['gripper']:
+                robot.model.jnt_range[robot.joints[name]] = (
+                    [0., .04 * scale] if name.endswith('1') else [-.04 * scale, 0.])
+            robot.initialize()
+            self.assertAlmostEqual(robot.gripper_width('right'), .08 * scale)
+            self.assertAlmostEqual(robot.state_targets()['gripper_width']['right'], .08 * scale)
 
     def test_panda_width_and_lift_hold_use_semantic_units(self):
         robot = panda_adapter()

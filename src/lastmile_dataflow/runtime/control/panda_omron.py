@@ -233,10 +233,15 @@ class PandaOmronAdapter:
                 "arm_q": {a: self.arm_positions(a).tolist() for a in self.arms},
                 "gripper_width": {a: self.gripper_width(a) for a in self.arms}}
 
+    def initial_state(self, initial=None):
+        value = deepcopy(self.config.initial if initial is None else initial)
+        value['gripper_width'].setdefault('right', self.open_grip)
+        return value
+
     def initialize(self, initial=None):
         if self.execution_started:
             raise RuntimeError("initialization prohibited after begin")
-        value = self.config.initial if initial is None else initial
+        value = self.initial_state(initial)
         self.lift_target = float(value["lift"])
         self.targets = RobotCommand(**deepcopy(value))
         groups = self._targets(self.targets)

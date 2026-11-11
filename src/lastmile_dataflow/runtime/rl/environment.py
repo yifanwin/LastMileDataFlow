@@ -35,6 +35,10 @@ class Gripper(ActionTerm):
         super().__init__(cfg, env)
         self.ids, _ = self._entity.find_joints(
             ['gripper0_right_finger_joint1', 'gripper0_right_finger_joint2'], preserve_order=True)
+        self.lower = self._entity.data.joint_pos_limits[:, self.ids, 0]
+        self.upper = self._entity.data.joint_pos_limits[:, self.ids, 1]
+        self.open_targets = torch.stack((self.upper[:, 0], self.lower[:, 1]), -1)
+        self.closed_targets = torch.stack((self.lower[:, 0], self.upper[:, 1]), -1)
         self._raw = torch.zeros(self.num_envs, 1, device=self.device)
         self.targets = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -48,8 +52,8 @@ class Gripper(ActionTerm):
 
     def process_actions(self, actions):
         self._raw[:] = actions
-        half_width = (actions[:, 0] + 1) * .02
-        self.targets[:, 0], self.targets[:, 1] = half_width, -half_width
+        fraction = (actions + 1) / 2
+        self.targets[:] = self.closed_targets + fraction * (self.open_targets - self.closed_targets)
 
     def apply_actions(self):
         self._entity.set_joint_position_target(self.targets, joint_ids=self.ids)
@@ -57,7 +61,7 @@ class Gripper(ActionTerm):
     def reset(self, env_ids=None):
         ids = slice(None) if env_ids is None else env_ids
         self._raw[ids] = 0
-        self.targets[ids] = torch.tensor([.04, -.04], device=self.device)
+        self.targets[ids] = self.open_targets[ids]
 
 
 def contact_sensor(name, primary, secondary=None):

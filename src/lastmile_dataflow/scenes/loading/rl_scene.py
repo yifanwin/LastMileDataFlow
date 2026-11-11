@@ -7,7 +7,6 @@ import numpy as np
 from ...config import PandaOmronConfig, REPO_ROOT
 from ...runtime.simulation import Simulation
 from .local import task_local_model
-from .mjcf import load_spec
 from .source import SceneSource
 
 
@@ -17,6 +16,7 @@ class RLSceneConfig:
     scene_xml: str
     scene_metadata: str
     robot_xml: str
+    robot_scale: float
     target: str = 'Cup_30'
     local_radius_m: float = 2.
     physics_dt: float = .002
@@ -54,8 +54,8 @@ def prepare_rl_scene(config):
                             cameras=('overview', 'robot0_eye_in_hand'),
                             initial={'base_xyyaw': [0., 0., 0.], 'lift': config.lift,
                                      'arm_q': {'right': list(config.home)},
-                                     'gripper_width': {'right': .08}})
-    sim = Simulation.from_source(source, robot, target=config.target)
+                                     'gripper_width': {}})
+    sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
     target = sim.model.body(sim.target_id).name
     anchor = sim.data.xpos[sim.target_id].copy()
     local = task_local_model(sim, {'anchor_world': anchor.tolist(), 'target_body': target},
@@ -69,9 +69,8 @@ def prepare_rl_scene(config):
     for mesh in list(scene_spec.meshes):
         if mesh.name not in used_meshes:
             scene_spec.delete(mesh)
-    robot_spec = load_spec(robot.model_path)
-    from ...runtime.control.panda_omron import prepare_spec
-    prepare_spec(robot_spec, robot)
+    from ...runtime.control.robot import load_robot_spec
+    robot_spec = load_robot_spec(robot, config.robot_scale)
     qpos = {local.model.joint(j).name: float(local.data.qpos[local.model.jnt_qposadr[j]])
             for j in range(local.model.njnt)
             if local.model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE}

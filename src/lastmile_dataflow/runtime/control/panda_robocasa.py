@@ -84,7 +84,7 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
     def initialize(self, initial=None):
         if self.execution_started:
             raise RuntimeError('initialization prohibited after begin')
-        initial = self.config.initial if initial is None else initial
+        initial = self.initial_state(initial)
         values = {'base': initial['base_xyyaw'], 'lift': [initial['lift']],
                   'arm': initial['arm_q']['right'],
                   'gripper': [initial['gripper_width']['right']/2, -initial['gripper_width']['right']/2]}

@@ -17,7 +17,8 @@
       2.74159265359,
       0.78539816339
     ],
-    "lift": 0.2
+    "lift": 0.2,
+    "robot_scale": 0.9
   },
   "mjlab_source": "/home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab",
   "grasp": {

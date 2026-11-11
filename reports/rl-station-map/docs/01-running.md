@@ -58,7 +58,11 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 
-从 `git archive` 导出的源码启动时，将 `LASTMILE_SOURCE_REVISION` 设为导出时的提交号，并将 `PYTHONPATH` 指向导出目录的 `src/`，避免 checkpoint 把外层工作区后来更新的 HEAD 当作运行版本。
+长期实验从固定 commit 的 worktree 启动，记录路径和启动时工作区状态；运行期间不修改该工作区，也不复制源码。
+
+机器人尺寸由 `scene.robot_scale` 显式指定（当前 0.9，相对于原始 factory XML）。更改该值即可重新构建训练和评估模型；夹爪初态、动作上下限、升降位置归一化和底盘支撑半径从实际模型读取，不需同步修改尺寸常量。显式指定的 Home 升降高度仍以米计，需处于新模型范围内。
+
+尺寸变化后使用新 run 从头训练；该字段随有效配置进入 checkpoint，resume / 评分 / 评估要求相同配置。缺少该字段的旧配置需明确补齐其原始实验尺寸，勿直接补成当前尺寸来复用旧结果。本研究入口不调用 cuRobo；主链规划 URDF 和碰撞球仍是 main 的 0.9 资产，不随 RL 实验比例改写。
 
 ```bash
 MUJOCO_GL=egl .venv/bin/python scripts/experiments/train_sac.py \

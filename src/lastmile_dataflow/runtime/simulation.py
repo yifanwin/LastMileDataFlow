@@ -14,7 +14,7 @@ import numpy as np
 
 from ..config import read_config
 from ..utils.io import read_json, write_json
-from .control.robot import make_robot_adapter, prepare_robot_spec
+from .control.robot import make_robot_adapter
 from ..scenes.loading.source import instance_catalog, resolve_target
 from ..scenes.loading.mjcf import load_spec
 
@@ -68,9 +68,9 @@ class Simulation:
         self.planning_geometry = {}
 
     @classmethod
-    def from_source(cls, source, robot_config, *, target=None):
+    def from_source(cls, source, robot_config, *, target=None, robot_scale=None):
         """从原始 MJCF 创建准备阶段仿真，并初始化机器人。"""
-        spec = cls.prepare_spec(source, robot_config)
+        spec = cls.prepare_spec(source, robot_config, robot_scale=robot_scale)
         spec.option.timestep = robot_config.physics_dt
         model = spec.compile()
         metadata = read_json(source.metadata_path) if source.metadata_path else {}
@@ -88,17 +88,12 @@ class Simulation:
         return sim
 
     @staticmethod
-    def prepare_spec(source, robot_config):
+    def prepare_spec(source, robot_config, *, robot_scale=None):
         """Attach scene and robot in memory; leave source assets unchanged."""
         spec = load_spec(source.xml_path)
-        robot_spec = load_spec(robot_config.model_path)
-        prepare_robot_spec(robot_spec, robot_config)
-        scale = 1.0
-        if robot_config.name == "panda_omron":
-            from ..planning.robots.panda_omron import SCALE
-            scale = SCALE
-        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame(
-            scale=scale, scaling=mujoco.mjtScaling.mjSCALING_GEOMETRY))
+        from .control.robot import load_robot_spec
+        robot_spec = load_robot_spec(robot_config, robot_scale)
+        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
         spec.option.timestep = robot_config.physics_dt
         if robot_config.control_profile == 'molmobot-native-v1':
             spec.visual.global_.offwidth = max(spec.visual.global_.offwidth, 1280)
