@@ -19,13 +19,15 @@ def camera_state(sim):
 def robocasa_camera_calibration(sim):
     """Compare compiled bindings/local optics; record actual world extrinsics."""
     from ...runtime.control.panda_robocasa import ROBOCASA_CAMERAS
+    from ...planning.robots.panda_omron import SCALE
     records = {}
     for name, (parent, position, quaternion, fovy) in ROBOCASA_CAMERAS.items():
         camera = sim.model.camera(sim.robot.camera_names[name]).id
         actual_parent = sim.model.body(int(sim.model.cam_bodyid[camera])).name
         expected_quat = np.asarray(quaternion) / np.linalg.norm(quaternion)
+        # Geometry scaling moves the factory camera mounts with the robot.
         valid = (actual_parent == sim.robot.config.namespace + parent
-                 and np.allclose(sim.model.cam_pos[camera], position, atol=1e-6, rtol=0)
+                 and np.allclose(sim.model.cam_pos[camera], np.asarray(position) * SCALE, atol=1e-6, rtol=0)
                  and abs(np.dot(sim.model.cam_quat[camera], expected_quat)) > 1 - 1e-6
                  and abs(sim.model.cam_fovy[camera] - fovy) < 1e-6)
         records[name] = {'valid': bool(valid), 'parent': actual_parent,
