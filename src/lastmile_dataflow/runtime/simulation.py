@@ -257,7 +257,6 @@ class Simulation:
 
     def _advance(self, command, tick_groups, substep_check):
         before = float(self.data.time)
-        feedback = getattr(self.robot, 'update_control', None)
         actual_ticks = 0
         stop = None
         completed = False
@@ -265,8 +264,7 @@ class Simulation:
             for ticks in tick_groups:
                 self.data.ctrl[:] = command['ctrl']
                 for _ in range(ticks):
-                    if feedback is not None:
-                        feedback()
+                    self.robot.update_control()
                     mujoco.mj_step(self.model, self.data)
                     actual_ticks += 1
                     stop = substep_check() if substep_check else None
@@ -280,8 +278,8 @@ class Simulation:
             command.update(time_before_s=before, time_after_s=float(self.data.time),
                            requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
                            completion='complete' if completed and not stop else 'partial')
-            if feedback is not None:
-                command['ctrl'] = self.data.ctrl.tolist()
+            if actual_ticks:
+                command['ctrl'] = self.data.ctrl.tolist()  # feedback controllers rewrite ctrl per substep
             if self.evidence_recorder and actual_ticks:
                 self.evidence_recorder.executed(command)
         return command, stop

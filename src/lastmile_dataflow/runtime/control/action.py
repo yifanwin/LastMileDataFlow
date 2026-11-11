@@ -3,13 +3,12 @@
 Position profile units and indices are defined below. Native motor conversion lives in native_actions."""
 import numpy as np
 
-# 供人阅读/文档生成用的布局表：(组名, 起始索引, 结束索引, 语义)
-ACTION_LAYOUT = (("base", 0, 3, "delta_world_xy_yaw"),
-                 ("left_arm", 3, 10, "delta_joint_rad"),
-                 ("left_gripper", 10, 11, "absolute_m"),
-                 ("right_arm", 11, 18, "delta_joint_rad"),
-                 ("right_gripper", 18, 19, "absolute_m"),
-                 ("torso", 19, 20, "absolute_height_parameter"))
+# 20D layout: base delta (world x, y, yaw), arm joint deltas, absolute grippers and torso h.
+BASE_SLICE = slice(0, 3)
+ARM_SLICE = {"left": slice(3, 10), "right": slice(11, 18)}
+GRIPPER_INDEX = {"left": 10, "right": 18}
+TORSO_INDEX = 19
+DELTA_GROUPS = (("base", BASE_SLICE), ("left_arm", ARM_SLICE["left"]), ("right_arm", ARM_SLICE["right"]))
 
 
 class InvalidAction(ValueError):
@@ -32,19 +31,24 @@ def torso_joints(h):
     return np.array([0., h, -2 * h, h, 0., 0.])
 
 
+def check_delta_bounds(a, config, label):
+    """Hard per-command base and arm delta bounds shared by both RBY-1 profiles."""
+    if np.linalg.norm(a[:2]) > config.max_base_delta or abs(a[2]) > config.max_yaw_delta:
+        raise InvalidAction(f"{label}base delta exceeds configured bound")
+    if np.max(np.abs(np.r_[a[ARM_SLICE["left"]], a[ARM_SLICE["right"]]])) > config.max_arm_delta:
+        raise InvalidAction(f"{label}arm delta exceeds configured bound")
+
+
 def validate_action(value, config, *, fixed_base=False):
     """Check the 20D position-profile protocol before joint/actuator mapping."""
     a = vector(value, 20)
-    if np.linalg.norm(a[:2]) > config.max_base_delta or abs(a[2]) > config.max_yaw_delta:
-        raise InvalidAction("base delta exceeds configured bound")
-    if fixed_base and np.any(a[:3] != 0):
+    if fixed_base and np.any(a[BASE_SLICE] != 0):
         raise InvalidAction("fixed-base trial prohibits base commands")
-    if np.max(np.abs(np.r_[a[3:10], a[11:18]])) > config.max_arm_delta:
-        raise InvalidAction("arm delta exceeds configured bound")
-    for i in (10, 18):
+    check_delta_bounds(a, config, "")
+    for i in GRIPPER_INDEX.values():
         if not config.gripper_limits[0] <= a[i] <= config.gripper_limits[1]:
             raise InvalidAction("gripper absolute target out of range")
-    if not config.torso_limits[0] <= a[19] <= config.torso_limits[1]:
+    if not config.torso_limits[0] <= a[TORSO_INDEX] <= config.torso_limits[1]:
         raise InvalidAction("torso height out of range")
     return a
 
@@ -54,19 +58,7 @@ LINEAR_TOLERANCE_M = .001
 
 
 def joint_command_interval(robot, group, index):
-    name = robot.groups[group][index]
-    joint = robot.joints[name]
-    lo, hi = -np.inf, np.inf
-    if robot.model.jnt_limited[joint]:
-        lo, hi = map(float, robot.model.jnt_range[joint])
-    if index < len(robot.actuators[group]):
-        actuator = robot.act_ids[robot.actuators[group][index]]
-        if robot.model.actuator_ctrllimited[actuator]:
-            alo, ahi = robot.model.actuator_ctrlrange[actuator]
-            lo, hi = max(lo, float(alo)), min(hi, float(ahi))
-    if lo > hi:
-        raise ValueError('inconsistent joint and actuator limits: '+name)
-    return lo, hi
+    return robot.joints.command_interval(robot.model, group, index)
 
 
 def yaw_interval(robot):
@@ -91,15 +83,15 @@ def project(value, limits, tolerance, name, events):
 
 
 def _project_delta_commands(robot, action, events):
-    for group, offset, count in (('base', 0, 3), ('left_arm', 3, 7), ('right_arm', 11, 7)):
+    for group, part in DELTA_GROUPS:
         measured = robot.group(group)
-        for index in range(count):
+        for index, offset in enumerate(range(part.start, part.stop)):
             tolerance = LINEAR_TOLERANCE_M if group == 'base' and index < 2 else ANGULAR_TOLERANCE_RAD
             target = project(
-                float(measured[index] + action[offset + index]),
+                float(measured[index] + action[offset]),
                 joint_command_interval(robot, group, index), tolerance,
-                robot.groups[group][index], events)
-            action[offset + index] = target - measured[index]
+                robot.joints.groups[group][index], events)
+            action[offset] = target - measured[index]
 
 
 def _gripper_command_limits(robot, group):
@@ -126,14 +118,14 @@ def sanitize_action(robot, value, *, fixed_base=False):
     action = vector(value, 20)
     events = []
     _project_delta_commands(robot, action, events)
-    for side, offset in (('left', 10), ('right', 18)):
+    for side, offset in GRIPPER_INDEX.items():
         group = side + '_gripper'
         action[offset] = project(action[offset], _gripper_command_limits(robot, group),
                                  LINEAR_TOLERANCE_M, group, events)
-    action[19] = project(action[19], _torso_command_limits(robot),
-                         ANGULAR_TOLERANCE_RAD, 'torso_h', events)
+    action[TORSO_INDEX] = project(action[TORSO_INDEX], _torso_command_limits(robot),
+                                  ANGULAR_TOLERANCE_RAD, 'torso_h', events)
     for index in (0, 4, 5):
-        robot._check_joint(robot.groups['torso'][index], 0.)
+        robot.joints.check_joint(robot.model, robot.joints.groups['torso'][index], 0.)
     validate_action(action, robot.config, fixed_base=fixed_base)
     return action, events
 

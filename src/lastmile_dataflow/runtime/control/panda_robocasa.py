@@ -4,13 +4,14 @@ Reference: robosuite OSC_POSE, HYBRID_MOBILE_BASE, PandaGripper and
 JOINT_VELOCITY_LEGACY. Uses the project's MjModel/MjData, not a task env.
 """
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 
 import mujoco
 import numpy as np
 
 from .action import InvalidAction, vector
 from .interface import RobotCommand
-from .panda_omron import PandaOmronAdapter
+from .panda_omron import PandaBody
 
 
 # RoboCasa CAM_CONFIGS['DEFAULT']; wrist optics come from the Panda factory XML.
@@ -69,15 +70,51 @@ def prepare_spec(spec, config):
             site.rgba[3] = 0.
 
 
-class PandaRoboCasaAdapter(PandaOmronAdapter):
+# robosuite OSC_POSE / HYBRID_MOBILE_BASE defaults used by RoboCasa.
+OSC_POSITION_SCALE = .05        # metres per unit eef action
+OSC_ROTATION_SCALE = .5         # radians per unit eef action
+OSC_KP = 150.                   # critically damped eef stiffness
+NULLSPACE_KP = 10.              # joint posture stiffness in the OSC nullspace
+LIFT_KP = 2000.                 # torso height position gain
+LIFT_SCALE = .05                # metres per unit torso action
+BASE_YAW_SCALE = 1.5            # base yaw velocity per unit action
+GRIP_STEP = .2                  # gripper normalized change per control step
+GRIP_CLOSE_WIDTH_M = .04        # semantic widths below this close the gripper
+FINGER_CENTER_M = .02           # PandaGripper finger ctrl = centre + centre * normalized grip
+BASE_SCALE = np.array([1., 1., BASE_YAW_SCALE])
+
+
+@dataclass
+class OscState:
+    """Controller state that survives snapshot/restore; field names are the snapshot keys."""
+    position: np.ndarray
+    rotation: np.ndarray
+    initial_joint: np.ndarray
+    initial_yaw: float
+    base_velocity: np.ndarray
+    height: float
+    grip: np.ndarray
+    action: np.ndarray
+
+    def to_json(self):
+        return {key: value.tolist() if isinstance(value, np.ndarray) else value
+                for key, value in asdict(self).items()}
+
+    @classmethod
+    def from_json(cls, saved):
+        return cls(**{key: np.asarray(value, float) if isinstance(value, list) else value
+                      for key, value in saved.items()})
+
+
+class PandaRoboCasaAdapter(PandaBody):
+    """RoboCasa OSC arm, hybrid velocity base and torque-servoed lift."""
+
     def __init__(self, model, data, config):
         super().__init__(model, data, config)
         ns = config.namespace
         self.origin_id = model.site(ns+'robot0_right_center').id
         self.base_center_id = model.site(ns+'mobilebase0_center').id
         self.hand_id = model.body(ns+'robot0_right_hand').id
-        self.dofs = {key: np.array([model.jnt_dofadr[self.joints[name]] for name in names])
-                     for key, names in self.groups.items()}
         self.control = None
         self.scratch = mujoco.MjData(model)
 
@@ -85,21 +122,19 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         if self.execution_started:
             raise RuntimeError('initialization prohibited after begin')
         initial = self.initial_state(initial)
+        width = initial['gripper_width']['right']
         values = {'base': initial['base_xyyaw'], 'lift': [initial['lift']],
-                  'arm': initial['arm_q']['right'],
-                  'gripper': [initial['gripper_width']['right']/2, -initial['gripper_width']['right']/2]}
+                  'arm': initial['arm_q']['right'], 'gripper': [width/2, -width/2]}
         for group, qs in values.items():
-            for name, q in zip(self.groups[group], qs):
-                self.data.qpos[self.addresses[name]] = q
+            self.joints.write(self.data, group, qs)
         self.data.qvel[:] = 0
         mujoco.mj_forward(self.model, self.data)
         position, rotation = self.relative_tcp(self.data)
         self.lift_target = float(initial['lift'])
-        self.control = {'position': position, 'rotation': rotation,
-                        'initial_joint': self.arm_positions('right').copy(),
-                        'initial_yaw': float(self.base_pose()[2]), 'base_velocity': np.zeros(3),
-                        'height': self.lift_target, 'grip': np.array([1.,-1.]) * initial['gripper_width']['right']/self.open_grip,
-                        'action': np.r_[np.zeros(6), 0., np.zeros(4), 1.]}
+        self.control = OscState(position, rotation, self.arm_positions('right').copy(),
+                                float(self.base_pose()[2]), np.zeros(3), self.lift_target,
+                                np.array([1., -1.]) * width/self.open_grip,
+                                np.r_[np.zeros(6), 0., np.zeros(4), 1.])
         self.update_control()
 
     def relative_tcp(self, data):
@@ -109,11 +144,11 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         return rotation.T @ (data.site_xpos[tcp]-origin), rotation.T @ data.site_xmat[tcp].reshape(3,3)
 
     def snapshot_control(self):
-        return {key: value.tolist() if isinstance(value, np.ndarray) else value for key,value in self.control.items()}
+        return self.control.to_json()
 
     def restore_control(self, saved):
-        self.control = {key: np.asarray(value,float) if isinstance(value,list) else value for key,value in saved.items()}
-        self.lift_target = float(self.control['height'])
+        self.control = OscState.from_json(saved)
+        self.lift_target = float(self.control.height)
 
     def copy_control_from(self, other):
         self.control = deepcopy(other.control)
@@ -121,9 +156,6 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
 
     def hold(self):
         self.update_control()
-
-    def control_height(self):
-        return self.lift_target
 
     def execution_action(self, command):
         if not isinstance(command, RobotCommand):
@@ -133,8 +165,7 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         height = self.lift_target if command.lift is None else command.lift
         groups = {'base': desired_base, 'lift': [height], 'arm': command.arm_q.get('right', self.arm_positions('right'))}
         for group, qs in groups.items():
-            for name,q in zip(self.groups[group],qs):
-                self.scratch.qpos[self.addresses[name]] = q
+            self.joints.write(self.scratch, group, qs)
         mujoco.mj_forward(self.model,self.scratch)
         position,rotation = self.relative_tcp(self.scratch)
         delta = desired_base-self.base_pose()
@@ -143,18 +174,18 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         # Factory velocity actuators have a Coulomb deadband (0.25 m/s
         # for translation). Reference tracking compensates through actions;
         # policy actions and the shared controller retain factory semantics.
-        ids = [self.act_ids[name] for name in self.actuators['base']]
-        deadband = self.model.dof_frictionloss[self.dofs['base']] / self.model.actuator_gainprm[ids,0]
-        velocity = np.where(np.abs(delta)>.001, velocity+np.sign(velocity)*deadband, 0.)
-        theta = self.base_pose()[2]-self.control['initial_yaw']
-        c,s = np.cos(theta),np.sin(theta)
-        base = np.array([[c,s,0],[-s,c,0],[0,0,1.]]) @ velocity / np.array([1.,1.,1.5])
-        grip = self.control['action'][6]
+        ids = self.joints.actuator_ids('base')
+        deadband = self.model.dof_frictionloss[self.joints.group_dofs('base')] / self.model.actuator_gainprm[ids, 0]
+        velocity = np.where(np.abs(delta) > .001, velocity + np.sign(velocity)*deadband, 0.)
+        theta = self.base_pose()[2] - self.control.initial_yaw
+        c, s = np.cos(theta), np.sin(theta)
+        base = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1.]]) @ velocity / BASE_SCALE
+        grip = self.control.action[6]
         if 'right' in command.gripper_width:
-            grip = float(command.gripper_width['right'] < .04)
-        return np.r_[(position-self.control['position'])/.05,
-                     rotation_vector(rotation @ self.control['rotation'].T)/.5,
-                     grip, base, (height-self.group('lift')[0])/.05, 1.]
+            grip = float(command.gripper_width['right'] < GRIP_CLOSE_WIDTH_M)
+        return np.r_[(position - self.control.position)/OSC_POSITION_SCALE,
+                     rotation_vector(rotation @ self.control.rotation.T)/OSC_ROTATION_SCALE,
+                     grip, base, (height - self.group('lift')[0])/LIFT_SCALE, 1.]
 
     def apply(self, action, *, fixed_base=False):
         action = self.execution_action(action)
@@ -163,64 +194,75 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
             raise InvalidAction('fixed-base trial prohibits base motion')
         a = np.clip(a,-1.,1.)
         a[6],a[11] = float(a[6]>=.5),float(a[11]>=.5)
-        position,rotation = self.relative_tcp(self.data)
+        control = self.control
+        position, rotation = self.relative_tcp(self.data)
         if a[11] < .5:
-            self.control['position'],self.control['rotation'] = position,rotation
-        self.control['position'] = self.control['position'] + .05*a[:3]
-        self.control['rotation'] = rotation_matrix(.5*a[3:6]) @ self.control['rotation']
-        theta = self.base_pose()[2]-self.control['initial_yaw']
-        c,s = np.cos(theta),np.sin(theta)
-        self.control['base_velocity'] = np.array([[c,-s,0],[s,c,0],[0,0,1.]]) @ a[7:10] * np.array([1.,1.,1.5])
-        self.control['height'] = float(np.clip(self.group('lift')[0]+.05*a[10],0.,self.model.jnt_range[self.joints[self.groups['lift'][0]], 1]))
-        self.lift_target = self.control['height']
+            control.position, control.rotation = position, rotation
+        control.position = control.position + OSC_POSITION_SCALE*a[:3]
+        control.rotation = rotation_matrix(OSC_ROTATION_SCALE*a[3:6]) @ control.rotation
+        theta = self.base_pose()[2] - control.initial_yaw
+        c, s = np.cos(theta), np.sin(theta)
+        control.base_velocity = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.]]) @ a[7:10] * BASE_SCALE
+        lift_max = self.model.jnt_range[self.joints.ids[self.joints.groups['lift'][0]], 1]
+        control.height = float(np.clip(self.group('lift')[0] + LIFT_SCALE*a[10], 0., lift_max))
+        self.lift_target = control.height
         sign = 1. if a[6] else -1.
-        self.control['grip'] = np.clip(self.control['grip'] + np.array([-1.,1.])*.2*sign,-1.,1.)
-        self.control['action'] = a.copy()
+        control.grip = np.clip(control.grip + np.array([-1., 1.])*GRIP_STEP*sign, -1., 1.)
+        control.action = a.copy()
         self.update_control()
         return {'submitted_action': a.tolist(), 'ctrl': self.data.ctrl.tolist()}
 
     def update_control(self):
         if self.control is None:
             return
-        model,data = self.model,self.data
-        mujoco.mj_forward(model,data)
-        full_mass = np.zeros((model.nv,model.nv))
+        model, data = self.model, self.data
+        mujoco.mj_forward(model, data)
+        full_mass = np.zeros((model.nv, model.nv))
         mujoco.mj_fullM(model, data, full_mass)
-        jp,jr,cp,cr = [np.zeros((3,model.nv)) for _ in range(4)]
-        tcp = self.tcp_site('right')
-        mujoco.mj_jacSite(model,data,jp,jr,tcp)
-        mujoco.mj_jacSite(model,data,cp,cr,self.origin_id)
-        dofs = self.dofs['arm']
-        mass = full_mass[np.ix_(dofs,dofs)]
-        inv = np.linalg.inv(mass)
-        jpos,jori = jp[:,dofs],jr[:,dofs]
-        jac = np.vstack([jpos,jori])
-        origin = data.site_xpos[self.origin_id]
-        origin_rotation = data.site_xmat[self.origin_id].reshape(3,3)
-        goal_position = origin + origin_rotation @ self.control['position']
-        goal_rotation = origin_rotation @ self.control['rotation']
-        current_rotation = data.site_xmat[tcp].reshape(3,3)
-        error_rotation = .5*sum((np.cross(current_rotation[:,i],goal_rotation[:,i]) for i in range(3)))
-        force = 150*(goal_position-data.site_xpos[tcp])-2*np.sqrt(150)*((jp-cp)@data.qvel)
-        torque = 150*error_rotation-2*np.sqrt(150)*((jr-cr)@data.qvel)
-        lp = np.linalg.pinv(jpos@inv@jpos.T)
-        lr = np.linalg.pinv(jori@inv@jori.T)
-        lf = np.linalg.pinv(jac@inv@jac.T)
-        nullspace = np.eye(7)-inv@jac.T@lf@jac
-        qvel = data.qvel[dofs]
-        null_torque = nullspace.T@mass@(10*(self.control['initial_joint']-self.arm_positions('right'))-2*np.sqrt(10)*qvel)
-        arm_ctrl = jac.T@np.r_[lp@force,lr@torque]+data.qfrc_bias[dofs]+null_torque
-        lift_dof = self.dofs['lift'][0]
-        lift_ctrl = full_mass[lift_dof,lift_dof]*(2000*(self.control['height']-self.group('lift')[0])-2*np.sqrt(2000)*data.qvel[lift_dof])+data.qfrc_bias[lift_dof]
-        grip = self.control['grip']
-        values = {'base': self.control['base_velocity'], 'arm': arm_ctrl, 'lift': [lift_ctrl],
-                  'gripper': [.02+.02*grip[0],-.02+.02*grip[1]]}
-        for group,commands in values.items():
-            for name,value in zip(self.actuators[group],commands):
-                index = self.act_ids[name]
+        values = {'base': self.control.base_velocity, 'arm': self._arm_torque(full_mass),
+                  'lift': [self._lift_force(full_mass)],
+                  'gripper': FINGER_CENTER_M*np.array([1., -1.]) + FINGER_CENTER_M*self.control.grip}
+        for group, commands in values.items():
+            for name, value in zip(self.joints.actuators[group], commands):
+                index = self.joints.act_ids[name]
                 if model.actuator_ctrllimited[index]:
-                    value = np.clip(value,*model.actuator_ctrlrange[index])
+                    value = np.clip(value, *model.actuator_ctrlrange[index])
                 data.ctrl[index] = value
+
+    def _arm_torque(self, full_mass):
+        """robosuite OSC_POSE with nullspace posture control and bias compensation."""
+        model, data = self.model, self.data
+        jp, jr, cp, cr = [np.zeros((3, model.nv)) for _ in range(4)]
+        tcp = self.tcp_site('right')
+        mujoco.mj_jacSite(model, data, jp, jr, tcp)
+        mujoco.mj_jacSite(model, data, cp, cr, self.origin_id)
+        dofs = self.joints.group_dofs('arm')
+        mass = full_mass[np.ix_(dofs, dofs)]
+        inv = np.linalg.inv(mass)
+        jpos, jori = jp[:, dofs], jr[:, dofs]
+        jac = np.vstack([jpos, jori])
+        origin = data.site_xpos[self.origin_id]
+        origin_rotation = data.site_xmat[self.origin_id].reshape(3, 3)
+        goal_position = origin + origin_rotation @ self.control.position
+        goal_rotation = origin_rotation @ self.control.rotation
+        current_rotation = data.site_xmat[tcp].reshape(3, 3)
+        error_rotation = .5*sum((np.cross(current_rotation[:, i], goal_rotation[:, i]) for i in range(3)))
+        damping = 2*np.sqrt(OSC_KP)
+        force = OSC_KP*(goal_position - data.site_xpos[tcp]) - damping*((jp - cp) @ data.qvel)
+        torque = OSC_KP*error_rotation - damping*((jr - cr) @ data.qvel)
+        lp = np.linalg.pinv(jpos @ inv @ jpos.T)
+        lr = np.linalg.pinv(jori @ inv @ jori.T)
+        lf = np.linalg.pinv(jac @ inv @ jac.T)
+        nullspace = np.eye(7) - inv @ jac.T @ lf @ jac
+        posture = (NULLSPACE_KP*(self.control.initial_joint - self.arm_positions('right'))
+                   - 2*np.sqrt(NULLSPACE_KP)*data.qvel[dofs])
+        return jac.T @ np.r_[lp @ force, lr @ torque] + data.qfrc_bias[dofs] + nullspace.T @ mass @ posture
+
+    def _lift_force(self, full_mass):
+        dof = self.joints.group_dofs('lift')[0]
+        error = self.control.height - self.group('lift')[0]
+        return (full_mass[dof, dof]*(LIFT_KP*error - 2*np.sqrt(LIFT_KP)*self.data.qvel[dof])
+                + self.data.qfrc_bias[dof])
 
     def record_layout(self):
         return {'robot': self.config.name, 'state_key': 'state', 'state_size':16, 'action_size':12,

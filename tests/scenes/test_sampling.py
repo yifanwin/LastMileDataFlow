@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+from lastmile_dataflow.runtime.control.joints import JointMap
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.stations.sampling import coverage_select
 from lastmile_dataflow.scenes.stations.sampling import disk_samples, sample_stations, yaw_variants
@@ -40,7 +41,7 @@ class SamplingTests(unittest.TestCase):
                         self.assertAlmostEqual(row['base'][2], candidate['yaw'])
                         rechecked = initialize_station(sim, row, [1., 0., 1.], config, check_visibility=False)
                         self.assertAlmostEqual(rechecked['base'][2], candidate['yaw'])
-                robot_q = set(sim.robot.addresses.values())
+                robot_q = set(sim.robot.joints.addresses.values())
                 object_q = [i for i in range(sim.model.nq) if i not in robot_q]
                 np.testing.assert_array_equal(sim.data.qpos[object_q], source[object_q])
                 np.testing.assert_array_equal(sim.data.qvel[target_dof:target_dof + 6], object_velocity)
@@ -53,7 +54,7 @@ class SamplingTests(unittest.TestCase):
         sim = SimpleNamespace(started=False, closed=False, target_id=0,
             data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)), model=SimpleNamespace(nq=1, nv=1, jnt_dofadr=[], body=lambda _:SimpleNamespace(name='target')),
             robot=SimpleNamespace(config=SimpleNamespace(initial={'base':[0,0,0]}), initial_base_field='base',
-                addresses={}, joints={}, aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
+                joints=JointMap({}, {}, {}, {}, {}, {}), aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
         config = SimpleNamespace(min_target_pixels=24, width=8, height=8, require_target_visibility=False)
         with (patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts',return_value=[]),
               patch('lastmile_dataflow.scenes.stations.sampling.mujoco.mj_forward'),

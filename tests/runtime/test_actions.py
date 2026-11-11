@@ -15,6 +15,7 @@ from lastmile_dataflow.runtime.control.action import (
     local_yaw_bounds,
     sanitize_action,
 )
+from lastmile_dataflow.runtime.control.joints import JointMap
 from lastmile_dataflow.runtime.execution.context import joint_base_error
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
@@ -62,14 +63,10 @@ def robot_fixture():
         max_arm_delta=0.2,
     )
     return SimpleNamespace(
-        groups=groups,
-        joints=joints,
-        actuators=actuators,
-        act_ids=joints,
+        joints=JointMap(groups, actuators, joints, {}, {}, joints),
         model=model,
         config=config,
         group=lambda g: values[g].copy(),
-        _check_joint=lambda n, v: None,
     ), values
 
 
@@ -102,7 +99,7 @@ class ActionLimitTests(unittest.TestCase):
         self.assertEqual(b[3], 0)
         self.assertEqual(b[10], 0)
         self.assertEqual(len(e), 3)
-        r.model.actuator_ctrlrange[r.joints["r0"]] = [-1, 1]
+        r.model.actuator_ctrlrange[r.joints.ids["r0"]] = [-1, 1]
         v["right_arm"][0] = 1
         a = np.zeros(20)
         a[19] = 0.3

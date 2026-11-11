@@ -67,7 +67,7 @@ def robot_config(template, sim, side, asset_root, urdf):
     idle = 'right' if side == 'left' else 'left'
     locks = {}
     for group in ('head', idle + '_arm', 'left_gripper', 'right_gripper'):
-        locks.update({n: float(q) for n, q in zip(sim.robot.groups[group], sim.robot.group(group))})
+        locks.update({n: float(q) for n, q in zip(sim.robot.joints.groups[group], sim.robot.group(group))})
     locks.update(torso_0=0., torso_4=0., torso_5=0.)
     k['lock_joints'] = locks
     names = joint_names(side)

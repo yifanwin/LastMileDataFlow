@@ -142,7 +142,7 @@ def _freeze_natural_baseline(ctx, root, prefix, baseline_cache):
         return True
     cached = baseline_cache.get('baseline') if baseline_cache is not None else None
     mask = np.ones(ctx.baseline.model.nq, bool)
-    mask[list(ctx.baseline.robot.addresses.values())] = False
+    mask[list(ctx.baseline.robot.joints.addresses.values())] = False
     qpos = ctx.baseline.data.qpos[mask].copy()
     if cached is not None and np.allclose(cached['qpos'], qpos, rtol=0, atol=5e-3):
         ctx.baseline_snapshot = cached['path']

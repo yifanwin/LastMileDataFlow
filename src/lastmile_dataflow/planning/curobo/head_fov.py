@@ -133,12 +133,12 @@ class SparseFOVValidator:
             data.mocap_quat[:] = sim.data.mocap_quat
         values = dict(zip(self.names, point))
         base = self.base_target_world(point)
-        for n, q in zip(sim.robot.groups['base'], base):
-            data.qpos[sim.robot.addresses[n]] = q
-        for n, q in zip(sim.robot.groups['torso'], torso_joints(values['torso_1'])):
-            data.qpos[sim.robot.addresses[n]] = q
-        for n in sim.robot.groups[self.side + '_arm']:
-            data.qpos[sim.robot.addresses[n]] = values[n]
+        for n, q in zip(sim.robot.joints.groups['base'], base):
+            data.qpos[sim.robot.joints.addresses[n]] = q
+        for n, q in zip(sim.robot.joints.groups['torso'], torso_joints(values['torso_1'])):
+            data.qpos[sim.robot.joints.addresses[n]] = q
+        for n in sim.robot.joints.groups[self.side + '_arm']:
+            data.qpos[sim.robot.joints.addresses[n]] = values[n]
         mujoco.mj_forward(sim.model, data)
         cid = self.definition['camera_id']
         position = data.cam_xpos[cid].copy()
@@ -166,7 +166,7 @@ class SparseFOVValidator:
         # Arm-only motion does not change camera pose. A carried target DOES move.
         relevant = [self.names.index(n) for n in ('base_x', 'base_y', 'base_theta', 'torso_1')]
         if self.attached_offset is not None:
-            relevant += [self.names.index(n) for n in self.sim.robot.groups[self.side + '_arm']]
+            relevant += [self.names.index(n) for n in self.sim.robot.joints.groups[self.side + '_arm']]
         cache, checked, reused = {}, {}, []
         def check(i):
             if i in checked:

@@ -153,9 +153,13 @@ def body_pose(sim,body):
     return result
 
 
-def tcp_pose(sim,side):
-    from ..runtime.control.interface import tcp_matrix
-    return tcp_matrix(sim.robot, side)
+def tcp_pose(sim, side):
+    """World pose of the robot's tool-centre site for one arm."""
+    site = sim.robot.tcp_site(side)
+    pose = np.eye(4)
+    pose[:3, 3] = sim.data.site_xpos[site]
+    pose[:3, :3] = sim.data.site_xmat[site].reshape(3, 3)
+    return pose
 
 
 def pose7(matrix):

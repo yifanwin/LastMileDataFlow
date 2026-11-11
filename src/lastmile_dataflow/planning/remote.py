@@ -1,6 +1,7 @@
 """CPU-side planner interface: numerical RPCs and existing trajectory tracking."""
 import time
 
+from .robots import planning_model
 from .waypoints import PlanResult
 from ..runtime.execution.protocol import PlanningRequest, SimulationState
 from ..utils.io import write_json
@@ -67,7 +68,7 @@ class PlanningClient:
 class RemotePlanner:
     def __init__(self, client, sim, config, side, path, workspace):
         self.client, self.sim, self.side, self.path = client, sim, side, path
-        self.model = sim.robot.planning_model(sim, config, side, path, workspace)
+        self.model = planning_model(sim, config, side, path, workspace)
         self.names, self.base = self.model.names, self.model.base
         self.h_step_limit = self.model.h_step_limit
         self.attached = False

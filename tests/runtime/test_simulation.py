@@ -66,8 +66,8 @@ class SimulationTests(unittest.TestCase):
     def test_joint_limit_rejects_before_mutation(self):
         s = self.sim
         name = "left_arm_0"
-        j = s.robot.joints[name]
-        s.data.qpos[s.robot.addresses[name]] = s.model.jnt_range[j, 1] - 0.01
+        j = s.robot.joints.ids[name]
+        s.data.qpos[s.robot.joints.addresses[name]] = s.model.jnt_range[j, 1] - 0.01
         before = s.data.ctrl.copy()
         a = s.robot.neutral_action()
         a[3] = 0.1

@@ -33,7 +33,7 @@ def inspect_state(sim, config, *, initialization=False):
     if sim.robot is not None:
         # 躯干 6 个关节必须满足 [0,h,-2h,h,0,0] 的联动关系；偏离说明伺服跟不上或影子状态不一致。
         robot = sim.robot
-        if 'torso' in robot.groups:
+        if 'torso' in robot.joints.groups:
             torso = robot.group("torso")
             expected = np.array([0., torso[1], -2 * torso[1], torso[1], 0., 0.])
             if np.max(np.abs(torso - expected)) > config.feedback_warning_rad:

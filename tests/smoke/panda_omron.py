@@ -37,14 +37,14 @@ def pose_errors(a, b):
 def pivot_check(sim):
     import mujoco
     import numpy as np
-    from lastmile_dataflow.runtime.control.panda_omron import PIVOT
+    from lastmile_dataflow.scenes.loading.panda_factory import PIVOT
     from lastmile_dataflow.scenes.geometry import body_pose, tcp_pose
     scratch = mujoco.MjData(sim.model)
     scratch.qpos[:] = sim.data.qpos
     robot = type(sim.robot)(sim.model, scratch, sim.robot.config)
     from types import SimpleNamespace
     check = SimpleNamespace(model=sim.model, data=scratch, robot=robot)
-    addresses = [robot.addresses[n] for n in robot.groups["base"]]
+    addresses = [robot.joints.addresses[n] for n in robot.joints.groups["base"]]
     scratch.qpos[addresses] = 0.
     mujoco.mj_forward(sim.model, scratch)
     root_id = sim.model.body(robot.config.namespace+"robot0_base").id
@@ -130,9 +130,9 @@ def alignment(sim, output, seed):
     robot.lift_target = sim.robot.lift_target
     scratch = SimpleNamespace(model=sim.model, data=data, robot=robot)
     rng = np.random.default_rng(seed)
-    addresses = [robot.addresses[n] for n in robot.groups["arm"]]
-    limits = np.array([sim.model.joint(robot.config.namespace+n).range for n in robot.groups["arm"]])
-    base_addresses = [robot.addresses[n] for n in robot.groups["base"]]
+    addresses = [robot.joints.addresses[n] for n in robot.joints.groups["arm"]]
+    limits = np.array([sim.model.joint(robot.config.namespace+n).range for n in robot.joints.groups["arm"]])
+    base_addresses = [robot.joints.addresses[n] for n in robot.joints.groups["base"]]
     rows = []
     for _ in range(20):
         data.qpos[addresses] = rng.uniform(limits[:, 0]+.05, limits[:, 1]-.05)
@@ -144,8 +144,8 @@ def alignment(sim, output, seed):
     fk_valid = all(r["position_m"] <= .005 and r["rotation_rad"] <= .01 for r in rows)
     fingers = []
     for width in (.08, 0.):
-        for name, value in zip(sim.robot.groups["gripper"], [width/2, -width/2]):
-            data.qpos[robot.addresses[name]] = value
+        for name, value in zip(sim.robot.joints.groups["gripper"], [width/2, -width/2]):
+            data.qpos[robot.joints.addresses[name]] = value
         data.qpos[addresses] = sim.robot.arm_positions("right")
         data.qpos[base_addresses] = 0.
         mujoco.mj_forward(sim.model, data)
@@ -272,7 +272,7 @@ def main():
     os.environ.setdefault("WARP_CACHE_PATH", str(Path("outputs/dependencies/panda-omron-warp").resolve()))
     from lastmile_dataflow.config import load_robot_config
     from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.runtime.control.panda_omron import export_factory
+    from lastmile_dataflow.scenes.loading.panda_factory import export_factory
     config = load_robot_config(args.robot)
     sim = None
     result = {"stage": args.stage, "gpu": args.gpu, "seed": args.seed, "status": "error"}

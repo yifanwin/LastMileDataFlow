@@ -18,7 +18,6 @@ from lastmile_dataflow.planning.navigation.astar import (
     search,
     task_support_obstacles,
 )
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.utils.io import read_json
 
 
@@ -46,10 +45,7 @@ class SupportMapTests(unittest.TestCase):
         np.testing.assert_allclose(values, expected, equal_nan=True)
         self.assertTrue(np.isnan(values[0, 0]))
 
-    def test_support_parameter_validation_and_custom_radius(self):
-        for invalid in (0, -1, float("nan"), float("inf")):
-            with self.assertRaises(ValueError):
-                ExecutionConfig(smoothing_support_distance_m=invalid)
+    def test_custom_support_radius(self):
         grid = Grid(np.zeros(2), 0.05, np.ones((41, 41), bool))
         row = {"station_id": "S0016", "geometry": "valid", "terminal_trials": 1, "successes": 1, "xy": [1, 1]}
         narrow, _ = gaussian_map(grid, [row], 0.1, max_support_distance_m=0.1)

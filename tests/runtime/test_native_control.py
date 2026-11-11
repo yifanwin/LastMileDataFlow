@@ -43,7 +43,7 @@ class NativeTests(unittest.TestCase):
 
     def test_native_motor_not_position_and_atomic_limits(self):
         s = self.sim
-        index = s.robot.act_ids["left_finger_act"]
+        index = s.robot.joints.act_ids["left_finger_act"]
         self.assertEqual(s.model.actuator_biastype[index], mujoco.mjtBias.mjBIAS_NONE)
         np.testing.assert_array_equal(s.model.actuator_ctrlrange[index], [-100, 100])
         a = s.robot.neutral_action()
@@ -105,17 +105,17 @@ class NativeTests(unittest.TestCase):
         stopped = s.robot.apply(a)
         np.testing.assert_array_equal(stopped["joint_targets"]["base"], actual)
         # Synthetic measured drift is pre-begin only, testing controller state.
-        s.data.qpos[s.robot.addresses["base_x"]] += 0.01
+        s.data.qpos[s.robot.joints.addresses["base_x"]] += 0.01
         again = s.robot.apply(a)
         np.testing.assert_array_equal(again["joint_targets"]["base"], actual)
         before = s.data.ctrl.copy()
-        cache = {k: v.copy() for k, v in s.robot._native_stationary_targets.items()}
+        cache = {k: v.copy() for k, v in s.robot.native.stationary_targets.items()}
         a[3] = 0.3
         with self.assertRaises(InvalidAction):
             s.robot.apply(a)
         np.testing.assert_array_equal(s.data.ctrl, before)
         for k, v in cache.items():
-            np.testing.assert_array_equal(s.robot._native_stationary_targets[k], v)
+            np.testing.assert_array_equal(s.robot.native.stationary_targets[k], v)
 
 
 class ConfigTests(unittest.TestCase):

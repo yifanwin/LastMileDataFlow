@@ -73,7 +73,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
         yaw_adjustments = []
     _restore_object_velocity(sim, original_velocity)
     mujoco.mj_forward(sim.model, sim.data)
-    robot_q = set(sim.robot.addresses.values())
+    robot_q = set(sim.robot.joints.addresses.values())
     mask = [i for i in range(sim.model.nq) if i not in robot_q]
     if not np.array_equal(original[mask],sim.data.qpos[mask]):
         raise RuntimeError('initialization changed non-robot qpos')
@@ -104,7 +104,7 @@ def initialize_station(sim, station, anchor, config, *, renderer=None, check_vis
 
 def _restore_object_velocity(sim, original_velocity):
     velocity_mask = np.ones(sim.model.nv, bool)
-    robot_dofs = [int(sim.model.jnt_dofadr[j]) for j in sim.robot.joints.values()]
+    robot_dofs = list(sim.robot.joints.dofs.values())
     velocity_mask[robot_dofs] = False
     sim.data.qvel[velocity_mask] = original_velocity[velocity_mask]
 
@@ -120,7 +120,7 @@ def place_frozen_station(sim, station):
     _restore_object_velocity(sim, old_velocity)
     mujoco.mj_forward(sim.model, sim.data)
     mask = np.ones(sim.model.nq,bool)
-    mask[list(sim.robot.addresses.values())] = False
+    mask[list(sim.robot.joints.addresses.values())] = False
     if not np.array_equal(old[mask],sim.data.qpos[mask]):
         raise RuntimeError('station placement changed object poses')
 
@@ -137,7 +137,7 @@ def park_robot(sim, anchor, config):
     trials = []
     source = sim.data.qpos.copy()
     source_mask = np.ones(sim.model.nq, bool)
-    source_mask[list(sim.robot.addresses.values())] = False
+    source_mask[list(sim.robot.joints.addresses.values())] = False
     for i in range(256):
         xy = rng.uniform(lo, hi)
         if np.linalg.norm(xy - anchor[:2]) < config.radius_m + 1.25:

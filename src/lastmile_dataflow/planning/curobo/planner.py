@@ -14,6 +14,7 @@ from ...utils.logging_config import trial_progress
 from ..waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
 from ..evidence import phase_evidence
 from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
+from ..robots import planning_model
 from ..robots.common import (
     ordered_points,
     retime_points,
@@ -272,7 +273,7 @@ class V2Planner:
     def _bind_model(self, sim, config, path, workspace):
         """Measured planning model, locks and circular workspace of the current task."""
         self.workspace = workspace
-        self.model = sim.robot.planning_model(sim, config, self.side, path, workspace)
+        self.model = planning_model(sim, config, self.side, path, workspace)
         self.names, self.base = self.model.names, self.model.base
         self.reference_yaw, self.h_step_limit = (
             self.model.reference_yaw,

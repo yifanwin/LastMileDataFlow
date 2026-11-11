@@ -56,7 +56,7 @@ class RobotInterfaceTests(unittest.TestCase):
                 np.testing.assert_allclose(result["submitted_action"][3:10], .05)
                 self.assertAlmostEqual(result["submitted_action"][10], -.03)
                 before = sim.data.ctrl.copy()
-                sim.data.qpos[sim.robot.addresses["left_arm_0"]] += .01
+                sim.data.qpos[sim.robot.joints.addresses["left_arm_0"]] += .01
                 sim.robot.hold()
                 np.testing.assert_equal(sim.data.ctrl, before)
             finally:
@@ -69,7 +69,7 @@ class RobotInterfaceTests(unittest.TestCase):
           <geom type="box" size=".1 .1 .1" mass="1"/></body>
           </frame></worldbody></mujoco>"""
         for scale in (.9, .8):
-            with patch('lastmile_dataflow.scenes.loading.mjcf.load_spec',
+            with patch('lastmile_dataflow.runtime.control.robot.load_spec',
                        return_value=mujoco.MjSpec.from_string(xml)), patch(
                        'lastmile_dataflow.runtime.control.robot.prepare_robot_spec'):
                 spec = load_robot_spec(PandaOmronConfig('unused'), scale)
@@ -83,8 +83,8 @@ class RobotInterfaceTests(unittest.TestCase):
     def test_default_opening_tracks_model_joint_limits(self):
         robot = panda_adapter()
         for scale in (.9, .8):
-            for name in robot.groups['gripper']:
-                robot.model.jnt_range[robot.joints[name]] = (
+            for name in robot.joints.groups['gripper']:
+                robot.model.jnt_range[robot.joints.ids[name]] = (
                     [0., .04 * scale] if name.endswith('1') else [-.04 * scale, 0.])
             robot.initialize()
             self.assertAlmostEqual(robot.gripper_width('right'), .08 * scale)
@@ -94,10 +94,10 @@ class RobotInterfaceTests(unittest.TestCase):
         robot = panda_adapter()
         self.assertIsInstance(robot_config({"name": "panda_omron", "model_path": "unused"}), PandaOmronConfig)
         robot.apply(RobotCommand(gripper_width={"right": .06}))
-        self.assertAlmostEqual(robot.data.ctrl[robot.act_ids["gripper0_right_gripper_finger_joint1"]], .03)
-        self.assertAlmostEqual(robot.data.ctrl[robot.act_ids["gripper0_right_gripper_finger_joint2"]], -.03)
+        self.assertAlmostEqual(robot.data.ctrl[robot.joints.act_ids["gripper0_right_gripper_finger_joint1"]], .03)
+        self.assertAlmostEqual(robot.data.ctrl[robot.joints.act_ids["gripper0_right_gripper_finger_joint2"]], -.03)
         before = robot.data.ctrl.copy()
-        robot.data.qpos[robot.addresses["mobilebase0_joint_torso_height"]] = .19
+        robot.data.qpos[robot.joints.addresses["mobilebase0_joint_torso_height"]] = .19
         robot.hold()
         np.testing.assert_equal(robot.data.ctrl, before)
         with self.assertRaises(InvalidAction):

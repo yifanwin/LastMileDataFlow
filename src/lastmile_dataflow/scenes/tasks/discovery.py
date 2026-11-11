@@ -85,7 +85,7 @@ def discover_tasks(sim, metadata, config):
                 j = sim.model.joint(joint_name).id
             except KeyError:
                 continue
-            kind = sim.model.jnt_type[j]
+            kind = int(sim.model.jnt_type[j])  # numpy int vs pybind enum: `in` needs a Python int
             if kind not in (mujoco.mjtJoint.mjJNT_HINGE, mujoco.mjtJoint.mjJNT_SLIDE):
                 continue
             semantic = (str(semantic) + ' ' + joint_name).lower()

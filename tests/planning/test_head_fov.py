@@ -10,6 +10,7 @@ import mujoco
 import numpy as np
 import torch
 
+from lastmile_dataflow.runtime.control.joints import JointMap
 from lastmile_dataflow.planning.curobo.head_fov import (
     HeadFOVCost,
     SparseFOVValidator,
@@ -43,7 +44,7 @@ def fixture():
         model=model,
         data=data,
         target_id=model.body("target").id,
-        robot=SimpleNamespace(groups=groups, addresses=addresses, config=SimpleNamespace(namespace="")),
+        robot=SimpleNamespace(joints=JointMap(groups, {}, {}, addresses, {}, {}), config=SimpleNamespace(namespace="")),
     )
     definition = {
         "camera_id": 0,

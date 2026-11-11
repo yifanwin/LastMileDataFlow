@@ -1,64 +1,16 @@
-"""Factory assets and position-servo adapter for robosuite PandaOmron."""
+"""Spec preparation and position-servo adapter for robosuite PandaOmron."""
 from copy import deepcopy
-from pathlib import Path
-import shutil
-import sys
-import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
 
+from ...scenes.geometry import descendants
 from .action import InvalidAction, vector
 from .interface import RobotCommand
+from .joints import JointMap, check_cameras
 
-
-PIVOT = np.array([-.21, 0., 0.])
-
-
-def factory_spec(robosuite_root, namespace="robot_0/"):
-    """Use the real local factory, without depending on its task environments."""
-    path = str(Path(robosuite_root).resolve())
-    sys.path.insert(0, path)
-    try:
-        from robosuite.models.bases import robot_base_factory
-        from robosuite.models.grippers import gripper_factory
-        from robosuite.models.robots import create_robot
-        robot = create_robot("PandaOmron", idn=0)
-        robot.add_base(robot_base_factory(robot.default_base, idn=0))
-        robot.update_joints()
-        robot.update_actuators()
-        robot.add_gripper(gripper_factory(robot.default_gripper["right"], idn="0_right"),
-                          robot.eef_name["right"])
-        spec = mujoco.MjSpec.from_string(robot.get_xml())
-    finally:
-        sys.path.remove(path)
-    base = spec.body("mobilebase0_base")
-    base.add_site(name="base_site", pos=PIVOT, size=[.005, 0, 0], rgba=[0, 0, 0, 0])
-    base.add_camera(name="overview", pos=[-1.3, 0., 2.2],
-                    quat=[.653288, .2705823, -.2705823, -.653288], fovy=60.)
-    scene = mujoco.MjSpec()
-    scene.worldbody.add_frame(pos=-PIVOT).attach_body(spec.body("robot0_base"), namespace, "")
-    return scene
-
-
-def export_factory(robosuite_root, output, namespace="robot_0/"):
-    """Export referenced meshes plus XML. Repeated exports require a new directory."""
-    spec = factory_spec(robosuite_root, namespace)
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
-    root = ET.fromstring(spec.to_xml())
-    for asset in root.find("asset"):
-        source = asset.get("file")
-        if source:
-            source = Path(source)
-            target = Path("meshes") / (asset.get("name").replace("/", "_") + source.suffix)
-            (output / target).parent.mkdir(exist_ok=True)
-            shutil.copyfile(source, output / target)
-            asset.set("file", str(target))
-    path = output / "model.xml"
-    path.write_text(ET.tostring(root, encoding="unicode"))
-    shutil.copyfile(Path(robosuite_root) / "LICENSE", output / "LICENSE")
-    return path
+# Factory PandaOmron geometry is scaled once when the robot spec is loaded.
+SCALE = 0.9
 
 
 def _servo(act, kp, kv, limits, *, force_limits=None):
@@ -105,57 +57,104 @@ def prepare_spec(spec, config):
                 geom.rgba = [0, 0, 0, 0]
 
 
-class PandaOmronAdapter:
+PANDA_GROUPS = {
+    "base": ["mobilebase0_joint_mobile_" + s for s in ("forward", "side", "yaw")],
+    "lift": ["mobilebase0_joint_torso_height"],
+    "arm": [f"robot0_joint{i}" for i in range(1, 8)],
+    "gripper": [f"gripper0_right_finger_joint{i}" for i in (1, 2)]}
+PANDA_ACTUATORS = {
+    "base": ["mobilebase0_actuator_mobile_" + s for s in ("forward", "side", "yaw")],
+    "lift": ["mobilebase0_actuator_torso_height"],
+    "arm": [f"robot0_torq_j{i}" for i in range(1, 8)],
+    "gripper": [f"gripper0_right_gripper_finger_joint{i}" for i in (1, 2)]}
+
+
+class PandaBody:
+    """Joint map, measured state and station aiming shared by both Panda control profiles.
+
+    Holds no control state; each adapter defines its own initialize/apply/hold.
+    """
     arms = ("right",)
+    base_body = "mobilebase0_base"
+    initial_base_field = "base_xyyaw"
+    semantic_control = True
+    plan_lift_before_close = False
+    lock_base_after_close = True
 
     def __init__(self, model, data, config):
         self.model, self.data, self.config = model, data, config
         self.execution_started = False
-        self.groups = {
-            "base": ["mobilebase0_joint_mobile_" + s for s in ("forward", "side", "yaw")],
-            "lift": ["mobilebase0_joint_torso_height"],
-            "arm": [f"robot0_joint{i}" for i in range(1, 8)],
-            "gripper": [f"gripper0_right_finger_joint{i}" for i in (1, 2)]}
-        self.actuators = {
-            "base": ["mobilebase0_actuator_mobile_" + s for s in ("forward", "side", "yaw")],
-            "lift": ["mobilebase0_actuator_torso_height"],
-            "arm": [f"robot0_torq_j{i}" for i in range(1, 8)],
-            "gripper": [f"gripper0_right_gripper_finger_joint{i}" for i in (1, 2)]}
-        self.joints = {n: model.joint(config.namespace+n).id for names in self.groups.values() for n in names}
-        self.addresses = {n: int(model.jnt_qposadr[model.joint(config.namespace+n).id])
-                          for names in self.groups.values() for n in names}
-        self.act_ids = {n: model.actuator(config.namespace+n).id
-                        for names in self.actuators.values() for n in names}
-        self.camera_names = {n: config.namespace+n for n in config.cameras}
-        for name in self.camera_names.values():
-            model.camera(name)
-        self.targets = None
+        self.joints = JointMap.build(model, config.namespace, PANDA_GROUPS, PANDA_ACTUATORS)
+        self.camera_names = check_cameras(model, config.namespace, config.cameras)
         self.lift_target = None
+
+    @property
+    def observation_camera(self):
+        return self.config.observation_camera
+
+    @property
+    def open_grip(self):
+        first, second = (self.joints.ids[name] for name in self.joints.groups["gripper"])
+        return float(self.model.jnt_range[first, 1] - self.model.jnt_range[second, 0])
 
     def aim_station(self, initial, anchor):
         self.initialize(initial)
         cid = self.model.camera(self.camera_names[self.observation_camera]).id
         for _ in range(3):
-            forward = -self.data.cam_xmat[cid].reshape(3,3)[:,2]
-            delta = np.asarray(anchor[:2])-self.data.cam_xpos[cid,:2]
-            error = np.arctan2(delta[1],delta[0])-np.arctan2(forward[1],forward[0])
+            forward = -self.data.cam_xmat[cid].reshape(3, 3)[:, 2]
+            delta = np.asarray(anchor[:2]) - self.data.cam_xpos[cid, :2]
+            error = np.arctan2(delta[1], delta[0]) - np.arctan2(forward[1], forward[0])
             initial[self.initial_base_field][2] += float(np.arctan2(np.sin(error), np.cos(error)))
             self.initialize(initial)
         return []
 
-    @property
-    def observation_camera(self):
-        return self.config.observation_camera
-    base_body = "mobilebase0_base"
-    initial_base_field = "base_xyyaw"
-    @property
-    def open_grip(self):
-        joints = [self.model.joint(self.config.namespace + name).id
-                  for name in self.groups["gripper"]]
-        return float(self.model.jnt_range[joints[0], 1] - self.model.jnt_range[joints[1], 0])
-    semantic_control = True
-    plan_lift_before_close = False
-    lock_base_after_close = True
+    def control_height(self):
+        return self.lift_target
+
+    def manipulation_command(self, side, q, grip, height, base=None):
+        return RobotCommand(base_xyyaw=base, arm_q={side: q}, gripper_width={side: grip})
+
+
+    def group(self, name):
+        return self.joints.read(self.data, name)
+
+    def base_pose(self):
+        return self.group("base")
+
+    def arm_positions(self, arm):
+        return self.group("arm")
+
+    def gripper_width(self, arm):
+        a, b = self.group("gripper")
+        return float(a - b)
+
+    def tcp_site(self, arm):
+        return self.model.site(self.config.namespace + "gripper0_right_grip_site").id
+
+    def finger_bodies(self, arm):
+        return tuple(descendants(self.model, self.model.body(self.config.namespace +
+                     f"gripper0_right_{side}finger").id) for side in ("left", "right"))
+
+    def holding_state(self, arm):
+        return {"lift": float(self.group("lift")[0])}
+
+    def state(self):
+        return {"base_xyyaw": self.base_pose().tolist(), "lift": float(self.group("lift")[0]),
+                "arm_q": {a: self.arm_positions(a).tolist() for a in self.arms},
+                "gripper_width": {a: self.gripper_width(a) for a in self.arms}}
+
+    def initial_state(self, initial=None):
+        value = deepcopy(self.config.initial if initial is None else initial)
+        value['gripper_width'].setdefault('right', self.open_grip)
+        return value
+
+
+class PandaOmronAdapter(PandaBody):
+    """Position servos on base, lift, arm and fingers; commands are semantic absolute targets."""
+
+    def __init__(self, model, data, config):
+        super().__init__(model, data, config)
+        self.targets = None
 
     def copy_control_from(self, other):
         self.targets = deepcopy(other.targets)
@@ -168,14 +167,11 @@ class PandaOmronAdapter:
         self.targets = RobotCommand(**saved["targets"])
         self.lift_target = self.targets.lift
 
-    def control_height(self):
-        return self.lift_target
-
-    def manipulation_command(self, side, q, grip, height, base=None):
-        return RobotCommand(base_xyyaw=base, arm_q={side: q}, gripper_width={side: grip})
-
     def execution_action(self, command):
         return command
+
+    def update_control(self):
+        """Position servos need no per-substep feedback."""
 
     def record_layout(self):
         fields = ["base_x_m", "base_y_m", "base_yaw_rad", "lift_m",
@@ -195,49 +191,6 @@ class PandaOmronAdapter:
     def record_action(self, command):
         return self.flatten_command(command)
 
-    def planning_model(self, *args):
-        from ...planning.robots.panda_omron import PlanningModel
-        return PlanningModel(*args)
-
-    def group(self, name):
-        return np.array([self.data.qpos[self.addresses[n]] for n in self.groups[name]])
-
-    def base_pose(self):
-        return self.group("base")
-
-    def arm_positions(self, arm):
-        if arm not in self.arms:
-            raise ValueError(f"unknown arm: {arm}")
-        return self.group("arm")
-
-    def gripper_width(self, arm):
-        self.arm_positions(arm)
-        a, b = self.group("gripper")
-        return float(a-b)
-
-    def tcp_site(self, arm):
-        self.arm_positions(arm)
-        return self.model.site(self.config.namespace+"gripper0_right_grip_site").id
-
-    def finger_bodies(self, arm):
-        self.arm_positions(arm)
-        from ...scenes.geometry import descendants
-        return tuple(descendants(self.model, self.model.body(self.config.namespace +
-                     f"gripper0_right_{side}finger").id) for side in ("left", "right"))
-
-    def holding_state(self, arm):
-        return {"lift": float(self.group("lift")[0])}
-
-    def state(self):
-        return {"base_xyyaw": self.base_pose().tolist(), "lift": float(self.group("lift")[0]),
-                "arm_q": {a: self.arm_positions(a).tolist() for a in self.arms},
-                "gripper_width": {a: self.gripper_width(a) for a in self.arms}}
-
-    def initial_state(self, initial=None):
-        value = deepcopy(self.config.initial if initial is None else initial)
-        value['gripper_width'].setdefault('right', self.open_grip)
-        return value
-
     def initialize(self, initial=None):
         if self.execution_started:
             raise RuntimeError("initialization prohibited after begin")
@@ -247,8 +200,7 @@ class PandaOmronAdapter:
         groups = self._targets(self.targets)
         self._controls(groups)
         for group, values in groups.items():
-            for name, value in zip(self.groups[group], values):
-                self.data.qpos[self.addresses[name]] = value
+            self.joints.write(self.data, group, values)
         self.data.qvel[:] = 0
         self.hold()
         mujoco.mj_forward(self.model, self.data)
@@ -271,13 +223,9 @@ class PandaOmronAdapter:
     def _controls(self, targets):
         ctrl = self.data.ctrl.copy()
         for group, values in targets.items():
-            for name, actuator, value in zip(self.groups[group], self.actuators[group], values):
-                j = self.model.joint(self.config.namespace + name).id
-                if self.model.jnt_limited[j]:
-                    lo, hi = self.model.jnt_range[j]
-                    if not lo <= value <= hi:
-                        raise InvalidAction(f"joint limit: {name}")
-                ctrl[self.act_ids[actuator]] = value
+            for name, actuator, value in zip(self.joints.groups[group], self.joints.actuators[group], values):
+                self.joints.check_joint(self.model, name, value, tolerance=0.)
+                ctrl[self.joints.act_ids[actuator]] = value
         return ctrl
 
     def hold(self):

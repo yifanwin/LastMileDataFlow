@@ -73,13 +73,14 @@ class ResourceTests(unittest.TestCase):
         planner.context, planner.query_log, planner.solver_log, planner.fov_log = PlannerContext(target_checker=None), [], [], []
         model = SimpleNamespace(names=('a', 'b'), base=np.eye(4), reference_yaw=0., h_step_limit=0.,
                                 cfg={'kinematics': {}}, movable_base=True)
-        sim = SimpleNamespace(robot=SimpleNamespace(planning_model=Mock(return_value=model)),
+        sim = SimpleNamespace(robot=SimpleNamespace(),
                               model=object(), state_vector=lambda: np.zeros(3))
         parameters = object()
         with tempfile.TemporaryDirectory() as directory:
             planner.resource_path = Path(directory) / 'first'
             with (patch('curobo._src.types.robot.RobotCfg.create',
                         return_value=SimpleNamespace(kinematics=SimpleNamespace(kinematics_config=parameters))),
+                  patch('lastmile_dataflow.planning.curobo.planner.planning_model', return_value=model),
                   patch('lastmile_dataflow.planning.curobo.planner.reset_motion_seed')):
                 planner.rebind_resources(sim, SimpleNamespace(seed=42), Path(directory), ([1., 0., .5], 1.))
         for native in models:

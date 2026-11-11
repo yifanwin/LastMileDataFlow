@@ -4,6 +4,8 @@ import mujoco
 import numpy as np
 
 from ...runtime.construction.preparation import preparation_guard
+from ...runtime.control.panda_omron import SCALE
+from ...runtime.control.panda_robocasa import ROBOCASA_CAMERAS
 from ...scenes.geometry import descendants, geom_points
 from .edit_views import RenderError, ViewConfig
 
@@ -18,8 +20,6 @@ def camera_state(sim):
 
 def robocasa_camera_calibration(sim):
     """Compare compiled bindings/local optics; record actual world extrinsics."""
-    from ...runtime.control.panda_robocasa import ROBOCASA_CAMERAS
-    from ...planning.robots.panda_omron import SCALE
     records = {}
     for name, (parent, position, quaternion, fovy) in ROBOCASA_CAMERAS.items():
         camera = sim.model.camera(sim.robot.camera_names[name]).id

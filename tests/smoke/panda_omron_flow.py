@@ -53,7 +53,7 @@ def align_mobile(output, robot_config):
             for _ in range(7 if index < 2 else 6):
                 value = deepcopy(initial)
                 value['base_xyyaw'] = (np.asarray(initial['base_xyyaw'])+rng.uniform(-.2,.2,3)).tolist()
-                limits = [sim.model.joint(robot_config.namespace+n).range for n in sim.robot.groups['arm']]
+                limits = [sim.model.joint(robot_config.namespace+n).range for n in sim.robot.joints.groups['arm']]
                 value['arm_q']['right'] = [float(rng.uniform(lo+.05,hi-.05)) for lo,hi in limits]
                 sim.robot.initialize(value)
                 js = JointState.from_position(device.to_device(model.current_joints()).view(1,-1),joint_names=list(model.names))
