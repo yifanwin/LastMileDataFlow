@@ -88,7 +88,7 @@
   "stations": {
     "radius_m": 1.0,
     "spacing_m": 0.1,
-    "yaw_bins": 16,
+    "heading_offsets_deg": [-60, -45, -30, -15, 0, 15, 30, 45, 60],
     "block_m": 0.3,
     "split": [
       0.7,

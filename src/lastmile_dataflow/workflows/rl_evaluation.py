@@ -240,8 +240,8 @@ def plot_scores(rows, path, q_limits):
     legal = [r for r in rows if r['valid']]
     if not legal:
         return
-    first_yaw = min(r['yaw'] for r in rows)
-    slice_rows = [r for r in rows if abs(r['yaw'] - first_yaw) < 1e-6]
+    # World yaw differs per XY; the readable slice is the target-facing offset 0.
+    slice_rows = [r for r in rows if r['yaw_offset_rad'] is None or abs(r['yaw_offset_rad']) < 1e-9]
     best = {}
     for row in legal:
         if row['xy_id'] not in best or row['q_mean'] > best[row['xy_id']]['q_mean']:
@@ -249,7 +249,7 @@ def plot_scores(rows, path, q_limits):
     (Path(path).parent / 'best-yaw.json').write_text(json.dumps(list(best.values()), indent=2))
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
     for axis, subset, title in zip(axes, (slice_rows, list(best.values())),
-                                    (f'yaw={first_yaw:.3f} rad', 'max over yaw')):
+                                    ('facing target (offset 0)', 'max over heading')):
         invalid = [r for r in subset if not r['valid']]
         valid = [r for r in subset if r['valid']]
         axis.scatter([r['x'] for r in invalid], [r['y'] for r in invalid], c='gray', marker='x', label='invalid')
