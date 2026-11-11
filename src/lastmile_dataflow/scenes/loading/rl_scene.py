@@ -44,7 +44,25 @@ class PreparedRLScene:
         return self.robot_spec.copy()
 
     def attach_scene(self, spec):
-        spec.attach(self.scene_spec.copy(), prefix='', frame=spec.worldbody.add_frame())
+        # Attach keeps the parent's global settings anyway; matching them first avoids
+        # MuJoCo's conflict warning, which otherwise writes MUJOCO_LOG.TXT into the cwd.
+        scene = self.scene_spec.copy()
+        _match_globals(spec.option, scene.option)
+        _match_globals(spec.visual, scene.visual)
+        for name in ('njmax', 'nconmax', 'nstack', 'memory'):
+            setattr(scene, name, getattr(spec, name))
+        spec.attach(scene, prefix='', frame=spec.worldbody.add_frame())
+
+
+def _match_globals(parent, child):
+    for name in dir(parent):
+        value = getattr(parent, name)
+        if name.startswith('_') or callable(value):
+            continue
+        if isinstance(value, (bool, int, float, str, np.ndarray)):
+            setattr(child, name, value)
+        else:
+            _match_globals(value, getattr(child, name))
 
 
 def prepare_rl_scene(config):
