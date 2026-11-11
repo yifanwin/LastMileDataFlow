@@ -18,7 +18,6 @@ class RolloutCapture:
 
     def initialize(self, env, stations, seed, deterministic):
         self.stations, self.seed = stations, seed
-        self.base_positions = env.sim.data.site_xpos[:, env.task.base].cpu().numpy().copy()
         self.mode = 'mean' if deterministic else 'stochastic'
         self.states = [[] for _ in stations]
         self.metrics = [[] for _ in stations]
@@ -66,7 +65,7 @@ class RolloutCapture:
             result = 'success' if row['success'] else 'failure' if row['infrastructure_failure'] or row['failed'] else 'timeout'
             result += f' collision_free={row["collision_free"]}'
             label = f'{self.transitions} {station["split"]} {station["station_id"]} seed={self.seed} {self.mode}'
-            settings = {**self.config['video'], 'lookat': env.prepared.target_position.tolist(), 'base_position': self.base_positions[i].tolist()}
+            settings = {**self.config['video'], 'target_body': env.prepared.target_body}
             video = render_rollout(env.sim.mj_model, states, self.metrics[i], self.output / 'views' / (stem + '.mp4'),
                                    label, result, settings, env.step_dt)
             self.videos.append({**video, 'replay': str(replay), 'seed': self.seed, 'result': row,
