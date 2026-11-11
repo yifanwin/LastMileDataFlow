@@ -1,10 +1,14 @@
 # LastMileDataFlow 简化重构计划
 
-- 日期：2026-11-11
+- 日期：2026-11-12
 - 分支：`refactor/simplify`，从 `actor-critic` 的 `1b2f454` 拉出，worktree 在 `.worktrees/simplify`
-- 状态：active；阶段 0–2 已完成，阶段 7 的控制、策略配置、本体公共工具已实施；阶段 3–6 及其余收尾待完成
+- 状态：active
 - 替代：无
 - 关联：../delivery/01-handover.md、../delivery/02-control-policy-refactor.md
+
+- 最后更新：2026-11-12T00:14:45+08:00
+- 执行状态：已按用户要求结束所有实验/对比/验证；主要代码精简已提交，全部验收未完成，不再自动续跑。
+- 当前结论：[最终总结](../delivery/10-final-summary.md)。回归342项中1失败、2错误；RGB严格一致性未通过，余下真实验证未执行。下文保留原计划与对应版本基线，不将历史结果改写为当前通过。
 
 ## 1 范围（已和用户确认）
 

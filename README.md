@@ -23,7 +23,7 @@ scripts/install.sh
 
 GPU 按实时空闲情况选择。--gpu 使用物理编号，EGL 自动映射并传给子进程；需要覆盖时传 --egl-devices。不要将物理 GPU 编号直接当作 EGL 编号。
 
-本轮已验证 house103/Cup_30 的原场景与一个桌面障碍场景；原场景站位、MJB、初始状态与基线一致。完整批量采集和策略评测不能由此推定通过。真实验证范围与当前问题见 [重构交接](reports/simplify-refactor/delivery/01-handover.md)。
+本轮真实检查覆盖场景构建、Panda单trial、3个连续配对、benchmark重建及π0.5两步调用链。整体回归未全绿，RGB与旧基线有最大2/255差异，未完成全部真实验收；已按用户要求停止所有实验与验证。详见 [最终总结](reports/simplify-refactor/delivery/10-final-summary.md)。
 
 - [架构](docs/architecture.md)、[数据格式](docs/data-format.md)、[配置](configs/README.md)、[测试](tests/README.md)。
 - [报告入口](reports/README.md)与 [产物规则](outputs/RULES.md)。历史报告保留，历史成功不代表当前主链已验证。

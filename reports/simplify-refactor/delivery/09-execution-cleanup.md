@@ -1,9 +1,9 @@
 # 执行流程收尾
 
-- 状态：active
+- 状态：superseded
 - 日期：2026-11-12
 - 时间：2026-11-12T00:02:59+08:00
-- 替代：无
+- 替代：10-final-summary.md
 - 关联：../plan/01-refactor-plan.md、01-handover.md
 
 ## 实际改动
