@@ -17,10 +17,8 @@ from lastmile_dataflow.runtime.control.action import (
     bounded_torso_command,
     torso_feedback_margin,
 )
-from lastmile_dataflow.runtime.execution.context import (
-    ContinuousContext,
-    OperationFailure,
-)
+from lastmile_dataflow.runtime.execution.context import ContinuousContext
+from lastmile_dataflow.runtime.execution.protocol import OperationFailure
 from lastmile_dataflow.runtime.execution.navigation import navigate
 from lastmile_dataflow.runtime.outcomes.contacts import NavigationContacts
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig

@@ -223,7 +223,7 @@ def control(sim, output):
     import imageio.v2 as imageio
     import numpy as np
     from lastmile_dataflow.runtime.control.interface import RobotCommand
-    from lastmile_dataflow.runtime.execution.context import semantic_tick
+    from stepping import semantic_tick
     initial = sim.robot.arm_positions("right")
     moved = initial + np.array([.1, -.1, .1, .15, -.1, -.1, .1])
     commands = [("hold", RobotCommand()),
@@ -289,7 +289,7 @@ def main():
             result.update(alignment(sim, args.output, args.seed))
         else:
             from lastmile_dataflow.runtime.control.interface import RobotCommand
-            from lastmile_dataflow.runtime.execution.context import semantic_tick
+            from stepping import semantic_tick
             for _ in range(100):
                 semantic_tick(sim, RobotCommand())
             result.update(valid=not any(w.number for w in sim.data.warning),

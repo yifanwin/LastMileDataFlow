@@ -1,41 +1,72 @@
-"""Closed-loop navigation shared by the two execution backends."""
+"""Closed-loop base navigation shared by the cuRobo and VLA execution backends."""
 from dataclasses import asdict
+from typing import Protocol
+
 import numpy as np
+
 from ..control.interface import RobotCommand
 from ...planning.navigation.geometry import yaw_gap
+from .protocol import OperationFailure
 
-from .context import OperationFailure
+ARRIVAL_TICKS = 10
 
-def navigate(ctx,path,goal):
-    sim=ctx.sim; cfg=ctx.config; ctx.phase='navigation'; ctx.monitor=None; ctx.fingers=set()
-    held={side:sim.robot.arm_positions(side).copy() for side in sim.robot.arms}
-    count=0
-    # Adapter retains the locked lift/torso and gripper targets across base commands.
+
+class NavigationRunner(Protocol):
+    """What navigate() needs from an execution backend."""
+    sim: object
+    config: object
+    navigation_contacts: object
+    phase: str
+
+    def tick(self, command: RobotCommand) -> None: ...
+
+
+def base_error(target, current):
+    """[dx, dy, dyaw] from current to target base pose, yaw wrapped to (-π, π]."""
+    target = np.asarray(target, float)
+    error = target - current
+    error[2] = yaw_gap(target[2], current[2])
+    return error
+
+
+def arrived(error, config):
+    return np.linalg.norm(error[:2]) <= config.arrival_tolerance_m and abs(error[2]) <= config.arrival_tolerance_rad
+
+
+def base_step_limits(robot_config, speed, yaw_speed):
+    """Per-control-tick translation and yaw limits for base tracking."""
+    return (min(robot_config.max_base_delta, speed / robot_config.control_hz),
+            min(robot_config.max_yaw_delta, yaw_speed / robot_config.control_hz))
+
+
+def navigate(runner: NavigationRunner, path, goal):
+    """Track path poses, settle onto the goal base, and report arrival error."""
+    sim, config = runner.sim, runner.config
+    robot = sim.robot
+    held = {side: robot.arm_positions(side).copy() for side in robot.arms}
+    limit, yaw_limit = base_step_limits(robot.config, config.navigation_speed_m_s,
+                                        config.navigation_yaw_speed_rad_s)
+    runner.phase = 'navigation'
+    steps = 0
     for pose in path['poses']:
-        target=np.asarray(pose, float)
-        while True:
-            current=sim.robot.base_pose(); delta=target-current; delta[2]=yaw_gap(target[2],current[2])
-            if np.linalg.norm(delta[:2]) <= cfg.arrival_tolerance_m and abs(delta[2]) <= cfg.arrival_tolerance_rad: break
-            count+=1
-            if count > cfg.max_navigation_steps: raise OperationFailure('navigation_tracking_timeout')
-            limit=min(sim.robot.config.max_base_delta,cfg.navigation_speed_m_s/sim.robot.config.control_hz)
-            yaw_limit=min(sim.robot.config.max_yaw_delta,cfg.navigation_yaw_speed_rad_s/sim.robot.config.control_hz)
-            scale=max(1.,np.linalg.norm(delta[:2])/limit,abs(delta[2])/yaw_limit)
-            ctx.tick(RobotCommand(base_xyyaw=current+delta/scale, arm_q=held))
-    ctx.phase='arrival'
-    for _ in range(10):
-        delta=np.asarray(goal['base'])-sim.robot.base_pose()
-        delta[2]=yaw_gap(goal['base'][2],sim.robot.base_pose()[2])
-        if np.linalg.norm(delta[:2]) > sim.robot.config.max_base_delta or abs(delta[2]) > sim.robot.config.max_yaw_delta:
+        while not arrived(error := base_error(pose, robot.base_pose()), config):
+            steps += 1
+            if steps > config.max_navigation_steps:
+                raise OperationFailure('navigation_tracking_timeout')
+            scale = max(1., np.linalg.norm(error[:2]) / limit, abs(error[2]) / yaw_limit)
+            runner.tick(RobotCommand(base_xyyaw=robot.base_pose() + error / scale, arm_q=held))
+    runner.phase = 'arrival'
+    for _ in range(ARRIVAL_TICKS):
+        error = base_error(goal['base'], robot.base_pose())
+        if np.linalg.norm(error[:2]) > robot.config.max_base_delta or abs(error[2]) > robot.config.max_yaw_delta:
             raise OperationFailure('arrival_tracking_error')
-        ctx.tick(RobotCommand(base_xyyaw=sim.robot.base_pose()+delta, arm_q=held))
-    actual=sim.robot.base_pose()
-    xy_error=float(np.linalg.norm(actual[:2]-np.asarray(goal['base'])[:2]))
-    yaw_error=abs(yaw_gap(goal['base'][2],actual[2]))
-    if xy_error > cfg.arrival_tolerance_m or yaw_error > cfg.arrival_tolerance_rad:
+        runner.tick(RobotCommand(base_xyyaw=robot.base_pose() + error, arm_q=held))
+    actual = robot.base_pose()
+    error = base_error(goal['base'], actual)
+    if not arrived(error, config):
         raise OperationFailure('arrival_tracking_error')
-    return {'status':'success','actual_base':actual.tolist(),'steps':count,
-            **asdict(ctx.navigation_contacts),
-            'xy_error_m':xy_error,'yaw_error_rad':yaw_error,
-            'arrival_tolerance_m':cfg.arrival_tolerance_m,'arrival_tolerance_rad':cfg.arrival_tolerance_rad}
-
+    return {'status': 'success', 'actual_base': actual.tolist(), 'steps': steps,
+            **asdict(runner.navigation_contacts),
+            'xy_error_m': float(np.linalg.norm(error[:2])), 'yaw_error_rad': abs(float(error[2])),
+            'arrival_tolerance_m': config.arrival_tolerance_m,
+            'arrival_tolerance_rad': config.arrival_tolerance_rad}

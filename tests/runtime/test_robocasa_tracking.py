@@ -7,7 +7,6 @@ import numpy as np
 
 from lastmile_dataflow.runtime.control.interface import RobotCommand
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution.context import follow_points
 
 
 class RobocasaTrackingTests(unittest.TestCase):
@@ -33,12 +32,12 @@ class RobocasaTrackingTests(unittest.TestCase):
         robot.execution_action = reference
         ctx = SimpleNamespace(sim=SimpleNamespace(robot=robot), manip_base_target=np.zeros(3),
             config=SimpleNamespace(arrival_tolerance_m=.015, arrival_tolerance_rad=.025),
-            tick=tick, yaw_gap=lambda a, b: a-b)
+            tick=tick)
         planner = SimpleNamespace(base_target_world=lambda point: point.copy(),
             model=SimpleNamespace(arm_target=lambda point: np.zeros(7)))
         points = [np.array([.1, .05, .1]), np.array([.3, .15, .4])]
         with patch('lastmile_dataflow.runtime.execution.context.tcp_pose', side_effect=measured):
-            follow_points(ctx, planner, points, 'right', .08)
+            ContinuousContext._follow_robocasa(ctx, planner, points, 'right', .08)
         reached = measured(ctx.sim, 'right')
         ContinuousContext.arm_tick(ctx, 'right', np.zeros(7), 0., 0.)
         np.testing.assert_allclose(robot.base, points[-1])

@@ -28,15 +28,17 @@ from ..outcomes.contacts import (
     NavigationContacts,
     simulation_failure,
 )
-from .protocol import SimulationState
+from .navigation import base_step_limits
+from .protocol import OperationFailure, SimulationState
 from ..outcomes.pick import checkpoint_pick_success, timed
 
 
-class OperationFailure(RuntimeError):
-    def __init__(self, reason, diagnostic=None):
-        super().__init__(reason)
-        self.reason = reason
-        self.diagnostic = diagnostic
+def joint_base_error(target, base):
+    """Base target minus measured base, without yaw wrapping.
+
+    RBY-1 base yaw is a bounded joint; wrapping across ±π would command an
+    illegal jump, so semantic tracking compares raw joint values."""
+    return np.asarray(target, float) - base
 
 
 def clone_sim(sim, *, target=None, handle=None):
@@ -234,9 +236,6 @@ class ContinuousContext:
         )
         return result
 
-    def yaw_gap(self, target, current):
-        return float(target - current)
-
     def arm_tick(self, side, q, grip, h):
         base = self.manip_base_target
         command = self.sim.robot.manipulation_command(side, q, grip, h, base)
@@ -248,21 +247,15 @@ class ContinuousContext:
         robot = self.sim.robot
         target = planner.base_target_world(point)
         base = robot.base_pose()
-        base_gap = target - base
-        base_gap[2] = self.yaw_gap(target[2], base[2])
+        base_gap = joint_base_error(target, base)
         q = planner.model.arm_target(point)
         arm = robot.arm_positions(side)
         arm_gap = q - arm
         height = planner.model.height_target(point)
         measured_h = robot.control_height()
         h_gap = height - measured_h
-        limit = min(
-            robot.config.max_base_delta,
-            self.config.navigation_speed_m_s / robot.config.control_hz,
-        )
-        yaw_limit = min(
-            robot.config.max_yaw_delta,
-            self.config.navigation_yaw_speed_rad_s / robot.config.control_hz,
+        limit, yaw_limit = base_step_limits(
+            robot.config, self.config.navigation_speed_m_s, self.config.navigation_yaw_speed_rad_s
         )
         scale = max(
             1.0,
@@ -318,7 +311,9 @@ class ContinuousContext:
         if np.asarray(positions).shape[1:] != (len(planner.names),):
             raise ValueError("planner joint ordering mismatch")
         if self.sim.robot.config.control_profile == "robocasa-v1":
-            return follow_points(self, planner, positions, side, grip, goal)
+            self._follow_robocasa(planner, positions, side, grip)
+            self._check_tcp(side, goal)
+            return
         for point in positions:
             for _ in range(120):
                 if self.mobile_tick(planner, point, side, grip) <= 1.0:
@@ -327,10 +322,7 @@ class ContinuousContext:
                 raise OperationFailure("arm_tracking_timeout")
         goal_q = np.asarray(positions[-1])
         for _ in range(100):
-            base_gap = planner.base_target_world(goal_q) - self.sim.robot.group("base")
-            base_gap[2] = self.yaw_gap(
-                planner.base_target_world(goal_q)[2], self.sim.robot.group("base")[2]
-            )
+            base_gap = joint_base_error(planner.base_target_world(goal_q), self.sim.robot.group("base"))
             if (
                 np.max(
                     np.abs(
@@ -346,12 +338,40 @@ class ContinuousContext:
             self.mobile_tick(planner, goal_q, side, grip)
         else:
             raise OperationFailure("mobile_base_arm_tracking_timeout")
+        self._check_tcp(side, goal)
+
+    def _check_tcp(self, side, goal):
+        if goal is None:
+            return
         measured = tcp_pose(self.sim, side)
-        if goal is not None and (
-            np.linalg.norm(measured[:3, 3] - goal[:3, 3]) > 0.015
-            or rotation_error(measured[:3, :3], goal[:3, :3]) > 0.06
-        ):
+        if (np.linalg.norm(measured[:3, 3] - goal[:3, 3]) > 0.015
+                or rotation_error(measured[:3, :3], goal[:3, :3]) > 0.06):
             raise OperationFailure("tcp_tracking_timeout")
+
+    def _follow_robocasa(self, planner, positions, side, grip):
+        """RoboCasa OSC: hold each reference until TCP and base reach it."""
+        robot = self.sim.robot
+        for point in positions:
+            point = np.asarray(point)
+            base = planner.base_target_world(point)
+            self.manip_base_target = np.asarray(base).copy()
+            command = RobotCommand(base_xyyaw=base, arm_q={side: planner.model.arm_target(point)},
+                                   gripper_width={side: grip})
+            robot.execution_action(command)
+            site = robot.tcp_site(side)
+            target_xyz = robot.scratch.site_xpos[site].copy()
+            target_rotation = robot.scratch.site_xmat[site].reshape(3, 3).copy()
+            for _ in range(120):
+                self.tick(command)
+                measured = tcp_pose(self.sim, side)
+                gap = joint_base_error(base, robot.base_pose())
+                if (np.linalg.norm(target_xyz - measured[:3, 3]) <= 0.01
+                        and rotation_error(measured[:3, :3], target_rotation) <= 0.06
+                        and np.linalg.norm(gap[:2]) <= self.config.arrival_tolerance_m
+                        and abs(gap[2]) <= self.config.arrival_tolerance_rad):
+                    break
+            else:
+                raise OperationFailure("robocasa_reference_tracking_timeout")
 
     def finish(self):
         if self.plans:
@@ -367,67 +387,3 @@ def planner_options(config, assets_dir, seed):
             "robot_planner_dir": str(Path(assets_dir) / "robots/rby1m/curobo_config"),
         }
     )
-
-
-def _check_semantic_tick(sim, sample):
-    failure = simulation_failure(sim)
-    if failure:
-        return failure
-    if sample is not None:
-        mujoco.mj_forward(sim.model, sim.data)
-        sample()
-    return None
-
-
-def semantic_tick(sim, command, *, sample=None, fixed_base=False):
-    """Shared physical stepping for semantic commands, independent of recorder."""
-    if not sim.started:
-        sim.begin()
-    (result, stop) = sim.step(
-        command,
-        fixed_base=fixed_base,
-        substep_check=partial(_check_semantic_tick, sim, sample),
-    )
-    if stop:
-        raise OperationFailure(stop)
-    return result
-
-
-def follow_points(ctx, planner, positions, side, grip, goal=None):
-    robot = ctx.sim.robot
-    for point in positions:
-        point = np.asarray(point)
-        base = planner.base_target_world(point)
-        ctx.manip_base_target = np.asarray(base).copy()
-        command = RobotCommand(
-            base_xyyaw=base,
-            arm_q={side: planner.model.arm_target(point)},
-            gripper_width={side: grip},
-        )
-        robot.execution_action(command)
-        target = np.eye(4)
-        site = robot.tcp_site(side)
-        target[:3, 3] = robot.scratch.site_xpos[site]
-        target[:3, :3] = robot.scratch.site_xmat[site].reshape(3, 3)
-        for _ in range(120):
-            ctx.tick(command)
-            measured = tcp_pose(ctx.sim, side)
-            gap = base - robot.base_pose()
-            if (
-                np.linalg.norm(target[:3, 3] - measured[:3, 3]) <= 0.01
-                and rotation_error(measured[:3, :3], target[:3, :3]) <= 0.06
-                and (np.linalg.norm(gap[:2]) <= ctx.config.arrival_tolerance_m)
-                and (
-                    abs(ctx.yaw_gap(base[2], robot.base_pose()[2]))
-                    <= ctx.config.arrival_tolerance_rad
-                )
-            ):
-                break
-        else:
-            raise OperationFailure("robocasa_reference_tracking_timeout")
-    measured = tcp_pose(ctx.sim, side)
-    if goal is not None and (
-        np.linalg.norm(measured[:3, 3] - goal[:3, 3]) > 0.015
-        or rotation_error(measured[:3, :3], goal[:3, :3]) > 0.06
-    ):
-        raise OperationFailure("tcp_tracking_timeout")

@@ -12,7 +12,8 @@ from ..outcomes.evaluation import evaluate_open
 from ..outcomes.pick import hold_pick, timed
 from dataclasses import replace
 from functools import partial
-from .context import OperationFailure, planner_options
+from .context import planner_options
+from .protocol import OperationFailure
 
 
 def _candidate_score(sim, reference, method, candidate):
@@ -379,5 +380,5 @@ class _Manipulation:
             self.close()
 
 
-def manipulate_v2(ctx, task, candidates, assets_dir, seed, forced=None):
+def manipulate(ctx, task, candidates, assets_dir, seed, forced=None):
     return _Manipulation(ctx, task, candidates, assets_dir, seed, forced).run()

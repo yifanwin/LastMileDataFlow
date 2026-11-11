@@ -104,7 +104,7 @@ def main():
                 packet={'stage':'real_robot_observation','state':obs['state'].tolist(),'task_success':None}
             elif args.stage == 'tracking':
                 from lastmile_dataflow.runtime.control.interface import RobotCommand
-                from lastmile_dataflow.runtime.execution.context import semantic_tick
+                from stepping import semantic_tick
                 from lastmile_dataflow.scenes.geometry import tcp_pose
                 from lastmile_dataflow.runtime.outcomes.pick import rotation_error
                 goal = sim.robot.base_pose() + np.array([.15,.08,.2])

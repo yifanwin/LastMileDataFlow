@@ -120,7 +120,7 @@ class EvidenceTests(unittest.TestCase):
                 raise TimeoutError("attempt_wall_clock_budget")
 
             with (
-                patch("lastmile_dataflow.runtime.execution.curobo.place_frozen_station"),
+                patch("lastmile_dataflow.runtime.execution.attempt.place_frozen_station"),
                 patch("lastmile_dataflow.runtime.execution.curobo.manipulate", side_effect=manipulation),
             ):
                 result = run_curobo_attempt(
@@ -144,7 +144,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_failed_navigation_counts_only_executed_navigation_intervals(self):
         from lastmile_dataflow.config import CollectionConfig
-        from lastmile_dataflow.runtime.execution.context import OperationFailure
+        from lastmile_dataflow.runtime.execution.protocol import OperationFailure
         from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 
         with tempfile.TemporaryDirectory() as directory:
@@ -161,7 +161,7 @@ class EvidenceTests(unittest.TestCase):
                 raise OperationFailure('arrival_tracking_error')
 
             with (
-                patch('lastmile_dataflow.runtime.execution.curobo.place_frozen_station'),
+                patch('lastmile_dataflow.runtime.execution.attempt.place_frozen_station'),
                 patch('lastmile_dataflow.runtime.execution.curobo.navigate', side_effect=navigation),
             ):
                 result = run_curobo_attempt(

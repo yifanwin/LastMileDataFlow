@@ -15,7 +15,7 @@ from lastmile_dataflow.runtime.control.action import (
     local_yaw_bounds,
     sanitize_action,
 )
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
+from lastmile_dataflow.runtime.execution.context import joint_base_error
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
@@ -113,9 +113,7 @@ class ActionLimitTests(unittest.TestCase):
             sanitize_action(r, a)
 
     def test_unsafe_yaw_wrap_not_allowed(self):
-        ctx = ContinuousContext.__new__(ContinuousContext)
-        ctx.config = ExecutionConfig(planner_backend="curobo_v2_v080", max_attempts=5)
-        self.assertAlmostEqual(ctx.yaw_gap(3.13, -3.13), 6.26)
+        self.assertAlmostEqual(joint_base_error([0, 0, 3.13], np.array([0, 0, -3.13]))[2], 6.26)
         r, v = robot_fixture()
         v["base"][2] = -3.13
         a = np.zeros(20)

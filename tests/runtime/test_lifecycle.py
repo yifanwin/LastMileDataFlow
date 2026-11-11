@@ -17,14 +17,14 @@ from lastmile_dataflow.policies.molmobot import (
     PolicyEpisodeError,
     PolicyInfrastructureError,
 )
-from lastmile_dataflow.runtime.execution.context import OperationFailure
+from lastmile_dataflow.runtime.execution.protocol import OperationFailure
 from lastmile_dataflow.runtime.execution.lifecycle import (
     classify_episode_exception,
     execute_isolated_episode,
     mark_episode_phase,
     track_resource,
 )
-from lastmile_dataflow.runtime.execution.manipulation import manipulate_v2
+from lastmile_dataflow.runtime.execution.manipulation import manipulate
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
@@ -118,9 +118,7 @@ class LifecycleIsolationTests(unittest.TestCase):
 
         task = {**self.task, "target_body": "target"}
         for backend in ("curobo", "molmobot"):
-            module = "lastmile_dataflow.runtime." + (
-                "execution.curobo" if backend == "curobo" else "execution.vla"
-            )
+            module = "lastmile_dataflow.runtime.execution.attempt"
             with (
                 patch(module + ".clone_sim", side_effect=clone),
                 patch(module + ".place_frozen_station", side_effect=ValueError("bad initial pose")),
@@ -218,7 +216,7 @@ class RetryDirectoryTests(unittest.TestCase):
                 for _ in range(2):
                     ctx.plan_count = 0
                     with self.assertRaisesRegex(OperationFailure, "planning_no_solution"):
-                        manipulate_v2(
+                        manipulate(
                             ctx,
                             {"operation": "pick", "anchor_world": [0, 0, 0]},
                             [],
@@ -256,7 +254,7 @@ class RetryDirectoryTests(unittest.TestCase):
                 ) as factory,
             ):
                 with self.assertRaisesRegex(RuntimeError, "reached closed planner"):
-                    manipulate_v2(
+                    manipulate(
                         ctx,
                         {"operation": "pick", "anchor_world": [0, 0, 0]},
                         [],
@@ -321,6 +319,6 @@ class RetryDirectoryTests(unittest.TestCase):
                     side_effect=[planner, Mock()],
                 ),
             ):
-                verdict, control = manipulate_v2(ctx, task, [], d, 0, forced={"arm": "left"})
+                verdict, control = manipulate(ctx, task, [], d, 0, forced={"arm": "left"})
             self.assertEqual(verdict["status"], "success")
             self.assertTrue(marker.exists())

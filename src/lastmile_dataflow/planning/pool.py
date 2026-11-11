@@ -16,7 +16,7 @@ from ..utils.io import write_json
 
 
 def _consume_plan_budget(budgets, max_plans, phase):
-    from ..runtime.execution.context import OperationFailure
+    from ..runtime.execution.protocol import OperationFailure
 
     for budget in budgets:
         budget.check()
@@ -191,7 +191,7 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
         OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1"
     )
     from ..runtime.execution.lifecycle import classify_episode_exception
-    from ..runtime.execution.context import OperationFailure
+    from ..runtime.execution.protocol import OperationFailure
 
     with closing(service_type()) as service:
         while True:

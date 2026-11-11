@@ -162,8 +162,6 @@ def evaluate_pick(samples,initial, *, constraint_checker=constraint_failure):
         return {'status':'infrastructure_error','reason':'malformed_physics_evidence'}
 
 
-EXECUTION_SEMANTICS = 'continuous-execution-v2'
-SPLIT_EXECUTION_SEMANTICS = 'continuous-execution-v3-active-budget'
 
 
 class PickEvidenceComplete(Exception):
