@@ -76,7 +76,6 @@ class ConfigurationTests(unittest.TestCase):
 
         for name in ('panda_omron_curobo', 'panda_omron_robocasa_curobo'):
             config = load_execution_config(f'configs/execution/{name}.json')
-            self.assertEqual(config, load_execution_config(f'configs/lastmile_datasets/{name}.json'))
             self.assertEqual(config.trials_per_station, 3)
             stations = [{'station_id': str(i), 'geometry': 'valid'} for i in range(4)]
             calibration = {'complete': True, 'stations': [

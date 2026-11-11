@@ -5,7 +5,7 @@
 - 替代：无
 - 关联：[需求](../../reports/benchmark/requirement/01-lastmile-bench-v0.1.md)、[运行指南](../../reports/benchmark/docs/运行指南.md)、[导航修复](../../reports/navigation/delivery/07-navigation-geometry-fix.md)
 
-`build-bench --config configs/benchmark/v0.1.json`。构建直接读取已有场景和标定，不启动新的 trial。
+`python scripts/bench_build.py --config configs/benchmark/v0.1.json`。构建直接读取已有场景和标定，不启动新的 trial。
 
 | 字段 | 默认值及作用 |
 |---|---|

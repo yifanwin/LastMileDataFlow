@@ -5,7 +5,7 @@
 LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 **场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
 
-- 只维护五个 CLI 命令：`build-scenes`、`evaluate-stations`、`collect-lastmile`、`build-bench`、`evaluate-bench`。
+- 维护五个阶段脚本：`scripts/build_scenes.py`、`station_map.py`、`collect.py`、`bench_build.py`、`bench_evaluate.py`。
 - 规划固定 cuRobo V2（0.8.0），策略为 MolmoBot multitask，导航为 A*。连续采集当前仅支持 cuRobo。
 - 当前能力与未验证边界查 README 和 `reports/README.md`；历史局部成功不证明当前主链闭环。
 
@@ -50,14 +50,14 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 | 目录 | 职责 |
 |---|---|
-| `scenes/` | 场景与资产加载、任务发现、站位采样、障碍物增强；子目录为 `loading/tasks/stations/augmentation` |
+| `scenes/` | 场景与资产加载、任务发现、站位采样、障碍物增强；子目录为 `loading/tasks/stations/edits` |
 | `runtime/` | 实际 stepping、控制、构建事务、执行与任务判定；子目录为 `control/construction/execution/outcomes` |
 | `planning/` | cuRobo V2、机器人规划适配、碰撞/FOV 和 A* |
 | `policies/` | MolmoBot 配置、客户端/服务及 `multitask/` 必要推理代码 |
 | `data/` | `recorder.py` 与 `evaluation/export/rendering/visualization`，负责记录、统计、导出和图像 |
 | `workflows/` | 场景构建、逐点标定、连续采集和 benchmark 的薄编排 |
 
-包根 `cli.py` 只做命令分发，`config.py` / `io.py` 管理共用配置与读写。
+入口脚本只做参数与设备绑定，`config.py` / `io.py` 管理共用配置与读写。
 算法放领域模块，编排放 `workflows`，实际运动放 `runtime`；不另起平行执行器或记录链路。
 
 - 根目录 `configs/`：显式 JSON 配置；解析规则见下节。
@@ -88,7 +88,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 ```bash
 scripts/install.sh
-.venv/bin/lastmile-dataflow --help
+.venv/bin/python scripts/build_scenes.py --help
 
 # 离线回归；无需真实资产、权重或 GPU 任务
 MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \

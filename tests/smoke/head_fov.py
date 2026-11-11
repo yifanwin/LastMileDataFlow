@@ -1,5 +1,6 @@
 """Explicit CUDA FK/gradient/manager isolation test on the real RBY-1 model."""
 
+from lastmile_dataflow.gpu import select_devices
 import argparse
 import os
 from pathlib import Path
@@ -30,7 +31,7 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--gpu", type=int, required=True)
     args = p.parse_args()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL="egl")
+    select_devices([args.gpu])
     args.output.mkdir(parents=True, exist_ok=False)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     task = scene["task"]

@@ -1,4 +1,4 @@
-"""成功示教视图、按本体布局独立物化与真实控制窗口读取。"""
+"""成功示教自包含导出与真实控制窗口读取。"""
 from collections import Counter
 from pathlib import Path
 import shutil
@@ -24,8 +24,7 @@ def training_record(record, source_run, source_type):
               'status', 'task_outcome', 'recording_complete', 'observation_complete', 'executed_steps')
     result = {key: record[key] for key in fields if key in record}
     result.update(source_run=source_run, source_type=source_type)
-    result.update({key: record[key] for key in ('labels', 's1_tiers', 'diagnosis_ref', 'dataset_split',
-                                             'observations_ref', 'observation_source') if key in record})
+    result.update({key: record[key] for key in ('dataset_split', 'observations_ref', 'observation_source') if key in record})
     if source_type == 's0_to_s1_continuous':
         result.update({key: record[key] for key in ('pair_id', 's0', 's1', 'navigation',
                        'euclidean_distance_m', 'astar_path_length_m', 'navigation_steps')})

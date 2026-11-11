@@ -1,4 +1,5 @@
 """Explicit factory/control/alignment validation; no station sampling."""
+from lastmile_dataflow.gpu import select_devices
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -265,7 +266,7 @@ def control(sim, output):
 
 def main():
     args = arguments()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL="egl")
+    select_devices([args.gpu])
     os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/panda-omron-numba")
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ.setdefault("WARP_CACHE_PATH", str(Path("outputs/dependencies/panda-omron-warp").resolve()))

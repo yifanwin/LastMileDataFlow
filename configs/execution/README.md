@@ -1,6 +1,6 @@
 # 执行与逐点标定配置
 
-用于 `evaluate-stations --config`，也可供 `collect-lastmile --config` 使用。加载器为 `runtime/execution_config.py`。标定使用场景库中已经保存的站位，不在这里重新生成站位。
+由 configs/collection 运行配置的 execution 字段引用，供 station_map.py / collect.py 使用。加载器为 `runtime/execution_config.py`。标定使用场景库中已经保存的站位，不在这里重新生成站位。
 
 ## 重点手动配置
 

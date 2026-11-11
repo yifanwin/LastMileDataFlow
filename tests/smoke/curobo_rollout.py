@@ -1,5 +1,6 @@
 """Explicit V2 rollout on a scene-dataset; excluded from unittest discovery."""
 
+from lastmile_dataflow.gpu import select_devices
 import argparse
 import os
 from dataclasses import asdict
@@ -24,7 +25,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
     args = parser.parse_args()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL="egl")
+    select_devices([args.gpu])
     config = load_execution_config(args.config)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)

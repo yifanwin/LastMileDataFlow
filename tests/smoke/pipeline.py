@@ -4,6 +4,7 @@ Optional benchmark execution requires an existing source cuRobo calibration.
 No synthetic recovery pair, automatic smoke fallback or relocation probe.
 """
 
+from lastmile_dataflow.gpu import select_devices
 import argparse
 import os
 from dataclasses import replace
@@ -28,7 +29,7 @@ def main():
     parser.add_argument("--benchmark-calibration", type=Path)
     parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.json"))
     args = parser.parse_args()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL="egl")
+    select_devices([args.gpu])
     config = replace(load_execution_config(args.config), trials_per_station=args.trials_per_station)
     root = create_run(
         args.output,

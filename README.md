@@ -1,53 +1,29 @@
-# LastMileDataFlow：最后一公里（Last-Mile）移动操作任务模式、数据管线与验证
+# LastMileDataFlow
 
-**场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
+场景输入 → 场景准备 → 站位图 → Last-mile 数据集 → 数据使用。
 
-规划使用 cuRobo V2（0.8.0），策略支持 MolmoBot / π0.5，导航使用 A*。当前只有五个命令。
+支持 PandaOmron 与 RBY-1。规划使用 cuRobo V2（0.8.0），导航使用 A*，benchmark 策略保留 MolmoBot 与 π0.5。RL 站位图是独立研究流程，本次精简不改其逻辑。
 
->什么是“最后一公里”任务：导航和操作的衔接段；机器人已到目标附近，但当前站位无法可靠完成操作，仍然需要通过 底盘移动的调整 来提高操作的成功率。
-
-运行产物按实验单元和 run 管理，规则见 [outputs/RULES.md](outputs/RULES.md)。
-
-## 从这里开始
-
-1. [安装与数据准备](docs/setup.md)：主环境 `.venv`，显式配置资产和权重位置；π0.5 使用项目 `.venv-pi05`。
-2. [运行手册](docs/运行手册.md)：五个命令、控制模式、标定复用和负结果。
-3. [代码结构](docs/architecture.md)：从 workflow 找到算法与实际执行。
-4. [数据格式](docs/data-format.md)：场景、trial、配对、训练索引和轨迹。
-5. [测试说明](tests/README.md)：离线回归与显式真实验证。
+安装与路径见 [setup](docs/setup.md)，完整步骤见 [运行手册](docs/运行手册.md)。安装后从仓库根目录执行：
 
 ```bash
 scripts/install.sh
-.venv/bin/lastmile-dataflow --help
+.venv/bin/python scripts/build_scenes.py --help
 ```
 
-真实运行需要先完成数据准备；基础安装成功不代表资产、CUDA 规划或模型推理可用。
-
-## 五个命令
-
-| 命令 | 用途 |
+| 阶段脚本 | 用途 |
 |---|---|
-| `build-scenes` | Panda RoboCasa 八类模式候选构造与站位采样，保存场景库 |
-| `evaluate-stations` | 对场景库逐点执行 cuRobo / MolmoBot / π0.5，保存实测率与热图 |
-| `collect-lastmile` | 复用成功标定示教，执行 S0×S1 全组合；支持独立物化为自包含训练数据集 |
-| `build-bench` | 复用已有标定；模式数据消费已保存标签及合格 S1；可用 CPU |
-| `evaluate-bench` | 独立 MolmoBot / π0.5 闭环评测、恢复/底盘诊断、分组成功率与 Macro |
+| scripts/build_scenes.py | 找目标，生成原场景和桌面/地面障碍编辑场景，采站位并导出快照、预览 |
+| scripts/station_map.py | cuRobo 逐点标定与热图 |
+| scripts/collect.py | 复用标定或先标定，执行 S0→S1→操作，直接导出自包含训练数据 |
+| scripts/bench_build.py | 按实测成功率选择困难 S0、参考站位与恢复区域 |
+| scripts/bench_evaluate.py | MolmoBot/π0.5 闭环评测 |
 
-## 当前边界
+当前不提供统一 CLI、八类模式构造、多标签诊断、recipe 直接标定或独立物化入口。
 
-- 新构建使用 [v2 任务模式配方](configs/task_modes/README.md)，旧 Case 构造入口已退出。场景构建、完整真实标定和多标签诊断已交付；六类有真实正例，Orientation/Visibility 尚无正例。`proposal_intent` 不作为最终标签。按用户最新要求，本轮止于标定，见 [交付记录](reports/task-modes/delivery/02-calibration-delivery.md)。
+GPU 按实时空闲情况选择。--gpu 使用物理编号，EGL 自动映射并传给子进程；需要覆盖时传 --egl-devices。不要将物理 GPU 编号直接当作 EGL 编号。
 
-- 连续采集仅支持 cuRobo；独立物化为 CPU 后处理，不需要 GPU 或资产。
-- PandaOmron 已接入站位采样、cuRobo 标定、A* 与局部底盘—机械臂联合操作，并在 val103 Cup 完成真实连续 S0→S1→pick；步骤与实际结果见 [Panda 指南](reports/panda-omron/docs/panda-omron.md) 和 [实施报告](reports/panda-omron/delivery/phase_02/2026-10-17-panda-omron-full-flow.md)。
-- π0.5 已加入双本体适配与可选评测入口；Panda RoboCasa profile 已验证真权重推理和 cuRobo→FK→共用 controller 固定抓取。策略任务表现、批量 benchmark 与 RBY-1 微调分别验收，见 [π0.5 运行指南](reports/pi05/docs/01-running.md) 和 [构建报告](reports/pi05/delivery/03-implementation.md)。
-- Panda 已支持从已有标定构建 benchmark；原 position profile 的快照需要按 RoboCasa profile 重建后再供 Panda π0.5 使用。[benchmark 指南](reports/benchmark/docs/运行指南.md)说明命令与产物。
-- 当前机器人专用 XML 与规划描述能否从公开资产完整取得，尚未验证。
-- 无合格 S0/S1 配对时保留负结果，不用手工配对或未标定 smoke 冒充困难样本。
+本轮已验证 house103/Cup_30 的原场景与一个桌面障碍场景；原场景站位、MJB、初始状态与基线一致。完整批量采集和策略评测不能由此推定通过。真实验证范围与当前问题见 [重构交接](reports/simplify-refactor/delivery/01-handover.md)。
 
-当前验证状态见 [reports](reports/README.md)。
-
-## 报告与研究文档
-
-`reports/` 按主题组织：主题内的需求放 `requirement/`，方案与计划放 `plan/`，结果与交付放 `delivery/`，分析放 `analyze/`。暂未明确分类的文档放在所属主题根目录，例如 `reports/build-lastmile-datasets/`。
-
-完整目录约定与当前验证状态见 [报告说明](reports/README.md)。
+- [架构](docs/architecture.md)、[数据格式](docs/data-format.md)、[配置](configs/README.md)、[测试](tests/README.md)。
+- [报告入口](reports/README.md)与 [产物规则](outputs/RULES.md)。历史报告保留，历史成功不代表当前主链已验证。

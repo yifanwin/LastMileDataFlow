@@ -13,7 +13,7 @@ def main():
     parser.add_argument('--stage', choices=('model','observation','control','tracking','rollout'), required=True)
     parser.add_argument('--policy-config', default='configs/policies/pi05_panda_omron.json')
     parser.add_argument('--robot-config', default='configs/robots/panda_omron_robocasa.json')
-    parser.add_argument('--case', default='configs/execution/panda_omron_fixed_pick.json')
+    parser.add_argument('--case', default='configs/execution/panda_omron_scene.json')
     parser.add_argument('--horizon', type=int, default=100)
     parser.add_argument('--normalized', action='store_true', help='Model-only smoke; no embodiment normalization or task claim')
     parser.add_argument('--observation', type=Path, help='NPZ with physical state, three model image keys and prompt')
@@ -23,8 +23,9 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     args.output.mkdir(parents=True,exist_ok=False)
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu),MUJOCO_EGL_DEVICE_ID=str(args.gpu),MUJOCO_GL='egl',
-                      XLA_PYTHON_CLIENT_PREALLOCATE='false')
+    from lastmile_dataflow.gpu import select_devices
+    select_devices([args.gpu])
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
     import numpy as np
     if args.stage == 'model':
         from lastmile_dataflow.policies.pi05.config import load_config

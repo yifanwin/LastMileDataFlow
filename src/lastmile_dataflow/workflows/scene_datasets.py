@@ -20,6 +20,7 @@ import numpy as np
 from ..gpu import bind_device
 from ..config import load_robot_config
 from ..runtime.simulation import Simulation
+from ..data.visualization.scene_preview import export_scene_previews
 from ..scenes.edits.search import BuildContext, build_task
 from ..scenes.edits.placement import support_regions
 from ..scenes.dataset_config import load_scene_recipe
@@ -472,4 +473,6 @@ def build_scenes(config, output_dir, run_id, *, gpu_ids, workers=None):
         raise ValueError(f"build workers must be between 1 and {_build_worker_limit()}")
     robot = load_robot_config(recipe.robot_config)
     root = _create_build_root(Path(output_dir) / run_id, recipe, robot)
-    return _build_into_root(recipe, robot, root, gpu_ids, workers)
+    _build_into_root(recipe, robot, root, gpu_ids, workers)
+    export_scene_previews(root)
+    return root

@@ -1,4 +1,5 @@
 """Real Panda station preparation; production CLI owns calibration and collection."""
+from lastmile_dataflow.gpu import select_devices
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -126,12 +127,12 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--gpu', type=int, required=True)
     parser.add_argument('--robot', default='configs/robots/panda_omron_mobile.json')
-    parser.add_argument('--case', type=Path, default=Path('configs/execution/panda_omron_fixed_pick.json'))
+    parser.add_argument('--case', type=Path, default=Path('configs/execution/panda_omron_scene.json'))
     parser.add_argument('--spacing', type=float)
     parser.add_argument('--max-stations', type=int, default=20, help='uniform coverage limit; 0 keeps all physically valid stations')
     parser.add_argument('--radius', type=float)
     args = parser.parse_args()
-    os.environ.update(CUDA_VISIBLE_DEVICES=str(args.gpu), MUJOCO_EGL_DEVICE_ID=str(args.gpu), MUJOCO_GL='egl')
+    select_devices([args.gpu])
     from lastmile_dataflow.config import load_robot_config, read_config
     from lastmile_dataflow.runtime.simulation import Simulation
     from lastmile_dataflow.scenes.loading.source import SceneSource

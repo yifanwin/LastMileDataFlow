@@ -37,7 +37,7 @@ $DATA_ROOT/
 git clone https://github.com/yifanwin/LastMileDataFlow.git "$REPO"
 cd "$REPO"
 scripts/install.sh
-.venv/bin/lastmile-dataflow --help
+.venv/bin/python scripts/build_scenes.py --help
 
 scripts/install_pi05.sh        # 需要 π0.5 时
 ```
@@ -205,19 +205,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
   --output "outputs/experiments/scratch/20261111-multitask-smoke"
 ```
 
-小样本主链：
-
-```bash
-.venv/bin/lastmile-dataflow build-scenes \
-  --config configs/scene_datasets/val103_cup30_minimal_v3.json --output-dir outputs/batches/example/runs --run-id scenes --gpu "$GPU"
-.venv/bin/lastmile-dataflow evaluate-stations \
-  --dataset "outputs/batches/example/runs/scenes" --output-dir outputs/batches/example/runs --run-id stations --gpu "$GPU"
-.venv/bin/lastmile-dataflow collect-lastmile \
-  --dataset "outputs/batches/example/runs/scenes" \
-  --calibration "outputs/batches/example/runs/stations" --output-dir outputs/batches/example/runs --run-id lastmile --gpu "$GPU"
-```
-
-benchmark 见 `build-bench --help`、`evaluate-bench --help`。
+小样本主链按 [当前运行手册](运行手册.md) 执行五个阶段脚本。
 
 ## 6. 复现边界
 
