@@ -80,7 +80,7 @@ class NativeTests(unittest.TestCase):
         a[0] = 0.02
         checks = []
         before = s.robot.group("base")[0]
-        command, stop = s.step_policy(a, substep_check=lambda: checks.append(s.data.time) or {"valid": True})
+        command, stop = s.step_policy(a, substep_check=lambda: checks.append(s.data.time))
         self.assertIsNone(stop)
         self.assertEqual(len(checks), 25)
         self.assertAlmostEqual(s.data.time, 0.1)
@@ -91,7 +91,7 @@ class NativeTests(unittest.TestCase):
     def test_physics_stop_not_silently_completed(self):
         s = self.sim
         s.begin()
-        command, stop = s.step_policy(s.robot.neutral_action(), substep_check=lambda: {"valid": False})
+        command, stop = s.step_policy(s.robot.neutral_action(), substep_check=lambda: "fixture_failure")
         self.assertIsNotNone(stop)
         self.assertAlmostEqual(s.data.time, 0.004)
 

@@ -1,30 +1,34 @@
 """Program-only structural transactions; no Agent DSL, review or case template."""
+from collections import OrderedDict
 from dataclasses import replace
 import copy
-from collections import OrderedDict
 import time
+
 import mujoco
 
-from .state import migrate_state
 from .preparation import preparation_guard, settle_scene
-from ..simulation import Simulation
+from .state import migrate_state
+from ..simulation import closed_on_error
+
+MODEL_CACHE_SIZE = 4
 
 
 def clone_preparation(sim):
     preparation_guard(sim)
-    target = sim.model.body(sim.target_id).name if sim.target_id is not None else None
-    new = Simulation(sim.model, sim.robot.config, copy.deepcopy(sim.catalog), target=target)
-    try:
-        new.source, new.restoration = sim.source, sim.restoration
-        new.spec = sim.spec
-        new.frozen_dir = getattr(sim, 'frozen_dir', None)
-        if hasattr(sim, 'local_model'):
-            new.local_model = sim.local_model
+    with closed_on_error(sim.derive()) as new:
         migrate_state(sim, new)
-        return new
-    except BaseException:
-        new.close()
-        raise
+    return new
+
+
+def _set_free_pose(model, data, body_name, pose):
+    """Place a free-rooted body at ``pose`` with zero velocity."""
+    body = model.body(body_name).id
+    joint = int(model.body_jntadr[body])
+    if model.body_jntnum[body] != 1 or model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE:
+        raise ValueError('added obstacle must have one free joint')
+    q, v = int(model.jnt_qposadr[joint]), int(model.jnt_dofadr[joint])
+    data.qpos[q:q + 7] = pose['position'] + pose['quaternion_wxyz']
+    data.qvel[v:v + 6] = 0.
 
 
 class ObstacleEditSession:
@@ -61,16 +65,10 @@ class ObstacleEditSession:
             return self.models[key]
         # Multi-object proposals must not retain dozens of complete house models.
         # candidate() already disposed the previous trial, so eviction is safe.
-        while len(self.models) >= 4:
+        while len(self.models) >= MODEL_CACHE_SIZE:
             self.models.popitem(last=False)
         if self.baseline_spec is None:
-            source_spec = self.baseline.spec
-            if source_spec is None and getattr(self.baseline, 'frozen_dir', None):
-                from ...scenes.loading.mjcf import load_spec
-                from pathlib import Path
-                source_spec = load_spec(Path(self.baseline.frozen_dir) / 'model.xml')
-            self.baseline_spec = source_spec.copy() if source_spec is not None else Simulation.prepare_spec(
-                self.baseline.source, self.baseline.robot.config)
+            self.baseline_spec = self.baseline.source_spec()
         spec = self.baseline_spec.copy()
         extra = []
         for i, asset_id in enumerate(asset_ids):
@@ -99,60 +97,33 @@ class ObstacleEditSession:
         self.models[key] = model, catalog, spec
         return self.models[key]
 
-    def candidate(self, placements, *, target_moves=(), deadline=None):
+    def candidate(self, placements, *, deadline=None):
         self.reject()
-        if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError('variant wall-clock budget exhausted')
+        _check_deadline(deadline, 'variant wall-clock budget exhausted')
         if placements:
             model, catalog, spec = self._model([p['asset_id'] for p in placements])
         else:
             model, catalog, spec = self.baseline.model, self.baseline.catalog, self.baseline.spec
-        if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError('variant wall-clock budget exhausted during model compilation')
-        target = self.baseline.model.body(self.baseline.target_id).name if self.baseline.target_id is not None else None
-        new = Simulation(model, self.baseline.robot.config, copy.deepcopy(catalog), target=target)
-        try:
-            new.source, new.restoration, new.spec = self.baseline.source, self.baseline.restoration, spec
-            if hasattr(self.baseline, 'local_model'):
-                new.local_model = self.baseline.local_model
+        _check_deadline(deadline, 'variant wall-clock budget exhausted during model compilation')
+        with closed_on_error(self.baseline.derive(model=model, catalog=catalog, spec=spec)) as new:
             # All added free joints must have legal proposal poses BEFORE forward.
             # Otherwise 6–12 default roots at the origin can overflow contact arena.
             migrate_state(self.baseline, new, forward=False)
             for i, placement in enumerate(placements):
-                b = model.body(f'procedural_obstacle_{i}').id
-                j = int(model.body_jntadr[b])
-                if model.body_jntnum[b] != 1 or model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE:
-                    raise ValueError('added obstacle must have one free joint')
-                q, v = int(model.jnt_qposadr[j]), int(model.jnt_dofadr[j])
-                new.data.qpos[q:q + 7] = placement['pose']['position'] + placement['pose']['quaternion_wxyz']
-                new.data.qvel[v:v + 6] = 0.
-            for move in target_moves:
-                body = model.body(move['body']).id
-                joint = int(model.body_jntadr[body])
-                if model.body_jntnum[body] != 1 or model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE:
-                    raise ValueError('target relocation requires a free object root')
-                q, v = int(model.jnt_qposadr[joint]), int(model.jnt_dofadr[joint])
-                new.data.qpos[q:q + 7] = move['pose']['position'] + move['pose']['quaternion_wxyz']
-                new.data.qvel[v:v + 6] = 0.
+                _set_free_pose(model, new.data, f'procedural_obstacle_{i}', placement['pose'])
             mujoco.mj_forward(model, new.data)
-        except BaseException:
-            new.close()
-            raise
         self.sim = new
         return new
 
-    def settle(self, *, deadline=None, duration_s=None, moved_bodies=()):
+    def settle(self, *, deadline=None, duration_s=None):
         self.active()
         if self.sim is None:
             raise RuntimeError('no candidate')
+        config = self.config
         if duration_s is not None:
             # Continue candidate to the matched control duration, never move bodies manually.
-            from dataclasses import replace
-            config = replace(self.config, settle_s=duration_s, max_settle_s=duration_s)
-        else:
-            config = self.config
+            config = replace(config, settle_s=duration_s, max_settle_s=duration_s)
         names = {c['instance_id'] for c in self.sim.catalog if c['instance_id'].startswith('procedural_obstacle_')}
-        names.update(moved_bodies)
         return settle_scene(self.sim, config, deadline=deadline, stability_instances=names)
 
     def close(self):
@@ -170,11 +141,12 @@ class ObstacleEditSession:
 
 
 def matched_control(baseline, duration_s, settle_config, deadline):
-    control = clone_preparation(baseline)
-    try:
-        config = replace(settle_config, settle_s=duration_s, max_settle_s=duration_s)
+    config = replace(settle_config, settle_s=duration_s, max_settle_s=duration_s)
+    with closed_on_error(clone_preparation(baseline)) as control:
         report = settle_scene(control, config, deadline=deadline, stability_instances=set())
-        return control, report
-    except BaseException:
-        control.close()
-        raise
+    return control, report
+
+
+def _check_deadline(deadline, message):
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError(message)

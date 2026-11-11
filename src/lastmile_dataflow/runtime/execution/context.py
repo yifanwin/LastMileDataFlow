@@ -28,7 +28,7 @@ from ..outcomes.contacts import (
     NavigationContacts,
     simulation_failure,
 )
-from ..simulation import Simulation
+from .protocol import SimulationState
 from ..outcomes.pick import checkpoint_pick_success, timed
 
 
@@ -41,21 +41,11 @@ class OperationFailure(RuntimeError):
 
 def clone_sim(sim, *, target=None, handle=None):
     """New MjData, shared read-only model; never restore the running instance."""
-    result = Simulation(
-        sim.model, sim.robot.config, copy.deepcopy(sim.catalog), target=target
-    )
-    result.handle_id = (
-        result.model.body(handle).id if handle else getattr(sim, "handle_id", None)
-    )
-    track_resource(result)
-    from .protocol import SimulationState
-
-    SimulationState.capture(sim).initialize(result)
-    result.source = sim.source
-    result.restoration = None
-    result.spec = None
-    result.frozen_dir = getattr(sim, "frozen_dir", None)
+    result = sim.derive(target=target, spec=None)
+    result.handle_id = result.model.body(handle).id if handle else sim.handle_id
     result.planning_geometry = sim.planning_geometry
+    track_resource(result)
+    SimulationState.capture(sim).initialize(result)
     return result
 
 
@@ -128,7 +118,7 @@ class ContinuousContext:
         health = simulation_failure(self.sim)
         if health:
             failures.append(health)
-            return {"valid": False, "issues": [{"severity": "error", "code": health}]}
+            return health
         mujoco.mj_forward(self.sim.model, self.sim.data)
         contacts = self.contact_sampler.capture(
             target_bodies=self.target_bodies, fingers=self.fingers
@@ -159,10 +149,7 @@ class ContinuousContext:
                 failures.append(fail)
             if self.open_joint is not None:
                 facts["joint_value"] = float(self.sim.data.qpos[self.open_joint])
-        return {
-            "valid": not failures,
-            "issues": [{"severity": "error", "code": v} for v in failures],
-        }
+        return failures[0] if failures else None
 
     def tick(self, action, *, fixed_base=False):
         if isinstance(action, RobotCommand):
@@ -385,11 +372,11 @@ def planner_options(config, assets_dir, seed):
 def _check_semantic_tick(sim, sample):
     failure = simulation_failure(sim)
     if failure:
-        return {"valid": False, "issues": [{"severity": "error", "code": failure}]}
+        return failure
     if sample is not None:
         mujoco.mj_forward(sim.model, sim.data)
         sample()
-    return {"valid": True}
+    return None
 
 
 def semantic_tick(sim, command, *, sample=None, fixed_base=False):
@@ -402,53 +389,8 @@ def semantic_tick(sim, command, *, sample=None, fixed_base=False):
         substep_check=partial(_check_semantic_tick, sim, sample),
     )
     if stop:
-        raise OperationFailure(stop["issues"][0]["code"])
+        raise OperationFailure(stop)
     return result
-
-
-def follow_arm_points(sim, points, arm, width, *, sample=None, on_tick=None):
-    """Follow retimed arm targets through the same Simulation clock and controls."""
-    from ..control.interface import RobotCommand
-
-    if sim.robot.config.control_profile == "robocasa-v1":
-        base = sim.robot.base_pose().copy()
-
-        def tick(command):
-            semantic_tick(sim, command, sample=sample)
-            if on_tick is not None:
-                on_tick()
-
-        ctx = SimpleNamespace(
-            sim=sim,
-            tick=tick,
-            config=SimpleNamespace(
-                arrival_tolerance_m=0.015, arrival_tolerance_rad=0.025
-            ),
-            yaw_gap=lambda a, b: float(np.arctan2(np.sin(a - b), np.cos(a - b))),
-        )
-        planner = SimpleNamespace(
-            base_target_world=lambda p: base,
-            model=SimpleNamespace(arm_target=lambda p: np.asarray(p)),
-        )
-        return follow_points(ctx, planner, points, arm, width)
-    for q in points:
-        command = RobotCommand(arm_q={arm: np.asarray(q)}, gripper_width={arm: width})
-        semantic_tick(sim, command, sample=sample, fixed_base=True)
-        if on_tick is not None:
-            on_tick()
-    goal = np.asarray(points[-1])
-    for _ in range(int(5 * sim.robot.config.control_hz)):
-        if np.max(np.abs(sim.robot.arm_positions(arm) - goal)) <= 0.02:
-            return
-        semantic_tick(
-            sim,
-            RobotCommand(arm_q={arm: goal}, gripper_width={arm: width}),
-            sample=sample,
-            fixed_base=True,
-        )
-        if on_tick is not None:
-            on_tick()
-    raise OperationFailure("arm_waypoint_timeout")
 
 
 def follow_points(ctx, planner, positions, side, grip, goal=None):

@@ -9,6 +9,7 @@ from .lifecycle import isolated_episode, mark_episode_phase, classify_episode_ex
 from ...utils.io import read_json, write_json
 from ..control.action import InvalidAction
 from ...data.recorder import AttemptRecorder
+from ...data.rendering.third_person import ThirdPersonCamera
 from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.evaluation import attribute
 from ..outcomes.contacts import SIMULATION_FAILURES, CONTACT_POLICY
@@ -27,7 +28,7 @@ def run_curobo_attempt(baseline,task,station,candidates,assets_dir,config,collec
         place_frozen_station(sim,station)
     else:
         prepared.state.initialize(sim)
-    if config.third_person_enabled: sim.enable_third_person()
+    if config.third_person_enabled: sim.third_person_camera = ThirdPersonCamera()
     # One live recorder; optional diagnostic streams share this rollout.
     semantics = EXECUTION_SEMANTICS if planning_client is None else SPLIT_EXECUTION_SEMANTICS
     packet={'execution_semantics_version':semantics,'robot':asdict(sim.robot.config),'collection':asdict(collection),

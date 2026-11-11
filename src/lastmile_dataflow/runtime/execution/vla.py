@@ -21,6 +21,7 @@ from ...data.recorder import AttemptRecorder
 from ...data.rendering.head_views import head_frame
 from ...data.rendering.edit_views import ViewConfig
 from ...data.rendering.analysis_video import AnalysisVideo
+from ...data.rendering.third_person import ThirdPersonCamera
 from ...policies.task import instruction
 from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.contacts import (
@@ -30,7 +31,6 @@ from ..outcomes.contacts import (
     simulation_failure,
     SIMULATION_FAILURES,
     CONTACT_POLICY,
-    contact_observations,
 )
 from ..outcomes.pick import PickMonitor
 from ..outcomes.evaluation import torso_tracking_error
@@ -116,7 +116,7 @@ class _VLARollout:
             (self.config.width, self.config.height) if self.pi05 else (1024, 576)
         )
         if self.config.third_person_enabled:
-            self.sim.enable_third_person()
+            self.sim.third_person_camera = ThirdPersonCamera()
         packet = {
             "schema_version": "pi05-station-v1" if self.pi05 else "molmobot-station-v1",
             "robot": asdict(self.sim.robot.config),
@@ -219,20 +219,15 @@ class _VLARollout:
         self.frames = self.sim.render(self.width, self.height)
         self.recorder.video_frame(self._video(self.frames))
         if stop:
-            raise OperationFailure(stop["issues"][0])
+            raise OperationFailure(stop)
 
     def _operation_check(self):
         health = simulation_failure(self.sim)
         if health:
             self.failures.append(health)
-            return {"valid": False, "issues": [health]}
+            return health
         mujoco.mj_forward(self.sim.model, self.sim.data)
-        contacts = contact_observations(
-            self.sim,
-            target_bodies=self.primary_monitor.target_bodies,
-            fingers=self.all_fingers,
-        )
-        self.contact_stats.update(contacts)
+        self._sample_contacts()
         for side, monitor in self.monitors.items():
             monitor.phase = "vla_operation"
             monitor.command_h = self.sim.robot.control_height()
@@ -253,7 +248,7 @@ class _VLARollout:
             violation = constraint(facts, monitor.initial)
             if violation:
                 self.failures.append(violation)
-        return {"valid": not self.failures, "issues": sorted(set(self.failures))}
+        return min(self.failures, default=None)
 
     def _navigation_check(self):
         health = simulation_failure(self.sim)
@@ -261,13 +256,12 @@ class _VLARollout:
             self.sim, self.contact_sampler, self.config.navigation_max_penetration_m
         ):
             health = "navigation_severe_collision"
-        contacts = contact_observations(
-            self.sim,
-            target_bodies=self.primary_monitor.target_bodies,
-            fingers=self.all_fingers,
-        )
-        self.contact_stats.update(contacts)
-        return {"valid": not health, "issues": [health] if health else []}
+        self._sample_contacts()
+        return health
+
+    def _sample_contacts(self):
+        self.contact_stats.update_frame(self.contact_sampler.capture(
+            target_bodies=self.primary_monitor.target_bodies, fingers=self.all_fingers))
 
     def _navigate(self):
         if self.goal is None:

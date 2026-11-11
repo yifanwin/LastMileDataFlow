@@ -169,7 +169,7 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     from ...scenes.stations.initialization import room_triangles
     triangles = room_triangles(sim)
     if radius is None:
-        if getattr(sim, 'local_model', {}).get('removed_roots'):
+        if sim.local_model and sim.local_model.get('removed_roots'):
             raise ValueError('room navigation requires a full scene; rebuild with local_task_models=false')
         if not len(triangles):
             raise ValueError('room navigation requires bounded source floor geometry')

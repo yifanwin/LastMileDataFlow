@@ -2,7 +2,6 @@
 from dataclasses import dataclass, field
 import time
 
-import mujoco
 import numpy as np
 
 
@@ -16,18 +15,13 @@ class SimulationState:
     @classmethod
     def capture(cls, sim):
         return cls(sim.state_vector(), int(sim.state_spec),
-                   sim.robot.snapshot_control(), sim._clock_remainder)
+                   sim.robot.snapshot_control(), sim.clock_remainder)
 
     def initialize(self, sim):
         """Only new instances may receive a prepared or measured planning state."""
-        if sim.started or sim.closed:
-            raise RuntimeError('state initialization requires an unstarted simulation')
         if self.state_spec != int(sim.state_spec) or self.integration.shape != sim.state_vector().shape:
             raise ValueError('state does not match simulation model')
-        mujoco.mj_setState(sim.model, sim.data, self.integration, self.state_spec)
-        sim.robot.restore_control(self.control)
-        sim._clock_remainder = self.clock_remainder
-        mujoco.mj_forward(sim.model, sim.data)
+        sim.set_state(self.integration, self.control, self.clock_remainder)
 
 
 @dataclass(frozen=True)

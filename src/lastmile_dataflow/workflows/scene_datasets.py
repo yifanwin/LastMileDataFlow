@@ -30,7 +30,7 @@ from ..scenes.stations.initialization import inside_triangles, room_triangles
 from ..scenes.stations.sampling import disk_samples
 from ..scenes.tasks.discovery import discover_tasks, grasp_candidates
 from ..planning.navigation.astar import task_support_obstacles
-from ..utils.io import append_row, create_run, rows, write_json
+from ..utils.io import append_row, create_run, read_json, rows, write_json
 from ..utils.logging_config import Progress
 
 logger = logging.getLogger(__name__)
@@ -278,9 +278,7 @@ def _build_house(job):
         with closing(sim):
             if sim.source.scene_id != source.scene_id:
                 raise ValueError("input snapshot source does not match requested house")
-            if not hasattr(sim, "source_metadata"):
-                from ..utils.io import read_json
-
+            if sim.source_metadata is None:
                 sim.source_metadata = read_json(source.metadata_path)
             tasks, discovery = _select_tasks(sim, recipe, house)
             report.update(discovery)

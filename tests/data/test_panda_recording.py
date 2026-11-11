@@ -23,7 +23,6 @@ class PandaRecordingTests(unittest.TestCase):
             sim = Simulation(robot.model, robot.config, [])
             sim.robot.initialize()
             sim.source = SceneSource('test', 'unused.xml')
-            sim.restoration = None
             try:
                 sim.freeze(root/'scene')
                 restored = Simulation.from_snapshot(root/'scene', robot.config)

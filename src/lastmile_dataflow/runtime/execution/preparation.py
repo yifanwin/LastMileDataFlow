@@ -1,6 +1,7 @@
 """One real settling sequence per station, before independent trial creation."""
 from contextlib import closing
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 import time
 
@@ -32,15 +33,11 @@ def prepare_station(baseline, station, config, path):
     with closing(clone_sim(baseline, target=target)) as sim:
         place_frozen_station(sim, station)
         sim.begin()
-
-        def check():
-            reason = simulation_failure(sim)
-            return {'valid': reason is None, 'issues': [reason] if reason else []}
-
+        check = partial(simulation_failure, sim)
         for _ in range(int(np.ceil(config.initial_settle_s * sim.robot.config.control_hz))):
-            _, stop = sim.step(RobotCommand(), substep_check=check)
-            if stop:
-                raise InitializationError(str(stop['issues']))
+            _, failure = sim.step(RobotCommand(), substep_check=check)
+            if failure:
+                raise InitializationError(failure)
         state = SimulationState.capture(sim)
         # Check the measured operation initialization on a new, unstarted view.
         with closing(clone_sim(sim, target=target)) as view:
@@ -52,7 +49,7 @@ def prepare_station(baseline, station, config, path):
         write_json(path / 'preparation.json', {
             'status': 'ready', 'requested_station': station, 'actual_base': base,
             'state': 'state.npz', 'state_spec': state.state_spec,
-            'model_dir': getattr(baseline, 'frozen_dir', None),
+            'model_dir': baseline.frozen_dir,
             'settled_simulation_s': float(sim.data.time - baseline.data.time),
             'elapsed_s': elapsed, 'measured': sim.observe_state(),
         })

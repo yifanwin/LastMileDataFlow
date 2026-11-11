@@ -7,6 +7,7 @@ import numpy as np
 
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 from lastmile_dataflow.data.rendering.edit_views import CameraRig, ViewConfig
+from lastmile_dataflow.data.rendering.third_person import ThirdPersonCamera
 from tests.helpers import make_sim
 
 
@@ -31,7 +32,7 @@ class ObserverAndTimingTests(unittest.TestCase):
             sim, _ = make_sim(d)
             q = sim.data.qpos.copy()
             fovy = float(sim.model.vis.global_.fovy)
-            cam = sim.enable_third_person()
+            cam = sim.third_person_camera = ThirdPersonCamera()
             fit, robot, target = cam.framing(sim, 320, 240)
             self.assertTrue(robot and target)
             self.assertGreater(fit.distance_m, 0.0)

@@ -93,7 +93,7 @@ class TorsoCommandTests(unittest.TestCase):
                 def step(action, **kw):
                     submitted.append((action.copy(), kw["command_raw"].copy()))
                     check = kw["substep_check"]()
-                    return {"submitted_action": action.tolist()}, None if check["valid"] else check
+                    return {"submitted_action": action.tolist()}, check
 
                 ctx.sim = SimpleNamespace(data=data, robot=robot, model=None, step=step)
                 from lastmile_dataflow.runtime.outcomes.contacts import ContactFrame

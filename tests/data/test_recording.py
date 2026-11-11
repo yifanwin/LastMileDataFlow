@@ -36,13 +36,11 @@ class RecordingTests(unittest.TestCase):
         recorder = self.recorder(record_images=True, record_video=True)
         context = ContinuousContext(self.sim, recorder, ExecutionConfig(width=32, height=32))
         self.addCleanup(context.finish)
-        sensors = {
-            name: {"rgb": np.zeros((32, 32, 3), dtype=np.uint8)} for name in self.sim.robot.camera_names
-        }
+        sensors = {name: np.zeros((32, 32, 3), dtype=np.uint8) for name in self.sim.robot.camera_names}
         writers = [Mock() for _ in sensors]
         with (
             patch(
-                "lastmile_dataflow.data.rendering.camera_calibration.capture_sensors", return_value=sensors
+                "lastmile_dataflow.runtime.simulation.Simulation._render_cameras", return_value=sensors
             ) as capture,
             patch("lastmile_dataflow.data.recorder.imageio.get_writer", side_effect=writers),
         ):
@@ -70,7 +68,7 @@ class RecordingTests(unittest.TestCase):
             checks += 1
             if checks == 2:
                 raise RuntimeError("interrupted physics interval")
-            return {"valid": True}
+            return None
 
         with self.assertRaisesRegex(RuntimeError, "interrupted physics"):
             self.sim.step(self.sim.robot.neutral_action(), substep_check=check)

@@ -8,6 +8,9 @@ import numpy as np
 
 from .action import InvalidAction, torso_joints, validate_action, vector
 
+# MolmoBot native camera field of view (degrees) on RBY-1.
+NATIVE_CAMERA_FOVY = {'head_camera': 139., 'wrist_camera_l': 58., 'wrist_camera_r': 58.}
+
 
 def _prepare_rby1_spec(spec, config):
     """Adapt the in-memory robot spec; native grippers retain motor units."""
@@ -34,7 +37,7 @@ def _prepare_rby1_spec(spec, config):
             body.gravcomp = float(config.gravity_compensation)
     if native:
         # Nominal RBY1GoProD455CameraSystem; source XML is never changed.
-        for alias, fovy in [('head_camera', 139.), ('wrist_camera_l', 58.), ('wrist_camera_r', 58.)]:
+        for alias, fovy in NATIVE_CAMERA_FOVY.items():
             spec.camera(config.namespace + alias).fovy = fovy
 
 

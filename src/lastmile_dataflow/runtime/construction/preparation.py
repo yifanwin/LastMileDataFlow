@@ -12,7 +12,7 @@ from ...utils.io import write_json
 from ...scenes.geometry import quat_angle
 from ...scenes.graph import build_scene_graph, GraphConfig
 from ...scenes.stations.initialization import initialize_robot
-from ..simulation import InitializationError, Simulation
+from ..simulation import InitializationError, Simulation, closed_on_error
 
 
 @dataclass(frozen=True)
@@ -169,26 +169,22 @@ def prepare_scene(source, robot_config, collection=None, *, base=None, settle_co
         raise TimeoutError('construction wall-clock budget exhausted')
     if initial_snapshot is not None:
         sim = Simulation.from_snapshot(initial_snapshot, robot_config, target=None)
-        if sim.source.scene_id != source.scene_id or Path(sim.source.xml_path).resolve() != Path(source.xml_path).resolve():
-            sim.close()
-            raise ValueError('snapshot source does not match requested scene')
         sim.spec = None  # Source spec is materialized only for structural edits.
     else:
         sim = Simulation.from_source(source, robot_config, target=None)
-    try:
+    with closed_on_error(sim):
+        if initial_snapshot is not None and (sim.source.scene_id != source.scene_id or
+                Path(sim.source.xml_path).resolve() != Path(source.xml_path).resolve()):
+            raise ValueError('snapshot source does not match requested scene')
         initialization = initialize_robot(sim, collection or CollectionConfig(), base=base)
         if initialization['status'] != 'valid':
             raise InitializationError('robot initialization failed: ' + initialization['reason'])
         config = settle_config or SettleConfig()
         settling = settle_scene(sim, config, deadline=deadline, require_stability=config.require_source_stability)
         if not settling['valid']:
-            error = InitializationError('baseline is unstable or physically invalid')
-            error.details = {'stage': 'settling', 'settling': settling}
-            raise error
+            raise InitializationError('baseline is unstable or physically invalid',
+                                      {'stage': 'settling', 'settling': settling})
         prepared = PreparedScene(sim, initialization, settling, graph_config=config.graph_config())
         if path is not None:
             prepared.save(path)
-        return prepared
-    except BaseException:
-        sim.close()
-        raise
+    return prepared

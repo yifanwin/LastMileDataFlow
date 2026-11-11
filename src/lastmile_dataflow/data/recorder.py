@@ -62,7 +62,7 @@ class AttemptRecorder:
             "ctrl": self.sim.data.ctrl.copy(),
             "integration_state": self.sim.state_vector(),
             "control_json": json.dumps(self.sim.robot.snapshot_control()),
-            "clock_remainder": self.sim._clock_remainder,
+            "clock_remainder": self.sim.clock_remainder,
             "camera_xpos": self.sim.data.cam_xpos.copy(),
             "camera_xmat": self.sim.data.cam_xmat.copy(),
             "camera_fovy": self.sim.model.cam_fovy.copy(),
@@ -77,12 +77,6 @@ class AttemptRecorder:
         )
         if self.collection["record_images"] or selected_video:
             frames = self.sim.render(self.width, self.height)
-            self.sim._raw_frame_cache = (
-                sample["time_s"],
-                self.width,
-                self.height,
-                frames,
-            )
             if self.collection["record_images"]:
                 self.observation(frames, step=self.steps)
             if selected_video:
@@ -148,7 +142,7 @@ class AttemptRecorder:
             )
             np.savez_compressed(self.path / "trajectory.npz", **arrays)
         complete = not self.errors and len(self.samples) == self.steps + 1
-        model_dir = getattr(self.sim, "frozen_dir", None)
+        model_dir = self.sim.frozen_dir
         replay_complete = (
             complete
             and model_dir is not None
@@ -192,7 +186,7 @@ class AttemptRecorder:
                 else None,
                 "layout": self.sim.robot.record_layout() if self.sim else None,
                 "mujoco_version": mujoco.__version__,
-                "model_dir": getattr(self.sim, "frozen_dir", None),
+                "model_dir": self.sim.frozen_dir,
                 "state_spec": int(self.sim.state_spec) if self.sim else None,
                 "cameras": dict(self.sim.robot.camera_names) if self.sim else {},
                 "resolution": [self.width, self.height] if self.sim else None,

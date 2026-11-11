@@ -123,7 +123,7 @@ class CloneTests(unittest.TestCase):
             self.assertIs(clone.model, sim.model)
             self.assertIsNot(clone.data, sim.data)
             self.assertEqual(clone.robot.snapshot_control(), sim.robot.snapshot_control())
-            self.assertAlmostEqual(clone._clock_remainder, sim._clock_remainder)
+            self.assertAlmostEqual(clone.clock_remainder, sim.clock_remainder)
             before = sim.state_vector().copy()
             clone.begin()
             clone.step(clone.robot.neutral_action())

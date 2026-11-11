@@ -1,11 +1,9 @@
 """Fixed task-local models, retaining complete object and articulated subtrees."""
-from copy import deepcopy
-
 import mujoco
 import numpy as np
 
 from ...runtime.construction.state import migrate_state
-from ...runtime.simulation import Simulation
+from ...runtime.simulation import closed_on_error
 from ..geometry import geom_points
 
 
@@ -64,10 +62,9 @@ def task_local_model(sim, task, radius, bounds=None):
     names = {local_model.body(b).name: b for b in range(local_model.nbody)}
     for entry in sim.catalog:
         if entry['mjcf_body'] in names:
-            catalog.append({**deepcopy(entry), 'body_id': names[entry['mjcf_body']]})
-    local = Simulation(local_model, sim.robot.config, catalog, task['target_body'])
-    local.source, local.restoration, local.spec = sim.source, None, spec
-    migrate_state(sim, local)
+            catalog.append({**entry, 'body_id': names[entry['mjcf_body']]})
+    with closed_on_error(sim.derive(model=local_model, catalog=catalog, target=task['target_body'], spec=spec)) as local:
+        migrate_state(sim, local)
     local.local_model = {'radius_m': radius, 'anchor_world': task['anchor_world'],
                          'removed_roots': removed, 'source_bodies': model.nbody,
                          'retained_bodies': local_model.nbody}
