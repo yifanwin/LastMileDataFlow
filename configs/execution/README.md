@@ -49,7 +49,7 @@ MolmoBot 逐点 rollout 与 cuRobo 连续恢复采集不是同一个能力；当
 | `seed` | trial 随机种子基础值 |
 | `max_attempts` | cuRobo V2 原生 plan_pose 参数，当前必须为 5；不是 trial 数 |
 
-连续采集阈值 `lastmile_low/high` 与不参与配对的保留字段 见 [lastmile_datasets](../lastmile_datasets/README.md)。未填写字段取 ExecutionConfig 默认值，不从另一个 JSON 继承。
+连续采集阈值由 lastmile_low/high 明确设置，按所有合格站位全组合配对；无用的历史限额字段已删除。未填写字段取 ExecutionConfig 默认值，不从另一个 JSON 继承。
 
 ## 常用可选项（现有 JSON 未填写）
 
