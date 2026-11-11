@@ -1,6 +1,5 @@
 """Policy-step trajectory selection shared by periodic validation videos."""
 from pathlib import Path
-import json
 
 import numpy as np
 import torch
@@ -44,16 +43,18 @@ class RolloutCapture:
         for i, row in enumerate(records):
             station = env.task.stations[self.stations[i]]
             if self.representatives:
-                category = 'success' if row['success'] else 'collision' if not row['collision_free'] else None
+                categories = {name for name, match in (('success', row['success']),
+                                                        ('collision', not row['collision_free'])) if match}
                 if not hasattr(env, '_representative_video_categories'):
                     env._representative_video_categories = set()
-                if category is None or category in env._representative_video_categories:
+                categories -= env._representative_video_categories
+                if not categories:
                     continue
             else:
-                category = station['split']
-                if category in selected:
+                categories = {station['split']}
+                if categories <= selected:
                     continue
-            selected.add(category)
+            selected.update(categories)
             stem = f'actor-{self.transitions:012d}-{station["split"]}-{station["station_id"]}-{self.mode}'
             replay_dir = self.output / 'replays'
             replay_dir.mkdir(exist_ok=True)
@@ -69,6 +70,7 @@ class RolloutCapture:
             video = render_rollout(env.sim.mj_model, states, self.metrics[i], self.output / 'views' / (stem + '.mp4'),
                                    label, result, settings, env.step_dt)
             self.videos.append({**video, 'replay': str(replay), 'seed': self.seed, 'result': row,
-                                'transitions': self.transitions, 'policy': self.mode})
+                                'transitions': self.transitions, 'policy': self.mode,
+                                'categories': sorted(categories)})
             if self.representatives:
-                env._representative_video_categories.add(category)
+                env._representative_video_categories.update(categories)
