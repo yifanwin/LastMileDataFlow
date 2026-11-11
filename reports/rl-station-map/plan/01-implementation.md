@@ -1,9 +1,9 @@
 # mjlab 并行环境 + SAC 双 Q：构建方案与实施计划
 
 - 状态：active
-- 日期：2026-11-09
+- 日期：2026-11-11
 - 替代：本文件原 CPU / Mink 草案
-- 关联：../requirement/01-fixed-base-sac.md、../delivery/03-mjlab-build-plan.md
+- 关联：../requirement/01-fixed-base-sac.md、02-staged-reward-and-lift.md、../delivery/03-mjlab-build-plan.md
 
 ## 1. 已确认目标与交付范围
 
@@ -16,6 +16,8 @@
 简单桌面仅用于排查环境与算法；验收必须回到 val103-cup30。该场景内保留部分站位用于验证与验收，不把训练过的站位成功率当作独立验收，也不声称跨场景泛化。
 
 本文为已选路线的实施方案。2026-11-09 已开始代码实现与依赖安装，实际进展和验证边界见 [实施记录](../delivery/04-implementation.md)；阶段是否完成以真实检查结果为准。
+
+**2026-11-11 调整方案**：动作 2 cm / 5°、四阶段奖励、升降参与控制及抬升 1 cm / 保持 1 s 的 RL 成功协议见[小动作、四阶段奖励与可动升降](02-staged-reward-and-lift.md)。这些更新覆盖本文相应旧设置，已完成代码和短验证，实际边界见[交付记录](../delivery/07-staged-reward-and-lift.md)；本文其余 mjlab / SAC / DLS 架构继续沿用。
 
 ## 2. 总体架构与调用链
 

@@ -7,6 +7,8 @@
 
 从 actor-critic 工作区根目录运行。实际验证状态见[训练接手报告](../delivery/05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
 
+算法和训练数据流见[算法设计与训练核心 Pipeline](02-algorithm-training-pipeline.md)。
+
 ## 安装
 
 ```bash
@@ -50,16 +52,16 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 配置为 `configs/rl/val103_cup30.json`，数据根为 `/data1/wenyifan/lmdf/molmospaces_data`，抓取变换来自该根下的 Cup_30 抓取库固定 row。修改抓取行、奖励、控制或 split 后，作为新的有效配置重新记录。
 
-当前动作每轴4cm / 7.5°，回合60s（1200步），控制20Hz。γ已从0.995调整为0.999，属于待实测新配置；旧训练checkpoint均为1cm / 5° / 20s / γ=0.995。配置变化后从头训练，`--resume`要求有效配置完全一致。
+当前动作每轴2cm / 5°，回合60s（1200步），控制20Hz。γ已从0.995调整为0.999，属于待实测新配置；旧训练checkpoint均为1cm / 5° / 20s / γ=0.995。配置变化后从头训练，`--resume`要求有效配置完全一致。
 
-随机预热条数直接取 `training.warmup_min`（当前 20000），不再与回合长度绑定；旧实现为 `max(warmup_min, 环境数×回合步数)`，128 环境 / 60 s 时达 153600 条，超过 Replay 容量。总量和每向量步更新次数需按实验显式设定，并记录实际更新数。配置了 `debug_station_ids` 时，每次评估另在这些训练站位上各跑一遍随机动作和均值动作（`tanh(mu)`），记录到达位姿、双指接触、抬升 5 cm、最长保持和完整成功，写入 `metrics.jsonl` 的 `debug_stations` 字段；空间 validation 照旧。
+随机预热条数直接取 `training.warmup_min`（当前 20000），不再与回合长度绑定；旧实现为 `max(warmup_min, 环境数×回合步数)`，128 环境 / 60 s 时达 153600 条，超过 Replay 容量。总量和每向量步更新次数需按实验显式设定，并记录实际更新数。配置了 `debug_station_ids` 时，每次评估另在这些训练站位上各跑一遍随机动作和均值动作（`tanh(mu)`），记录到达位姿、双指接触、抬升 1 cm、最长保持和完整成功，写入 `metrics.jsonl` 的 `debug_stations` 字段；空间 validation 照旧。
 
 正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 
 从 `git archive` 导出的源码启动时，将 `LASTMILE_SOURCE_REVISION` 设为导出时的提交号，并将 `PYTHONPATH` 指向导出目录的 `src/`，避免 checkpoint 把外层工作区后来更新的 HEAD 当作运行版本。
 
 ```bash
-MUJOCO_GL=disable .venv/bin/python scripts/experiments/train_sac.py \
+MUJOCO_GL=egl .venv/bin/python scripts/experiments/train_sac.py \
   --config configs/rl/val103_cup30.json --gpu 4 --seed 42 \
   --output outputs/experiments/val103-cup30-sac-20261109/runs/train \
   --max-transitions 200000
@@ -121,3 +123,11 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 ```
 
 原主链全套软件回归仍使用主 checkout 的原环境，避免 MuJoCo / cuRobo 版本混装。真实 GPU rollout 和训练不随 unittest 自动运行。
+
+## 阶段奖励与视频（2026-11-11）
+
+新训练使用 `rl-pick-1cm-1s-v1`：双指承力、离开支撑并抬升 1 cm 连续保持 1 s；不限制物体相对 TCP 滑移。非 RL 默认 `strict-pick-v3` 保留。Actor 仍为 7D，DLS 联合控制臂和升降，升降命令限制 0.05 m/s。观测新增升降、实测 TCP 速度、接触事件标记与历史最高进度；旧 checkpoint 不直接 resume。
+
+`reward_component_names` 对应 13 项实际奖励；新增 `views/reward-breakdown.png` 绘制指定 7 项已完成健康回合均值，日志保留接触事件次数。无已完成回合的区间不补零。
+
+视频需启用 EGL 并设置上文 native 库路径。`video.every` 默认 100000；初始、周期及最终评估保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。

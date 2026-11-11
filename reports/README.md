@@ -3,6 +3,10 @@
 **当前五命令软件回归可用；lastmile-bench v0.1 已完成既有数据构建及 RBY-1 真实评测，恢复成功能力尚未取得正例。**
 运行方式见 [运行手册](../docs/运行手册.md)，不要从历史实施步骤寻找当前命令。
 
+当前actor-critic算法与训练主链见[算法设计与训练核心 Pipeline](rl-station-map/docs/02-algorithm-training-pipeline.md)。
+
+2026-11-11 RL 调整见[小动作、四阶段奖励与可动升降方案](rl-station-map/plan/02-staged-reward-and-lift.md)：目标为 2 cm / 5°、阶段奖励、可动升降及抬升 1 cm / 保持 1 s；闭合奖励 0.05/s、持物奖励 0.5/s，抬升采用回合历史最高进度增量，新增 7 项奖励分量可视化和代表性视频输出。代码与短验证已完成，见[交付记录](rl-station-map/delivery/07-staged-reward-and-lift.md)：相关测试23项通过，脚本在新协议下无碰撞成功；2400条短训练未得到Actor抓取成功，已有奖励图和沿用既有角度的视频。全套回归仍有缺依赖及旧失败，未完成站位图验收。
+
 ## 验证边界
 
 - [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)：独立mjlab环境、DLS、图观测、SAC双Q、Replay、六指标/四组图已实现并有真实运行证据。已有12轮训练、保存交互约511万条，记录训练回合12260个与重复validation rollout896次均无成功；当前停在P4学习。`123bc88` 的4cm / 7.5° / 60s脚本抓取成功43/128、无非法碰撞成功35/128，尚无新尺度训练结果。工作区后续将γ从0.995调至0.999，待训练验证；尚无有效站位排序验收结论。见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)、[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。

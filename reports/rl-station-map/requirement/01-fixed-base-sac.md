@@ -1,9 +1,9 @@
 # 固定底盘 SAC 站位质量图：核心需求
 
 - 状态：active
-- 日期：2026-11-09
+- 日期：2026-11-11
 - 替代：无
-- 关联：../plan/01-implementation.md、../delivery/03-mjlab-build-plan.md
+- 关联：../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../delivery/03-mjlab-build-plan.md
 
 ## 1. 目标与已确认范围
 
@@ -17,7 +17,9 @@ GPU 资源为 CUDA 0–7，运行前根据实时利用率和空闲显存选择�
 
 同一模型覆盖训练分布内的所有站位与场景，不按站位训练独立 Actor。不同机器人未来分别建模，首版不宣称跨本体通用。
 
-本轮交付是需求与技术方案；以下明确区分用户要求、源码事实和建议初值，不表示已经实现或完成训练。
+2026-11-11 调整要求：动作尺度为每轴 **2 cm / 5°**；全局距离 / 姿态改善奖励之外增加 Approach、Pre-grasp、Grasp、LIFT 阶段奖励；保留非法碰撞惩罚，暂时取消关节触限惩罚；允许升降机构调整。RL 成功改为物体抬升至少 **1 cm、连续保持 1 s**，保留双指承力和脱离支撑，不限制目标相对 TCP 的位移 / 姿态变化。具体门控、单次接触奖励与建议初值见[本轮调整方案](../plan/02-staged-reward-and-lift.md)。
+
+本文定义目标需求；2026-11-11 的调整已实施代码和短验证，结果见[交付记录](../delivery/07-staged-reward-and-lift.md)，尚未完成Actor学习验收。当前实现与历史训练见交付记录，不以需求或建议初值代表已实现、已训练或验收通过。
 
 ## 2. 对 Grand_RM 的借鉴边界
 
@@ -39,13 +41,13 @@ GPU 资源为 CUDA 0–7，运行前根据实时利用率和空闲显存选择�
 
 ## 3. 环境和公平比较
 
-每个 episode：选择或随机生成合法场景 → 采样 `(x, y, yaw)` → 固定底盘与升降自由度 → 重置统一 Home、关节速度和打开的夹爪 → 从准备好的状态开始 Actor rollout。
+每个 episode：选择或随机生成合法场景 → 采样 `(x, y, yaw)` → 固定底盘、设置统一升降初值 → 重置统一 Home、关节速度和打开的夹爪 → 从准备好的状态开始 Actor rollout。升降在 rollout 中允许调整；建议由 DLS 与机械臂联合实现 TCP 指令，Actor 仍输出 7D 动作。
 
 训练时随机化目标、容器、桌面与地面障碍物；同一张地图评分时固定场景、物体姿态和任务，仅改变候选底盘位姿。场景生成与物理 settling 可在场景池准备时完成，每回合从池中采样并恢复，不要求每回合重新编译模型。
 
 首轮实施先固定 val103 / Cup_30 与现有家具，训练站位变化；不以随机桌面替代最终验收。按 XY 空间块预先划分训练、验证与验收站位，同一 XY 的 yaw 属于同一 split。场景随机化后续在已验证的同构模板内增加；单场景验收不宣称跨场景泛化。
 
-所有站位必须一致：Home、夹爪宽度、升降高度、抓取目标定义、控制器、动作尺度、控制频率、时间预算、奖励和成功条件。实际初态读自准备后的仿真；相同命令值不能替代对初态一致性的确认。
+所有站位必须一致：Home、夹爪宽度、升降初始高度及控制规则、抓取目标定义、控制器、动作尺度、控制频率、时间预算、奖励和成功条件。实际初态读自准备后的仿真；相同命令值不能替代对初态一致性的确认。
 
 候选区域首先使用目标周围半径 1 m 的圆盘并排除容器占据区；进一步检查整个底盘占地、地面支撑、初始机器人与场景接触。Home 初态与物体相交的点标为 `invalid_initialization`，不作为学习到的低 Q。**不得通过 cuRobo / IK 成功、FOV 或手工难度分数预先过滤合法但困难的站位。**
 
@@ -63,9 +65,9 @@ GPU 资源为 CUDA 0–7，运行前根据实时利用率和空闲显存选择�
 
 `arm = [q, qdot, TCP_position_base, TCP_rotation, gripper_width, target_to_TCP_position_error, target_to_TCP_rotation_error]`
 
-为抓取动态和连续控制补充真正影响后续转移 / 奖励的量：目标线速度与角速度、夹爪速度、相对初始支撑面的抬升高度、接触 / 支撑状态、稳定保持计时；如果控制器使用上一周期速度命令做加速度约束，也将该命令纳入状态并在 reset 清零。可动障碍物的速度随节点更新。静态物体特征可缓存，目标及被碰动物体不能沿用初始图。
+为抓取动态和连续控制补充真正影响后续转移 / 奖励的量：目标线速度与角速度、夹爪速度、相对初始支撑面的抬升高度、接触 / 支撑状态、稳定保持计时、升降位置 / 速度、实测 TCP 速度和本回合接触奖励是否已领取；如果控制器使用上一周期速度命令做加速度约束，也将该命令纳入状态并在 reset 清零。可动障碍物的速度随节点更新。静态物体特征可缓存，目标及被碰动物体不能沿用初始图。
 
-建议首版按“20 秒内完成抓取”定义有限时域任务，输入剩余时间；具体时长是建议初值。这样超时是任务终止，不 bootstrap；外部采样中断才作为 truncation，保存真实 final observation 并 bootstrap。此区分遵循 [Gymnasium 时间限制说明](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/)。
+按有限时域任务定义，输入剩余时间；本轮沿用当前 60 s 回合预算。超时是任务终止，不 bootstrap；外部采样中断才作为 truncation，保存真实 final observation 并 bootstrap。此区分遵循 [Gymnasium 时间限制说明](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/)。
 
 Actor 与 Critic 使用相同观测字段。首版使用仿真真值，不接视觉估计或 VLA 特征。此表示是工程上的紧凑观测，不宣称严格包含完整物理 Markov 状态。
 
@@ -75,11 +77,11 @@ Actor 产生 `mu, log_std ∈ R^7`，通过重参数采样和 tanh 得到 `a ∈
 
 | 分量 | 含义 | 建议初值 |
 |---|---|---|
-| a[0:3] | TCP 平移增量 | 每轴 ±0.01 m / policy step |
+| a[0:3] | TCP 平移增量 | 每轴 ±0.02 m / policy step |
 | a[3:6] | TCP 旋转向量增量 | 每轴 ±5° / policy step |
 | a[6] | 目标夹爪宽度 | `w_min + (a[6]+1)/2 * (w_max-w_min)` |
 
-夹爪约定 -1=闭、+1=开，宽度单位 m，范围来自机器人配置。20 Hz 下平移每轴上限对应 0.2 m/s、旋转每轴 100°/s；这些是动作上限，不保证机械臂可实现，实际关节限制由控制器执行。
+夹爪约定 -1=闭、+1=开，宽度单位 m，范围来自机器人配置。20 Hz 下平移每轴上限对应 0.4 m/s、旋转每轴 100°/s；这些是动作上限，不保证机械臂可实现，实际关节限制由控制器执行。
 
 建议采用直观的 TCP 原点增量语义：
 
@@ -93,7 +95,7 @@ DLS 放在此层，采用 mjlab GPU 批量 Jacobian 与阻尼最小二乘，将 
 
 控制器需要满足：
 
-- 只优化工作臂自由度，底盘、升降及场景物体自由度不参与 IK；当前实测关节状态作为每次求解起点。
+- 工作臂与升降允许参与 IK，底盘及场景物体自由度不参与；当前实测关节状态作为每次求解起点。升降按实际米制范围和速度单独限幅，正常调整不再按固定部件漂移判失败。
 - 关节位置、命令速度及执行器力限明确配置；限幅用于机器人控制，不提供轨迹避碰保证。首版不额外引入碰撞约束 QP 或通用加速度约束求解器。
 - 机械臂与环境、自碰撞保持真实物理反馈；合法指尖—目标抓握及底盘正常支撑接触不罚，非法接触用于奖励和统计。普通碰撞不在控制器前阻止动作，也不回滚仿真状态。
 - 有限残差或一次触及限制不直接等于 IK 无解；记录跟踪误差、限幅及持续无进展，依据实际失败再处理。
@@ -111,11 +113,16 @@ Actor：`MLP(GAT(G) || arm_and_task_state) → mu, log_std`。
 
 按标准 Continuous SAC 实现用户给出的 target、critic loss、actor loss，并自动更新 α；需要 tanh 后 log probability 的 Jacobian 修正。现代 SAC 不必额外训练一个 V 网络。[SAC 公式说明](https://spinningup.openai.com/en/latest/algorithms/sac.html)
 
-基础奖励按用户提出的六项：位置进度、姿态进度、非法碰撞、限位、控制失败、真实抓取成功。权重在控制闭环后调整，不搬用原论文的底盘任务奖励系数。
+距离改善量和姿态改善量为全局奖励，所有阶段都计算，恶化时保留负值。按当前状态选择阶段，仍由同一个 Actor 执行动作：
 
-抓取目标变换明确后，固定其定义用于进度奖励；抓住后只靠接近奖励不能提供抬升方向信号。先保留终局成功奖励验证可学习性，若策略停在接触而不抬升，再针对实际失败增加抬升进度项；不可直接把“靠近 / 闭爪 / IK 解存在”当成功。稳定保持成功奖励仅发放一次并终止。
+- Approach（距离 >=4 cm）：增加保持实际夹爪张开的奖励。
+- Pre-grasp（距离 <4 cm，未满足 Grasp / LIFT）：增加近目标距离 / 姿态保持与近距离低速奖励，夹爪开闭不奖不罚。
+- Grasp（距离 <1 cm 且姿态误差 <10°，尚未双指承力）：闭爪奖励速率为 0.05/s，按实际闭合比例计算；首次在该位姿范围建立双指有效接触时奖励一次，每回合最多一次，重新接触不重复发放。
+- LIFT（双指已有效承力，优先于前述阶段）：按回合内历史最高抬升进度的新增部分奖励，下降及重新抬至旧最高点不重复给分；脱离支撑后持续持物奖励速率为 0.5/s。不要求先达到成功高度才进入该阶段，历史最高进度只在新回合清零，并进入观测。
 
-复用现有 `strict-pick-v3` 的任务事实：双指有效接触、物体脱离支撑、抬升至少 5 cm、稳定保持 2 s、滑移与固定部件漂移符合阈值；训练的在线成功判定与最终评估应复用同一逻辑。违法环境接触与合法抓握接触分别处理。
+保留非法碰撞惩罚和明确控制失败惩罚，关节触限奖励权重暂设为 0，实际关节范围、速度与执行器约束保留。成功给予较大奖励，单次发放并终止；具体权重按本轮方案的建议初值实施后验证。
+
+RL 使用显式新协议 `rl-pick-1cm-1s-v1`：双指持续有效承力、物体无环境支撑、相对回合初始世界系高度抬升至少 1 cm，连续保持 1 s；中断即重新计时，相对位移 / 姿态变化不再重开窗口。底盘保持要求继续生效，升降正常调整不属于失败。RL 在线判定与其独立评估使用同一协议；非 RL 的 `strict-pick-v3` 默认保留，历史结果不改写。
 
 普通非法碰撞产生惩罚并继续；另行记录 episode 是否全程无非法碰撞。验收同时报告真实抓取成功率、无非法碰撞抓取成功率及碰撞率，不把现有 strict-pick 的接触遥测规则静默改为一碰即失败。
 
@@ -154,7 +161,7 @@ Actor：`MLP(GAT(G) || arm_and_task_state) → mu, log_std`。
 
 实测验证使用冻结 Actor 的随机策略，与 K 次采样口径一致；若另外展示 `tanh(mu)` 确定性执行，单独报告。简单几何距离排序和均匀选点作为最低成本对照；cuRobo 结果可用于辅助对照，但不是监督标签或候选过滤器。
 
-建议首先采用 20 Hz policy、0.002 s physics、decimation=25、20 s episode、1 m 半径、0.1 m 网格、16 个 yaw、K=16。物理步长相对旧方案有调整，需要重验伺服与接触。这些不是已验证最优参数；完整初值、实施顺序与建议验收目标见方案，本轮不承诺训练时长或最终成功率。
+本轮沿用 20 Hz policy、0.002 s physics、decimation=25、60 s episode、1 m 半径、0.1 m 网格、16 个 yaw、K=16；主要调整动作、奖励、成功条件和升降控制。以上不是已验证最优参数；完整初值、实施顺序与建议验收目标见方案，本轮不承诺训练时长或最终成功率。
 
 ## 9. 本地核对入口
 
@@ -162,7 +169,7 @@ Actor：`MLP(GAT(G) || arm_and_task_state) → mu, log_std`。
 - [参考图编码](../../../reference_repos/Grand_RM/learned_robot_placement/utils/scene_graph.py)、[参考 Actor/Critic](../../../reference_repos/Grand_RM/learned_robot_placement/scripts/train_task_fetch.py)、[参考训练配置](../../../reference_repos/Grand_RM/learned_robot_placement/cfg/train/FetchMultiObjFetchingGAT.yaml)。
 - [Panda 位置控制](../../../src/lastmile_dataflow/runtime/control/panda_omron.py)、[RoboCasa 控制](../../../src/lastmile_dataflow/runtime/control/panda_robocasa.py)、[当前抓取判定](../../../src/lastmile_dataflow/runtime/outcomes/pick.py)。
 
-## 10. 训练监控补充（2026-11-09 用户确认）
+## 10. 训练监控补充（2026-11-09、2026-11-11 用户确认）
 
 训练过程记录六项核心指标，并随有效 transition 数更新：
 
@@ -175,11 +182,27 @@ Actor：`MLP(GAT(G) || arm_and_task_state) → mu, log_std`。
 | Episode Return | 每回合累计奖励 | 判断整体奖励表现，保留原始 episode 记录 |
 | Value-Success Correlation | 冻结 Critic 预测值与站位实测成功率的相关性 | 判断 Critic 是否学会评价站位，使用 Spearman；常量结果记不可计算 |
 
-必须输出四组图：
+原有四组图继续保留：
 
 1. Loss 曲线：Actor Loss、Critic Loss。
 2. 探索曲线：Entropy。
 3. 训练效果曲线：Evaluation Success Rate、Episode Return。
 4. 站位评价图：Critic Value Map + Value-Success Scatter。
+
+2026-11-11 增加第五组 Reward Breakdown 图，分别展示以下 7 项指标，横轴为有效 transition 数。奖励使用每回合累计实际加权值，绘制日志区间内健康完成回合的均值，保留正负号；接触奖励单独记录事件次数。
+
+| 观察指标 | 用来判断什么 |
+|---|---|
+| Position Reward | Actor 是否学会接近 |
+| Rotation Reward | Actor 是否学会调整抓取姿态 |
+| Close Reward | Actor 是否主动闭爪 |
+| Contact Bonus 次数 | 是否真正建立双指接触 |
+| Lift Progress Reward | 是否真正抬升物体 |
+| Held Reward | 是否学会持续保持 |
+| Collision Penalty | 是否大量依赖碰撞探索 |
+
+Contact Bonus 次数为每回合实际发放奖励的事件数 0 或 1；图中展示区间每回合平均次数，日志同时保留区间总次数，不统计持续接触子步数。Position / Rotation 只对应全局改善量，不混入近目标位姿保持项；Lift Progress 对应历史最高进度增量；Collision Penalty 保留负号。原始回合分量、名称与接触奖励事件数必须保存，具体口径见[调整方案第 7 节](../plan/02-staged-reward-and-lift.md#7-新增奖励分量可视化)。新增监控已实现，真实两回合图与限制见交付记录。
+
+增加代表性视频输出：初始模型、周期验证和训练结束时，在固定 1 个 train 站位与 1 个 validation 站位分别录制 stochastic / mean 策略完整回合，默认每 100000 条有效 transition 输出，标明阶段、位姿误差、夹爪 / 接触、物体抬升、保持计时、碰撞和最终结果。另在视频采样时段的已有验证中，保留首次成功、首次明显碰撞各 1 条真实代表轨迹，每类整次训练最多补充 1 条，无对应样本则不输出；视频放实验 `views/`，对应状态放 `replays/`。采用全景与夹爪近景并排、20 fps、仿真时间 1× 播放；不在训练物理子步持续渲染。样本选择、画面、路径和验证口径见[调整方案第 8 节](../plan/02-staged-reward-and-lift.md#8-代表性视频输出)，已实现并生成短验证视频，沿用已有选角器；实际覆盖范围见交付记录。
 
 训练期间的独立评估使用未参与训练采样的 validation 站位，固定点和 seeds，用于观察与选 checkpoint；最终 acceptance 集合继续留给独立验收。Value Map 保留 yaw 语义、invalid mask 和固定色标，Scatter 使用该 checkpoint 的真实 rollout 结果；未运行评估时不填造成功率或相关性。
