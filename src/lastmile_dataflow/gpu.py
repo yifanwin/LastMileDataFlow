@@ -27,3 +27,28 @@ def isolate_from_argv(argv=None):
     os.environ["CUDA_VISIBLE_DEVICES"] = physical
     argv[index] = "0"
     return physical
+
+
+def sampler_entry(physical_gpu, *args):
+    """Spawn target: isolate before importing CUDA-dependent worker code."""
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(physical_gpu)
+    from .workflows.rl_sampling import sample
+    sample(*args)
+
+
+def isolate_training(argv=None):
+    argv = sys.argv if argv is None else argv
+    for i, value in enumerate(argv):
+        if value == '--gpus' or value.startswith('--gpus='):
+            requested = argv[i + 1] if value == '--gpus' else value.split('=', 1)[1]
+            devices = requested.split(',')
+            if not 1 <= len(devices) <= 8 or len(set(devices)) != len(devices):
+                raise ValueError('--gpus requires 1–8 distinct devices')
+            visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+            devices = [visible.split(',')[int(d)] if visible else d for d in devices]
+            os.environ['LASTMILE_SAMPLER_GPUS'] = ','.join(devices)
+            os.environ['CUDA_VISIBLE_DEVICES'] = devices[0]
+            return
+    physical = isolate_from_argv(argv)
+    if physical is not None:
+        os.environ['LASTMILE_SAMPLER_GPUS'] = physical

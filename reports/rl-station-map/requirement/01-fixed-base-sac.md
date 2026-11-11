@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-11-11
 - 替代：无
-- 关联：../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../delivery/03-mjlab-build-plan.md
+- 关联：../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../plan/03-distributed-sampling-centralized-learner.md、../delivery/03-mjlab-build-plan.md
 
 ## 1. 目标与已确认范围
 
@@ -13,7 +13,9 @@
 
 2026-11-09 进一步确认：采用 **mjlab 并行环境 + 自定义 SAC 双 Q + DLS**。只要求通过观测、真实碰撞反馈与奖励学习避障，不要求控制器在动作执行前保证轨迹无碰撞。最终验收场景为 **val103-cup30（val103 / Cup_30）**；上游使用主 checkout 中的 `reference_repos/mjlab` 本地源码，安装参考用户提供的 [mjlab 安装指南](https://mujocolab.github.io/mjlab/main/source/installation.html)。
 
-GPU 资源为 CUDA 0–7，运行前根据实时利用率和空闲显存选择，通过 `--gpu` 显式指定；首轮单卡，不固定卡号。
+GPU 资源为 CUDA 0–7，运行前根据实时利用率和空闲显存选择，不固定卡号。2026-11-11 新增分布式采样、集中式 Learner 要求，目标支持任意 1–8 张 GPU。按最新布局要求：每张 GPU 默认一个 Sampler，Learner 与 S0 共享一张卡，N 张卡共 N 个 Sampler；Learner 主进程与全部 Sampler 子进程独立，单卡同样使用 Learner + S0。启动时选定具体设备，运行中分配不变、不固定物理卡号。运行入口支持 `--gpu` 或 `--gpus`，已完成单卡真实短程；多卡扩展性尚未验证，详见[分布式采样方案](../plan/03-distributed-sampling-centralized-learner.md)。
+
+保持 SAC 双 Q，batch=256、Replay=100,000、全局 Warmup=20,000；预热后每新增 128 条健康入库经验更新一次，UTD=1/128。Transition 总预算、更新额度及每 100,000 条健康经验的验证频率由集中侧统一管理；采样与更新异步，Learner 每接收一批就完成其产生的更新额度，再接下一批，配合普通有界 CPU 队列阻塞背压；Actor 每 16 次更新同步。主进程直接管理 Sampler，CPU Replay 集中存储；暂停采样后同步验证，不实现独立 Supervisor / Evaluator、动态扩缩容或 Learner 迁移。该新增架构与计数要求尚处方案阶段，不代表当前代码已支持。
 
 同一模型覆盖训练分布内的所有站位与场景，不按站位训练独立 Actor。不同机器人未来分别建模，首版不宣称跨本体通用。
 
@@ -182,7 +184,7 @@ RL 使用显式新协议 `rl-pick-1cm-1s-v1`：双指持续有效承力、物体
 | Episode Return | 每回合累计奖励 | 判断整体奖励表现，保留原始 episode 记录 |
 | Value-Success Correlation | 冻结 Critic 预测值与站位实测成功率的相关性 | 判断 Critic 是否学会评价站位，使用 Spearman；常量结果记不可计算 |
 
-原有四组图继续保留：
+以下为原有四组图；2026-11-11 简化要求覆盖其生成时机：周期仅保留固定验证点的小样本 Q/成功率相关性与 Scatter，完整 Critic Value Map 只在训练结束后对 best checkpoint 计算一次，不再每次验证扫描全站位。
 
 1. Loss 曲线：Actor Loss、Critic Loss。
 2. 探索曲线：Entropy。
@@ -205,4 +207,4 @@ Contact Bonus 次数为每回合实际发放奖励的事件数 0 或 1；图中�
 
 增加代表性视频输出：初始模型、周期验证和训练结束时，在固定 1 个 train 站位与 1 个 validation 站位分别录制 stochastic / mean 策略完整回合，默认每 100000 条有效 transition 输出，标明阶段、位姿误差、夹爪 / 接触、物体抬升、保持计时、碰撞和最终结果。另在视频采样时段的已有验证中，保留首次成功、首次明显碰撞各 1 条真实代表轨迹，每类整次训练最多补充 1 条，无对应样本则不输出；视频放实验 `views/`，对应状态放 `replays/`。采用全景与夹爪近景并排、20 fps、仿真时间 1× 播放；不在训练物理子步持续渲染。样本选择、画面、路径和验证口径见[调整方案第 8 节](../plan/02-staged-reward-and-lift.md#8-代表性视频输出)，已实现并生成短验证视频，沿用已有选角器；实际覆盖范围见交付记录。
 
-训练期间的独立评估使用未参与训练采样的 validation 站位，固定点和 seeds，用于观察与选 checkpoint；最终 acceptance 集合继续留给独立验收。Value Map 保留 yaw 语义、invalid mask 和固定色标，Scatter 使用该 checkpoint 的真实 rollout 结果；未运行评估时不填造成功率或相关性。
+训练期间暂停采样并同步评估固定 8 个 validation 站位，每点 2 次 stochastic rollout，使用固定 seeds，用于观察与选 checkpoint；Q 计算仅限这 8 点，不扫描全部合法站位。训练结束先完成末次轻量验证，再选出 best.pt，仅对该模型计算一次全部合法站位 Q 图。最终 acceptance 集合继续留给独立验收，不用于选择 best 或拼接不同 checkpoint 的逐点最大 Q。Value Map 保留 yaw 语义、invalid mask 和固定色标，Scatter 使用该 checkpoint 的真实 rollout 结果；未运行评估时不填造成功率或相关性。

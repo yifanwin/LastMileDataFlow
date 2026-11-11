@@ -1,9 +1,6 @@
-"""Train the research policy; see reports/rl-station-map for its protocol."""
-from lastmile_dataflow.gpu import isolate_from_argv
-
-isolate_from_argv()  # before any CUDA library loads
-
-from lastmile_dataflow.workflows.rl_training import run_cli  # noqa: E402
-
+"""Distributed SAC research entry."""
 if __name__ == '__main__':
+    from lastmile_dataflow.gpu import isolate_training
+    isolate_training()
+    from lastmile_dataflow.workflows.rl_training import run_cli
     run_cli('train')

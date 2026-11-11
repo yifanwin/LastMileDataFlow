@@ -18,9 +18,9 @@ def reset_stations(env, station_ids, env_ids=None):
 
 
 @torch.no_grad()
-def station_scores(agent, env, samples):
+def station_scores(agent, env, samples, station_ids=None):
     rows = [{**s, 'q_mean': None, 'q_std': None, 'K': samples} for s in env.task.stations]
-    valid = [i for i, row in enumerate(rows) if row['valid']]
+    valid = [i for i, row in enumerate(rows) if row['valid'] and (station_ids is None or i in station_ids)]
     for start in range(0, len(valid), env.num_envs):
         batch = valid[start:start + env.num_envs]
         padded = batch + [batch[-1]] * (env.num_envs - len(batch))
@@ -28,7 +28,7 @@ def station_scores(agent, env, samples):
         mean, std = action_sampled_q(agent, obs, samples)
         for offset, index in enumerate(batch):
             rows[index].update(q_mean=float(mean[offset]), q_std=float(std[offset]))
-    return rows
+    return rows if station_ids is None else [rows[i] for i in station_ids]
 
 
 @torch.no_grad()
@@ -163,7 +163,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     captures = []
     with torch.random.fork_rng(devices=[torch.device(env.device).index]):
         torch.manual_seed(seed)
-        rows = station_scores(agent, env, config['evaluation']['action_samples'])
+        rows = station_scores(agent, env, config['evaluation']['action_samples'], station_ids)
         values = {r['station_id']: r for r in rows}
         selection = [{**row, 'q_mean': values[row['station_id']]['q_mean']} for row in selection]
         trials = []

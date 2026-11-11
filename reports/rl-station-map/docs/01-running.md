@@ -79,7 +79,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/experiments/train_sac.py \
 
 `metrics.jsonl` 保存 `learner`、`episode`、`evaluation` 三类记录：Actor Loss / Critic Loss / Entropy 为日志间隔内更新均值；Episode Return 是实际回合奖励和；独立评估记录成功数、健康 trial 数、总 trial 数、基础设施失败及 Value-Success Spearman。
 
-默认每 100,000 条有效 transition 做一次独立评估，开始和结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停参数更新后计算全图 Q 和实际站位成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
+默认每 100,000 条有效 transition 做一次独立评估，开始和结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停全部 Sampler 后只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
 
 训练目录的 `views/` 持续更新四组 PNG：
 
@@ -90,7 +90,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/experiments/train_sac.py \
 | `training-effect.png` | 独立 validation 成功率、每回合累计奖励 |
 | `station-evaluation.png` | 固定色标的 max-yaw Critic Value Map、真实 Value-Success Scatter 与 Spearman |
 
-每次评估原始数据保存在 `analysis/validation-<transition数>.json`，包含实际 trials、站位成功率与全图原始 Q。全部成功率相同或数据不足时，相关性记录为 null、图中标 N/A；不填成 0。监控曲线本身不代表策略或站位图已通过最终验收。
+每次评估原始数据保存在 `analysis/validation-<transition数>.json`，包含实际 trials、站位成功率与固定验证点原始 Q。全部成功率相同或数据不足时，相关性记录为 null、图中标 N/A；不填成 0。监控曲线本身不代表策略或站位图已通过最终验收。
 
 独立检查监控链路可运行下列真实 smoke；它只做两次诊断更新，不作为训练结果：
 
@@ -135,3 +135,17 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 `reward_component_names` 对应 13 项实际奖励；新增 `views/reward-breakdown.png` 绘制指定 7 项已完成健康回合均值，日志保留接触事件次数。无已完成回合的区间不补零。
 
 视频需启用 EGL 并设置上文 native 库路径。`video.every` 默认 100000；初始、周期及最终评估保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
+
+
+## 分布式采样与集中学习
+
+单卡继续用 `--gpu 0`；多卡用 `--gpus 0,5`（以实时空闲情况选卡）。每卡一个独立 Sampler，Learner 与首卡 Sampler 共享 GPU；CPU Replay 和有界队列集中汇总，启动后布局固定。
+
+```bash
+.venv/bin/python scripts/experiments/train_sac.py --gpus 0,5 --num-envs 128 \
+  --output outputs/experiments/distributed-sampling/runs/train
+```
+
+`--num-envs` 是每个 Sampler 的环境数。配置 `transitions_per_update=128`，全局健康经验前 20000 条预热，此后每 128 条更新一次；默认 batch=256、CPU Replay=100000。每 16 次更新向各 Sampler 发布最新完整 Actor。恢复 checkpoint 时保留历史 transition 横轴，重建 Replay 并重新全局预热。
+
+初始、每 100000 条经验和末次验证均只评分固定 validation 子集。结束后加载 validation 选出的 `best.pt`，计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。

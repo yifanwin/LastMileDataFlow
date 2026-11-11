@@ -1,6 +1,6 @@
-"""One-device replay with owned storage and true pre-reset next observations."""
+"""Uniform replay with owned storage and true pre-reset next observations."""
 from ...scenes.rl_observation import REWARD_COMPONENTS
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import torch
 
@@ -17,6 +17,18 @@ class Transition:
     truncated: torch.Tensor
     reward_components: torch.Tensor | None = None
     station_id: torch.Tensor | None = None
+
+
+    def map(self, function):
+        return Transition(*(value.map(function) if isinstance(value, GraphObservation)
+                            else function(value) if value is not None else None
+                            for value in (getattr(self, f.name) for f in fields(self))))
+
+    def __getitem__(self, index):
+        return self.map(lambda value: value[index])
+
+    def to(self, device):
+        return self.map(lambda value: value.detach().to(device).clone())
 
 
 class Replay:

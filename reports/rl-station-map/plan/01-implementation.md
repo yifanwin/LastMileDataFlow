@@ -19,6 +19,8 @@
 
 **2026-11-11 调整方案**：动作 2 cm / 5°、四阶段奖励、升降参与控制及抬升 1 cm / 保持 1 s 的 RL 成功协议见[小动作、四阶段奖励与可动升降](02-staged-reward-and-lift.md)。这些更新覆盖本文相应旧设置，已完成代码和短验证，实际边界见[交付记录](../delivery/07-staged-reward-and-lift.md)；本文其余 mjlab / SAC / DLS 架构继续沿用。
 
+**2026-11-11 多 GPU 扩展要求**：采用[分布式采样与集中式 Learner](03-distributed-sampling-centralized-learner.md)，支持 1–8 GPU；按最新布局要求，每张 GPU 一个 Sampler，Learner 与 S0 共享一张卡，单卡也采用独立 Learner / Sampler 进程，启动时固定设备分配。以全局健康 Transition 计数维持预热后 UTD=1/128，普通 CPU 队列背压、每 16 次更新同步 Actor；每 100,000 条暂停采样后同步验证，完整全合法站位 Q 图仅在训练结束用 best 模型生成一次。该方案覆盖本文单进程同卡布局与按 vector step 更新的设计，现已完成代码和单卡短程验证，扩展性测试待资源空闲；SAC 公式与环境语义继续沿用。
+
 ## 2. 总体架构与调用链
 
 ```mermaid

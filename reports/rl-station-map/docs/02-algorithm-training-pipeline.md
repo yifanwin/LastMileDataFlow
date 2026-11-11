@@ -7,11 +7,13 @@
 
 ## 1. 总体设计与范围
 
-检查版本为 `.worktrees/actor-critic` 的 `3f2e235`。当前实现为 **图观测 + 连续 SAC 双 Q + mjlab 并行物理仿真 + DLS 控制**。同一个 Actor 覆盖不同初始站位，从统一 Home 学习接近、闭爪、抬升和稳定保持；Critic 同时为训练提供价值梯度，并生成站位质量代理图。
+当前源码位于 `.worktrees/actor-critic`；2026-11-11 在 `36d6873` 上实施分布式采样增量。当前实现为 **图观测 + 连续 SAC 双 Q + mjlab 并行物理仿真 + DLS 控制**。同一个 Actor 覆盖不同初始站位，从统一 Home 学习接近、闭爪、抬升和稳定保持；Critic 同时为训练提供价值梯度，并生成站位质量代理图。
 
 当前配置仅覆盖 val103 / Cup_30、Panda-Omron 单臂。底盘与升降保持初始站位，不学习导航。观测使用仿真几何、状态和接触真值，不接图像、语言或VLA特征。研究入口独立于五个主CLI的cuRobo / MolmoBot链路；这是标准SAC，不是多意图SAC-X，也没有按抓取阶段拆分的多个Actor。
 
-**训练与评分软件链路已实现，但现有证据尚不能证明Actor学会抓取或Q图排序有效。** 本文参数以当前源码和JSON为准；历史实验只对应其冻结版本，本轮没有启动新训练。
+**训练与评分软件链路已实现，但现有证据尚不能证明Actor学会抓取或Q图排序有效。** 本文参数以当前源码和JSON为准；历史实验只对应其冻结版本，本轮完成短程真实训练流程验证，见[分布式交付](../delivery/09-distributed-sampling.md)。
+
+2026-11-11 新增的 1–8 GPU 分布式采样、集中式 Learner 与全局 UTD=1/128 见[扩展方案](../plan/03-distributed-sampling-centralized-learner.md)，按用户后续意见简化为主进程 Learner、多 Sampler、CPU Replay、有界 CPU 队列，每张 GPU 一个 Sampler，Learner 与 S0 共享卡，1–8 卡统一独立采样进程，启动时固定 GPU 分配；暂停采样同步验证，完整 Q 图仅结束后用 best 模型生成一次。代码已实施，单卡短程通过；2/4 卡扩展性与正式学习验收未测。
 
 ## 2. 核心 Pipeline
 
@@ -25,10 +27,10 @@ flowchart TD
     F --> G[TCP增量 → DLS → 关节位置伺服]
     G --> H[物理子步：接触、碰撞、漂移、保持]
     H --> I[下一观测、奖励、终止]
-    I --> J[Replay保存真实重置前的next observation]
+    I --> J[有界CPU队列 → CPU Replay保存重置前next observation]
     I --> D
     J --> K[均匀采样 → 双Q、Actor、温度更新]
-    K --> F
+    K --> |每16次更新发布最新Actor| F
     K --> L[独立validation与checkpoint选择]
     L --> M[冻结模型 → 站位初态Q图]
     M --> N[acceptance分组重复rollout与排序检验]
@@ -111,26 +113,24 @@ Q_target ← (1-τ) Q_target + τ Q_online
 
 入口：`scripts/experiments/train_sac.py` → `workflows/rl_training.py::train`。
 
-1. 设置seed，创建训练环境与独立验证环境；初始化SAC并保存initial.pt，或按resume恢复参数/优化器。
-2. 创建同设备环形Replay，训练前先执行一次固定validation。
-3. 新采集健康交互不足20000条时采均匀随机动作，之后使用Actor随机策略。
-4. 执行向量环境，将健康transition的真实重置前next observation写入Replay；再只reset结束槽位，保留其他槽位历史。
-5. 预热完成且Replay足够batch时，均匀有放回采样更新；每向量步做指定次数learner更新，无优先回放或示教混合。
-6. 定期保存日志/权重/曲线并验证，结束补做最后一次验证。
+1. 主进程创建独立验证环境及 SAC；各卡启动一个 Actor-only Sampler，Learner 与 S0 共享首卡。
+2. 创建 CPU 环形 Replay，训练前执行固定 validation。
+3. 全局健康入库 H 不足 20000 时使用随机动作；达到阈值后通知全部 Sampler 切换 Actor，在途随机经验照常记录。
+4. Sampler 在 reset 前独立拷贝健康 Transition 到 CPU，按最多 256 条拆包，经有界队列发送，再仅 reset 结束槽位。
+5. Learner 每接收一批，先完成 `floor(max(0,H-20000)/128)` 的更新额度再接下一批；每 16 次更新发布完整 Actor 最新快照。
+6. 暂停全部 Sampler 并收齐已完成消息后同步验证，验证经验不入库；结束加载 best，只生成一次全合法站位图。
 
 | 配置项 | 当前JSON默认 |
 |---|---:|
-| 并行训练环境 |128|
+| 每个Sampler并行训练环境 |128|
 | Replay容量 / batch |100000 / 256|
 | warmup_min |20000条健康transition|
-| updates_per_step |1次 / 向量步|
+| transitions_per_update |128条健康经验 / 更新|
 | max_transitions |200000条健康transition|
 | log_every / eval_every |10000 / 100000条|
 | validation |8站位，每点2次随机rollout|
 
-向量步、transition、learner更新不能混用：健康128环境一步生成128条，默认更新率约1/128=0.0078125次/transition。无故障且从零训练，默认预算约1563个向量步、1407次更新；这是预算推算，不是已执行结果。u8对应0.0625次更新/transition，但不是当前默认。
-
-预热已在`9af697c`解耦为直接读取warmup_min；旧报告正文“max(warmup_min, num_envs×episode_steps)”是历史行为，交接报告第8节已修正。代码仍有Twenty seconds旧注释，实际回合由60 s配置决定。
+向量步、transition、learner 更新分别计数。单卡及多卡使用相同全局 UTD；200000 条健康经验产生 1406 次更新，预热不追补。总预算尾部均匀抽取剩余允许行，记录生成但未使用条数。Replay 覆盖不重置 H；热恢复重建 Replay，H/U 重新累计，日志保留历史 transition 横轴。
 
 超时进入Replay前合并为terminated，不bootstrap，因为时间耗尽是任务边界。基础设施故障数据不进Replay；普通碰撞和任务失败会进。若全部槽位都基础设施故障则停止训练。
 
@@ -138,13 +138,13 @@ Q_target ← (1-τ) Q_target + τ Q_online
 
 ### 8.1 训练中验证
 
-固定seed从合法validation集合选8点，每点2次随机Actor rollout；同时为所有合法站位计算Q图，期间不更新模型。best按 `(validation成功率, 平均未折扣回报)` 字典序选择，先比成功率再比回报。零成功时best可能只是接近奖励较好，不能称为成功模型。
+固定seed从合法validation集合选8点，每点2次随机Actor rollout；仅为这些固定验证点计算Q，全部 Sampler 暂停且不更新模型。best按 `(validation成功率, 平均未折扣回报)` 字典序选择，先比成功率再比回报。零成功时best可能只是接近奖励较好，不能称为成功模型。
 
 配置debug站位后，额外在训练点分别执行随机策略与`tanh(μ)`均值策略，记录接近位姿、双指接触、抬升1 cm、最长保持和新RL协议成功；不改变validation/best口径。阶段统计用于定位，不替代物理子步级严格判据；阶段计数也不应直接当作同一时刻完整抓取。
 
 ### 8.2 冻结评分与验收
 
-`score_stations.py`将各合法站位reset到统一Home，从冻结Actor采样K=16个动作：
+训练结束加载 `best.pt`，将各合法站位reset到统一Home；独立 `score_stations.py` 仍可显式评分，从冻结Actor采样K=16个动作：
 
 ```text
 station_score(s0) = mean_k min(Q1(s0,a_k),Q2(s0,a_k)), a_k ~ π(·|s0)
@@ -170,7 +170,7 @@ resume属于参数/优化器热恢复：环境状态和Replay不保存，重新�
 
 尚未完成Actor从Home独立稳定成功、完整站位池推广、Q排序独立验收，以及成功模型和有效质量图交付。四阶段奖励已于2026-11-11实施，短验证见[交付记录](../delivery/07-staged-reward-and-lift.md)。行为克隆、示教Replay混合、预抓取初态课程是[后续建议](../analyze/06-actor-grasp-learning.md)，当前训练器未实现。
 
-本轮执行：核对worktree及干净初态，读取需求/方案/交接记录，沿入口检查场景、站位、观测、控制、奖励、Replay、SAC和评估；形成本文并补充阅读入口。未改算法配置，未运行GPU训练或rollout；验证范围为源码/文档交叉核对与新增链接检查。
+历史文档整理执行：核对worktree及当时初态，读取需求/方案/交接记录，沿入口检查场景、站位、观测、控制、奖励、Replay、SAC和评估；形成本文并补充阅读入口。未改算法配置，未运行GPU训练或rollout；验证范围为源码/文档交叉核对与新增链接检查。
 
 ## 11. 代码阅读入口
 
