@@ -2,7 +2,7 @@
 
 - 日期：2026-11-11
 - 分支：`refactor/simplify`，从 `actor-critic` 的 `1b2f454` 拉出，worktree 在 `.worktrees/simplify`
-- 状态：计划待审阅，代码还没有改动
+- 状态：已批准（2026-11-11）；阶段 0 基线已完成，阶段 1 进行中
 
 ## 1 范围（已和用户确认）
 
@@ -105,7 +105,7 @@ No edit（原场景）和 Edit 走同一个入口，区别只在于障碍物个�
 | `curobo/collision_world.py`、`costs.py`、`head_fov.py`、`context.py` | 保留 |
 | `robots/rby1m_mobile_torso.py` | 把 Panda 也在用的通用函数（`ordered_points`、`retime_points`、`static_ik_state`、`chain_state`、`minimum_mesh_query_dimension`）抽到 `robots/common.py`，RBY-1 自己的部分留在原文件 |
 | `robots/panda_omron.py`、`waypoints.py`、`navigation/` | 保留 |
-| `pool.py`、`remote.py` | 待实测：这是“GPU 规划服务 + CPU 执行 worker”的吞吐架构。先在同一批站位上比较“规划池”和“每个站位进程各自带一个 planner”两种方式的耗时；差别不大就删掉池和 remote，差别大就保留，只整理接口 |
+| `pool.py`、`remote.py` | 保留（用户 11-11 确定）：“GPU 规划池 + CPU 端代理”这套架构不删，不做去留耗时对比。只在文件内部删掉已删功能用到的部分（如诊断用的 `diagnostic_ik` 探测），接口和行为不变 |
 
 ### 4.4 `data/`：记录、导出、统计、图
 
@@ -209,11 +209,11 @@ RL 用到的这些函数和类视为冻结接口，精简时不改签名和行�
 
 | 阶段 | 内容 | 验证 |
 |---|---|---|
-| 0 基线 | 在 `1b2f454` 上用固定种子跑一组小规模参考：1 个房屋的场景构建；val103 Cup_30 的 5 个站位 × 3 次 cuRobo 标定；在这次标定上采集；benchmark 构建；MolmoBot 评测 2 个 episode；RL 的 `tests/smoke/rl.py` 和一段 2000 transition 的短训练 | 先把同一份 cuRobo 标定重复跑两次，量出旧代码本身的波动，作为后续对照的容差 |
+| 0 基线（已完成） | 在 `3a2366e`（`1b2f454` + 相机校验修复）上用固定种子跑一组小规模参考，结果见第 9 节 | 同一份 cuRobo 标定重复跑两次，旧代码本身没有波动，后续对照按逐 trial 一致来卡 |
 | 1 删除死代码 | 删掉孤立模块、一次性脚本、`rollout_video`、`benchmark_replay` 等，以及对应测试 | 单元测试全过；import 闭包里没有悬空引用 |
 | 2 入口 | 删 `cli.py`，加 5 个阶段脚本（先调用旧 workflow），参数挪进配置 | 用新脚本重跑阶段 0 的场景构建、标定和 benchmark 构建，输出和基线一致 |
 | 3 场景构建 | 用新的 `scenes/edits/` 替换 modes、build、augmentation；换新配方；重写 `scene_datasets.py` | 原场景这条路的站位和快照与基线一致。编辑后场景的结果本来就会变（不再按模式放障碍物），所以检查接受率、各类拒绝原因、物理校验通过情况，并把编辑前后的对比预览图交给用户看 |
-| 4 规划器站位图 | 拆 `collection.py` 和 `station_calibration.py`；删 recipe、诊断、planner 复用、固定抓取；做规划池耗时对比再定去留；精简 planner、tracing、evidence | 5 站位 × 3 次的成功率、热图与基线相差不超过阶段 0 量出的波动；单站位耗时不变慢 |
+| 4 规划器站位图 | 拆 `collection.py` 和 `station_calibration.py`；删 recipe、诊断、planner 复用、固定抓取；`pool.py`/`remote.py` 保留并在内部精简；精简 planner、tracing、evidence | 5 站位 × 3 次的成功率、热图与基线相差不超过阶段 0 量出的波动；单站位耗时不变慢 |
 | 5 采集 | `collect.py` 直接写自包含数据集 | 示教条数、每条轨迹的数组和基线物化结果逐位一致；`load_training_batch` 能读出来 |
 | 6 Benchmark | 删 `mode_run`、诊断和选择里的模式函数 | benchmark 构建输出（选出的 S0/S1、恢复区域）和基线一致；MolmoBot 评测 2 个 episode 能跑通 |
 | 7 控制、策略、本体 | 合并动作相关文件和策略配置；抽出本体通用函数；整理 `execution_config` | 全套单元测试；Panda cuRobo 和 RBY-1 cuRobo 各跑 1 个站位，π0.5 推理 smoke |
@@ -221,12 +221,58 @@ RL 用到的这些函数和类视为冻结接口，精简时不改签名和行�
 
 要用 GPU 的步骤（阶段 0、3–8 的真实运行），开跑前先看 GPU 占用情况，选空闲的卡，并事先告诉用户。
 
-## 8 需要用户确认的问题
+会渲染的运行（场景构建出图、带录像的标定、采集、benchmark 评测、RL 验证视频）在下一次需要 GPU 渲染之前，先修好渲染设备隔离（见 9.4），修好前不跑这类运行。
 
-1. **站位标定只用 cuRobo。** MolmoBot 和 π0.5 只在 benchmark 评测里用，不再支持“用 VLA 策略做逐站位标定”，这样可以吗？现在 `evaluate-stations` 支持三种后端。
-2. **删除 `fixed_pick` 固定抓取后端**（cuRobo→FK→共用控制器的验证路径，目前只有 smoke 测试在用），可以吗？
-3. **记录器删掉逐物理步的 physics 日志和 depth 记录**，只保留数值记录、RGB 观测和视频，可以吗？
-4. **规划池 `pool.py`/`remote.py` 按阶段 4 的耗时对比再决定去留**，可以吗？
-5. **障碍物编辑的默认值**：桌面 1–3 个，放在目标周围 0.3 m 内的同一支撑面上；地面 0–2 个，放在站位圈和目标之间。每个任务出 1 个原场景加 N 个编辑场景（N 默认 1）。这样合适吗？
-6. **Benchmark 只保留“按标定成功次数选困难 S0 和参考 S1”这一条路**，删掉多标签诊断那条，可以吗？
-7. **阶段 0 基线要用 GPU**（cuRobo、MolmoBot、RL 各一小段），开始前我会先看卡的占用情况再告诉您用哪张。
+## 8 已确认的决定（用户 2026-11-11）
+
+1. 站位标定只用 cuRobo；MolmoBot 和 π0.5 只在 benchmark 评测里用。
+2. 删除 `fixed_pick` 固定抓取后端。
+3. 记录器删掉逐物理步的 physics 日志和 depth 记录，只保留数值记录、RGB 观测和视频。
+4. `pool.py`、`remote.py` 保留，阶段 4 不做去留对比，只在文件内部精简（见 4.3）。
+5. 障碍物编辑默认值：桌面 1–3 个，放在目标 0.3 m 内的同一支撑面上；地面 0–2 个，放在站位圈和目标之间；每个任务 1 个原场景加 1 个编辑场景。
+6. Benchmark 只保留“按标定成功次数选困难 S0 和参考 S1”这一条路，删掉多标签诊断那条。
+7. 阶段 0 基线用 GPU，只用空闲的卡。
+8. 去掉 `cli.py`，每个阶段一个脚本；MolmoBot、π0.5、Panda、RBY-1、`reports/` 都保留。
+9. RL 部分逻辑一行不动，最多只改 import 行；不碰 `actor-critic` 分支和它的 worktree。
+10. 渲染设备隔离放到下一次需要 GPU 渲染之前修；先从阶段 1 开始执行。
+
+## 9 阶段 0 基线结果
+
+实验单元：`outputs/experiments/simplify-baseline/`（本 worktree，Git 忽略）。源码用本 worktree 的 `src`（`PYTHONPATH`），环境借用主仓库 `.venv`（cuRobo 栈，MuJoCo 3.16.0）和 `actor-critic` 的 `.venv`（RL 栈），不新装环境。共用环境变量在单元的 `env.sh`，各 run 的配置在单元的 `configs/`，对照脚本在 `analysis/`。CUDA 计算用 GPU 0–3（当时空闲），没有动 GPU 4–7 上其他用户的进程。
+
+### 9.1 开跑前必须的修复（`3a2366e`）
+
+`1b2f454` 上 Panda RoboCasa 的场景构建全部被拒，原因是 `compiled_robocasa_camera_profile_mismatch`：main 的 `c8f3c5a` 把 Panda 整机按 0.9 缩放，三台相机的局部位置随之变成出厂常量的 0.9 倍（FOV 和朝向不变），而 `data/rendering/head_views.robocasa_camera_calibration` 仍按出厂位置比对。修复只改这一处：期望位置乘以 `planning.robots.panda_omron.SCALE`。这是对现有行为的修复，不属于重构本身。
+
+### 9.2 结果
+
+场景用 v2 配方，house 103、目标 Cup_30（`pick-cup_ff2c6ab62ccb690220c97cdcfeb658c5_1_0_2`）、仅 pick、每场景 5 个站位、种子 42。标定执行配置为 `configs/execution/panda_omron_robocasa_curobo.json`（每站位 3 次）。
+
+| 环节 | Run | 结果 |
+|---|---|---|
+| 原场景构建 | `noedit` | 接受 1，5 个站位，2.6 s |
+| 模式场景构建（ground_obstacle、arm_path_collision、narrow_space） | `modes` | 接受 2（地面障碍、窄空间，各 5 站位），拒绝 1（arm_path_collision：`no_channel_contrast`） |
+| 原场景 cuRobo 标定 ×2 | `cal-a`、`cal-b` | 15 个 trial 逐个一致：14 成功，S0013 第 2 次 `planning_no_solution`；热图 npz 所有数组一致；单次 118 s；可配对 0 |
+| 模式场景 cuRobo 标定 ×2 | `cal-modes-a`、`cal-modes-b` | 30 个 trial 逐个一致：地面障碍 11/15、窄空间 12/15；热图一致；单次 190 s；各有 3 个可配对 |
+| 采集（基于 `cal-modes-a`）×2 | `collect`、`collect-b` | 计划 6 对、执行 6 对、成功 6 对；训练视图 6 条，全部是 `s0_to_s1_continuous`（数值标定没有图像，`s1_direct_operation` 为 0） |
+| 物化 | `collect-mat` | 6 条示教自包含复制，506 MB；`load_training_batch` 读出 state (1,1,16)、actions (1,1,12)、三路 256×256 RGB |
+| Benchmark 构建（`configs/benchmark/panda_omron.json`，每场景最多 2 个 episode） | `bench` | 2 个场景各 1 个 episode（S0 为 S0020，恢复锚点 S0045/S0001/S0006） |
+| Benchmark 评测 | `bench-eval-pi05` | π0.5 跑完 2 个 episode，0/2 成功（`execution_limited`），覆盖率 1.0 |
+| RL smoke | `rl-smoke` | 通过：909 个合法站位，划分 668/91/150；2 环境、5 步、2 次更新，数值有限 |
+| RL 短训练（warmup 500、2000 transition、16 环境、种子 7） | `rl-train` | 到 2000 transition、11 次更新；0 和 2000 两次验证都完成并写出 `sampling_complete`；最后的视频渲染时被我停掉（见 9.4），`metrics.jsonl`、`best.pt`、`latest.pt` 保留 |
+| 单元测试 | — | 主环境 431 项：1 失败、1 错误、15 跳过；RL 环境 433 项：1 失败、9 错误、4 跳过。失败都是已知的 `test_task_identity_survives_body_renumbering`；错误是两个环境各缺对方的依赖（主环境没有 RL 依赖、RL 环境没有 cuRobo） |
+
+与原计划的差异：
+
+- 原场景的 5 个站位成功率都很高，没有可配对的 S0，所以采集、benchmark 改在两个模式场景上做；这两份场景以后由新的障碍物编辑生成，阶段 5、6 的逐位对照要用阶段 0 的 `modes` 快照做输入。
+- Benchmark 评测用 π0.5 而不是 MolmoBot：基线是 Panda RoboCasa，MolmoBot 是 RBY-1 的权重，用在 Panda benchmark 上只会记 `unsupported_policy`。
+
+### 9.3 对照的容差
+
+旧代码在固定种子下没有波动：标定逐 trial（状态、原因、步数）一致、热图逐数组一致；采集物化后的轨迹数组和图像逐字节一致。后续各阶段的对照按“完全一致”来卡，对照脚本是单元里的 `analysis/compare_calibration.py` 和 `analysis/compare_dataset.py`。
+
+### 9.4 渲染设备隔离（待修，下一次 GPU 渲染之前）
+
+带渲染的运行会在指定卡之外的 GPU 上建 EGL 上下文：`collect-b`（`--gpu 1`）在 GPU 6 上占了约 1.5 GB，RL 短训练（`--gpu 2`）的验证渲染出现在 GPU 7；为确认映射起的 4 个带录像的标定（`--gpu 0 --egl-devices 0..3`）spawn 出的子进程在 GPU 4–7 上各建了一个 1.5 GB 的上下文，用户发现后已全部停止。CUDA 计算都在指定的卡上，这些额外占用来自 EGL：`CUDA_VISIBLE_DEVICES` 管不住 EGL，这台机器上 EGL 设备号与 nvidia-smi 编号的对应关系也没有查清（`eglQueryDeviceStringEXT` 查不到 DRM 节点），子进程也没有逐个绑定渲染设备。
+
+修复方向：在下一次需要 GPU 渲染之前，先在一张空闲卡上单进程实测 EGL 设备号与物理 GPU 的对应关系，再让入口和所有 spawn 的渲染子进程都显式绑定到同一张卡；修好之前不跑带渲染的运行。
