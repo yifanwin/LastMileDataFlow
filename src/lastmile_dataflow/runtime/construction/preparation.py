@@ -51,6 +51,68 @@ def preparation_guard(sim):
         raise RuntimeError('construction requires an open, unstarted simulation')
 
 
+@dataclass
+class SettleReport:
+    """Outcome of one bounded settling run; field names are the written JSON keys."""
+    status: str
+    stable: bool
+    observed_scene_stable: bool
+    stability_required: bool
+    stability_scope: object
+    checked_dynamic_bodies: list
+    valid: bool
+    steps: int
+    simulated_s: float
+    metrics: dict
+    severe_penetration: list
+    new_warnings: list
+
+
+def _dynamic_bodies(sim):
+    """Non-robot bodies with degrees of freedom."""
+    return [sim.model.body(b).name for b in range(1, sim.model.nbody)
+            if sim.model.body_dofnum[b] and not sim.model.body(b).name.startswith(sim.robot.config.namespace)]
+
+
+def _bodies_under(sim, names, selected):
+    """Dynamic bodies that are, or descend from, one of the selected instances."""
+    checked = set()
+    for name in names:
+        body = sim.model.body(name).id
+        while body:
+            if sim.model.body(body).name in selected:
+                checked.add(name)
+                break
+            body = int(sim.model.body_parentid[body])
+    return checked
+
+
+def _body_states(sim, names):
+    state = {}
+    for name in names:
+        b = sim.model.body(name).id
+        velocity = np.zeros(6)
+        mujoco.mj_objectVelocity(sim.model, sim.data, mujoco.mjtObj.mjOBJ_BODY, b, velocity, 0)
+        state[name] = (sim.data.xpos[b].copy(), sim.data.xquat[b].copy(), velocity)
+    return state
+
+
+def _window_metrics(history, name):
+    states = [s[name] for _, s in history]
+    pos, quat, _ = states[0]
+    return {'speed_m_s': max(float(np.linalg.norm(s[2][3:])) for s in states),
+            'angular_speed_rad_s': max(float(np.linalg.norm(s[2][:3])) for s in states),
+            'drift_m': max(float(np.linalg.norm(s[0]-pos)) for s in states),
+            'rotation_rad': max(quat_angle(s[1], quat) for s in states)}
+
+
+def _severe_penetrations(sim, limit):
+    return [{'distance_m': float(c.dist),
+             'geoms': [sim.model.geom(int(c.geom1)).name, sim.model.geom(int(c.geom2)).name]}
+            for c in sim.data.contact if c.dist < -limit
+            and sim.model.geom_bodyid[c.geom1] != sim.model.geom_bodyid[c.geom2]]
+
+
 def settle_scene(sim, config=None, *, deadline=None, require_stability=True, stability_instances=None):
     """Observe all non-robot moving bodies; never rewrite their pose during stepping.
 
@@ -59,19 +121,9 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
     """
     preparation_guard(sim)
     config = config or SettleConfig()
-    names = [sim.model.body(b).name for b in range(1, sim.model.nbody)
-             if sim.model.body_dofnum[b] and not sim.model.body(b).name.startswith(sim.robot.config.namespace)]
+    names = _dynamic_bodies(sim)
     selected = None if stability_instances is None else set(stability_instances)
-    checked_names = set(names)
-    if selected is not None:
-        checked_names = set()
-        for name in names:
-            body = sim.model.body(name).id
-            while body:
-                if sim.model.body(body).name in selected:
-                    checked_names.add(name)
-                    break
-                body = int(sim.model.body_parentid[body])
+    checked_names = set(names) if selected is None else _bodies_under(sim, names, selected)
     history = deque()
     initial_warnings = [int(w.number) for w in sim.data.warning]
     start = float(sim.data.time)
@@ -87,13 +139,7 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
         steps += 1
         if not np.isfinite(sim.state_vector()).all():
             raise ValueError('nonfinite simulation state during settling')
-        state = {}
-        for name in names:
-            b = sim.model.body(name).id
-            velocity = np.zeros(6)
-            mujoco.mj_objectVelocity(sim.model, sim.data, mujoco.mjtObj.mjOBJ_BODY, b, velocity, 0)
-            state[name] = (sim.data.xpos[b].copy(), sim.data.xquat[b].copy(), velocity)
-        history.append((float(sim.data.time), state))
+        history.append((float(sim.data.time), _body_states(sim, names)))
         while len(history) > 1 and history[1][0] <= sim.data.time - config.window_s:
             history.popleft()
         if sim.data.time - start < config.settle_s - 1e-10:
@@ -102,39 +148,28 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
         observed_scene_stable = stable
         metrics = {}
         for name in names:
-            states = [s[name] for _, s in history]
-            pos, quat, _ = states[0]
-            metric = {'speed_m_s': max(float(np.linalg.norm(s[2][3:])) for s in states),
-                      'angular_speed_rad_s': max(float(np.linalg.norm(s[2][:3])) for s in states),
-                      'drift_m': max(float(np.linalg.norm(s[0]-pos)) for s in states),
-                      'rotation_rad': max(quat_angle(s[1], quat) for s in states)}
-            metrics[name] = metric
+            metrics[name] = metric = _window_metrics(history, name)
             body_stable = all(metric[k] <= getattr(config, k) for k in metric)
             observed_scene_stable &= body_stable
             if name in checked_names:
                 stable &= body_stable
         if stable or not require_stability:
             break
-    penetration = [{'distance_m': float(c.dist),
-                    'geoms': [sim.model.geom(int(c.geom1)).name, sim.model.geom(int(c.geom2)).name]}
-                   for c in sim.data.contact if c.dist < -config.penetration_m
-                   and sim.model.geom_bodyid[c.geom1] != sim.model.geom_bodyid[c.geom2]]
+    penetration = _severe_penetrations(sim, config.penetration_m)
     warnings = [i for i, w in enumerate(sim.data.warning) if int(w.number) > initial_warnings[i]]
-    return {'status': 'settled' if stable else 'observed_without_stability_gate' if not require_stability else 'unsettled',
-            'stable': bool(stable), 'observed_scene_stable': bool(observed_scene_stable),
-            'stability_required': require_stability,
-            'stability_scope': 'all_nonrobot_dynamic_bodies' if selected is None else sorted(selected),
-            'checked_dynamic_bodies': sorted(checked_names),
-            'valid': bool((stable or not require_stability) and not penetration and not warnings), 'steps': steps,
-            'simulated_s': float(sim.data.time)-start, 'metrics': metrics,
-            'severe_penetration': penetration, 'new_warnings': warnings}
+    status = 'settled' if stable else 'unsettled' if require_stability else 'observed_without_stability_gate'
+    return SettleReport(
+        status, bool(stable), bool(observed_scene_stable), require_stability,
+        'all_nonrobot_dynamic_bodies' if selected is None else sorted(selected), sorted(checked_names),
+        bool((stable or not require_stability) and not penetration and not warnings), steps,
+        float(sim.data.time) - start, metrics, penetration, warnings)
 
 
 class PreparedScene:
     def __init__(self, sim, initialization, settling, *, graph_config=None):
         self.sim, self.initialization, self.settling = sim, initialization, settling
         self.graph_config = graph_config or GraphConfig()
-        self.graph = build_scene_graph(sim, stage='settled' if settling['stable'] else 'observed', config=self.graph_config)
+        self.graph = build_scene_graph(sim, stage='settled' if settling.stable else 'observed', config=self.graph_config)
         self.station = self.graph.nodes['station_start']['pose']
         self.revision = 0
 
@@ -181,7 +216,7 @@ def prepare_scene(source, robot_config, collection=None, *, base=None, settle_co
             raise InitializationError('robot initialization failed: ' + initialization['reason'])
         config = settle_config or SettleConfig()
         settling = settle_scene(sim, config, deadline=deadline, require_stability=config.require_source_stability)
-        if not settling['valid']:
+        if not settling.valid:
             raise InitializationError('baseline is unstable or physically invalid',
                                       {'stage': 'settling', 'settling': settling})
         prepared = PreparedScene(sim, initialization, settling, graph_config=config.graph_config())

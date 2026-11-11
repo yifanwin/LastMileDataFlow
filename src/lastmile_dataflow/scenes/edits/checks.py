@@ -169,15 +169,15 @@ def proposal_scene(ctx, proposal, *, deadline=None):
             yield sim, None, {'valid': False, 'reason': 'initial_edit_collision', 'collision': collision}
             return
         settling = ctx.session.settle(deadline=deadline, moved_bodies=[move['body'] for move in moves])
-        control, _ = matched_control(ctx.baseline, settling['simulated_s'], ctx.settle_config, deadline)
+        control, _ = matched_control(ctx.baseline, settling.simulated_s, ctx.settle_config, deadline)
         try:
             excluded = {sim.model.body(b).name for move in moves
                         for b in descendants(sim.model, sim.model.body(move['body']).id)}
             collision = collision_pairs(sim, physical, limits, settled=True, body_names=names)
             support = load_support(sim, physical, limits, body_names=names)
             effects = matched_source_effects(control, sim, limits, edited_bodies=excluded)
-            healthy = bool(np.isfinite(sim.state_vector()).all() and not settling['new_warnings'])
-            checks = {'valid': bool(settling['stable'] and healthy and collision['valid'] and support['valid'] and effects['valid']),
+            healthy = bool(np.isfinite(sim.state_vector()).all() and not settling.new_warnings)
+            checks = {'valid': bool(settling.stable and healthy and collision['valid'] and support['valid'] and effects['valid']),
                       'settling': settling, 'solver_health': healthy, 'collision': collision, 'support': support,
                       'source_effects': effects, 'edited_source_bodies': sorted(excluded), 'task_completion': 'unknown'}
             geometry = ctx.derive(sim) if checks['valid'] else None

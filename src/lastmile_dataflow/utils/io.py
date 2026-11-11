@@ -1,15 +1,20 @@
 """小型 JSON/JSONL 读写；数组单独存 NPZ。"""
+from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass
 import json
 from pathlib import Path
+
 import numpy as np
 
 
-
-def diagnostic(value):
+def jsonable(value):
+    """Plain JSON value: dataclasses by field name, arrays as lists, non-finite floats as null."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return jsonable(asdict(value))
     if isinstance(value, dict):
-        return {k: diagnostic(v) for k, v in value.items()}
+        return {k: jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, np.ndarray)):
-        return [diagnostic(v) for v in value]
+        return [jsonable(v) for v in value]
     if isinstance(value, (float, np.floating)):
         return float(value) if np.isfinite(value) else None
     if isinstance(value, (np.integer, np.bool_)):
@@ -20,7 +25,7 @@ def diagnostic(value):
 
 
 def canonical(value):
-    return json.dumps(diagnostic(value), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    return json.dumps(jsonable(value), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
 
 
 def read_json(path):

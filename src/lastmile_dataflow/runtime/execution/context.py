@@ -11,6 +11,7 @@ import numpy as np
 from .lifecycle import track_resource
 from ...utils.io import canonical, write_json
 from ...scenes.geometry import tcp_pose
+from ...planning.curobo.planner import PlannerUnavailable
 from ..control.interface import RobotCommand
 from ..execution_config import TORSO_ERROR_POLICY
 from ..control.action import sanitize_action
@@ -86,8 +87,6 @@ class ContinuousContext:
 
     def deadline(self):
         if self.stop is not None and self.stop.is_set():
-            from ...planning.curobo.planner import PlannerUnavailable
-
             raise PlannerUnavailable("shared planning failure stopped the batch")
         if self.budget is not None:
             self.budget.check()

@@ -4,7 +4,7 @@ Failures remain results; cleanup never invents execution evidence.
 """
 
 from contextvars import ContextVar
-from functools import wraps
+from functools import partial, wraps
 import errno
 from pathlib import Path
 import traceback
@@ -119,48 +119,57 @@ class EpisodeScope:
         return errors
 
 
+def _run(function, scope, *, root, station, attempt_id):
+    """Run one episode; an escaped exception becomes this episode's classified result."""
+    try:
+        return function(), None
+    except Exception as exc:
+        steps = getattr(scope.recorder, 'steps', None)
+        return {
+            **classify_episode_exception(exc, scope.phase),
+            'station_id': station['station_id'],
+            'attempt': str(Path(root) / 'rollouts' / attempt_id),
+            'executed_steps': steps,
+            'recorded_steps': steps,
+            'execution_started': any(getattr(r, 'started', False) is True for r, _ in scope.resources),
+            'artifact_complete': False,
+            'task_completion': 'unknown',
+            'video_status': 'unavailable',
+        }, traceback.format_exc()
+
+
+def _merge_cleanup(result, errors):
+    if not errors:
+        return result
+    return {
+        **result,
+        **next((e for e in errors if e['failure_scope'] == 'shared'), errors[0]),
+        'original_episode_status': result.get('status'),
+        'cleanup_errors': errors,
+        'artifact_complete': False,
+    }
+
+
+def _normalize_scope(result):
+    """Local errors stay inside the episode; infrastructure errors are shared."""
+    if result.get('status') in LOCAL_ERRORS:
+        result = {**result, 'failure_scope': 'episode', 'artifact_complete': False, 'task_completion': 'unknown'}
+        if result.get('exception_detail'):
+            result['attribution'] = result['exception_detail']['attribution']
+    if result.get('status') == 'infrastructure_error':
+        result['failure_scope'] = 'shared'
+    return result
+
+
 def execute_isolated_episode(function, *, root, station, attempt_id):
     scope = EpisodeScope()
     token = _SCOPE.set(scope)
-    caught = None
     try:
         try:
-            result = function()
-        except Exception as exc:
-            caught = traceback.format_exc()
-            result = {
-                **classify_episode_exception(exc, scope.phase),
-                'station_id': station['station_id'],
-                'attempt': str(Path(root) / 'rollouts' / attempt_id),
-                'executed_steps': getattr(scope.recorder, 'steps', None),
-                'recorded_steps': getattr(scope.recorder, 'steps', None),
-                'execution_started': any(getattr(r, 'started', False) is True for r, _ in scope.resources),
-                'artifact_complete': False,
-                'task_completion': 'unknown',
-                'video_status': 'unavailable',
-            }
+            result, caught = _run(function, scope, root=root, station=station, attempt_id=attempt_id)
         finally:
             cleanup_errors = scope.cleanup()
-        if cleanup_errors:
-            original = result
-            result = {
-                **result,
-                **next((e for e in cleanup_errors if e['failure_scope'] == 'shared'), cleanup_errors[0]),
-                'original_episode_status': original.get('status'),
-                'cleanup_errors': cleanup_errors,
-                'artifact_complete': False,
-            }
-        if result.get('status') in LOCAL_ERRORS:
-            result = {
-                **result,
-                'failure_scope': 'episode',
-                'artifact_complete': False,
-                'task_completion': 'unknown',
-            }
-            if result.get('exception_detail'):
-                result['attribution'] = result['exception_detail']['attribution']
-        if result.get('status') == 'infrastructure_error':
-            result['failure_scope'] = 'shared'
+        result = _normalize_scope(_merge_cleanup(result, cleanup_errors))
         if caught:
             result['error'] = caught
         return result
@@ -171,12 +180,8 @@ def execute_isolated_episode(function, *, root, station, attempt_id):
 def isolated_episode(function):
     @wraps(function)
     def wrapper(baseline, task, station, *args, root, attempt_id, **kwargs):
-        return execute_isolated_episode(
-            lambda: function(baseline, task, station, *args, root=root, attempt_id=attempt_id, **kwargs),
-            root=root,
-            station=station,
-            attempt_id=attempt_id,
-        )
+        episode = partial(function, baseline, task, station, *args, root=root, attempt_id=attempt_id, **kwargs)
+        return execute_isolated_episode(episode, root=root, station=station, attempt_id=attempt_id)
 
     return wrapper
 

@@ -137,7 +137,7 @@ class TransactionTests(unittest.TestCase):
     def test_matched_control_same_time_and_source_effects(self):
         candidate = self.session.candidate([self.placement])
         report = self.session.settle()
-        control, _ = matched_control(self.sim, report["simulated_s"], self.session.config, None)
+        control, _ = matched_control(self.sim, report.simulated_s, self.session.config, None)
         try:
             self.assertAlmostEqual(control.data.time, candidate.data.time)
             self.assertTrue(matched_source_effects(control, candidate, config())["valid"])
@@ -205,15 +205,15 @@ class SettlingTests(unittest.TestCase):
                 prepare_scene(self.source, self.robot, base=[0, 0, 0])
             config = SettleConfig(require_source_stability=False, support_tolerance_m=0.02)
             with prepare_scene(self.source, self.robot, base=[0, 0, 0], settle_config=config) as p:
-                self.assertTrue(p.settling["valid"])
-                self.assertFalse(p.settling["stable"])
+                self.assertTrue(p.settling.valid)
+                self.assertFalse(p.settling.stable)
                 self.assertEqual(p.graph.stage, "observed")
                 self.assertEqual(p.graph_config.support_tolerance_m, 0.02)
-                self.assertAlmostEqual(p.settling["simulated_s"], config.settle_s)
+                self.assertAlmostEqual(p.settling.simulated_s, config.settle_s)
                 target_only = settle_scene(p.sim, config, stability_instances={"target"})
-                self.assertTrue(target_only["stable"])
-                self.assertFalse(target_only["observed_scene_stable"])
+                self.assertTrue(target_only.stable)
+                self.assertFalse(target_only.observed_scene_stable)
                 neighbour = settle_scene(p.sim, config, stability_instances={"neighbor"})
-                self.assertFalse(neighbour["valid"])
+                self.assertFalse(neighbour.valid)
         with self.assertRaises(ValueError):
             SettleConfig(require_source_stability="false")

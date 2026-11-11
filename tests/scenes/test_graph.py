@@ -32,7 +32,7 @@ class GraphTests(unittest.TestCase):
         self.assertIsNone(self.prepared.sim.target_id)
         self.assertFalse(self.prepared.sim.started)
         self.assertGreater(self.prepared.sim.data.time, 0.9)
-        self.assertGreater(self.prepared.settling["steps"], 100)
+        self.assertGreater(self.prepared.settling.steps, 100)
         self.prepared.save(self.root / "baseline")
         sim = Simulation.from_snapshot(self.root / "baseline/scene", self.robot)
         try:

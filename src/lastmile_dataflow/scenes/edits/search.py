@@ -94,7 +94,7 @@ class BuildContext:
             ctx.settle_config = SettleConfig(**recipe.settle)
             ctx.settling = settle_scene(ctx.baseline, ctx.settle_config,
                                        require_stability=ctx.settle_config.require_source_stability)
-            if not ctx.settling['valid']:
+            if not ctx.settling.valid:
                 raise InitializationError('task_baseline_settling_failed')
             ctx.timings['parking_and_settle_s'] = time.monotonic() - start
             start = time.monotonic()
