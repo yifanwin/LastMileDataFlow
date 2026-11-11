@@ -98,7 +98,7 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         self.control = {'position': position, 'rotation': rotation,
                         'initial_joint': self.arm_positions('right').copy(),
                         'initial_yaw': float(self.base_pose()[2]), 'base_velocity': np.zeros(3),
-                        'height': self.lift_target, 'grip': np.array([1.,-1.]) * initial['gripper_width']['right']/.08,
+                        'height': self.lift_target, 'grip': np.array([1.,-1.]) * initial['gripper_width']['right']/self.open_grip,
                         'action': np.r_[np.zeros(6), 0., np.zeros(4), 1.]}
         self.update_control()
 
@@ -171,7 +171,7 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         theta = self.base_pose()[2]-self.control['initial_yaw']
         c,s = np.cos(theta),np.sin(theta)
         self.control['base_velocity'] = np.array([[c,-s,0],[s,c,0],[0,0,1.]]) @ a[7:10] * np.array([1.,1.,1.5])
-        self.control['height'] = float(np.clip(self.group('lift')[0]+.05*a[10],0.,.34))
+        self.control['height'] = float(np.clip(self.group('lift')[0]+.05*a[10],0.,self.model.jnt_range[self.joints[self.groups['lift'][0]], 1]))
         self.lift_target = self.control['height']
         sign = 1. if a[6] else -1.
         self.control['grip'] = np.clip(self.control['grip'] + np.array([-1.,1.])*.2*sign,-1.,1.)
@@ -185,7 +185,7 @@ class PandaRoboCasaAdapter(PandaOmronAdapter):
         model,data = self.model,self.data
         mujoco.mj_forward(model,data)
         full_mass = np.zeros((model.nv,model.nv))
-        mujoco.mj_fullM(model,full_mass,data.qM)
+        mujoco.mj_fullM(model, data, full_mass)
         jp,jr,cp,cr = [np.zeros((3,model.nv)) for _ in range(4)]
         tcp = self.tcp_site('right')
         mujoco.mj_jacSite(model,data,jp,jr,tcp)

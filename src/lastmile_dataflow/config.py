@@ -83,7 +83,7 @@ class PandaOmronConfig:
     initial: dict = field(default_factory=lambda: {
         "base_xyyaw": [0., 0., 0.], "lift": 0.2,
         "arm_q": {"right": [0., math.pi/16-.2, 0., -5*math.pi/6, 0., math.pi-.4, math.pi/4]},
-        "gripper_width": {"right": .08}})
+        "gripper_width": {"right": .072}})
 
     def __post_init__(self):
         if self.name != "panda_omron" or self.control_profile not in ("position-v1", "robocasa-v1"):

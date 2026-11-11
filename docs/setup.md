@@ -131,6 +131,8 @@ find "$ASSETS" -xtype l | wc -l   # 0
 
 ### 3.2 PandaOmron 整机资产
 
+当前依赖 MuJoCo 3.16.0，组装场景时用 `frame scale="0.9" scaling="geometry"` 缩放整机；规划 URDF 和碰撞球采用相同尺寸。factory 资产保持原始大小，不要预先缩放。旧 MJB 需从源场景重新构建。
+
 公开包不包含，需要从 robosuite factory 生成（约 52 MB，position 与 robocasa 共用）：
 
 ```bash

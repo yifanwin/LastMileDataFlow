@@ -11,6 +11,7 @@ from ...scenes.geometry import body_pose
 
 
 ASSETS = Path(__file__).parent / "assets/panda_omron"
+SCALE = 0.9
 ARM_NAMES = tuple(f"panda_joint{i}" for i in range(1, 8))
 FINGER_NAMES = ("panda_finger_joint1", "panda_finger_joint2")
 BASE_NAMES = ("base_x", "base_y", "base_theta")

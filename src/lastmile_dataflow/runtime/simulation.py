@@ -93,7 +93,12 @@ class Simulation:
         spec = load_spec(source.xml_path)
         robot_spec = load_spec(robot_config.model_path)
         prepare_robot_spec(robot_spec, robot_config)
-        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame())
+        scale = 1.0
+        if robot_config.name == "panda_omron":
+            from ..planning.robots.panda_omron import SCALE
+            scale = SCALE
+        spec.attach(robot_spec, prefix="", frame=spec.worldbody.add_frame(
+            scale=scale, scaling=mujoco.mjtScaling.mjSCALING_GEOMETRY))
         spec.option.timestep = robot_config.physics_dt
         if robot_config.control_profile == 'molmobot-native-v1':
             spec.visual.global_.offwidth = max(spec.visual.global_.offwidth, 1280)

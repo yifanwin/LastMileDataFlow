@@ -148,7 +148,11 @@ class PandaOmronAdapter:
         return self.config.observation_camera
     base_body = "mobilebase0_base"
     initial_base_field = "base_xyyaw"
-    open_grip = .08
+    @property
+    def open_grip(self):
+        joints = [self.model.joint(self.config.namespace + name).id
+                  for name in self.groups["gripper"]]
+        return float(self.model.jnt_range[joints[0], 1] - self.model.jnt_range[joints[1], 0])
     semantic_control = True
     plan_lift_before_close = False
     lock_base_after_close = True

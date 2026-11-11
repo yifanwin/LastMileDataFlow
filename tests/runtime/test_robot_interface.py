@@ -40,7 +40,8 @@ def panda_adapter():
         ET.SubElement(body, "camera", name=ns+name)
     model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
     robot = PandaOmronAdapter(model, mujoco.MjData(model), PandaOmronConfig("unused"))
-    robot.initialize()
+    initial = dict(robot.config.initial, gripper_width={"right": .08})
+    robot.initialize(initial)
     return robot
 
 
