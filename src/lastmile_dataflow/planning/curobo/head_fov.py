@@ -5,7 +5,11 @@ MuJoCo is used only for calibration/hard validation, never inside the optimizer.
 """
 import copy
 import math
+import mujoco
 import numpy as np
+
+from ...runtime.control.action import torso_joints
+from ...scenes.geometry import body_pose, pose7
 
 
 class HeadFOVCost:
@@ -28,8 +32,6 @@ class HeadFOVCost:
 
 def camera_definition(sim, width, height):
     """Reuse the actual MuJoCo optical mount, not base heading."""
-    import mujoco
-    from ...scenes.geometry import body_pose, pose7
     cid = sim.model.camera(sim.robot.camera_names['head_camera']).id
     if sim.model.cam_mode[cid] != int(mujoco.mjtCamLight.mjCAMLIGHT_FIXED):
         raise ValueError('head FOV requires a fixed mounted camera')
@@ -115,7 +117,6 @@ def knot_sample_indices(solution, dense_dt, count):
 class SparseFOVValidator:
     """Adaptive key-state validation; never mutates sim.data or calls initialize."""
     def __init__(self, sim, definition, base_target_world, names, *, min_depth=.01):
-        import mujoco
         self.sim, self.definition, self.base_target_world = sim, definition, base_target_world
         self.names, self.min_depth = names, min_depth
         self.scratch = mujoco.MjData(sim.model)
@@ -124,8 +125,6 @@ class SparseFOVValidator:
         self.side = 'left' if 'left_arm_0' in names else 'right'
 
     def project(self, point):
-        import mujoco
-        from ...runtime.control.action import torso_joints
         data, sim = self.scratch, self.sim
         data.qpos[:] = sim.data.qpos
         if sim.model.nmocap:

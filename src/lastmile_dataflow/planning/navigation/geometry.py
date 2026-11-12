@@ -26,11 +26,10 @@ class NavigationSettings:
     turn_radius_m: float = .5
 
     @classmethod
-    def from_config(cls, config, reference=None):
-        speeds = vars(config) if reference is None else reference
+    def from_config(cls, config, *, speed, yaw_speed):
+        """Margins from `config`; turn radius from the execution speeds actually driven."""
         return cls(config.navigation_margin_m, config.navigation_clearance_weight,
-                   config.navigation_max_penetration_m,
-                   speeds.get('navigation_speed_m_s', .2) / speeds.get('navigation_yaw_speed_rad_s', .4))
+                   config.navigation_max_penetration_m, speed / yaw_speed)
 
 
 def clearance_penalty(clearance, target):
@@ -115,12 +114,15 @@ class GeometryNavigation:
     def close(self):
         self.sim.close()
 
+    def _posture(self, initial):
+        """Initial state without the base field: navigation checks depend only on it."""
+        field = self.sim.robot.initial_base_field
+        return {k: v for k, v in initial.items() if k != field}
+
     def hold(self, station):
         initial = copy.deepcopy(station['initial'])
-        field = self.sim.robot.initial_base_field
-        previous = None if self.initial is None else {k: v for k, v in self.initial.items() if k != field}
-        posture = {k: v for k, v in initial.items() if k != field}
-        if previous != posture:
+        previous = None if self.initial is None else self._posture(self.initial)
+        if previous != self._posture(initial):
             self.pose_checks.clear()
             self.edge_checks.clear()
             self.patch_checks.clear()
@@ -129,9 +131,7 @@ class GeometryNavigation:
         self.exhausted = False
 
     def compatible(self, station):
-        field = self.sim.robot.initial_base_field
-        return {k: v for k, v in self.initial.items() if k != field} == {
-            k: v for k, v in station['initial'].items() if k != field}
+        return self._posture(self.initial) == self._posture(station['initial'])
 
     @staticmethod
     def _key(pose):
@@ -187,15 +187,16 @@ class GeometryNavigation:
                 if not result.valid:
                     checked = GeometryCheck(False, result.reason, result.clearance_m, result.blocked_pose)
                     if not self.exhausted:
-                        self.edge_checks[key] = checked
-                        self.edge_checks[(key[1], key[0])] = checked
+                        self._cache_edge(key, checked)
                     return checked
                 clearances.append(result.clearance_m)
             cost, penalty = sampled_cost(samples, clearances, self.settings)
-            result = GeometryCheck(True, 'valid', min(clearances), cost=cost, penalty_cost=penalty)
-            self.edge_checks[key] = result
-            self.edge_checks[(key[1], key[0])] = result
+            self._cache_edge(key, GeometryCheck(True, 'valid', min(clearances), cost=cost,
+                                                penalty_cost=penalty))
         return self.edge_checks[key]
+
+    def _cache_edge(self, key, result):
+        self.edge_checks[key] = self.edge_checks[(key[1], key[0])] = result
 
     def recovery_patch(self, anchor, radius, yaw_tolerance):
         pose = [*anchor['xy'], anchor['yaw']]

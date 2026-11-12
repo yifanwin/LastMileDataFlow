@@ -2,7 +2,7 @@
 from dataclasses import asdict, replace
 import unittest
 
-from lastmile_dataflow.scenes.dataset_config import SceneRecipe, load_scene_recipe
+from lastmile_dataflow.scenes.dataset import SceneRecipe, load_scene_recipe
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.workflows.collect import calibration_execution
 

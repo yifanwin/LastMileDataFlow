@@ -24,7 +24,7 @@ from ..runtime.simulation import Simulation
 from ..data.visualization.scene_preview import export_scene_previews
 from ..scenes.edits.search import BuildContext, build_task
 from ..scenes.edits.placement import support_regions
-from ..scenes.dataset_config import load_scene_recipe
+from ..scenes.dataset import load_scene_recipe
 from ..scenes.loading.source import SceneSource
 from ..scenes.stations.initialization import inside_triangles, room_triangles
 from ..scenes.stations.sampling import disk_samples

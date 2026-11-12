@@ -7,6 +7,7 @@ from functools import partial
 from pathlib import Path
 import time
 import numpy as np
+import yaml
 
 from ...utils.io import write_json
 from ...runtime.execution_config import NATIVE_MAX_ATTEMPTS
@@ -53,6 +54,17 @@ def _compute_handle_bodies(sim):
     """Handle subtree of the current simulation; empty for tasks without a handle."""
     handle_id = getattr(sim, "handle_id", None)
     return descendants(sim.model, handle_id) if handle_id else set()
+
+
+def _require_curobo():
+    """cuRobo and CUDA are optional at import time and required to build a planner."""
+    try:
+        import torch
+        import curobo.motion_planner  # noqa: F401
+    except ImportError as exc:
+        raise PlannerUnavailable(f"cuRobo dependency unavailable: {exc}") from exc
+    if not torch.cuda.is_available():
+        raise PlannerUnavailable("V2 requires CUDA")
 
 
 def pose_error(a, b):
@@ -200,13 +212,15 @@ class V2Planner:
     def __init__(self, sim, config, side, path, *, workspace, batch_size=1):
         setup_started = time.monotonic()
         self.progress_ready = False
-        native = self._native_types()
+        _require_curobo()
+        from curobo.types import DeviceCfg
+
         self.identity = verify_version()
         self.batch_size = self.evidence_batch_size = batch_size
         self.sim, self.config, self.side, self.path = sim, config, side, Path(path)
         self.record = {}
         self.resource_path = self.path
-        self.args = native["DeviceCfg"]()
+        self.args = DeviceCfg()
         self.on_query = None
         self.query_index = 0
         self.query_log, self.solver_log, self.fov_log = [], [], []
@@ -214,11 +228,11 @@ class V2Planner:
         self._bind_model(sim, config, path, workspace)
         self._write_yaml("planner.yml", self.robot_cfg)
         self.bind_target(sim)
-        self._build_context(native)
+        self._build_context()
         self.fov_validator = None
         if config.head_fov_enabled:
             self._setup_fov(sim, config)
-        self._create_motion(native, batch_size)
+        self._create_motion(batch_size)
         self.pad_target_query_range()
         # Validate the real model/frame convention before any physical action.
         self.check_fk()
@@ -242,31 +256,6 @@ class V2Planner:
             time.monotonic() - setup_started,
         )
 
-    @staticmethod
-    def _native_types():
-        try:
-            import torch
-
-            if not torch.cuda.is_available():
-                raise PlannerUnavailable("V2 requires CUDA")
-            from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
-            from curobo._src.motion.motion_planner_batch import BatchMotionPlanner
-            from curobo.types import DeviceCfg
-            from curobo._src.geom.collision.collision_scene import (
-                SceneCollision,
-                SceneCollisionCfg,
-            )
-        except ImportError as exc:
-            raise PlannerUnavailable(f"cuRobo dependency unavailable: {exc}") from exc
-        return dict(
-            MotionPlanner=MotionPlanner,
-            MotionPlannerCfg=MotionPlannerCfg,
-            BatchMotionPlanner=BatchMotionPlanner,
-            DeviceCfg=DeviceCfg,
-            SceneCollision=SceneCollision,
-            SceneCollisionCfg=SceneCollisionCfg,
-        )
-
     def _bind_model(self, sim, config, path, workspace):
         """Measured planning model, locks and circular workspace of the current task."""
         self.workspace = workspace
@@ -286,17 +275,17 @@ class V2Planner:
         )
 
     def _write_yaml(self, name, data):
-        import yaml
-
         (self.path / name).write_text(yaml.safe_dump(data, sort_keys=False))
         return self.path / name
 
-    def _environment_world(self, path):
+    def _world(self, path, **options):
         return collision_world(
-            self.sim,
-            Path(path),
-            self.world_range,
-            reference_base=self.base,
+            self.sim, Path(path), self.world_range, reference_base=self.base, **options
+        )
+
+    def _environment_world(self, path):
+        return self._world(
+            path,
             cuboids=CUBOID_RANGE_M
             if self.config.environment_representation == "box_cuboids"
             else None,
@@ -305,20 +294,12 @@ class V2Planner:
 
     def _target_worlds(self, path):
         """Target-only (handle excluded) and handle-only worlds of the bound task."""
-        target = collision_world(
-            self.sim,
-            Path(path),
-            self.world_range,
-            reference_base=self.base,
-            target_only=True,
-            bodies=self.target_bodies - self.handle_bodies,
+        target = self._world(
+            path, target_only=True, bodies=self.target_bodies - self.handle_bodies
         )
         handle = (
-            collision_world(
-                self.sim,
-                Path(path),
-                self.world_range,
-                reference_base=self.base,
+            self._world(
+                path,
                 target_only=True,
                 bodies=self.handle_bodies,
                 filename="handle_world.json",
@@ -328,16 +309,21 @@ class V2Planner:
         )
         return target, handle
 
-    def _build_context(self, native):
-        target, handle = self._target_worlds(self.path)
-        checker = lambda world: native["SceneCollision"].from_config(
-            native["SceneCollisionCfg"](
-                device_cfg=self.args, scene_model=world, cache={"mesh": 2}
-            )
+    def _scene_checker(self, world):
+        from curobo._src.geom.collision.collision_scene import (
+            SceneCollision,
+            SceneCollisionCfg,
         )
+
+        return SceneCollision.from_config(
+            SceneCollisionCfg(device_cfg=self.args, scene_model=world, cache={"mesh": 2})
+        )
+
+    def _build_context(self):
+        target, handle = self._target_worlds(self.path)
         self.context = PlannerContext(
-            target_checker=checker(target),
-            handle_checker=checker(handle) if handle is not None else None,
+            target_checker=self._scene_checker(target),
+            handle_checker=self._scene_checker(handle) if handle is not None else None,
             contact_links=self.model.contact_links,
             handle_contact_links=getattr(
                 self.model, "handle_contact_links", self.model.contact_links
@@ -379,7 +365,10 @@ class V2Planner:
         self.context.fov_target = self._fov_target()
         self.context.fov_tcp_frame = self.model.tcp_link
 
-    def _create_motion(self, native, batch_size):
+    def _create_motion(self, batch_size):
+        from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
+        from curobo._src.motion.motion_planner_batch import BatchMotionPlanner
+        from curobo._src.collision.attachment_manager import AttachmentManager
         from .costs import manager_type, fov_optimizer_configs
 
         config = self.config
@@ -394,7 +383,7 @@ class V2Planner:
                 "trajopt_optimizer_configs": [trajopt_config],
                 "metrics_rollout": str(metrics_path.resolve()),
             }
-        settings = native["MotionPlannerCfg"].create(
+        settings = MotionPlannerCfg.create(
             **extra_settings,
             robot=self.robot_cfg,
             scene_model=self._environment_world(self.path),
@@ -416,15 +405,11 @@ class V2Planner:
             random_seed=config.seed,
             cost_manager_config_instance_type=manager_type(self.context),
         )
-        base_type = (
-            native["BatchMotionPlanner"] if batch_size > 1 else native["MotionPlanner"]
-        )
+        base_type = BatchMotionPlanner if batch_size > 1 else MotionPlanner
         self.motion = native_grasp_planner_type(base_type)(settings)
         self.motion.owner = self
         # v0.8.0 MotionPlanner.attachment_manager points to an unimplemented
         # TrajOptSolver attribute. Use the tag's standalone native manager.
-        from curobo._src.collision.attachment_manager import AttachmentManager
-
         self.attachment = AttachmentManager(
             self.motion.kinematics, self.motion.scene_collision_checker, self.args
         )
@@ -546,12 +531,7 @@ class V2Planner:
 
     def validate_fov_result(self, result, phase):
         trajectory = result.get_interpolated_plan()
-        active = trajectory.reorder(list(self.motion.joint_names))
-        values = active.position.detach().cpu().numpy().reshape(-1, len(self.names))
-        last = result.interpolated_last_tstep
-        if last is not None:
-            values = values[: int(last.reshape(-1)[0].item())]
-        values = ordered_points(values, list(self.motion.joint_names), list(self.names))
+        values = self._ordered_positions(trajectory, result.interpolated_last_tstep)
         dt = float(trajectory.dt.reshape(-1)[0].item())
         keys = knot_sample_indices(result.js_solution, dt, len(values))
         report = self.fov_validator.validate(values, keys, phase=phase)
@@ -591,7 +571,27 @@ class V2Planner:
         self._bind_model(sim, config, path, workspace)
         self.bind_target(sim)
         robot = RobotCfg.create(self.robot_cfg, device_cfg=self.args)
-        parameters = robot.kinematics.kinematics_config
+        self._update_kinematics(robot.kinematics.kinematics_config)
+        self.context.local_center = self._local_center()
+        self.context.radius = workspace[1]
+        self.context.movable_base = self.model.movable_base
+        self._reset_trial_state()
+        self.refresh_world(self.path)
+        self.check_fk()
+        reset_motion_seed(self.motion, config.seed)
+        self._record(
+            "reuse",
+            {
+                "resource_path": str(self.resource_path),
+                "solver_reused": True,
+                "measured_locks_and_world_updated": True,
+                "reference_world": self.base.tolist(),
+                "joint_names": list(self.names),
+            },
+        )
+
+    def _update_kinematics(self, parameters):
+        """Push new kinematics into every retained rollout, LM-IK limits and graph sampler."""
         for solver in (self.motion.ik_solver, self.motion.trajopt_solver):
             for rollout in solver.core.get_all_rollout_instances():
                 rollout.transition_model.robot_model.update_kinematics_config(
@@ -624,23 +624,6 @@ class V2Planner:
             )
             sampler.low_bounds.copy_(self.motion.graph_planner.action_bound_lows)
             sampler.up_bounds.copy_(self.motion.graph_planner.action_bound_highs)
-        self.context.local_center = self._local_center()
-        self.context.radius = workspace[1]
-        self.context.movable_base = self.model.movable_base
-        self._reset_trial_state()
-        self.refresh_world(self.path)
-        self.check_fk()
-        reset_motion_seed(self.motion, config.seed)
-        self._record(
-            "reuse",
-            {
-                "resource_path": str(self.resource_path),
-                "solver_reused": True,
-                "measured_locks_and_world_updated": True,
-                "reference_world": self.base.tolist(),
-                "joint_names": list(self.names),
-            },
-        )
 
     def current_joints(self):
         return self.model.current_joints()
@@ -682,12 +665,17 @@ class V2Planner:
     def base_target_world(self, point):
         return self.model.base_target_world(point)
 
-    def points(self, trajectory, last=None):
-        trajectory = trajectory.reorder(list(self.motion.joint_names))
-        raw = trajectory.position.detach().cpu().numpy().reshape(-1, len(self.names))
+    def _ordered_positions(self, trajectory, last):
+        """Joint positions in planner name order, cut at the native last time step."""
+        native_names = list(self.motion.joint_names)
+        raw = trajectory.reorder(native_names).position.detach().cpu().numpy()
+        raw = raw.reshape(-1, len(self.names))
         if last is not None:
             raw = raw[: int(last.reshape(-1)[0].item())]
-        points = ordered_points(raw, list(self.motion.joint_names), list(self.names))
+        return ordered_points(raw, native_names, list(self.names))
+
+    def points(self, trajectory, last=None):
+        points = self._ordered_positions(trajectory, last)
         if trajectory.dt is None:
             raise ValueError("V2 interpolated trajectory missing timing")
         native_dt = float(trajectory.dt.reshape(-1)[0].item())

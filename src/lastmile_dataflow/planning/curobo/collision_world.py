@@ -69,9 +69,12 @@ def collision_world(sim,path,range_m=2., *, reference_base=None, target_only=Fal
     base=body_pose(sim,m.body('robot_0/base').id) if reference_base is None else reference_base
     inv=np.linalg.inv(base); vertices=[]; faces=[]; names=[]; count=0; boxes=[]
     exported=list(exported_geoms(sim, base, range_m, target_only=target_only, bodies=bodies))
-    reach=lambda g: np.linalg.norm(d.geom_xpos[g,:2]-base[:2,3])-m.geom_rbound[g]
-    near=sorted((g for g,_,_ in exported if cuboids is not None and m.geom_type[g]==mujoco.mjtGeom.mjGEOM_BOX
-                 and reach(g)<=cuboids), key=reach)[:max_cuboids]
+    near=set()
+    if cuboids is not None:
+        box_geoms=[g for g,_,_ in exported if m.geom_type[g]==mujoco.mjtGeom.mjGEOM_BOX]
+        reach=np.linalg.norm(d.geom_xpos[box_geoms,:2]-base[:2,3],axis=1)-m.geom_rbound[box_geoms]
+        order=[box_geoms[i] for i in np.argsort(reach,kind='stable') if reach[i]<=cuboids]
+        near=set(order[:max_cuboids])
     for g, world, f in exported:
         if g in near:
             quat=np.zeros(4); mujoco.mju_mat2Quat(quat,(inv[:3,:3]@d.geom_xmat[g].reshape(3,3)).ravel())

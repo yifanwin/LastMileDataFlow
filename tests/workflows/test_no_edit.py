@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from lastmile_dataflow.workflows.station_map import RunResources
 from lastmile_dataflow.scenes.edits.search import build_task
-from lastmile_dataflow.scenes.dataset_config import SceneRecipe
+from lastmile_dataflow.scenes.dataset import SceneRecipe
 from lastmile_dataflow.workflows.collect import _trial_record
 from lastmile_dataflow.workflows.scene_datasets import _task_preparation_rejections
 

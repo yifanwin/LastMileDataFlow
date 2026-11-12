@@ -138,7 +138,9 @@ def _recovery_trials(
         baseline,
         grid,
         list(stations.values()),
-        NavigationSettings.from_config(config),
+        NavigationSettings.from_config(
+            config, speed=config.navigation_speed_m_s, yaw_speed=config.navigation_yaw_speed_rad_s
+        ),
         budget_s=min(120.0, config.attempt_timeout_s),
     )
     progress = Progress(logger)
@@ -315,7 +317,13 @@ def _prepare_run(
             "config": asdict(config),
             "collection": asdict(collection),
             "navigation_protocol": NAVIGATION_PROTOCOL,
-            "navigation_settings": asdict(NavigationSettings.from_config(config)),
+            "navigation_settings": asdict(
+                NavigationSettings.from_config(
+                    config,
+                    speed=config.navigation_speed_m_s,
+                    yaw_speed=config.navigation_yaw_speed_rad_s,
+                )
+            ),
             "profiles": profiles,
             "gpu": gpu,
             "seed": config.seed,

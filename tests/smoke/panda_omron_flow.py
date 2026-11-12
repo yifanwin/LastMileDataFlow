@@ -155,7 +155,7 @@ def main():
     from lastmile_dataflow.scenes.loading.source import SceneSource
     from lastmile_dataflow.scenes.tasks.discovery import discover_tasks
     from lastmile_dataflow.scenes.stations.sampling import coverage_select
-    from lastmile_dataflow.scenes.dataset_config import SceneStationConfig
+    from lastmile_dataflow.scenes.dataset import SceneStationConfig
     from lastmile_dataflow.utils.io import write_json, write_rows
     if args.stage == 'align-mobile':
         return align_mobile(args.output, load_robot_config(args.robot))

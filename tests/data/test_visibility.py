@@ -9,7 +9,7 @@ import numpy as np
 from lastmile_dataflow.data.rendering.head_views import (
     TaskVisibility, aggregate_visibility, ray_visibility, roi_geoms,
 )
-from lastmile_dataflow.scenes.dataset_config import SceneStationConfig
+from lastmile_dataflow.scenes.dataset import SceneStationConfig
 
 
 def scene(blocked=True):

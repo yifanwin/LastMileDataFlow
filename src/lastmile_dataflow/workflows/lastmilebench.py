@@ -80,6 +80,9 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
     reference = saved['config']
     if reference['operation_backend'] != 'curobo':
         raise ValueError('v0.1 construction requires cuRobo reference calibration')
+    navigation_settings = NavigationSettings.from_config(
+        settings, speed=reference.get('navigation_speed_m_s', .2),
+        yaw_speed=reference.get('navigation_yaw_speed_rad_s', .4))
     trials = rows(calibration_dir / 'trials.jsonl')
     scenes = load_scenes(source)
     scene_ids = {s['scene_id'] for s in scenes}
@@ -88,7 +91,7 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
     schema = 'lastmile-bench-v0.1'
     root = create_run(output, {'schema_version': schema, 'dataset': str(source),
                               'navigation_protocol': NAVIGATION_PROTOCOL,
-                              'navigation_settings': asdict(NavigationSettings.from_config(settings, reference)),
+                              'navigation_settings': asdict(navigation_settings),
                               'calibration': str(calibration_dir), 'config': asdict(settings),
                               'reference_execution': reference,
                               'success_rate_semantics': 'task completion from calibrated initial station; base motion allowed by reference protocol'})
@@ -135,7 +138,7 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
                 legal_ids = {s['station_id'] for s in legal}
                 if region is not None:
                     navigation = GeometryNavigation(sim, region.grid, legal,
-                        NavigationSettings.from_config(settings, reference), budget_s=min(120., settings.wall_timeout_s))
+                        navigation_settings, budget_s=min(120., settings.wall_timeout_s))
                 report['navigation_method'] = 'geometry_soft_astar'
                 report['navigation_diagnostics'] = []
                 by_id = {s['station_id']: s for s in legal}
