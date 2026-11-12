@@ -274,7 +274,7 @@ Recovery 检查基于实际位姿，不要求先经历一次操作失败。完�
 - `runtime/execution/molmobot.py`、`data/recorder.py`：策略闭环、显式底盘轨迹及诊断所需结果；实际 native 等控制适配单独按策略接口需要修改。
 - `cli.py`、对应配置及相关测试：保持五个命令，落实目标参数。
 
-完成实现后同步 `docs/运行手册.md`、`docs/data-format.md`、配置说明和 README 的当前边界；按用户目录要求，新增长期说明优先放 `reports/benchmark/docs/`，现有入口只补必要链接，不批量搬迁无关文档。
+完成实现后同步 `docs/runbook.md`、`docs/data-format.md`、配置说明和 README 的当前边界；按用户目录要求，新增长期说明优先放 `reports/benchmark/docs/`，现有入口只补必要链接，不批量搬迁无关文档。
 
 实际交付记录放 `reports/benchmark/delivery/phase_01/` 起的对应阶段目录，写清运行输入、有效配置、命令、结果、失败原因、真实证据位置和未验证范围。最终只保留必要场景、标定引用、benchmark、实际 rollout 和汇总；不生成重复 trial、文件指纹或额外封存体系。
 

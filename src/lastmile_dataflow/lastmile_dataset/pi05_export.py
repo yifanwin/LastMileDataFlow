@@ -1,6 +1,6 @@
 """Prepare RBY-1 position demonstrations for LeRobot v2.1 and π0.5.
 
-Command line: ``scripts/export_pi05.py``. No simulation, model download or training is performed here.
+Command line: ``scripts/lastmile_dataset/export_pi05.py``. No simulation, model download or training is performed here.
 """
 
 from pathlib import Path

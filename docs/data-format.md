@@ -3,13 +3,13 @@
 - 状态：active
 - 日期：2026-11-12
 - 替代：无
-- 关联：architecture.md、运行手册.md
+- 关联：architecture.md、runbook.md
 
 ## 运行与场景
 
 所有产物位于实验单元的 runs/<run>/；规则见 ../outputs/RULES.md。config.json 保存有效配置、seed 和输入引用，summary.json 保存真实完成情况。路径搬迁按产物规则处理，不修改原数据冒充新实验。
 
-场景库由两步写成。build_scenes.py 写 config.json、scenes.jsonl、scene-files/；sample_stations.py 再写 stations.jsonl、stations_summary.json、index.html 与 previews/。scenes.jsonl 保留接受与拒绝结果；接受记录包含 scene_id、house、task、scene、edits、construction_checks，不含站位（2026-11-12 起；此前的记录里还有 stations、station_sampling、station_hints，那时没有合法站位的场景在构建时就被拒绝）。stations.jsonl 每个接受场景一行：scene_id、status（accepted/rejected）、reason（rejected 时，如 no_valid_initial_stations）、stations、station_sampling（候选数、初始化次数、被滤掉的站位及原因）。下游用 scenes/library.load_scenes 读取，按 scene_id 把站位并进场景记录，status=rejected 的场景不出现。proposal_intent 现在只取 no_edit/edit，保留字段名以便查看既有结果，不再生成八模式标签或 diagnosis.jsonl。
+场景库由两步写成。scripts/scenes/build.py 写 config.json、scenes.jsonl、scene-files/；scripts/station_map/sample.py 再写 stations.jsonl、stations_summary.json、index.html 与 previews/。scenes.jsonl 保留接受与拒绝结果；接受记录包含 scene_id、house、task、scene、edits、construction_checks，不含站位（2026-11-12 起；此前的记录里还有 stations、station_sampling、station_hints，那时没有合法站位的场景在构建时就被拒绝）。stations.jsonl 每个接受场景一行：scene_id、status（accepted/rejected）、reason（rejected 时，如 no_valid_initial_stations）、stations、station_sampling（候选数、初始化次数、被滤掉的站位及原因）。下游用 scenes/library.load_scenes 读取，按 scene_id 把站位并进场景记录，status=rejected 的场景不出现。proposal_intent 现在只取 no_edit/edit，保留字段名以便查看既有结果，不再生成八模式标签或 diagnosis.jsonl。
 
 scene 是相对场景库根目录的快照目录；内有 model.mjb、model.xml、initial.npz 和 config.json。MJB 为实际载入来源，要求匹配生成时的 MuJoCo 版本。XML 可能引用外部资产；场景快照不承诺独立搬迁。
 
@@ -57,4 +57,4 @@ episodes.jsonl 保存任务与困难S0；oracle.json 保存恢复区域、实测
 
 execution_termination 表示完成/超时/异常等执行终止，task_outcome 表示物理任务成功/失败/未知。抓取 strict-pick-v3 的双指力、抬升、无支撑保持和滑移阈值仍固定；逐物理步事实继续用于 monitor，只删除冗余日志输出。
 
-离线回放入口为 scripts/replay.py（参数：rollout 目录、输出目录、相机、fps），按记录的状态边界重新渲染，不新执行动作。补预览保留为 Python 函数 data.visualization.scene_preview.export_scene_previews。
+离线回放入口为 scripts/operation/replay.py（参数：rollout 目录、输出目录、相机、fps），按记录的状态边界重新渲染，不新执行动作。补预览保留为 Python 函数 data.visualization.scene_preview.export_scene_previews。

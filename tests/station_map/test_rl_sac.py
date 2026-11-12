@@ -1,4 +1,4 @@
-"""Research dependencies are installed by scripts/install_rl.sh."""
+"""Research dependencies are installed by scripts/install/rl.sh."""
 
 import importlib.util
 import tempfile

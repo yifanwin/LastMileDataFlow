@@ -6,12 +6,12 @@
 
 | 目录 | 加载它的代码 | 用途 |
 |---|---|---|
-| `scenes/` | `scenes.library.load_scene_recipe`（`scripts/build_scenes.py`） | 场景配方：房屋、目标筛选、障碍数量、站位参数、构建进程 |
+| `scenes/` | `scenes.library.load_scene_recipe`（`scripts/scenes/build.py`） | 场景配方：房屋、目标筛选、障碍数量、站位参数、构建进程 |
 | `robots/` | `robots.registry.load_robot_config` | 机器人模型、控制 profile、相机与初始姿态；由场景配方的 `robot_config` 引用 |
-| `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器；由执行配置的 `policy_config` 引用，`scripts/bench_evaluate.py --config` 直接读取 |
-| `station_map/` | `station_map.config`（`--config`）→ `station_map.planner_trials.build` 用 `operation.config.load_execution_config` 解析 | 执行配置：物理执行、规划、导航、成功率阈值；站位标定（`scripts/station_map.py`）和连续采集（`scripts/collect.py`）共用 |
+| `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器；由执行配置的 `policy_config` 引用，`scripts/lastmile_benchmark/evaluate.py --config` 直接读取 |
+| `station_map/` | `station_map.config`（`--config`）→ `station_map.planner_trials.build` 用 `operation.config.load_execution_config` 解析 | 执行配置：物理执行、规划、导航、成功率阈值；站位标定（`scripts/station_map/planner_trials.py`）和连续采集（`scripts/lastmile_dataset/collect.py`）共用 |
 | `station_map/rl/` | `station_map.rl.training` | 独立 RL 站位图研究配置 |
-| `lastmile_benchmark/` | `lastmile_benchmark.summary.load_benchmark_config` | 困难起点、恢复区域与评测预算；`scripts/bench_build.py` 不给 `--config` 时用默认值（即 v0.1） |
+| `lastmile_benchmark/` | `lastmile_benchmark.summary.load_benchmark_config` | 困难起点、恢复区域与评测预算；`scripts/lastmile_benchmark/build.py` 不给 `--config` 时用默认值（即 v0.1） |
 
 `local.example.yaml` 可复制为 `local.yaml`，只提供 `assets_dir`（站位标定、采集省略 `--assets-dir` 时使用）。
 
@@ -19,7 +19,7 @@
 
 - 含数据输入的配置显式填写 `data_root`（当前统一为 `/data1/wenyifan/lmdf/molmospaces_data`）；数据、权重、tokenizer 路径相对 `data_root`。
 - 配置文件和解释器路径（`robot_config`、`policy_config`、`python`）相对仓库根目录，也可写绝对路径。不是相对 YAML 所在目录。
-- CLI 路径按当前调用目录解释。
+- 命令行路径按当前调用目录解释。
 
 ## 文件
 
@@ -54,15 +54,15 @@
 - `lastmile_low/high` 选连续采集的 S0（低成功率）和 S1（高成功率），全部合格站位全组合配对。
 - `smoothing_sigma_m` 只影响展示热图；`export_figures: false` 跳过热图。
 - 可选：`head_fov_enabled` 及 `head_fov_*`（cuRobo 头部视野约束）；`navigation_margin_m`、`navigation_clearance_weight`、`navigation_max_penetration_m`（导航软净空与严重穿透阈值）；`navigation_speed_m_s`、`navigation_yaw_speed_rad_s`、`arrival_tolerance_*`、`max_navigation_steps`（导航执行与到达判定）。改变物理或成功判定参数要重新验证。
-- 进程数、记录模式和试验预算不在执行配置里，由 `station_map.py`、`collect.py` 的命令行给出（`--assets-dir --max-trials --record-video --recording-mode --planning-workers-per-gpu --cpu-workers --preparation-workers`），不参与标定复用的配置匹配。`--max-trials` 截断的标定不完整，不能用于正式困难 S0 选择。
+- 进程数、记录模式和试验预算不在执行配置里，由 `scripts/station_map/planner_trials.py`、`scripts/lastmile_dataset/collect.py` 的命令行给出（`--assets-dir --max-trials --record-video --recording-mode --planning-workers-per-gpu --cpu-workers --preparation-workers`），不参与标定复用的配置匹配。`--max-trials` 截断的标定不完整，不能用于正式困难 S0 选择。
 - MolmoBot 逐点 rollout 与 cuRobo 连续采集不是同一能力；连续采集只支持 cuRobo。
 
 ## 策略
 
-`python` 指向本项目的 `.venv/bin/python`（MolmoBot）或 `.venv-pi05/bin/python`（π0.5）。`task_horizon` 是每任务策略步上限（默认 400）；`gripper_mode` 默认 `model_default`（pick 连续、open 二值）。`load_timeout_s=900` 是模型服务启动等待，`rpc_timeout_s` 是单次 RPC 等待，episode 总预算用执行配置的 `attempt_timeout_s`。π0.5 的 `embodiment` 必须匹配场景机器人，命令见 [π0.5 指南](../reports/pi05/docs/01-running.md)。`pi05_rby1.yaml` 的 `norm_stats` 指向的统计文件目前不存在，使用前需先运行 `scripts/export_pi05.py` 重新生成。
+`python` 指向本项目的 `.venv/bin/python`（MolmoBot）或 `.venv-pi05/bin/python`（π0.5）。`task_horizon` 是每任务策略步上限（默认 400）；`gripper_mode` 默认 `model_default`（pick 连续、open 二值）。`load_timeout_s=900` 是模型服务启动等待，`rpc_timeout_s` 是单次 RPC 等待，episode 总预算用执行配置的 `attempt_timeout_s`。π0.5 的 `embodiment` 必须匹配场景机器人，命令见 [π0.5 指南](../reports/pi05/docs/01-running.md)。`pi05_rby1.yaml` 的 `norm_stats` 指向的统计文件目前不存在，使用前需先运行 `scripts/lastmile_dataset/export_pi05.py` 重新生成。
 
 ## Benchmark
 
 构建直接读取已有场景和标定，不启动新 trial。`low/high`（默认 0.20/0.60，含等号）是参考协议下起点成功率阈值；`region_radius_m`、`region_yaw_tolerance_rad` 是高率站位周围合法恢复区域；`navigation_*` 同执行配置；`local_candidate_radius_m: null` 用整个候选域算 Recovery Ratio；`max_episodes_per_scene: 0` 保留全部合格起点；`horizon`/`wall_timeout_s` 是评测预算。导航使用完整来源房间地面。
 
-运行步骤见 [运行手册](../docs/运行手册.md)。
+运行步骤见 [运行手册](../docs/runbook.md)。

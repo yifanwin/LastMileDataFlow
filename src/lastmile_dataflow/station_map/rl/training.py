@@ -1,6 +1,5 @@
 """Off-policy vector sampling with explicit final observations and local reset."""
 
-import argparse
 import json
 import importlib.metadata
 import os
@@ -11,7 +10,7 @@ import time
 
 import torch
 
-from lastmile_dataflow.utils.io import REPO_ROOT, read_config
+from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
 from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS
@@ -20,7 +19,6 @@ from .sac.agent import seed_all
 from .evaluation import monitor_validation
 from .monitor import training_curves
 from .evaluation import station_scores, plot_scores
-from .evaluation import evaluate, score
 import multiprocessing as mp
 from .devices import sampler_entry
 import pickle
@@ -46,36 +44,6 @@ def runtime_metadata(config, gpu):
         "cuda_visible_devices": visible,
         "physical_gpu": visible.split(",")[gpu] if visible else gpu,
     }
-
-
-def run_cli(mode):
-    parser = argparse.ArgumentParser(description=f"{mode}: fixed-base mjlab SAC research")
-    parser.add_argument("--config", default=str(REPO_ROOT / "configs/station_map/rl/val103_cup30.yaml"))
-    parser.add_argument("--gpu", type=int, default=0 if mode == "train" else None, required=mode != "train")
-    if mode == "train":
-        parser.add_argument("--gpus", help="comma-separated GPU indices; alternatively use --gpu")
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--seed", type=int, default=None)
-    if mode == "train":
-        parser.add_argument("--resume")
-        parser.add_argument("--max-transitions", type=int)
-        parser.add_argument("--num-envs", type=int)
-    else:
-        parser.add_argument("--checkpoint", required=True)
-        if mode == "evaluate":
-            parser.add_argument("--scores", required=True)
-            parser.add_argument(
-                "--baseline", action="store_true", help="evaluate initial.pt on the trained score selection"
-            )
-    args = vars(parser.parse_args())
-    config = read_config(args.pop("config"))
-    if mode == "train":
-        args["seed"] = 42 if args["seed"] is None else args["seed"]
-        args.pop("gpus", None)
-        result = train(config, **args)
-    else:
-        result = (evaluate if mode == "evaluate" else score)(config, **args)
-    print(json.dumps(result, indent=2))
 
 
 def record_episodes(log, env, done, transitions, returns, components, steps):
@@ -224,14 +192,15 @@ class Samplers:
             queue.close()
 
 
-def train(config, *, gpu, output, seed=42, resume=None, max_transitions=None, num_envs=None):
+def train(config, *, gpu, sampler_gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
+    """``gpu`` is the in-process Learner device; ``sampler_gpus`` are physical cards, one Sampler each."""
     from .env.environment import StationEnv
 
     seed_all(seed)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     settings = config["training"]
-    devices = os.environ.get("LASTMILE_SAMPLER_GPUS", str(gpu)).split(",")
+    devices = [str(device) for device in sampler_gpus]
     env = StationEnv(config, gpu=gpu, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"])
     workers = None
     try:

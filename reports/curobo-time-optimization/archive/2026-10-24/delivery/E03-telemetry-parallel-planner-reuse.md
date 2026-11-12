@@ -3,7 +3,7 @@
 - 状态：archived
 - 日期：2026-10-23
 - 替代：[当前文档](../../../info/01-current-status.md)
-- 关联：[优化方案](../plan/2026-10-22-time-optimization-plan.md)、[E02](E02-png-write-probe.md)、[运行手册](../../../../../docs/运行手册.md)
+- 关联：[优化方案](../plan/2026-10-22-time-optimization-plan.md)、[E02](E02-png-write-probe.md)、[运行手册](../../../../../docs/runbook.md)
 
 **2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 

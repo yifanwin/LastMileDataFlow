@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-25
 - 替代：[旧时间优化方案](../archive/2026-10-24/plan/2026-10-22-time-optimization-plan.md)、本文件此前“先基线、分项实验再决定优化”的路线；整合并行专项的规划/执行拆分设计
-- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)、[并行专项](02-parallel-execution.md)、[执行计划表](03-execution-schedule.md)、[运行手册](../../../docs/运行手册.md)
+- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)、[并行专项](02-parallel-execution.md)、[执行计划表](03-execution-schedule.md)、[运行手册](../../../docs/runbook.md)
 
 实施已按 P00–P14 完成。首阶段 60/60、20 成功，标定 225.458 s；最终 183 accepted/37 rejected，计划 8,466、记录 8,463（1 站准备失败单列）、820 成功，标定 2.88 h，6 段实际轨迹视频通过。Case3 全部规划无解，未取得开门执行证据。详见[最终交付](../delivery/2026-10-24-val100-experiment.md)，下文保留方案要求。
 

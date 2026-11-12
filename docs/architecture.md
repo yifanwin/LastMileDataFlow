@@ -44,14 +44,16 @@
 
 ## 各阶段调用链
 
-| 脚本 | 编排 | 主要调用 |
+`scripts/` 的子目录与源码顶层包同名，安装脚本在 `scripts/install/`（`main.sh`、`pi05.sh`、`rl.sh`）；另有 `scenes/build_asset_index.py`（THOR 资产角色索引）、`lastmile_dataset/export_pi05.py`（π0.5 训练数据转换）、`operation/replay.py`（离线回放）。
+
+| 脚本（`scripts/` 下） | 编排 | 主要调用 |
 |---|---|---|
-| `build_scenes.py` | `scenes/build.build_scenes` | 每个 house 一个 worker：`scenes.tasks` 找目标 → `edits/search.BuildContext` 停放机器人、静置、算任务几何 → 原场景冻结；编辑场景经 `edits/placement` 摆放、`edits/checks` 物理检查后冻结。只看物理检查，不采站位 |
-| `sample_stations.py` | `station_map/sampling/build.sample_stations` | 逐场景重开快照 → `edits/search.task_geometry` → `sampling/sample.select_task_stations`（覆盖顺序、真实初始化、编辑场景测可见性）→ 写回场景库 `stations.jsonl`，再导出预览 |
-| `station_map.py` | `station_map/planner_trials/build.run_station_map` | 调度器：CPU 准备（`operation/preparation`）→ GPU 规划池（`operation/control/planner_pool`）→ CPU 执行（`planner_trials/workers` → `operation/curobo.run_curobo_attempt`）→ `aggregate` 与 `heatmap` |
-| `collect.py` | `lastmile_dataset/collect.run_collection` | 复用或先跑标定 → 全部合格 S0×S1 → A* 路线 → `continuous.run_continuous_attempt` → `export` |
-| `bench_build.py`、`bench_evaluate.py` | `lastmile_benchmark/build.build`、`evaluate.evaluate` | 按实测成功率选困难起点和恢复区域；评测时 `policy_rollout.run_vla_attempt` 驱动 MolmoBot/π0.5 |
-| `experiments/*.py` | `station_map/rl/` | RL 站位图，独立环境（mjlab）；`devices.py` 先绑卡再加载 CUDA 相关代码 |
+| `scenes/build.py` | `scenes/build.build_scenes` | 每个 house 一个 worker：`scenes.tasks` 找目标 → `edits/search.BuildContext` 停放机器人、静置、算任务几何 → 原场景冻结；编辑场景经 `edits/placement` 摆放、`edits/checks` 物理检查后冻结。只看物理检查，不采站位 |
+| `station_map/sample.py` | `station_map/sampling/build.sample_stations` | 逐场景重开快照 → `edits/search.task_geometry` → `sampling/sample.select_task_stations`（覆盖顺序、真实初始化、编辑场景测可见性）→ 写回场景库 `stations.jsonl`，再导出预览 |
+| `station_map/planner_trials.py` | `station_map/planner_trials/build.run_station_map` | 调度器：CPU 准备（`operation/preparation`）→ GPU 规划池（`operation/control/planner_pool`）→ CPU 执行（`planner_trials/workers` → `operation/curobo.run_curobo_attempt`）→ `aggregate` 与 `heatmap` |
+| `lastmile_dataset/collect.py` | `lastmile_dataset/collect.run_collection` | 复用或先跑标定 → 全部合格 S0×S1 → A* 路线 → `continuous.run_continuous_attempt` → `export` |
+| `lastmile_benchmark/build.py`、`evaluate.py` | `lastmile_benchmark/build.build`、`evaluate.evaluate` | 按实测成功率选困难起点和恢复区域；评测时 `policy_rollout.run_vla_attempt` 驱动 MolmoBot/π0.5 |
+| `station_map/rl/{train,score,evaluate}.py` | `station_map/rl/` | RL 站位图，独立环境（mjlab）；脚本先 `select_devices` 绑卡再导入 torch/mjlab，Sampler 子进程经 `devices.sampler_entry` 绑到各自的卡 |
 
 ## 关键约定
 
@@ -60,5 +62,5 @@
 - 标定调度：CPU 准备缓存只读快照；GPU `PlanningPool` 持有规划视图与常驻求解器；CPU `PlanningClient` 把实测状态发回规划池。父进程是 `trials.jsonl` 唯一写者；`AttemptRecorder` 写一个 attempt 的真实动作、状态、RGB 和视频。
 - 规划：固定 cuRobo 0.8.0，不维护多版本兼容。`PlannerResources` 每个 GPU 进程至多保留 2 个兼容求解器家族，跨任务复用时重算目标和把手 body。碰撞世界按 geom 导出（原语网格化，mesh 取凸包，保证封闭），不用家具级 AABB；目标、把手单独导出。规划无解与执行失败分开记录。
 - 控制与结果：规划参考经本体适配、FK 与真实控制器执行，规划成功不算任务成功。抓取按 strict-pick-v3 的真实力、抬升、支撑、保持与滑移判定；执行终止和任务结果分开保存；普通躯干反馈偏差只记录，严重失控仍停止。
-- 策略：不导入外部 MolmoBot 包；策略返回 20 维动作（Panda π0.5 为 12 维），仿真仍由 `sim` 推进。`configs/policies/pi05_rby1` 的 `norm_stats` 需先运行 `scripts/export_pi05.py` 生成。
+- 策略：不导入外部 MolmoBot 包；策略返回 20 维动作（Panda π0.5 为 12 维），仿真仍由 `sim` 推进。`configs/policies/pi05_rby1` 的 `norm_stats` 需先运行 `scripts/lastmile_dataset/export_pi05.py` 生成。
 - 设备：在 CUDA/渲染初始化前绑定。`utils/gpu.py` 在干净子进程里查询 EGL 映射，spawn 的子进程继承显式映射；`CUDA_VISIBLE_DEVICES` 不能替代 EGL 绑定。

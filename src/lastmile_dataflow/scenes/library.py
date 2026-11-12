@@ -217,7 +217,7 @@ def scene_records(dataset):
     root = Path(dataset).resolve()
     path = root / STATIONS
     if not path.exists():
-        raise FileNotFoundError(f"{path} missing: run scripts/sample_stations.py on this scene library first")
+        raise FileNotFoundError(f"{path} missing: run scripts/station_map/sample.py on this scene library first")
     stations = {row["scene_id"]: row for row in rows(path)}
     records = []
     for record in rows(root / "scenes.jsonl"):

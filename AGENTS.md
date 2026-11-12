@@ -5,7 +5,7 @@
 LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 **场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
 
-- 维护六个阶段脚本：`scripts/build_scenes.py`、`sample_stations.py`、`station_map.py`、`collect.py`、`bench_build.py`、`bench_evaluate.py`。
+- 维护六个阶段脚本：`scripts/scenes/build.py`、`scripts/station_map/sample.py`、`scripts/station_map/planner_trials.py`、`scripts/lastmile_dataset/collect.py`、`scripts/lastmile_benchmark/build.py`、`scripts/lastmile_benchmark/evaluate.py`。
 - 规划固定 cuRobo V2（0.8.0），策略为 MolmoBot multitask，导航为 A*。连续采集当前仅支持 cuRobo。
 - 当前能力与未验证边界查 README 和 `reports/README.md`；历史局部成功不证明当前主链闭环。
 
@@ -25,7 +25,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 - [README.md](README.md)：当前能力、五个命令与阅读入口。
 - [docs/setup.md](docs/setup.md)：独立环境、数据准备与路径规则。
-- [docs/运行手册.md](docs/运行手册.md)：构建、标定、连续采集和 benchmark。
+- [docs/runbook.md](docs/runbook.md)：构建、标定、连续采集和 benchmark。
 - [docs/architecture.md](docs/architecture.md)：源码职责与实际调用链。
 - [docs/data-format.md](docs/data-format.md)：主记录、轨迹、动作与结果含义。
 - [configs/README.md](configs/README.md)、[tests/README.md](tests/README.md)：配置和验证分工。
@@ -64,7 +64,9 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 入口脚本只做参数与设备绑定，阶段编排在各阶段目录的 `build.py`/`collect.py`/`evaluate.py`，实际推进仿真只经 `sim/simulation.py`；不另起平行执行器或记录链路。
 跨顶层包写绝对导入，包内用相对导入，`__init__.py` 保持为空。
 
+- 根目录 `scripts/`：子目录名与它调用的源码顶层包相同（`scenes/`、`station_map/`（含 `rl/`）、`lastmile_dataset/`、`lastmile_benchmark/`、`operation/`），安装脚本单独放在 `scripts/install/`；新增脚本按它调用的包归位，不建 `experiments/` 一类笼统目录。
 - 根目录 `configs/`：显式 YAML 输入配置，只写与默认值不同的字段；运行产物仍写 JSON；解析规则见下节。子目录名是加载它的源码包名（`scenes/`、`robots/`、`policies/`、`station_map/`、`station_map/rl/`、`lastmile_benchmark/`），新增配置按加载它的包归位；`local.example.yaml` 留在根目录。
+- 根目录 `docs/`：当前说明文档，文件名用英文小写加连字符（`setup.md`、`runbook.md`、`architecture.md`、`data-format.md`）。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
 - `tests/`：按源码顶层目录分组（`utils/sim/robots/planning/operation/policies/scenes/station_map/lastmile_dataset/lastmile_benchmark`），另有 `test_layers.py`、`test_scripts.py`；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
 - `outputs/`：运行产物，细则见 [outputs/RULES.md](outputs/RULES.md)。
@@ -76,23 +78,31 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
   6. 每个目录的直接子目录不超过 20 个，多时按批次或条件分组。历史产物不自动迁移；有进程读写时不搬迁，删除结果须经用户确认。
 - 不提交环境、缓存、大型资产或运行产物（`outputs/RULES.md` 除外）；根目录数据忽略规则保持 `/data/`，不能误忽略源码和测试中的同名目录。
 
+### 脚本写法
+
+- 命令行参数只在 `scripts/` 里组装，src 只提供显式参数的函数（如 `train(config, *, gpu, sampler_gpus, output, seed, ...)`），默认值只写一处（脚本的 parser 或函数签名）。唯一例外是 `station_map.config.add_station_run_arguments`：标定和采集两个脚本共用同一组参数，且默认值必须与 `StationRun` 一致，保留这一个共享的参数组装函数。
+- `--gpu` 一律是物理卡号；脚本先 `parser.parse_args()`，再 `select_devices` 绑定，进程内设备号显式传 0，不改写 `sys.argv`。
+- argparse 对象统一命名 `parser`。
+- import 放在文件顶部。唯一例外是需要先绑定 GPU/EGL 的脚本（调用 `select_devices`、`bind_*`）：MuJoCo、torch 在导入时读取 `CUDA_VISIBLE_DEVICES`、`MUJOCO_EGL_DEVICE_ID` 等环境变量，所以导入了 mujoco/torch 的模块只能在绑定之后导入。这类脚本顶部只导入不加载 mujoco/torch 的轻量模块（`argparse`、`json`、`pathlib`、`utils.gpu`、`utils.io`、`utils.logging_config`、`station_map.config`），绑定之后的那一处导入上方用一行注释说明原因。
+- 可读性优先，不为省行数合并语句：有副作用的主流程调用（build、evaluate、train 这类）单独一行赋值，先 `result = build(...)` 再 `print(result)`；`json.dumps`、格式化字符串这类纯输出转换直接写在 `print` 里。src 的 print/日志语句同样按这个口径。
+
 ## 环境与路径
 
 - 使用本仓库 `.venv`、Python 包或 `.pth`。依赖统一声明在 `pyproject.toml`。
 - `data_root` 在含数据输入的配置中显式填写，绝对路径或相对仓库根目录均可。
 - 数据、快照、权重、tokenizer 路径相对于 `data_root`；配置文件和解释器路径相对于仓库根目录，也可使用绝对路径。不是相对于当前 YAML 文件位置。
-- CLI 文件系统参数按调用工作目录解释；从其他目录调用时优先传绝对路径。
+- 命令行文件系统参数按调用工作目录解释；从其他目录调用时优先传绝对路径。
 - 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位；`outputs/` 内的产物搬迁按 `outputs/RULES.md` 的搬迁规则改写路径，其他位置搬迁后显式调整输入位置并重建环境。
 - MJB 恢复要求匹配生成时的 MuJoCo 版本；不能把可查看的 XML 宣称为已验证的独立可搬迁资产包。
-- GPU 0–7 按实时利用率与空闲显存选择，CLI 显式传 `--gpu <index>`；不在代码中固定卡号，不干预其他进程。
+- GPU 0–7 按实时利用率与空闲显存选择，命令行显式传 `--gpu <index>`；不在代码中固定卡号，不干预其他进程。
 
 ## 安装与验证
 
 以下命令从仓库根目录执行：
 
 ```bash
-scripts/install.sh
-.venv/bin/python scripts/build_scenes.py --help
+scripts/install/main.sh
+.venv/bin/python scripts/scenes/build.py --help
 
 # 离线回归；无需真实资产、权重或 GPU 任务
 MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \

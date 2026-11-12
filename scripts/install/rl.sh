@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Separate environment: never sync the root project's pinned robotics stack.
 set -euo pipefail
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
+repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 mjlab_source=${1:-/home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab}
 cuda_route=${2:-cu130}
 export UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/lastmile-uv-cache}

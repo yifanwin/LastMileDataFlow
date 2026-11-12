@@ -181,7 +181,7 @@ tests/                        utils/ sim/ robots/ planning/ operation/ policies/
 4. 跨包一律绝对导入（from lastmile_dataflow.sim.simulation import Simulation），包内用相对导入；__init__.py 全部为空。
 5. 新增 tests/test_layers.py：按上面的层次检查全部 import，向上引用即失败；planner_trials 与 rl、lastmile_dataset 与 lastmile_benchmark 互不引用。
 6. 删除只有测试在用的 prepare_scene/PreparedScene；scenes/loading/panda_factory.py 挪进 tests/smoke/。
-7. 删除 6 份子目录 README，目录说明只写在 docs/architecture.md；同步 AGENTS.md 目录职责表、README、docs/运行手册.md。
+7. 删除 6 份子目录 README，目录说明只写在 docs/architecture.md；同步 AGENTS.md 目录职责表、README、docs/runbook.md。
 
 ### 落地方式
 
@@ -297,7 +297,7 @@ curobo、navigation、state、pick、collision_world、analysis_video、lastmile
    - `local.example` 的 `output_dir`（`LocalConfig.output_dir` 删掉）；
    - benchmark 配置里已不是 `BenchmarkConfig` 字段的键（加载时报未知键，核实后删）。
 4. **`data_root` 统一**：现有 `/data1/wenyifan/molmospaces_data` 和 `/data1/wenyifan/lmdf/molmospaces_data` 两种写法，核实实际数据所在（可能一个是软链接），统一成一个。
-5. 同步 `docs/运行手册.md`、`docs/setup.md`、README、tests 里的配置路径。
+5. 同步 `docs/runbook.md`、`docs/setup.md`、README、tests 里的配置路径。
 
 ## 六、执行顺序与验证
 

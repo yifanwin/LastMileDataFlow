@@ -225,7 +225,7 @@ Cup r01/r02、Open r01/r02、Bottle r02 的关键轨迹已渲染为 10 段对比
 | [grid-cup.mp4](../../../outputs/diagnostics/task-modes/p6/analysis/p6-videos-20261026-r01/replays/grid-cup/r000000/grid.mp4) | Cup r02 S0013 success `mobile_pick`，421 步；三相机 + 俯视 |
 | [grid-open.mp4](../../../outputs/diagnostics/task-modes/p6/analysis/p6-videos-20261026-r01/replays/grid-open/r000015/grid.mp4) | Open r02 S0021 success `physical_open`，875 步；三相机 + 俯视 |
 
-生成接口为 `evaluate-stations --replay-layout grid --rollouts <id>`，说明见[运行手册](../../../docs/运行手册.md#panda-数值标定与离线回放)。视频内标签全部为 ASCII，不依赖中文字体。
+生成接口为 `evaluate-stations --replay-layout grid --rollouts <id>`，说明见[运行手册](../../../docs/runbook.md#panda-数值标定与离线回放)。视频内标签全部为 ASCII，不依赖中文字体。
 
 ## 7. 关键结论
 

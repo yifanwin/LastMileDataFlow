@@ -35,24 +35,24 @@ class StationRun:
         return replace(collection, record_images=visual, record_video=visual and collection.record_video)
 
 
-def add_station_run_arguments(cli):
+def add_station_run_arguments(parser):
     """Command-line options of the calibration and collection scripts (defaults are StationRun's)."""
-    cli.add_argument("--config", type=Path, required=True, help="执行配置 YAML，见 configs/station_map")
-    cli.add_argument("--assets-dir", type=Path, help="资产目录；省略时取 configs/local.yaml 的 assets_dir")
-    cli.add_argument("--max-trials", type=int, help="每场景试验上限，只做少量检查；不完整标定不能用于正式配对")
-    cli.add_argument("--record-video", action="store_true", default=None, help="visual 模式下额外录像")
-    cli.add_argument(
+    parser.add_argument("--config", type=Path, required=True, help="执行配置 YAML，见 configs/station_map")
+    parser.add_argument("--assets-dir", type=Path, help="资产目录；省略时取 configs/local.yaml 的 assets_dir")
+    parser.add_argument("--max-trials", type=int, help="每场景试验上限，只做少量检查；不完整标定不能用于正式配对")
+    parser.add_argument("--record-video", action="store_true", default=None, help="visual 模式下额外录像")
+    parser.add_argument(
         "--recording-mode",
         choices=("numerical", "visual"),
         help="标定记录：numerical 不存训练 RGB（默认，--record-video 时为 visual）",
     )
-    cli.add_argument("--planning-workers-per-gpu", type=int, nargs="+", help="每卡规划进程数 1–4，默认 1")
-    cli.add_argument("--cpu-workers", type=int, help="CPU 执行进程数，默认 60")
-    cli.add_argument("--preparation-workers", type=int, help="站位准备进程数，默认 12")
+    parser.add_argument("--planning-workers-per-gpu", type=int, nargs="+", help="每卡规划进程数 1–4，默认 1")
+    parser.add_argument("--cpu-workers", type=int, help="CPU 执行进程数，默认 60")
+    parser.add_argument("--preparation-workers", type=int, help="站位准备进程数，默认 12")
 
 
 def station_run(args):
-    """StationRun from ``add_station_run_arguments`` options; CLI paths are relative to the working directory."""
+    """StationRun from ``add_station_run_arguments`` options; command-line paths are relative to the working directory."""
     values = {
         "execution": str(args.config.resolve()),
         "assets_dir": str(args.assets_dir.resolve()) if args.assets_dir else None,

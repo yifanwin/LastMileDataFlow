@@ -14,7 +14,17 @@ from lastmile_dataflow.utils.io import REPO_ROOT
 from lastmile_dataflow.station_map.config import StationRun, add_station_run_arguments, station_run
 from lastmile_dataflow.utils.gpu import select_devices
 
-SCRIPTS = ("build_scenes", "sample_stations", "station_map", "collect", "bench_build", "bench_evaluate")
+SCRIPTS = (
+    "scenes/build",
+    "scenes/build_asset_index",
+    "station_map/sample",
+    "station_map/planner_trials",
+    "lastmile_dataset/collect",
+    "lastmile_dataset/export_pi05",
+    "lastmile_benchmark/build",
+    "lastmile_benchmark/evaluate",
+    "operation/replay",
+)
 
 
 class StageScriptTests(unittest.TestCase):
@@ -28,7 +38,7 @@ class StageScriptTests(unittest.TestCase):
                 check=True,
                 env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
             )
-            self.assertIn("--scenes" if name == "sample_stations" else "--output", result.stdout, name)
+            self.assertIn("--scenes" if name == "station_map/sample" else "--output", result.stdout, name)
 
     def test_select_devices_binds_cuda_and_egl_to_the_first_card(self):
         with (
@@ -41,16 +51,16 @@ class StageScriptTests(unittest.TestCase):
             self.assertEqual(os.environ["MUJOCO_EGL_DEVICE_ID"], "1")
             self.assertEqual(os.environ["MUJOCO_GL"], "egl")
 
-    def test_station_run_defaults_match_the_former_cli_flags(self):
-        cli = argparse.ArgumentParser()
-        add_station_run_arguments(cli)
-        run = station_run(cli.parse_args(["--config", "configs/station_map/panda_omron_curobo.yaml"]))
+    def test_station_run_defaults_match_station_run(self):
+        parser = argparse.ArgumentParser()
+        add_station_run_arguments(parser)
+        run = station_run(parser.parse_args(["--config", "configs/station_map/panda_omron_curobo.yaml"]))
         self.assertEqual(run.execution, str(Path("configs/station_map/panda_omron_curobo.yaml").resolve()))
         self.assertEqual(
             (run.planning_workers_per_gpu, run.cpu_workers, run.preparation_workers, run.record_video, run.mode),
             ([1], 60, 12, False, "numerical"),
         )
-        visual = station_run(cli.parse_args(["--config", "x.yaml", "--record-video", "--cpu-workers", "4"]))
+        visual = station_run(parser.parse_args(["--config", "x.yaml", "--record-video", "--cpu-workers", "4"]))
         self.assertEqual((visual.mode, visual.cpu_workers), ("visual", 4))
         with self.assertRaises(ValueError):
             StationRun(execution="x", recording_mode="video")

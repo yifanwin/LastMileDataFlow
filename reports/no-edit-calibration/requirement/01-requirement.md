@@ -4,7 +4,7 @@
 - 日期：2026-10-26
 - 替代：同文件初版
 - 范围变更：2026-10-26 由 `val_0`–`val_99`（100 个）扩展为 `val_0`–`val_999`（1000 个）
-- 关联：[任务模式需求](../../task-modes/requirement/01-task-mode-construction.md)、[实验方案](../plan/01-experiment-plan.md)、[计划表](../plan/02-schedule.md)、[任务模式构建说明](../../task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../docs/运行手册.md)
+- 关联：[任务模式需求](../../task-modes/requirement/01-task-mode-construction.md)、[实验方案](../plan/01-experiment-plan.md)、[计划表](../plan/02-schedule.md)、[任务模式构建说明](../../task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../docs/runbook.md)
 
 > 工作目录名 `no-edit-calibration-val0-99` 和分支名保留创建时名称，实际范围以本文为准。
 

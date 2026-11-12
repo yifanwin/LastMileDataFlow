@@ -2,7 +2,7 @@
 
 - 状态：active
 - 日期：2026-10-22
-- 关联：[运行手册](运行手册.md)、[π0.5 运行指南](../reports/pi05/docs/01-running.md)、[architecture.md](architecture.md)
+- 关联：[运行手册](runbook.md)、[π0.5 运行指南](../reports/pi05/docs/01-running.md)、[architecture.md](architecture.md)
 
 从空白服务器配置可运行环境。数据统一放在大数据盘，不放进仓库。需要整体搬迁旧机器时见[附录 A](#附录-a从既有环境迁移)。
 
@@ -36,10 +36,10 @@ $DATA_ROOT/
 ```bash
 git clone https://github.com/yifanwin/LastMileDataFlow.git "$REPO"
 cd "$REPO"
-scripts/install.sh
-.venv/bin/python scripts/build_scenes.py --help
+scripts/install/main.sh
+.venv/bin/python scripts/scenes/build.py --help
 
-scripts/install_pi05.sh        # 需要 π0.5 时
+scripts/install/pi05.sh        # 需要 π0.5 时
 ```
 
 已验证版本：Python 3.11、mujoco 3.5.0、torch 2.7.1、torchvision 0.22.1、transformers 5.4.0、numpy 2.4.6、warp-lang 1.11.1、nvidia-curobo 0.8.0。
@@ -53,7 +53,7 @@ scripts/install_pi05.sh        # 需要 π0.5 时
 
 版本命令见 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/)。2026-10-26 的真实 cuRobo smoke 已确认 cu126 报 no kernel image；cu128 安装、真实 CUDA 运算与完整规划验证已完成，见[标定交付](../reports/task-modes/delivery/02-calibration-delivery.md)。
 
-`pyproject.toml` 未锁定全部依赖。严格复现时从已知可用环境导出 `pip freeze --exclude-editable`，在新环境 `install.sh` 后安装该清单。
+`pyproject.toml` 未锁定全部依赖。严格复现时从已知可用环境导出 `pip freeze --exclude-editable`，在新环境运行 `scripts/install/main.sh` 后安装该清单。
 
 ## 3. 准备数据
 
@@ -202,7 +202,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
   --output "outputs/experiments/scratch/20261111-multitask-smoke"
 ```
 
-小样本主链按 [当前运行手册](运行手册.md) 执行五个阶段脚本。
+小样本主链按 [当前运行手册](runbook.md) 执行五个阶段脚本。
 
 ## 6. 复现边界
 

@@ -3,7 +3,7 @@
 - 状态：archived
 - 日期：2026-10-24
 - 替代：[当前文档](../../../plan/01-panda-omron-time-optimization.md)；归档前记录：本文件原 1.5–1.8 小时估算方案
-- 关联：[耗时分析](../analyze/2026-10-20-scene-datasets-and-calibration-cost.md)、[本轮复核与证据](../delivery/2026-10-22-calibration-time-review.md)、[运行手册](../../../../../docs/运行手册.md)
+- 关联：[耗时分析](../analyze/2026-10-20-scene-datasets-and-calibration-cost.md)、[本轮复核与证据](../delivery/2026-10-22-calibration-time-review.md)、[运行手册](../../../../../docs/runbook.md)
 
 **2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 

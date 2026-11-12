@@ -7,7 +7,7 @@
 ## 历史版本记录（保留原文）
 
 **当前五命令软件回归可用；lastmile-bench v0.1 已完成既有数据构建及 RBY-1 真实评测，恢复成功能力尚未取得正例。**
-运行方式见 [运行手册](../docs/运行手册.md)，不要从历史实施步骤寻找当前命令。
+运行方式见 [运行手册](../docs/runbook.md)，不要从历史实施步骤寻找当前命令。
 
 当前actor-critic算法与训练主链见[算法设计与训练核心 Pipeline](rl-station-map/docs/02-algorithm-training-pipeline.md)。
 

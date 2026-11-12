@@ -9,15 +9,15 @@ from pathlib import Path
 
 
 def arguments():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--stage", choices=("factory", "control", "align"), required=True)
-    p.add_argument("--robot", default="tests/smoke/panda_omron_position.yaml")
-    p.add_argument("--factory-root", type=Path)
-    p.add_argument("--asset-output", type=Path)
-    p.add_argument("--gpu", type=int, required=True)
-    p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--seed", type=int, default=42)
-    return p.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stage", choices=("factory", "control", "align"), required=True)
+    parser.add_argument("--robot", default="tests/smoke/panda_omron_position.yaml")
+    parser.add_argument("--factory-root", type=Path)
+    parser.add_argument("--asset-output", type=Path)
+    parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--seed", type=int, default=42)
+    return parser.parse_args()
 
 
 def floor_source(output):

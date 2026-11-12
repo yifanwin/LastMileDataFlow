@@ -19,7 +19,7 @@ simplify worktree 没有独立环境时，使用主仓库已有解释器并设�
 修改 configs/scenes/panda_omron.yaml 中的数据路径、资产索引和 houses（配置均为 YAML，只写与默认值不同的字段）：
 
 ```bash
-$PY scripts/build_scenes.py --config configs/scenes/panda_omron.yaml --output outputs/batches/example/runs/scenes --gpu 0
+$PY scripts/scenes/build.py --config configs/scenes/panda_omron.yaml --output outputs/batches/example/runs/scenes --gpu 0
 ```
 
 每任务默认原场景一份、编辑场景一份；桌面1–3个、目标0.3m内同一支撑面，地面0–2个。edits.enabled=false 只构建原场景。输出 scenes.jsonl 与 scene-files/。这一步只做物理检查，不采站位；接受场景不等于任务成功。
@@ -27,7 +27,7 @@ $PY scripts/build_scenes.py --config configs/scenes/panda_omron.yaml --output ou
 ## 2. 站位采样
 
 ```bash
-$PY scripts/sample_stations.py --scenes outputs/batches/example/runs/scenes --gpu 0
+$PY scripts/station_map/sample.py --scenes outputs/batches/example/runs/scenes --gpu 0
 ```
 
 逐场景重开快照，在目标周围 1m、间距 0.25m 的格点上按覆盖顺序做真实初始化，每场景最多取 max_final_stations 个合法站位（编辑场景另测目标可见性）。结果写回场景库：stations.jsonl、stations_summary.json、index.html 与 previews/。没有合法站位的场景在这一步淘汰。后面各步只认采过站位的场景库，缺 stations.jsonl 会报错。采样参数仍在场景配置的 station 段。
@@ -37,7 +37,7 @@ $PY scripts/sample_stations.py --scenes outputs/batches/example/runs/scenes --gp
 `--config` 是 configs/station_map 下的执行配置。进程数、记录模式和试验预算用命令行给出（`--assets-dir --max-trials --record-video --recording-mode --planning-workers-per-gpu --cpu-workers --preparation-workers`），见 configs/README.md。
 
 ```bash
-$PY scripts/station_map.py --dataset outputs/batches/example/runs/scenes --config configs/station_map/panda_omron_curobo.yaml --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output outputs/batches/example/runs/stations --gpu 0
+$PY scripts/station_map/planner_trials.py --dataset outputs/batches/example/runs/scenes --config configs/station_map/panda_omron_curobo.yaml --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output outputs/batches/example/runs/stations --gpu 0
 ```
 
 只用 cuRobo；已有站位不重采。--max-trials 可做少量检查，但不完整标定不能用于正式配对。--recording-mode numerical（默认）不记录训练RGB；visual 记录RGB，--record-video 额外录像。逐物理步日志和深度录制已移除。
@@ -45,7 +45,7 @@ $PY scripts/station_map.py --dataset outputs/batches/example/runs/scenes --confi
 ## 4. 连续采集
 
 ```bash
-$PY scripts/collect.py --dataset outputs/batches/example/runs/scenes --calibration outputs/batches/example/runs/stations --config configs/station_map/panda_omron_curobo.yaml --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output outputs/batches/example/runs/collect --gpu 0
+$PY scripts/lastmile_dataset/collect.py --dataset outputs/batches/example/runs/scenes --calibration outputs/batches/example/runs/stations --config configs/station_map/panda_omron_curobo.yaml --assets-dir /data1/wenyifan/lmdf/molmospaces_data/assets --output outputs/batches/example/runs/collect --gpu 0
 ```
 
 省略 --calibration 时先在当前 run 标定。输入、机器人、传感器和物理执行参数必须匹配。保留全部合格 S0/S1 配对及负结果；成功且完整的示教导出为内部 rollout_path，直接用 load_training_batch 读取，无独立物化步骤。
@@ -53,15 +53,15 @@ $PY scripts/collect.py --dataset outputs/batches/example/runs/scenes --calibrati
 ## 5. Benchmark
 
 ```bash
-$PY scripts/bench_build.py --dataset outputs/batches/example/runs/scenes --calibration outputs/batches/example/runs/stations --config configs/lastmile_benchmark/panda_omron.yaml --output outputs/batches/example/runs/bench
-$PY scripts/bench_evaluate.py --benchmark outputs/batches/example/runs/bench --config configs/policies/pi05_panda_omron.yaml --output outputs/batches/example/runs/bench-eval --gpu 0
+$PY scripts/lastmile_benchmark/build.py --dataset outputs/batches/example/runs/scenes --calibration outputs/batches/example/runs/stations --config configs/lastmile_benchmark/panda_omron.yaml --output outputs/batches/example/runs/bench
+$PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/runs/bench --config configs/policies/pi05_panda_omron.yaml --output outputs/batches/example/runs/bench-eval --gpu 0
 ```
 
 构建读取实测成功率，不重新标定。MolmoBot 使用 RBY-1 native profile；π0.5 的 embodiment 必须匹配本体。场景控制模式不同不能直接替换策略或复用标定。
 
 ## 6. RL 站位图
 
-保持独立 RL 环境，使用 scripts/experiments/train_sac.py、score_stations.py、evaluate_sac.py；先查看 --help。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
+保持独立 RL 环境，使用 scripts/station_map/rl/ 下的 train.py、score.py、evaluate.py；先查看 --help。`--gpu` 填物理卡号，train.py 可给多张（每张一个 Sampler，第一张同时放 Learner），原来的 `--gpus 0,5` 写成 `--gpu 0 5`。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
 
 ## 7. 渲染与失败结果
 

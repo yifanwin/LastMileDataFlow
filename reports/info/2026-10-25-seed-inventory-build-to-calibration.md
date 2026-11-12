@@ -1,7 +1,7 @@
 - 状态：active
 - 日期：2026-10-25
 - 替代：无
-- 关联：docs/architecture.md、docs/运行手册.md、reports/README.md、reports/curobo-time-optimization/info/02-parallelism-and-batch.md
+- 关联：docs/architecture.md、docs/runbook.md、reports/README.md、reports/curobo-time-optimization/info/02-parallelism-and-batch.md
 
 # build-scenes → cuRobo 标定的 seed 汇总
 

@@ -1,4 +1,4 @@
-"""Real Panda station preparation; production CLI owns calibration and collection."""
+"""Real Panda station preparation; production scripts own calibration and collection."""
 
 from lastmile_dataflow.utils.gpu import select_devices
 import argparse

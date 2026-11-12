@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 if [[ ! -x .venv-pi05/bin/python ]]; then
   uv venv --python "${PYTHON_VERSION:-3.11}" .venv-pi05
 fi

@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：无；将实验方案拆为可跟踪任务
-- 关联：[需求](../requirement/01-requirement.md)、[实验方案](01-experiment-plan.md)、[运行手册](../../../docs/运行手册.md)
+- 关联：[需求](../requirement/01-requirement.md)、[实验方案](01-experiment-plan.md)、[运行手册](../../../docs/runbook.md)
 
 ## 1. 执行约定与当前进度
 
