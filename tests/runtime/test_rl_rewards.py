@@ -1,10 +1,10 @@
-import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
 import torch
 
+from lastmile_dataflow.config import read_config
 from lastmile_dataflow.runtime.rl.terms import grasp_events, reward
 from lastmile_dataflow.scenes.rl_observation import REWARD_COMPONENTS
 from lastmile_dataflow.runtime.outcomes.pick_state import update_hold_window, RL_PICK_THRESHOLDS
@@ -26,7 +26,7 @@ class RewardTests(unittest.TestCase):
         self.assertEqual(float(peak), 1.)
 
     def test_pregrasp_neutral_width_and_signed_progress(self):
-        config = json.loads((Path(__file__).parents[2] / 'configs/rl/val103_cup30.json').read_text())
+        config = read_config('configs/rl/val103_cup30.yaml')
         task = SimpleNamespace(goal_error=lambda: (torch.tensor([[.02,0,0]]), torch.zeros(1,3)),
                                forces=torch.zeros(1,2), robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[.04,-.04]]))),
                                fingers=[0,1], open_grip=.08, tcp_velocity=lambda: (torch.zeros(1,3),torch.zeros(1,3)),

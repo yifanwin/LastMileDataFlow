@@ -15,7 +15,7 @@ import json
 import mujoco
 import numpy as np
 
-from ..config import read_config, robot_config as parse_robot_config
+from ..config import robot_config as parse_robot_config
 from ..scenes.loading.mjcf import load_spec, save_spec
 from ..scenes.loading.source import SceneSource, instance_catalog, resolve_target
 from ..utils.io import canonical, read_json, write_json
@@ -110,7 +110,7 @@ class Simulation:
     @classmethod
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None, scene_id=None):
         frozen_dir = Path(frozen_dir)
-        value = read_config(frozen_dir / 'config.json')
+        value = read_json(frozen_dir / 'config.json')
         if _normalized(asdict(robot_config)) != _normalized(asdict(parse_robot_config(value['robot']))):
             raise ValueError('snapshot robot configuration mismatch')
         if value['mujoco_version'] != mujoco.__version__:

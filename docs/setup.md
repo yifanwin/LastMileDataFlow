@@ -175,23 +175,20 @@ RBY-1 的 π0.5 本体统计需由项目数据生成，见 [π0.5 运行指南](
 
 ```bash
 cd "$REPO"
-cp configs/local.example.json configs/local.json
+cp configs/local.example.yaml configs/local.yaml
 ```
 
-```json
-{
-  "assets_dir": "/data1/molmospaces_data/assets",
-  "output_dir": "outputs"
-}
+```yaml
+assets_dir: /data1/molmospaces_data/assets
 ```
 
-`configs/local.json` 不入库。再把各配置中的 `data_root` 指向数据盘：
+`configs/local.yaml` 不入库。再把各配置中的 `data_root` 指向数据盘：
 
 ```bash
-grep -rl '"data_root": "data"' configs
+grep -rl '^data_root:' configs tests/smoke
 ```
 
-逐个改为 `"$DATA_ROOT"` 的绝对路径（路径相对仓库根目录解析，与 JSON 所在位置无关）。π0.5 配置中的 checkpoint、tokenizer、norm_stats 也按实际位置填写。
+逐个改为 `$DATA_ROOT` 的绝对路径（路径相对仓库根目录解析，与 YAML 所在位置无关）。π0.5 配置中的 checkpoint、tokenizer、norm_stats 也按实际位置填写。
 
 ## 5. 验证
 

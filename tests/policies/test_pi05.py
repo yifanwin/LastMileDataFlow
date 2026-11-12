@@ -14,17 +14,17 @@ from lastmile_dataflow.runtime.execution_config import load_execution_config
 
 class Pi05Tests(unittest.TestCase):
     def test_explicit_configs_and_control_profiles(self):
-        panda = load_policy_config('configs/policies/pi05_panda_omron.json')
+        panda = load_policy_config('configs/policies/pi05_panda_omron.yaml')
         self.assertEqual((panda.state_size,panda.action_size),(16,12))
         self.assertTrue(panda.python.endswith('.venv-pi05/bin/python'))
-        config=load_execution_config('configs/execution/pi05_panda_omron.json')
+        config=load_execution_config('configs/execution/pi05_panda_omron.yaml')
         self.assertEqual(config.operation_backend,'pi05')
         robot=PandaOmronConfig('unused',control_profile='robocasa-v1')
-        check_profile(robot,'pi05','configs/policies/pi05_panda_omron.json')
+        check_profile(robot,'pi05','configs/policies/pi05_panda_omron.yaml')
         with self.assertRaisesRegex(ValueError,'embodiment'):
-            check_profile(RobotConfig('unused'),'pi05','configs/policies/pi05_panda_omron.json')
+            check_profile(RobotConfig('unused'),'pi05','configs/policies/pi05_panda_omron.yaml')
         with self.assertRaisesRegex(ValueError,'control profile'):
-            check_profile(PandaOmronConfig('unused'),'pi05','configs/policies/pi05_panda_omron.json')
+            check_profile(PandaOmronConfig('unused'),'pi05','configs/policies/pi05_panda_omron.yaml')
         check_profile(robot,'curobo')
 
     def test_action_buffer_replans_and_does_not_cross_episodes(self):

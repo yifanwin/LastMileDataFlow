@@ -17,24 +17,29 @@ class PathTests(unittest.TestCase):
             root = Path(tmp)
             with patch('lastmile_dataflow.config.REPO_ROOT', root):
                 self.assertEqual(load_local_config(), LocalConfig())
-                write_json(root / 'configs/local.json', {
-                    'assets_dir': '/shared/assets', 'output_dir': 'runs',
-                })
-                self.assertEqual(load_local_config(), LocalConfig(Path('/shared/assets'), root / 'runs'))
-                write_json(root / 'configs/local.json', {'assets_dir': 'data/assets'})
+                write_json(root / 'configs/local.yaml', {'assets_dir': '/shared/assets'})
+                self.assertEqual(load_local_config(), LocalConfig(Path('/shared/assets')))
+                write_json(root / 'configs/local.yaml', {'assets_dir': 'data/assets'})
                 self.assertEqual(load_local_config().assets_dir, root / 'data/assets')
 
     def test_data_paths_use_explicit_data_root_not_config_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            path = root / "configs/nested/robot.json"
+            path = root / "configs/nested/robot.yaml"
             write_json(path, {"data_root": str(root / "assets"), "model_path": "robot.xml"})
             robot = load_robot_config(path)
             self.assertEqual(robot.model_path, str(root / "assets/robot.xml"))
 
-    def test_missing_data_root_is_not_guessed(self):
+    def test_input_configs_are_yaml(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "robot.json"
+            write_json(path, {"model_path": "robot.xml"})
+            with self.assertRaisesRegex(ValueError, "YAML"):
+                read_config(path)
+
+    def test_missing_data_root_is_not_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "robot.yaml"
             write_json(path, {"model_path": "robot.xml"})
             with self.assertRaisesRegex(ValueError, "data_root"):
                 load_robot_config(path)
@@ -47,7 +52,7 @@ class PathTests(unittest.TestCase):
             interpreter = root / ".venv/bin/python"
             interpreter.parent.mkdir(parents=True)
             interpreter.symlink_to(base)
-            path = root / "configs/nested/policy.json"
+            path = root / "configs/nested/policy.yaml"
             write_json(
                 path, {"data_root": "data", "checkpoint": "models/multitask", "python": ".venv/bin/python"}
             )
@@ -66,7 +71,7 @@ class PathTests(unittest.TestCase):
             }
             run = create_run(root / "run", value)
             self.assertEqual(read_json(run / "config.json"), value)
-            self.assertEqual(read_config(run / "config.json"), value)
+            self.assertEqual(read_json(run / "config.json"), value)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -74,8 +79,8 @@ class ConfigurationTests(unittest.TestCase):
         from lastmile_dataflow.runtime.execution_config import load_execution_config
         from lastmile_dataflow.data.evaluation.calibration import eligible_stations
 
-        for name in ('panda_omron_curobo', 'panda_omron_robocasa_curobo'):
-            config = load_execution_config(f'configs/execution/{name}.json')
+        for name in ('panda_omron_curobo',):
+            config = load_execution_config(f'configs/execution/{name}.yaml')
             self.assertEqual(config.trials_per_station, 3)
             stations = [{'station_id': str(i), 'geometry': 'valid'} for i in range(4)]
             calibration = {'complete': True, 'stations': [

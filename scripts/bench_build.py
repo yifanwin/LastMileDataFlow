@@ -7,7 +7,7 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--dataset', type=Path, required=True, help='场景库 run 目录')
     cli.add_argument('--calibration', type=Path, required=True, help='cuRobo 标定 run 目录')
-    cli.add_argument('--config', type=Path, default=Path('configs/benchmark/v0.1.json'), help='benchmark 配置 JSON')
+    cli.add_argument('--config', type=Path, help='benchmark 配置 YAML，见 configs/benchmark；省略时用 v0.1 默认值')
     cli.add_argument('--output', type=Path, required=True, help='新 benchmark 目录')
     args = cli.parse_args()
     from lastmile_dataflow.utils.logging_config import setup_logging

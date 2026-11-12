@@ -60,13 +60,13 @@ class SamplingTests(unittest.TestCase):
             self.assertIsNone(row['visibility'])
 
     def test_sampling_defaults_are_independent_of_embodiment(self):
-        config = load_scene_recipe('configs/scenes/panda_omron.json')
+        config = load_scene_recipe('configs/scenes/panda_omron.yaml')
         self.assertEqual(config.geometry.radius_m, 1.)
         self.assertEqual(config.geometry.spacing_m, .25)
         self.assertEqual(config.max_final_stations, 20)
 
     def test_invalid_parameters_rejected(self):
-        for changes in ({"spacing_m": 0}, {"trials_per_station": True}, {"operations": ["place"]}):
+        for changes in ({"spacing_m": 0}, {"trials_per_station": True}):
             with self.assertRaises(ValueError):
                 ExecutionConfig(**changes)
 

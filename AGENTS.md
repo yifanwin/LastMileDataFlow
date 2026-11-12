@@ -60,7 +60,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 入口脚本只做参数与设备绑定，`config.py` / `io.py` 管理共用配置与读写。
 算法放领域模块，编排放 `workflows`，实际运动放 `runtime`；不另起平行执行器或记录链路。
 
-- 根目录 `configs/`：显式 JSON 配置；解析规则见下节。
+- 根目录 `configs/`：显式 YAML 输入配置，只写与默认值不同的字段；运行产物仍写 JSON；解析规则见下节。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
 - `tests/`：按 `scenes/runtime/planning/policies/data/workflows` 分组；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
 - `outputs/`：运行产物，细则见 [outputs/RULES.md](outputs/RULES.md)。
@@ -76,7 +76,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 - 使用本仓库 `.venv`、Python 包或 `.pth`。依赖统一声明在 `pyproject.toml`。
 - `data_root` 在含数据输入的配置中显式填写，绝对路径或相对仓库根目录均可。
-- 数据、快照、权重、tokenizer 路径相对于 `data_root`；配置文件和解释器路径相对于仓库根目录，也可使用绝对路径。不是相对于当前 JSON 文件位置。
+- 数据、快照、权重、tokenizer 路径相对于 `data_root`；配置文件和解释器路径相对于仓库根目录，也可使用绝对路径。不是相对于当前 YAML 文件位置。
 - CLI 文件系统参数按调用工作目录解释；从其他目录调用时优先传绝对路径。
 - 各配置加载器明确解析所需字段，不递归扫描嵌套记录。已有运行配置不自动重定位；`outputs/` 内的产物搬迁按 `outputs/RULES.md` 的搬迁规则改写路径，其他位置搬迁后显式调整输入位置并重建环境。
 - MJB 恢复要求匹配生成时的 MuJoCo 版本；不能把可查看的 XML 宣称为已验证的独立可搬迁资产包。

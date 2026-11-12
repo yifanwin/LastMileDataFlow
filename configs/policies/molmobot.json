@@ -1,9 +1,0 @@
-{
-  "data_root": "/data1/wenyifan/molmospaces_data",
-  "checkpoint": "models/MolmoBot-RBY1Multitask",
-  "tokenizer_path": "models/Qwen3-tokenizer",
-  "python": ".venv/bin/python",
-  "gripper_mode": "model_default",
-  "task_horizon": 400,
-  "backend": "molmobot"
-}

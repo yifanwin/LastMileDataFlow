@@ -10,7 +10,7 @@ from pathlib import Path
 def arguments():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--stage", choices=("factory", "control", "align"), required=True)
-    p.add_argument("--robot", default="configs/robots/panda_omron.json")
+    p.add_argument("--robot", default="tests/smoke/panda_omron_position.yaml")
     p.add_argument("--factory-root", type=Path)
     p.add_argument("--asset-output", type=Path)
     p.add_argument("--gpu", type=int, required=True)

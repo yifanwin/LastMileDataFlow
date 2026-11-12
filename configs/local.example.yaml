@@ -1,0 +1,2 @@
+# 复制为 configs/local.yaml；路径相对仓库根目录或绝对路径。
+assets_dir: data/assets

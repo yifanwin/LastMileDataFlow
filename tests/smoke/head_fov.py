@@ -10,8 +10,8 @@ import torch
 from curobo._src.robot.kinematics.kinematics import Kinematics
 from curobo.types import JointState
 
-from lastmile_dataflow.config import RobotConfig, read_config
-from lastmile_dataflow.utils.io import write_json
+from lastmile_dataflow.config import robot_config
+from lastmile_dataflow.utils.io import read_json, write_json
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 from lastmile_dataflow.planning.curobo.head_fov import target_camera_torch
 from lastmile_dataflow.runtime.execution.context import planner_options
@@ -27,7 +27,7 @@ def main():
     p.add_argument("--scene-id", required=True)
     p.add_argument("--station", required=True)
     p.add_argument("--assets-dir", type=Path, required=True)
-    p.add_argument("--config", type=Path, default=Path("configs/execution/curobo_v2.json"))
+    p.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--gpu", type=int, required=True)
     args = p.parse_args()
@@ -36,7 +36,7 @@ def main():
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     task = scene["task"]
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)
-    robot = RobotConfig(**read_config(Path(scene["scene_path"]) / "config.json")["robot"])
+    robot = robot_config(read_json(Path(scene["scene_path"]) / "config.json")["robot"])
     sim = Simulation.from_snapshot(scene["scene_path"], robot, target=task["target_body"])
     planner = None
     try:

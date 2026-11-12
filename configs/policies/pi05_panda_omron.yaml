@@ -1,0 +1,6 @@
+backend: pi05
+data_root: /data1/wenyifan/lmdf/molmospaces_data
+embodiment: panda_omron
+checkpoint: models/pi05_pretrain_human300/multitask_learning/75000
+tokenizer_path: models/paligemma_tokenizer.model
+norm_stats: models/pi05_pretrain_human300/multitask_learning/75000/assets/norm_stats.json

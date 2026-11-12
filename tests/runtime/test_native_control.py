@@ -120,18 +120,18 @@ class NativeTests(unittest.TestCase):
 
 class ConfigTests(unittest.TestCase):
     def test_policy_config_uses_local_backend(self):
-        config = load_policy_config(ROOT / "configs/policies/molmobot.json")
+        config = load_policy_config(ROOT / "configs/policies/molmobot.yaml")
         self.assertEqual(config.gripper_mode, "model_default")
         self.assertTrue(config.tokenizer_path.endswith("models/Qwen3-tokenizer"))
         self.assertFalse(hasattr(config, "source_dir"))
-        sampling = load_execution_config(ROOT / "configs/execution/molmobot.json")
+        sampling = load_execution_config(ROOT / "configs/execution/molmobot.yaml")
         self.assertAlmostEqual(sampling.radius_m, 0.7928056080178096)
         self.assertAlmostEqual(sampling.spacing_m, 0.1108796040001314)
         self.assertEqual(sampling.trials_per_station, 5)
         self.assertEqual(sampling.operation_base_mode, "policy_relative")
 
     def test_native_resolution_and_backend_mode_fail_closed(self):
-        config = load_execution_config(ROOT / "configs/execution/molmobot.json")
+        config = load_execution_config(ROOT / "configs/execution/molmobot.yaml")
         for values in ({"width": 320}, {"operation_base_mode": "holonomic_joint_planning"}):
             with self.assertRaises(ValueError):
                 replace(config, **values)

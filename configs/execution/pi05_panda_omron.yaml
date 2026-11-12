@@ -1,0 +1,6 @@
+operation_backend: pi05
+policy_config: configs/policies/pi05_panda_omron.yaml
+operation_base_mode: policy_relative
+width: 256
+height: 256
+trials_per_station: 1

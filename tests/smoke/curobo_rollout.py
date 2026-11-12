@@ -6,8 +6,8 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig, read_config
-from lastmile_dataflow.utils.io import create_run, write_json
+from lastmile_dataflow.config import CollectionConfig, robot_config
+from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.simulation import Simulation
@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--scene-id", required=True)
     parser.add_argument("--station", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)
-    parser.add_argument("--config", type=Path, default=Path("configs/execution/curobo_v2.json"))
+    parser.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
     args = parser.parse_args()
@@ -29,7 +29,7 @@ def main():
     config = load_execution_config(args.config)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)
-    robot = RobotConfig(**read_config(Path(scene["scene_path"]) / "config.json")["robot"])
+    robot = robot_config(read_json(Path(scene["scene_path"]) / "config.json")["robot"])
     collection = CollectionConfig(
         record_video=False, width=config.width, height=config.height, seed=config.seed
     )

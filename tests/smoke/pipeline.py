@@ -7,7 +7,9 @@ No synthetic recovery pair, automatic smoke fallback or relocation probe.
 import argparse
 from pathlib import Path
 
-from lastmile_dataflow.config import read_config
+import yaml
+
+from lastmile_dataflow.config import StationRun, read_config
 from lastmile_dataflow.gpu import select_devices
 from lastmile_dataflow.utils.io import create_run, rows, write_json
 from lastmile_dataflow.workflows.collect import run_collection
@@ -22,21 +24,20 @@ def main():
     parser.add_argument("--assets-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
-    parser.add_argument("--config", type=Path, default=Path("configs/execution/curobo_v2.json"))
+    parser.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
     parser.add_argument("--trials-per-station", type=int, default=2)
     parser.add_argument("--benchmark-calibration", type=Path)
-    parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.json"))
+    parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.yaml"))
     args = parser.parse_args()
     select_devices([args.gpu])
     execution = {**read_config(args.config), "trials_per_station": args.trials_per_station}
     root = create_run(args.output, {"dataset": str(args.dataset.resolve()), "scene_id": args.scene_id,
                                     "gpu": args.gpu, "seed": execution.get("seed", 42)})
-    write_json(root / "execution.json", execution)
-    run_config = root / "run.json"
-    write_json(run_config, {"execution": str(root / "execution.json"), "assets_dir": str(args.assets_dir.resolve())})
+    (root / "execution.yaml").write_text(yaml.safe_dump(execution))
+    run = StationRun(str(root / "execution.yaml"), assets_dir=str(args.assets_dir.resolve()))
     options = {"samples": [args.scene_id], "gpu_ids": [args.gpu]}
-    calibration = run_station_map(args.dataset, run_config, root / "calibration", **options)
-    collection = run_collection(args.dataset, run_config, root / "collection", calibration=calibration, **options)
+    calibration = run_station_map(args.dataset, run, root / "calibration", **options)
+    collection = run_collection(args.dataset, run, root / "collection", calibration=calibration, **options)
     result = {"calibration": str(calibration), "collection": str(collection)}
     write_json(root / "results.json", result)
     if args.benchmark_calibration:
@@ -44,7 +45,6 @@ def main():
             args.dataset,
             root / "bench",
             calibration_dir=args.benchmark_calibration,
-            config_path="configs/benchmark/v0.1.json",
         )
         result["benchmark"] = str(bench)
         if rows(bench / "episodes.jsonl"):

@@ -176,10 +176,10 @@ def _finish_pairs(root, pairs, stopped):
             "train_source_counts": dict(Counter(row["source_type"] for row in training))}
 
 
-def run_collection(dataset, run_config, output, *, gpu_ids, calibration=None, samples=None,
+def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=None,
                    execute=run_curobo_attempt):
     """复用匹配的标定或先在本 run 内完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
-    context = prepare_run(dataset, run_config, output, gpu_ids, collect=True, samples=samples,
+    context = prepare_run(dataset, run, output, gpu_ids, collect=True, samples=samples,
                           calibration=calibration)
     source = os.path.relpath(Path(calibration).resolve(), context.root.resolve()) if calibration else "."
     summaries, pairs, stopped, calibration_summary = [], [], False, None

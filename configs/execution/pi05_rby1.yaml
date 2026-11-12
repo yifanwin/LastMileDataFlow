@@ -1,0 +1,4 @@
+operation_backend: pi05
+policy_config: configs/policies/pi05_rby1.yaml
+operation_base_mode: policy_relative
+trials_per_station: 1

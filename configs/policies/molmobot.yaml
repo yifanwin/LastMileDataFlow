@@ -1,0 +1,5 @@
+backend: molmobot
+data_root: /data1/wenyifan/lmdf/molmospaces_data
+checkpoint: models/MolmoBot-RBY1Multitask
+tokenizer_path: models/Qwen3-tokenizer
+python: .venv/bin/python

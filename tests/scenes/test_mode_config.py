@@ -8,7 +8,7 @@ from lastmile_dataflow.scenes.dataset import SceneRecipe
 class TaskModeConfigTests(unittest.TestCase):
     def recipe(self, **values):
         return SceneRecipe(dataset_dir='/data/scenes', assets_dir='/data/assets', asset_index='/data/assets.jsonl',
-            robot_config='configs/robots/panda_omron_robocasa.json',
+            robot_config='configs/robots/panda_omron.yaml',
             houses=list(range(10)), **values)
 
     def test_source_split_is_seeded_once_and_inherited_by_subsets(self):

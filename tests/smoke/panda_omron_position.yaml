@@ -1,0 +1,6 @@
+# 仅冒烟脚本 panda_omron.py 使用：position-v1 控制的 PandaOmron。
+data_root: /data1/wenyifan/lmdf/molmospaces_data
+name: panda_omron
+model_path: assets/robots/panda_omron/model.xml
+arm_working_reach_m: 0.8469596623341055
+base_radius_m: 0.39446292601460026

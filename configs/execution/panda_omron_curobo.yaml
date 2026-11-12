@@ -1,0 +1,14 @@
+# PandaOmron（robocasa-v1）cuRobo 站位标定与连续采集；场景见 configs/scenes/panda_omron.yaml。
+grasp_candidate_order: tcp_distance
+grasp_roll_rad: 1.5707963267948966
+trials_per_station: 3
+operation_retries: 0
+max_grasp_candidates: 16
+gripper_width_m: 0.08
+third_person_enabled: false
+initial_settle_s: 1.0
+navigation_whole_body: true
+width: 256
+height: 256
+lastmile_low: 0.3333333333333333
+lastmile_high: 1.0

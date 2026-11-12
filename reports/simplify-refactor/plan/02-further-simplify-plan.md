@@ -37,37 +37,99 @@
 
 典型的倒挂有：planning 的 pool/remote 引用 runtime 执行代码；控制层的 robot.py 引用导出层的 `state22`；scenes 引用 data/rendering 做可见性判断；recorder 与 lifecycle 互相引用；配置 dataclass 分散在六处。
 
-### 建议：按依赖方向分层，只允许上层引用下层
+### 目标结构：按依赖方向分层，只允许上层引用下层
+
+（2026-11-12 按最新决定重写：robots 抽成顶层目录、gpu 放进 utils、RL 文件可以修改并统一收进 rl/。文件名以当前代码为准，括号里是来源。）
 
 ```
-lastmile_dataflow/
-  config.py        全部配置 dataclass（并入 execution_config、RunResources，以及 scenes、benchmark 的配置）
-  gpu.py  utils/
-  geometry.py      纯 MuJoCo 几何和旋转工具（原 scenes/geometry + panda_robocasa 的旋转函数 + tcp_matrix）
-  sim/             simulation.py、control/（机器人适配器 + JointMap）、contacts.py、
-                   settle.py、state.py（原 construction 的物理部分）、
-                   cameras.py（ThirdPersonCamera、CameraRig、ViewConfig、geom_mask、rendered_camera）
-  planning/        curobo/、robots/、astar.py、result.py（原 waypoints.PlanResult），只放纯规划
-  scenes/          loading/、tasks/（+task_support_obstacles）、stations/（+health.inspect_state）、
-                   edits/（+construction/session 的编辑事务）、visibility.py（原 head_views）、dataset.py（两个文件合一）
-  execution/       attempt.py（共享试验外壳）、curobo.py、vla.py、manipulation.py、
-                   navigation.py（+原 planning/navigation/geometry.py）、context.py、lifecycle.py、protocol.py、
-                   workers.py、planning_pool.py、remote.py、recorder.py、outcomes.py（pick+evaluation 合并）
-  policies/        process.py（通用策略子进程 RPC）、serving.py（共用 serve()）、config.py、task.py、
-                   molmobot/（client、service、multitask/）、pi05/、sac/
-  data/            只放离线产物：evaluation/（calibration.py=selection+statistics、benchmark、recovery）、
-                   export/、visualization/（plot.py 公共件）、analysis_video.py、replay.py（待定）
-  workflows/       scene_datasets、station_map（标定全部内容）、collect（只做连续采集）、lastmilebench、rl_*
+src/lastmile_dataflow/
+  config.py                全部配置 dataclass 与 YAML 读取（并入 runtime/execution_config.py）
+  geometry.py              纯 MuJoCo 几何与旋转（原 scenes/geometry.py，加 control/action 里的旋转函数）
+  utils/
+    io.py
+    logging_config.py
+    gpu.py                 原顶层 gpu.py；只给 RL 用的 sampler_entry/isolate_* 移到 rl/
+    failures.py            异常分类 classify_episode_exception（原 execution/lifecycle.py，policies 也要用）
+    fonts.py               图片标注字体（原 data/visualization/fonts.py，执行期分析视频也要用）
+  robots/                  机器人：仿真适配器 + 规划模型，按机器人分文件；只依赖 config/geometry/utils
+    __init__.py            ROBOTS 分派表、load_robot_spec、planning_model()
+    interface.py           原 runtime/control/interface.py
+    joints.py              原 runtime/control/joints.py（JointMap）
+    action.py              原 runtime/control/action.py（动作布局常量）
+    native_actions.py      原 runtime/control/native_actions.py
+    planning_common.py     原 planning/robots/common.py
+    rby1.py                原 runtime/control/robot.py（RBY-1 适配器、state22）
+    rby1_planning.py       原 planning/robots/rby1m_mobile_torso.py
+    panda_omron.py         原 runtime/control/panda_omron.py（含 PandaBody）
+    panda_omron_planning.py  原 planning/robots/panda_omron.py
+    panda_robocasa.py      原 runtime/control/panda_robocasa.py（含相机出厂校验）
+    assets/                原 planning/robots/assets/
+  sim/                     仿真本体：载入、推进、状态、静置、接触、相机
+    simulation.py          原 runtime/simulation.py
+    state.py               原 runtime/construction/state.py（按名称迁移状态）
+    settle.py              原 runtime/construction/preparation.py（静置、SettleReport、PreparedScene）
+    native_scene.py        原 runtime/construction/benchmark_scene.py
+    contacts.py            原 runtime/outcomes/contacts.py
+    cameras.py             原 data/rendering/cameras.py
+  planning/                纯规划
+    curobo/                planner、tracing（并入原 planning/evidence.py）、costs、context、collision_world、head_fov
+    astar.py               原 planning/navigation/astar.py（task_support_obstacles 移出）
+    result.py              原 planning/waypoints.py（PlanResult）
+  scenes/                  场景库：载入、任务、站位、障碍物编辑
+    dataset.py
+    graph.py
+    loading/               source.py、assets.py、mjcf.py、panda_factory.py
+    tasks/                 discovery.py、support.py（原 astar.task_support_obstacles）
+    stations/              initialization.py、sampling.py、visibility.py（原 data/rendering/head_views.py）
+    edits/                 placement.py、checks.py、search.py、session.py（原 runtime/construction/session.py）
+  policies/                策略进程；只依赖 config/utils/robots
+    config.py  task.py
+    process.py             通用策略子进程 RPC 与 PolicyAction
+    serving.py             两个策略服务共用的 serve()
+    molmobot/              client.py（原 policies/molmobot.py）、service.py（原 molmobot_service.py）、multitask/
+    pi05/                  原样（core/ 为移植代码）
+  execution/               单次试验的实际执行与判定（原 runtime/execution、runtime/outcomes、data/recorder）
+    attempt.py  curobo.py  vla.py  manipulation.py  context.py  checkpoint.py
+    navigation.py          原 runtime/execution/navigation.py + planning/navigation/geometry.py
+    preparation.py  protocol.py  lifecycle.py  workers.py
+    planning_pool.py       原 planning/pool.py
+    remote.py              原 planning/remote.py
+    recorder.py            原 data/recorder.py
+    outcomes.py            原 runtime/outcomes/task.py（任务判定）
+    pick_state.py          原 runtime/outcomes/pick_state.py（严格抓取窗口，outcomes 与 rl 共用）
+    analysis_video.py      原 data/rendering/analysis_video.py（执行期第四路视频）
+  data/                    只放离线产物：统计、导出、出图
+    evaluation/            calibration.py、benchmark.py、recovery.py
+    export/                lastmile_dataset.py、pi05_dataset.py
+    visualization/         plot.py、benchmark.py、heatmap.py、scene_preview.py、replay.py（原 data/rendering/replay.py）
+  rl/                      RL 站位研究，一条独立的竖线：只引用下层，下层不引用它
+    environment.py  terms.py      原 runtime/rl/
+    dls.py                 原 runtime/control/dls.py
+    observation.py         原 scenes/rl_observation.py
+    scene.py               原 scenes/loading/rl_scene.py + local.py（local.py 只有 RL 用）
+    stations.py            原 scenes/stations/rl.py
+    sac/                   原 policies/sac/（agent、networks、replay）
+    station_q.py           原 data/evaluation/station_q.py
+    capture.py  video.py   原 data/rendering/rl_capture.py、rl_video.py
+    monitor.py             原 data/visualization/sac_monitor.py
+    training.py  evaluation.py  sampling.py   原 workflows/rl_*.py；sampling 收下 gpu 的 sampler_entry/isolate_*
+  workflows/               四条主流程的薄编排
+    scene_datasets.py  station_map.py  collect.py  lastmilebench.py
+
+scripts/                   build_scenes、station_map、collect、bench_build、bench_evaluate、replay、export_pi05、
+                           build_asset_index；experiments/（train_sac、score_stations、evaluate_sac）
+configs/                   全部 YAML（含 configs/rl/），一份 configs/README.md
+tests/                     按 robots/sim/planning/scenes/policies/execution/data/rl/workflows 分组，smoke/ 不变
 ```
 
-依赖方向：`config/gpu/utils/geometry → sim → planning → scenes → execution → data → workflows`；policies 只被 execution 和 workflows 引用。
+依赖方向：`config/utils/geometry → robots → sim → planning → scenes → policies → execution → data → workflows、rl`。rl 和 workflows 并列在最上层，互不引用。原来 data/rendering/ 拆散：相机进 sim，可见性进 scenes/stations，分析视频进 execution，回放进 data/visualization，RL 的两份进 rl/；`runtime/` 整个目录消失。
 
 ### 落地方式
 
 - **先精简、后搬家**。等各文件精简完，再单独提交一次迁移：只用 `git mv` 移动文件，不改逻辑。这一步不计入精简成果（AGENTS.md 也要求不以移动文件冒充精简）。
 - 迁移以后，测试里的 patch 路径要整体改，同时把 `tests/workflows` 里二十多处 patch 私有函数的写法改成注入假执行函数、走公开接口。
-- RL 文件随这次迁移一起整理：分散在 9 个目录里的 RL 代码统一收进 `rl/` 包（按 sim/execution/policies/data 的分层各归其位，或集中在 rl/ 下按职责分文件，以依赖方向不倒挂为准），原先为照顾 RL 留下的旧路径和 re-export 不保留。代价是以后合并 actor-critic 的 RL 改动时冲突更多，需要手工解决。
-- pool.py 和 remote.py 用户之前定为保留，这次只是改个位置（移到 execution/），内容只做内部精简。
+- RL 文件随这次迁移统一收进 `rl/`（见上面的结构），原先为照顾 RL 留下的旧路径和 re-export 不保留。代价是以后合并 actor-critic 的 RL 改动时冲突更多，需要手工解决。
+- pool.py 和 remote.py 用户之前定为保留，这次只是改个位置（移到 execution/，pool.py 改名 planning_pool.py），内容只做内部精简。
 - 迁移以后，AGENTS.md 的目录职责表、`docs/architecture.md` 要同步更新。
 
 ## 三、单文件精简（按批次，前面的风险低）
@@ -149,7 +211,7 @@ curobo、navigation、state、pick、collision_world、analysis_video、lastmile
 5. **允许改变输出格式**：三个非有限标签合成一个（`nonfinite_physics`，`SIMULATION_FAILURES` 保留对旧标签的识别）；planner 的小 JSON 合成一个 `planner.json`，每次查询只写结果和 solver trace；删除恒为 0 或常量的输出字段；删除 heatmap.json 的说明性字段（说明挪到 `docs/data-format.md`）；scene_datasets 总是写出 `edits` 和 `before_scene`，scene_preview 删除旧记录兼容。
 6. **功能去留**：
    - 离线回放 `replay.render_rollout` 保留，补 `scripts/replay.py`（参数：rollout 目录、输出路径、相机、fps）；删除 `render_run`、`render_observations`。
-   - `export_molmobot`、`UnsupportedMolmoBotData` 删除；`state22` 挪到机器人状态布局所在的 sim/control 模块。
+   - `export_molmobot`、`UnsupportedMolmoBotData` 删除；`state22` 挪到 robots/rby1.py（RBY-1 状态布局所在处）。
    - `load_training_batch` 保留，删除深度部分和旧布局兜底。
    - π0.5 训练准备链路（`pi05_dataset.convert`、`Rby1DataConfig`/`Rby1Dataset`）保留并精简：`Rby1DataConfig` 改成显式字段，归一化与 `inference.normalize` 共用一份，相机映射只留一份，`convert` 的命令行挪到 `scripts/export_pi05.py`。`configs/policies/pi05_rby1` 的 `norm_stats` 指向已不存在的 `outputs/training/pi05-rby1-position/...`，在配置注释和 README 里标明“需先重新运行 export_pi05 生成统计”，不伪造路径。
 7. **RL**：（11-12 改定）用户原话『RL 文件为达到目标，可以做修改』。RL 文件可以按精简、去重、拆长函数和目录分层的需要修改和搬家，原先为 RL 保留的兼容做法（Simulation 可写的 `local_model`、`Simulation(...)` 为 RL 留的默认参数、`PICK_THRESHOLDS` 裸 dict、`gpu.sampler_entry` 反向引用 `workflows.rl_sampling` 等）可以一并收掉。仍要求训练和评测的行为与输出不变；改到的 RL 代码要有测试或导入检查覆盖，需要 GPU 的验证照常遵守 GPU 规矩。以后合并 actor-critic 时冲突会比原来多，需要手工解决。

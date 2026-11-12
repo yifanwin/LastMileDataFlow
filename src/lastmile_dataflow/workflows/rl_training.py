@@ -1,5 +1,5 @@
 """Off-policy vector sampling with explicit final observations and local reset."""
-from ..scenes.rl_observation import REWARD_COMPONENTS
+import argparse
 import json
 import importlib.metadata
 import os
@@ -12,9 +12,10 @@ import time
 import numpy as np
 import torch
 
+from ..config import REPO_ROOT, read_config
 from ..policies.sac.agent import SAC, SACConfig
 from ..policies.sac.replay import Replay
-from ..scenes.rl_observation import ARM_STATE_FIELDS, GraphObservation
+from ..scenes.rl_observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, GraphObservation
 
 
 def graph_observation(observations):
@@ -29,7 +30,6 @@ def seed_all(seed):
 
 
 def runtime_metadata(config, gpu):
-    from ..config import REPO_ROOT
     visible = os.environ.get('CUDA_VISIBLE_DEVICES')
     revisions = {'project': os.environ.get('LASTMILE_SOURCE_REVISION') or subprocess.check_output(
         ['git', '-C', str(REPO_ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
@@ -42,10 +42,8 @@ def runtime_metadata(config, gpu):
 
 
 def run_cli(mode):
-    import argparse
-    from ..config import REPO_ROOT
     parser = argparse.ArgumentParser(description=f'{mode}: fixed-base mjlab SAC research')
-    parser.add_argument('--config', default=str(REPO_ROOT / 'configs/rl/val103_cup30.json'))
+    parser.add_argument('--config', default=str(REPO_ROOT / 'configs/rl/val103_cup30.yaml'))
     parser.add_argument('--gpu', type=int, default=0 if mode == 'train' else None, required=mode != 'train')
     if mode == 'train':
         parser.add_argument('--gpus', help='comma-separated GPU indices; alternatively use --gpu')
@@ -61,7 +59,7 @@ def run_cli(mode):
             parser.add_argument('--scores', required=True)
             parser.add_argument('--baseline', action='store_true', help='evaluate initial.pt on the trained score selection')
     args = vars(parser.parse_args())
-    config = json.loads(Path(args.pop('config')).read_text())
+    config = read_config(args.pop('config'))
     if mode == 'train':
         args['seed'] = 42 if args['seed'] is None else args['seed']
         args.pop('gpus', None)

@@ -1,6 +1,6 @@
 """Execution parameters and the shared robot/camera/backend profile."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 
 from ..config import read_config
@@ -65,7 +65,6 @@ class ExecutionConfig:
     num_trajopt_seeds: int = 4
     time_dilation: float = 0.5
     approach_offset_m: float = 0.01
-    operations: list = field(default_factory=lambda: ["pick", "open"])
     export_figures: bool = True
     seed: int = 42
     width: int = 320
@@ -120,8 +119,6 @@ class ExecutionConfig:
             raise ValueError("invalid approach offset")
         if self.width % 2 or self.height % 2:
             raise ValueError("image dimensions must be even")
-        if not self.operations or set(self.operations) - {"pick", "open"}:
-            raise ValueError("unsupported operation")
 
 
 def _check(key, ok):

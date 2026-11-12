@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.scenes.dataset import SceneStationConfig
 from lastmile_dataflow.scenes.tasks.discovery import discover_tasks, grasp_candidates
 from tests.helpers import make_sim
 
@@ -40,7 +40,7 @@ class TaskTests(unittest.TestCase):
                     entry.update(asset_id='fixture', category='Cup', room_id=1)
                     entry = next(row for row in sim.catalog if row['instance_id'] == 'cabinet')
                     entry.update(asset_id='drawer_fixture', category='Drawer', room_id=1)
-                    tasks, _ = discover_tasks(sim, metadata, ExecutionConfig(gripper_width_m=.21))
+                    tasks, _ = discover_tasks(sim, metadata, SceneStationConfig(gripper_width_m=.21))
                     identities.append(sorted(t['task_id'] for t in tasks))
                     body_ids.append(sim.model.body('target').id)
                 finally:
@@ -53,7 +53,7 @@ class TaskTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             sim, robot = make_sim(d)
             sim.catalog[0].update(asset_id="fixture", category="Cup", room_id=1)
-            tasks, skipped = discover_tasks(sim, {}, ExecutionConfig(gripper_width_m=0.21))
+            tasks, skipped = discover_tasks(sim, {}, SceneStationConfig(gripper_width_m=0.21))
             self.assertTrue(any(t["operation"] == "pick" for t in tasks))
             sim.close()
 

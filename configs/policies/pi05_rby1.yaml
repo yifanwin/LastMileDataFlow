@@ -1,0 +1,9 @@
+# norm_stats 指向的统计文件目前不存在：使用前先运行 scripts/export_pi05.py 重新生成（输出 lerobot/assets/norm_stats.json），
+# 再把下面的路径改成实际输出位置。
+backend: pi05
+data_root: /data1/wenyifan/lmdf/molmospaces_data
+embodiment: rby1m
+checkpoint: models/pi05_base
+tokenizer_path: models/paligemma_tokenizer.model
+norm_stats: /data1/wenyifan/lmdf/LastMileDataFlow/outputs/training/pi05-rby1-position/lerobot/assets/norm_stats.json
+normalization: quantile

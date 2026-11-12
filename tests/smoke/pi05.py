@@ -11,9 +11,9 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', choices=('model','observation','control','tracking','rollout'), required=True)
-    parser.add_argument('--policy-config', default='configs/policies/pi05_panda_omron.json')
-    parser.add_argument('--robot-config', default='configs/robots/panda_omron_robocasa.json')
-    parser.add_argument('--case', default='configs/execution/panda_omron_scene.json')
+    parser.add_argument('--policy-config', default='configs/policies/pi05_panda_omron.yaml')
+    parser.add_argument('--robot-config', default='configs/robots/panda_omron.yaml')
+    parser.add_argument('--case', default='tests/smoke/panda_omron_scene.yaml')
     parser.add_argument('--horizon', type=int, default=100)
     parser.add_argument('--normalized', action='store_true', help='Model-only smoke; no embodiment normalization or task claim')
     parser.add_argument('--observation', type=Path, help='NPZ with physical state, three model image keys and prompt')

@@ -1,0 +1,14 @@
+# PandaOmron 场景配方：procthor-10k-val 前 10 个 house，每 house 取 pick、open 各 1 个目标。
+data_root: /data1/wenyifan/lmdf/molmospaces_data
+dataset_dir: assets/scenes/procthor-10k-val
+assets_dir: assets
+asset_index: /data1/wenyifan/lmdf/LastMileDataFlow/outputs/asset_index/task-modes-thor-20261025-r02/assets.jsonl
+robot_config: configs/robots/panda_omron.yaml
+houses: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+max_pick_targets_per_house: 1
+station_config:
+  width: 256
+  height: 256
+  gripper_width_m: 0.08
+  max_pick_object_size_m: 0.2
+  navigation_whole_body: true

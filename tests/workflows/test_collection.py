@@ -7,6 +7,7 @@
 from collections import Counter
 from unittest.mock import patch
 
+from lastmile_dataflow.config import StationRun
 from lastmile_dataflow.utils.io import append_row, read_json, rows, write_json
 from lastmile_dataflow.workflows import collect, station_map
 from lastmile_dataflow.workflows.collect import run_collection
@@ -56,12 +57,9 @@ class CollectionTests(DatasetTestCase):
             self.addCleanup(started.stop)
 
     def run_config(self, name="run", **execution):
-        execution_path = self.root / f"{name}-execution.json"
-        write_json(execution_path, {"trials_per_station": 1, **execution})
-        path = self.root / f"{name}.json"
-        write_json(path, {"execution": str(execution_path), "assets_dir": str(self.root),
-                          "cpu_workers": 2, "preparation_workers": 1})
-        return path
+        path = self.root / f"{name}-execution.yaml"
+        write_json(path, {"trials_per_station": 1, **execution})
+        return StationRun(str(path), assets_dir=str(self.root), cpu_workers=2, preparation_workers=1)
 
     def six_station_dataset(self, scene_ids=("one",)):
         self.scene["stations"] = [{**self.points[0], "station_id": f"s{i}", "xy": [i * 2.0, 0.0],

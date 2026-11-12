@@ -12,7 +12,7 @@ from itertools import count
 from pathlib import Path
 from queue import Empty
 
-from ..config import CollectionConfig, StationRun, load_local_config, load_station_run, read_config, robot_config
+from ..config import CollectionConfig, StationRun, load_local_config, robot_config
 from ..data.evaluation.calibration import aggregate, eligible_stations, station_calibration
 from ..data.visualization.heatmap import export_heatmap
 from ..gpu import resolve_egl_devices
@@ -38,7 +38,7 @@ from ..runtime.execution.workers import (
 from ..runtime.execution_config import ExecutionConfig, load_execution_config
 from ..scenes.dataset import load_scenes, open_scene
 from ..scenes.tasks.discovery import grasp_candidates
-from ..utils.io import append_row, create_run, rows, write_json
+from ..utils.io import append_row, create_run, read_json, rows, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def _resolve_scenes(dataset, config, samples):
         raise ValueError("no accepted scenes")
     profiles = {}
     for scene in scenes:
-        robot = robot_config(read_config(Path(scene["scene_path"]) / "config.json")["robot"])
+        robot = robot_config(read_json(Path(scene["scene_path"]) / "config.json")["robot"])
         check_profile(robot, config.operation_backend, config.policy_config)
         scene["robot_config"] = robot
         profiles[scene["scene_id"]] = execution_profile(robot, config)
@@ -98,7 +98,7 @@ def _resolve_scenes(dataset, config, samples):
 def _reused_trials(calibration, dataset, profiles, config):
     """Trials of an earlier calibration whose scenes, profiles and physical execution all match."""
     logger.info("复用已有标定=%s，不重复 rollout", calibration)
-    saved = read_config(Path(calibration) / "config.json")
+    saved = read_json(Path(calibration) / "config.json")
     if (Path(saved["dataset"]).resolve() != Path(dataset).resolve()
             or any(saved["profiles"].get(sid) != profile for sid, profile in profiles.items())
             or calibration_execution(saved["config"]) != calibration_execution(asdict(config))):
@@ -106,21 +106,20 @@ def _reused_trials(calibration, dataset, profiles, config):
     return rows(Path(calibration) / "trials.jsonl")
 
 
-def prepare_run(dataset, run_config, output, gpu_ids, *, collect, samples=None, calibration=None):
-    """读取运行配置、对齐场景与执行配置、检查标定复用条件并创建运行目录。"""
-    run = load_station_run(run_config)
+def prepare_run(dataset, run, output, gpu_ids, *, collect, samples=None, calibration=None):
+    """读取执行配置、对齐场景、检查标定复用条件并创建运行目录。"""
     config = load_execution_config(run.execution)
     if config.operation_backend != "curobo":
         raise ValueError("station calibration and continuous collection use cuRobo")
     assets_dir = run.assets_dir or load_local_config().assets_dir
     if assets_dir is None:
-        raise ValueError("assets_dir must be set in the run config or configs/local.yaml")
+        raise ValueError("pass --assets-dir or set assets_dir in configs/local.yaml")
     gpu_ids = tuple(gpu_ids)
     if not gpu_ids or len(set(gpu_ids)) != len(gpu_ids) or any(g < 0 for g in gpu_ids):
         raise ValueError("select one or more distinct GPU indices")
     output = Path(output)
     # 复用采样间距和观测尺寸；操作工作区和导航碰撞参数由执行配置决定。
-    geometry = read_config(Path(dataset) / "config.json").get("geometry", {})
+    geometry = read_json(Path(dataset) / "config.json").get("geometry", {})
     config = replace(config, **{key: geometry[key] for key in _LIBRARY_GEOMETRY if key in geometry})
     collection = CollectionConfig(record_video=run.record_video, record_images=collect, width=config.width,
                                   height=config.height, seed=config.seed, output_dir=str(output.parent.resolve()))
@@ -207,9 +206,9 @@ def write_summary(context, summaries, stopped, **fields):
         logger.warning("运行未完整结束：已处理场景=%s/%s", len(summaries), len(context.scenes))
 
 
-def run_station_map(dataset, run_config, output, *, gpu_ids, samples=None):
+def run_station_map(dataset, run, output, *, gpu_ids, samples=None):
     """逐站位标定并导出热图，不执行 S0→S1 连续采集。"""
-    context = prepare_run(dataset, run_config, output, gpu_ids, collect=False, samples=samples)
+    context = prepare_run(dataset, run, output, gpu_ids, collect=False, samples=samples)
     summaries, calibration = [], None
     try:
         trials, calibration = calibrate_stations(context)

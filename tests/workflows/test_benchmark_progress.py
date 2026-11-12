@@ -25,7 +25,7 @@ class BenchmarkProgressTests(DatasetTestCase):
             {'scene_id': 'one', 'task_id': self.task['task_id'], 'station_id': station['station_id'],
              'trial': trial, 'status': 'success' if station['station_id'] == 's1' else 'failure', 'reason': 'fixture'}
             for station in self.points for trial in range(2)])
-        config_path = self.root / 'benchmark.json'
+        config_path = self.root / 'benchmark.yaml'
         write_json(config_path, asdict(BenchmarkConfig(navigation_whole_body=False)))
         with patch.object(workflow, 'native_scene') as convert:
             root = workflow.build(dataset, self.root / 'bench', calibration_dir=calibration, config_path=config_path)

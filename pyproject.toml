@@ -53,6 +53,7 @@ pi05 = [
     "beartype==0.19.0",
     "sentencepiece>=0.2",
     "Pillow>=10",
+    "PyYAML>=6",
 ]
 
 [tool.setuptools.packages.find]
