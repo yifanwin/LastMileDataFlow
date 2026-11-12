@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--assets-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
-    parser.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/station_map/rby1_curobo.yaml"))
     parser.add_argument("--trials-per-station", type=int, default=2)
     parser.add_argument("--benchmark-calibration", type=Path)
     parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.yaml"))

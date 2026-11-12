@@ -35,7 +35,7 @@ class RewardTests(unittest.TestCase):
         self.assertEqual(float(peak), 1.0)
 
     def test_pregrasp_neutral_width_and_signed_progress(self):
-        config = read_config("configs/rl/val103_cup30.yaml")
+        config = read_config("configs/station_map/rl/val103_cup30.yaml")
         task = SimpleNamespace(
             goal_error=lambda: (torch.tensor([[0.02, 0, 0]]), torch.zeros(1, 3)),
             forces=torch.zeros(1, 2),

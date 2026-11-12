@@ -64,7 +64,7 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 入口脚本只做参数与设备绑定，阶段编排在各阶段目录的 `build.py`/`collect.py`/`evaluate.py`，实际推进仿真只经 `sim/simulation.py`；不另起平行执行器或记录链路。
 跨顶层包写绝对导入，包内用相对导入，`__init__.py` 保持为空。
 
-- 根目录 `configs/`：显式 YAML 输入配置，只写与默认值不同的字段；运行产物仍写 JSON；解析规则见下节。
+- 根目录 `configs/`：显式 YAML 输入配置，只写与默认值不同的字段；运行产物仍写 JSON；解析规则见下节。子目录名是加载它的源码包名（`scenes/`、`robots/`、`policies/`、`station_map/`、`station_map/rl/`、`lastmile_benchmark/`），新增配置按加载它的包归位；`local.example.yaml` 留在根目录。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
 - `tests/`：按源码顶层目录分组（`utils/sim/robots/planning/operation/policies/scenes/station_map/lastmile_dataset/lastmile_benchmark`），另有 `test_layers.py`、`test_scripts.py`；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
 - `outputs/`：运行产物，细则见 [outputs/RULES.md](outputs/RULES.md)。

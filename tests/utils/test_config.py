@@ -80,7 +80,7 @@ class ConfigurationTests(unittest.TestCase):
         from lastmile_dataflow.station_map.aggregate import eligible_stations
 
         for name in ("panda_omron_curobo",):
-            config = load_execution_config(f"configs/execution/{name}.yaml")
+            config = load_execution_config(f"configs/station_map/{name}.yaml")
             self.assertEqual(config.trials_per_station, 3)
             stations = [{"station_id": str(i), "geometry": "valid"} for i in range(4)]
             calibration = {

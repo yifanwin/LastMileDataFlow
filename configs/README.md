@@ -2,14 +2,16 @@
 
 所有输入配置是 YAML，由各自的加载器用 `config.read_config`（`yaml.safe_load`）读取；只写与代码默认值不同的字段，未写的字段取对应 dataclass 的默认值。运行目录里写出的 `config.json`、`summary.json` 等产物仍是 JSON。从仓库根目录运行。
 
-| 目录 | 加载器 | 用途 |
+子目录名就是读取它的源码包名：配置由哪个包的代码加载，就放在同名目录下，子路径与包内子目录对应。
+
+| 目录 | 加载它的代码 | 用途 |
 |---|---|---|
-| `scenes/` | `scenes.dataset.load_scene_recipe` | 场景配方：房屋、目标筛选、障碍数量、站位参数、构建进程 |
-| `execution/` | `ExecutionConfig`（`load_execution_config`） | 物理执行、规划、导航、成功率阈值；站位标定、连续采集直接用它 |
-| `benchmark/` | `BenchmarkConfig` | 困难起点、恢复区域与评测预算；`bench_build.py` 不给 `--config` 时用默认值（即 v0.1） |
-| `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器 |
-| `robots/` | `config.load_robot_config` | 机器人模型、控制 profile、相机与初始姿态 |
-| `rl/` | `station_map.rl.training` | 独立 RL 研究配置 |
+| `scenes/` | `scenes.library.load_scene_recipe`（`scripts/build_scenes.py`） | 场景配方：房屋、目标筛选、障碍数量、站位参数、构建进程 |
+| `robots/` | `robots.registry.load_robot_config` | 机器人模型、控制 profile、相机与初始姿态；由场景配方的 `robot_config` 引用 |
+| `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器；由执行配置的 `policy_config` 引用，`scripts/bench_evaluate.py --config` 直接读取 |
+| `station_map/` | `station_map.config`（`--config`）→ `station_map.planner_trials.build` 用 `operation.config.load_execution_config` 解析 | 执行配置：物理执行、规划、导航、成功率阈值；站位标定（`scripts/station_map.py`）和连续采集（`scripts/collect.py`）共用 |
+| `station_map/rl/` | `station_map.rl.training` | 独立 RL 站位图研究配置 |
+| `lastmile_benchmark/` | `lastmile_benchmark.summary.load_benchmark_config` | 困难起点、恢复区域与评测预算；`scripts/bench_build.py` 不给 `--config` 时用默认值（即 v0.1） |
 
 `local.example.yaml` 可复制为 `local.yaml`，只提供 `assets_dir`（站位标定、采集省略 `--assets-dir` 时使用）。
 
@@ -26,13 +28,13 @@
 | `scenes/panda_omron.yaml` | PandaOmron 场景配方：procthor-10k-val 前 10 个 house，每 house pick、open 各 1 个目标；每个任务一份原场景、一份编辑场景 |
 | `robots/panda_omron.yaml` | PandaOmron，robocasa-v1 控制、三相机；场景构建和 cuRobo、π0.5 执行共用 |
 | `robots/rby1.yaml` | RBY-1，position-v1 |
-| `execution/panda_omron_curobo.yaml` | PandaOmron cuRobo 站位标定与连续采集（3 次/站位，1/3 与 1.0 阈值） |
-| `execution/rby1_curobo.yaml` | RBY-1 cuRobo 站位标定与连续采集 |
-| `execution/molmobot.yaml` | MolmoBot 策略执行，RBY-1 native profile、1024×576 |
-| `execution/pi05_panda_omron.yaml`、`pi05_rby1.yaml` | π0.5 执行 |
+| `station_map/panda_omron_curobo.yaml` | PandaOmron cuRobo 站位标定与连续采集（3 次/站位，1/3 与 1.0 阈值） |
+| `station_map/rby1_curobo.yaml` | RBY-1 cuRobo 站位标定与连续采集 |
+| `station_map/molmobot.yaml` | MolmoBot 逐站位策略 rollout，RBY-1 native profile、1024×576 |
+| `station_map/pi05_panda_omron.yaml`、`pi05_rby1.yaml` | π0.5 逐站位策略 rollout |
 | `policies/molmobot.yaml`、`pi05_panda_omron.yaml`、`pi05_rby1.yaml` | 策略服务配置 |
-| `benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
-| `rl/val103_cup30.yaml` | RL 站位图研究 |
+| `lastmile_benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
+| `station_map/rl/val103_cup30.yaml` | RL 站位图研究 |
 
 冒烟脚本自己持有的配置（`panda_omron_scene.yaml`、`panda_omron_position.yaml`、`panda_omron_mobile.yaml`）放在 `tests/smoke/`。
 

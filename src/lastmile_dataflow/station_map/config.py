@@ -37,7 +37,7 @@ class StationRun:
 
 def add_station_run_arguments(cli):
     """Command-line options of the calibration and collection scripts (defaults are StationRun's)."""
-    cli.add_argument("--config", type=Path, required=True, help="执行配置 YAML，见 configs/execution")
+    cli.add_argument("--config", type=Path, required=True, help="执行配置 YAML，见 configs/station_map")
     cli.add_argument("--assets-dir", type=Path, help="资产目录；省略时取 configs/local.yaml 的 assets_dir")
     cli.add_argument("--max-trials", type=int, help="每场景试验上限，只做少量检查；不完整标定不能用于正式配对")
     cli.add_argument("--record-video", action="store_true", default=None, help="visual 模式下额外录像")

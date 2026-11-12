@@ -44,8 +44,8 @@ class StageScriptTests(unittest.TestCase):
     def test_station_run_defaults_match_the_former_cli_flags(self):
         cli = argparse.ArgumentParser()
         add_station_run_arguments(cli)
-        run = station_run(cli.parse_args(["--config", "configs/execution/panda_omron_curobo.yaml"]))
-        self.assertEqual(run.execution, str(Path("configs/execution/panda_omron_curobo.yaml").resolve()))
+        run = station_run(cli.parse_args(["--config", "configs/station_map/panda_omron_curobo.yaml"]))
+        self.assertEqual(run.execution, str(Path("configs/station_map/panda_omron_curobo.yaml").resolve()))
         self.assertEqual(
             (run.planning_workers_per_gpu, run.cpu_workers, run.preparation_workers, run.record_video, run.mode),
             ([1], 60, 12, False, "numerical"),

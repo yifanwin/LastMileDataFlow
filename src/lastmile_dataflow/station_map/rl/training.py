@@ -50,7 +50,7 @@ def runtime_metadata(config, gpu):
 
 def run_cli(mode):
     parser = argparse.ArgumentParser(description=f"{mode}: fixed-base mjlab SAC research")
-    parser.add_argument("--config", default=str(REPO_ROOT / "configs/rl/val103_cup30.yaml"))
+    parser.add_argument("--config", default=str(REPO_ROOT / "configs/station_map/rl/val103_cup30.yaml"))
     parser.add_argument("--gpu", type=int, default=0 if mode == "train" else None, required=mode != "train")
     if mode == "train":
         parser.add_argument("--gpus", help="comma-separated GPU indices; alternatively use --gpu")

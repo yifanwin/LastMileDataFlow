@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--scene-id", required=True)
     parser.add_argument("--station", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)
-    parser.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/station_map/rby1_curobo.yaml"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gpu", type=int, required=True)
     args = parser.parse_args()

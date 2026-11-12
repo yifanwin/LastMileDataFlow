@@ -19,7 +19,7 @@ class Pi05Tests(unittest.TestCase):
         panda = load_policy_config("configs/policies/pi05_panda_omron.yaml")
         self.assertEqual((panda.state_size, panda.action_size), (16, 12))
         self.assertTrue(panda.python.endswith(".venv-pi05/bin/python"))
-        config = load_execution_config("configs/execution/pi05_panda_omron.yaml")
+        config = load_execution_config("configs/station_map/pi05_panda_omron.yaml")
         self.assertEqual(config.operation_backend, "pi05")
         robot = PandaOmronConfig("unused", control_profile="robocasa-v1")
         check_profile(robot, "pi05", "configs/policies/pi05_panda_omron.yaml")

@@ -26,7 +26,7 @@ def main():
     p.add_argument("--scene-id", required=True)
     p.add_argument("--station", required=True)
     p.add_argument("--assets-dir", type=Path, required=True)
-    p.add_argument("--config", type=Path, default=Path("configs/execution/rby1_curobo.yaml"))
+    p.add_argument("--config", type=Path, default=Path("configs/station_map/rby1_curobo.yaml"))
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--gpu", type=int, required=True)
     args = p.parse_args()

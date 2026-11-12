@@ -298,7 +298,7 @@ def warmup(env, station_ids, steps):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(REPO_ROOT / "configs/rl/val103_cup30.yaml"))
+    parser.add_argument("--config", default=str(REPO_ROOT / "configs/station_map/rl/val103_cup30.yaml"))
     parser.add_argument("--gpu", type=int, required=True)
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--steps", type=int, default=5)
