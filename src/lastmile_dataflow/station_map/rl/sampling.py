@@ -7,6 +7,7 @@ import time
 
 import torch
 
+from .devices import VISIBLE_DEVICE
 from .sac.networks import Actor
 from .sac.replay import Transition
 from .training import record_episodes
@@ -19,7 +20,7 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
     from .env.environment import StationEnv
 
     seed_all(seed)
-    env = StationEnv(config, gpu=0, seed=seed, num_envs=num_envs)
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     try:
         observations, _ = env.reset()
         obs = graph_observation(observations)

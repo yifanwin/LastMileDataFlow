@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from lastmile_dataflow.utils.io import read_config
+from lastmile_dataflow.station_map.rl.devices import VISIBLE_DEVICE
 from lastmile_dataflow.station_map.rl.env.environment import StationEnv
 from lastmile_dataflow.station_map.rl.evaluation import reset_stations
 from lastmile_dataflow.station_map.rl.sac.agent import seed_all
@@ -23,7 +24,7 @@ def upstream_smoke(args):
 
     cfg = yam_lift_cube_env_cfg(play=True)
     cfg.scene.num_envs = args.num_envs
-    env = ManagerBasedRlEnv(cfg, device=f"cuda:{args.gpu}")
+    env = ManagerBasedRlEnv(cfg, device=f"cuda:{VISIBLE_DEVICE}")
     try:
         env.reset()
         action = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
@@ -297,7 +298,7 @@ def run(args):
     if args.grasp_row is not None:
         config["grasp"]["row"] = args.grasp_row
     seed_all(42)
-    env = StationEnv(config, gpu=args.gpu, seed=42, num_envs=args.num_envs)
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=42, num_envs=args.num_envs)
     try:
         if args.scripted_batch:
             scripted_batch(env, config, args)

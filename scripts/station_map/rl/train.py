@@ -35,8 +35,7 @@ def main():
 
     result = train(
         config,
-        gpu=0,
-        sampler_gpus=args.gpu,
+        gpus=args.gpu,
         output=args.output,
         seed=args.seed,
         resume=args.resume,

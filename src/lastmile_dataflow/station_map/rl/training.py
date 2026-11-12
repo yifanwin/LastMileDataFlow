@@ -20,14 +20,14 @@ from .evaluation import monitor_validation
 from .monitor import training_curves
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
-from .devices import sampler_entry
+from .devices import VISIBLE_DEVICE, sampler_entry
 import pickle
 from queue import Empty
 from queue import Full
 import shutil
 
 
-def runtime_metadata(config, gpu):
+def runtime_metadata(config, physical_gpu):
     visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     revisions = {
         "project": os.environ.get("LASTMILE_SOURCE_REVISION")
@@ -40,9 +40,9 @@ def runtime_metadata(config, gpu):
             name: importlib.metadata.version(name)
             for name in ("torch", "torch-geometric", "mjlab", "mujoco", "mujoco-warp", "warp-lang", "numpy")
         },
-        "gpu_argument": gpu,
+        "gpu_argument": physical_gpu,
         "cuda_visible_devices": visible,
-        "physical_gpu": visible.split(",")[gpu] if visible else gpu,
+        "physical_gpu": physical_gpu,
     }
 
 
@@ -192,16 +192,18 @@ class Samplers:
             queue.close()
 
 
-def train(config, *, gpu, sampler_gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
-    """``gpu`` is the in-process Learner device; ``sampler_gpus`` are physical cards, one Sampler each."""
+def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
+    """``gpus`` are physical cards: the first also hosts the Learner, each one runs a Sampler."""
     from .env.environment import StationEnv
 
     seed_all(seed)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     settings = config["training"]
-    devices = [str(device) for device in sampler_gpus]
-    env = StationEnv(config, gpu=gpu, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"])
+    devices = [str(gpu) for gpu in gpus]
+    env = StationEnv(
+        config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"]
+    )
     workers = None
     try:
         observations, _ = env.reset()
@@ -209,7 +211,7 @@ def train(config, *, gpu, sampler_gpus, output, seed, resume=None, max_transitio
         metadata = {
             "config": config,
             "seed": seed,
-            **runtime_metadata(config, gpu),
+            **runtime_metadata(config, gpus[0]),
             "sampler_gpus": devices,
             "learner_gpu": devices[0],
             "sampler_num_envs": num_envs or config["environment"]["num_envs"],

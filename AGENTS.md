@@ -82,8 +82,8 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 ### 脚本写法
 
-- 命令行参数只在 `scripts/` 里组装，src 只提供显式参数的函数（如 `train(config, *, gpu, sampler_gpus, output, seed, ...)`），默认值只写一处（脚本的 parser 或函数签名）。唯一例外是 `station_map.config.add_station_run_arguments`：标定和采集两个脚本共用同一组参数，且默认值必须与 `StationRun` 一致，保留这一个共享的参数组装函数。
-- `--gpu` 一律是物理卡号；脚本先 `parser.parse_args()`，再 `select_devices` 绑定，进程内设备号显式传 0，不改写 `sys.argv`。
+- 命令行参数只在 `scripts/` 里组装，src 只提供显式参数的函数（如 `train(config, *, gpus, output, seed, ...)`），默认值只写一处（脚本的 parser 或函数签名）。唯一例外是 `station_map.config.add_station_run_arguments`：标定和采集两个脚本共用同一组参数，且默认值必须与 `StationRun` 一致，保留这一个共享的参数组装函数。
+- `--gpu` 一律是物理卡号；脚本先 `parser.parse_args()`，再 `select_devices` 绑定，把物理卡号原样传给 src 函数，不改写 `sys.argv`。绑定后进程内编号的换算只在一处（RL 是 `station_map/rl/devices.VISIBLE_DEVICE`）。
 - argparse 对象统一命名 `parser`。
 - import 放在文件顶部。唯一例外是需要先绑定 GPU/EGL 的脚本（调用 `select_devices`、`bind_*`）：MuJoCo、torch 在导入时读取 `CUDA_VISIBLE_DEVICES`、`MUJOCO_EGL_DEVICE_ID` 等环境变量，所以导入了 mujoco/torch 的模块只能在绑定之后导入。这类脚本顶部只导入不加载 mujoco/torch 的轻量模块（`argparse`、`json`、`pathlib`、`utils.gpu`、`utils.io`、`utils.logging_config`、`station_map.config`），绑定之后的那一处导入上方用一行注释说明原因。
 - 可读性优先，不为省行数合并语句：有副作用的主流程调用（build、evaluate、train 这类）单独一行赋值，先 `result = build(...)` 再 `print(result)`；`json.dumps`、格式化字符串这类纯输出转换直接写在 `print` 里。src 的 print/日志语句同样按这个口径。

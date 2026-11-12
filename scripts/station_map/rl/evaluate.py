@@ -29,7 +29,7 @@ def main():
         config,
         checkpoint=args.checkpoint,
         scores=args.scores,
-        gpu=0,
+        gpu=args.gpu,
         output=args.output,
         seed=args.seed,
         baseline=args.baseline,

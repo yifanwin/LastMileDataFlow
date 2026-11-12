@@ -23,7 +23,7 @@ def main():
     # torch、Warp、mjlab 在导入时读取 CUDA_VISIBLE_DEVICES、MUJOCO_EGL_DEVICE_ID，训练代码必须在绑定设备之后导入
     from lastmile_dataflow.station_map.rl.evaluation import score
 
-    result = score(config, checkpoint=args.checkpoint, gpu=0, output=args.output, seed=args.seed)
+    result = score(config, checkpoint=args.checkpoint, gpu=args.gpu, output=args.output, seed=args.seed)
     print(json.dumps(result, indent=2))
 
 

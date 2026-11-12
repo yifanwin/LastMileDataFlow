@@ -5,7 +5,6 @@ This is separate from unittest. Scripted actions pass through the identical
 """
 
 import argparse
-import os
 
 from lastmile_dataflow.utils.gpu import select_devices
 from lastmile_dataflow.utils.io import REPO_ROOT
@@ -40,8 +39,7 @@ def main():
     if args.monitor and args.learner_updates <= 0:
         parser.error("--monitor requires --learner-updates > 0")
     select_devices([args.gpu])
-    args.physical_gpu = os.environ.get("CUDA_VISIBLE_DEVICES")
-    args.gpu = 0
+    args.physical_gpu = str(args.gpu)
     # torch、Warp、mjlab 在导入时读取 CUDA_VISIBLE_DEVICES、MUJOCO_EGL_DEVICE_ID，检查代码必须在绑定设备之后导入
     from rl_checks import run
 

@@ -14,6 +14,7 @@ from .sac.agent import seed_all
 from .env.observation import graph_observation
 from .monitor import station_evaluation
 from .capture import RolloutCapture
+from .devices import VISIBLE_DEVICE
 
 
 def reset_stations(env, station_ids, env_ids=None):
@@ -258,14 +259,15 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
 
 
 def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
+    """``gpu`` is the physical card the caller bound with select_devices."""
     from .env.environment import StationEnv
 
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
-    agent, saved = SAC.load(checkpoint, f"cuda:{gpu}")
+    agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Scoring requires the checkpoint effective configuration")
-    env = StationEnv(config, gpu=gpu, seed=seed, num_envs=num_envs)
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     try:
@@ -273,6 +275,7 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
         result = {
             "checkpoint": str(Path(checkpoint).absolute()),
             "seed": seed,
+            "physical_gpu": gpu,
             "interpretation": "raw E[min online Q]; K is action samples, not rollouts",
             "legal_coverage": sum(r["valid"] for r in rows) / len(rows),
             "stations": rows,
@@ -317,11 +320,12 @@ def plot_scores(rows, path, q_limits):
 
 
 def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=False):
+    """``gpu`` is the physical card the caller bound with select_devices."""
     from .env.environment import StationEnv
 
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
-    agent, saved = SAC.load(checkpoint, f"cuda:{gpu}")
+    agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Evaluation requires the checkpoint effective configuration")
     scored = json.loads(Path(scores).read_text())
@@ -338,7 +342,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         for trial in range(config["evaluation"]["rollouts_per_station"])
     ]
     (output / "selection.json").write_text(json.dumps(trial_plan, indent=2))
-    env = StationEnv(config, gpu=gpu, seed=seed, num_envs=1)
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=1)
     trials = []
     try:
         lookup = {row["station_id"]: i for i, row in enumerate(env.task.stations)}
@@ -401,6 +405,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         summary = summarize_trials(selection, trials, seed=seed)
         summary["policy"] = "initialization_baseline" if baseline else "trained_stochastic_actor"
         summary["checkpoint"] = str(Path(checkpoint).absolute())
+        summary["physical_gpu"] = gpu
         (output / "summary.json").write_text(json.dumps(summary, indent=2))
 
         station_evaluation(
