@@ -1,8 +1,6 @@
 from __future__ import annotations
 import dataclasses
 from typing import List, Union, Tuple, Optional
-import PIL
-from PIL import ImageFile
 from einops import einops
 from .config import BaseConfig
 from .images import ImagePreprocessor
@@ -10,11 +8,6 @@ from .tensors import TokenizedVisionData, batch_pixels_to_patches
 from .tokenizer import HfTokenizerWrapper
 import numpy as np
 from transformers.image_utils import ImageInput
-
-
-def setup_pil():
-    PIL.Image.MAX_IMAGE_PIXELS = None
-    ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def arange_for_pooling(idx_arr, pool_h, pool_w):

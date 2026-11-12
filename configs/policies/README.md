@@ -2,7 +2,7 @@
 
 由 `policies/config.py` 按 `backend` 分派；推理实现随本仓库安装，不配置外部源码目录。
 
-π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`，其控制 profile、归一化与准备命令见 [π0.5 运行指南](../../reports/pi05/docs/01-running.md)。Panda 配置使用当前数据根 `/data1/wenyifan/lmdf/molmospaces_data`，checkpoint、norm_stats 与 tokenizer_path 均按该根解析；换机器时显式修改 data_root。以下其余字段说明针对 MolmoBot。
+π0.5 使用 `pi05_panda_omron.json` / `pi05_rby1.json`（`pi05_rby1` 的 `norm_stats` 指向的统计文件目前不存在，使用前需先运行 `scripts/export_pi05.py` 重新生成），其控制 profile、归一化与准备命令见 [π0.5 运行指南](../../reports/pi05/docs/01-running.md)。Panda 配置使用当前数据根 `/data1/wenyifan/lmdf/molmospaces_data`，checkpoint、norm_stats 与 tokenizer_path 均按该根解析；换机器时显式修改 data_root。以下其余字段说明针对 MolmoBot。
 
 ## 重点手动配置
 
@@ -19,6 +19,6 @@
 | `gripper_mode` | `model_default` 保留模型按任务选择：pick 连续、open 二值；`binary` / `continuous` 显式覆盖 |
 | `task_horizon` | 每任务策略循环步数上限，当前 400；不是物理步数或秒数 |
 
-可选字段（当前 JSON 未填）：`load_timeout_s=900` 为模型服务启动加载等待；`rpc_timeout_s=30` 为默认单次 RPC 等待；`service_timeout_s=300` 当前仅在配置类中声明/校验，未接入服务调用，不应靠它调整运行时限。episode 总执行预算使用 execution 的 `attempt_timeout_s`，不能与加载时限混淆。
+可选字段（当前 JSON 未填）：`load_timeout_s=900` 为模型服务启动加载等待；`rpc_timeout_s=30` 为单次 RPC 等待。episode 总执行预算使用 execution 的 `attempt_timeout_s`，不能与加载时限混淆。
 
 相机/控制需匹配 native 策略 profile；不能仅替换权重后复用 position 标定。安装和数据准备见 [setup](../../docs/setup.md)。

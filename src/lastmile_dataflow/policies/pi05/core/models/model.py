@@ -243,11 +243,6 @@ class BaseModelConfig(abc.ABC):
         observation_spec, _ = self.inputs_spec(batch_size=batch_size)
         return jax.tree.map(lambda x: jnp.ones(x.shape, x.dtype), observation_spec)
 
-    def fake_act(self, batch_size: int = 1) -> Actions:
-        _, action_spec = self.inputs_spec(batch_size=batch_size)
-        return jax.tree.map(lambda x: jnp.ones(x.shape, x.dtype), action_spec)
-
-
 @dataclasses.dataclass
 class BaseModel(nnx.Module, abc.ABC):
     """Base class for all model implementations. Specific models should inherit from this class. They should call

@@ -1,19 +1,20 @@
 """Private local IPC model process. Uses the repository-local multitask inference backend."""
-import argparse
 import logging
-import os
-import signal
+import random
 import time
-import traceback
-from multiprocessing.connection import Listener
 
 import numpy as np
+import torch
 
 from ..utils.logging_config import setup_logging
-from .config import load_molmobot_config as load_policy_config
-
+from .molmobot import load_molmobot_config
+from .multitask.inference import SynthManipMolmoInferenceWrapper
+from .multitask.policy import (MolmoBotRBY1DoorPlusOpenPolicyConfig, MolmoBotRBY1MultitaskPolicy,
+                               MolmoBotRBY1PickPnPPolicyConfig)
+from .serving import InvalidModelChunk, serve
 
 logger = logging.getLogger(__name__)
+OPERATIONS = (('pick', MolmoBotRBY1PickPnPPolicyConfig), ('open', MolmoBotRBY1DoorPlusOpenPolicyConfig))
 
 
 class TraceAgent:
@@ -38,81 +39,66 @@ class TraceAgent:
         logger.debug('Generating model action chunk')
         self.raw = self.agent.get_action_chunk(**kwargs)
         logger.debug('Generated model chunk in %.2f s', time.monotonic() - started)
-        if self.raw.shape != (16,20) or not np.isfinite(self.raw).all():
-            raise ValueError('invalid_model_action_chunk')
+        if self.raw.shape != (16, 20) or not np.isfinite(self.raw).all():
+            logger.error('Rejected original model chunk: %r', self.raw)
+            raise InvalidModelChunk('invalid_model_action_chunk')
         self.calls += 1
         return self.raw
 
 
+class MolmoBotRunner:
+    def __init__(self, path):
+        self.config = load_molmobot_config(path)
+        if not torch.cuda.is_available():
+            raise RuntimeError('CUDA unavailable; do not silently run a CPU VLA')
+        self.trace = None
+        self.policies = {}
+
+    def load(self):
+        config = self.config
+        logger.info('Loading selected checkpoint %s', config.checkpoint, extra={'progress': True})
+        self.trace = TraceAgent(SynthManipMolmoInferenceWrapper(checkpoint_path=config.checkpoint,
+                                                                tokenizer_path=config.tokenizer_path))
+        values = {}
+        if config.gripper_mode != 'model_default':
+            values['clamp_gripper'] = config.gripper_mode == 'binary'
+        for operation, cls in OPERATIONS:
+            policy = MolmoBotRBY1MultitaskPolicy(cls(checkpoint_path=config.checkpoint,
+                                                     img_resolution=(1024, 576), **values))
+            policy.agent = self.trace
+            self.policies[operation] = policy
+        logger.info('Model ready, allocated %.1f MiB', torch.cuda.memory_allocated() / 1024**2)
+        return {'device': torch.cuda.get_device_name(), 'cuda_peak_bytes': torch.cuda.max_memory_allocated()}
+
+    def reset(self, seed):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        for policy in self.policies.values():
+            policy.reset()
+
+    def infer(self, request):
+        trace = self.trace
+        policy = self.policies[request['operation']]
+        trace.require_point = policy.use_point_prompts
+        calls, started = trace.calls, time.monotonic()
+        action = policy.inference_model(request['observation'])
+        index = policy.buffer_index - 1
+        first = request['first']
+        return {'action': np.concatenate([action[group] for group in policy.config.action_move_group_names]),
+                'raw_action': trace.raw[index].copy(), 'inference_s': time.monotonic() - started,
+                'new_chunk': trace.calls != calls, 'chunk_index': index, 'chunk_serial': trace.calls,
+                'gripper_binary': policy.clamp_gripper,
+                'processed_images': trace.images if first else None,
+                'conditioning_points': policy._conditioning_points if first else None,
+                'model_chunk_state': trace.state.copy(), 'model_prompt': trace.prompt,
+                'cuda_peak_bytes': torch.cuda.max_memory_allocated()}
+
+
 def main():
     setup_logging()
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True)
-    parser.add_argument('--socket', required=True)
-    args = parser.parse_args()
-    # Worker termination must not leak a GPU model process.
-    import ctypes
-    ctypes.CDLL(None).prctl(1, signal.SIGTERM)
-    if os.getppid() == 1: return
-    config = load_policy_config(args.config)
-    import torch
-    if not torch.cuda.is_available():
-        raise RuntimeError('CUDA unavailable; do not silently run a CPU VLA')
-    from .multitask.inference import SynthManipMolmoInferenceWrapper
-    from .multitask.policy import MolmoBotRBY1MultitaskPolicy, MolmoBotRBY1PickPnPPolicyConfig, MolmoBotRBY1DoorPlusOpenPolicyConfig
-    listener = Listener(args.socket, family='AF_UNIX', authkey=bytes.fromhex(os.environ['LASTMILE_POLICY_AUTH']))
-    os.chmod(args.socket, 0o600)
-    connection = listener.accept()
-    try:
-        started = time.monotonic()
-        logger.info('Loading selected checkpoint %s', config.checkpoint, extra={'progress': True})
-        trace = TraceAgent(SynthManipMolmoInferenceWrapper(checkpoint_path=config.checkpoint, tokenizer_path=config.tokenizer_path))
-        policies = {}
-        for operation, cls in [('pick',MolmoBotRBY1PickPnPPolicyConfig),('open',MolmoBotRBY1DoorPlusOpenPolicyConfig)]:
-            values = {}
-            if config.gripper_mode != 'model_default':
-                values['clamp_gripper'] = config.gripper_mode == 'binary'
-            pc = cls(checkpoint_path=config.checkpoint, img_resolution=(1024,576), **values)
-            policies[operation] = MolmoBotRBY1MultitaskPolicy(pc)
-            policies[operation].agent = trace
-        connection.send({'ready':True, 'load_s':time.monotonic()-started,
-                         'device':torch.cuda.get_device_name(), 'cuda_peak_bytes':torch.cuda.max_memory_allocated()})
-        logger.info('Model ready, allocated %.1f MiB', torch.cuda.memory_allocated()/1024**2)
-        active = None
-        while True:
-            request = connection.recv()
-            try:
-                operation = request['operation']; attempt = request['attempt']
-                if active != attempt:
-                    seed = request['seed']
-                    import random
-                    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
-                    for policy in policies.values(): policy.reset()
-                    active = attempt
-                policy = policies[operation]
-                trace.require_point = policy.use_point_prompts
-                calls = trace.calls; started = time.monotonic()
-                action = policy.inference_model(request['observation'])
-                index = policy.buffer_index-1
-                vector = np.concatenate([action[group] for group in policy.config.action_move_group_names])
-                connection.send({'action':vector, 'raw_action':trace.raw[index].copy(),
-                    'inference_s':time.monotonic()-started, 'new_chunk':trace.calls != calls,
-                    'chunk_index':index, 'chunk_serial':trace.calls,
-                    'gripper_binary':policy.clamp_gripper,
-                    'processed_images':trace.images if request.get('first') else None,
-                    'conditioning_points':policy._conditioning_points if request.get('first') else None,
-                    'model_chunk_state':trace.state.copy(), 'model_prompt':trace.prompt,
-                    'cuda_peak_bytes':torch.cuda.max_memory_allocated()})
-            except Exception as exc:
-                logger.exception('Policy request failed for %s', request.get('attempt'))
-                if str(exc)=='invalid_model_action_chunk':
-                    logger.error('Rejected original model chunk: %r', trace.raw)
-                connection.send({'error':str(exc), 'type':type(exc).__name__, 'traceback':traceback.format_exc(),
-                                 'invalid_action':str(exc)=='invalid_model_action_chunk'})
-    except (EOFError, BrokenPipeError, ConnectionResetError):
-        pass
-    finally:
-        connection.close(); listener.close()
+    serve(MolmoBotRunner, load_before_accept=False)
 
 
 if __name__ == '__main__':

@@ -12,8 +12,8 @@ import numpy as np
 
 from lastmile_dataflow.config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.policies.molmobot import (
-    MolmoBotClient,
+from lastmile_dataflow.policies.process import (
+    PolicyProcess,
     PolicyEpisodeError,
     PolicyInfrastructureError,
 )
@@ -73,7 +73,7 @@ class LifecycleIsolationTests(unittest.TestCase):
             self.assertEqual(classify_episode_exception(exc)["failure_scope"], "shared")
 
     def test_model_reply_consumed_data_error_local_connection_error_shared(self):
-        client = MolmoBotClient.__new__(MolmoBotClient)
+        client = PolicyProcess.__new__(PolicyProcess)
         client.connection = Mock()
         client.close = Mock()
         client.connection.poll.return_value = True
@@ -167,7 +167,7 @@ class LifecycleIsolationTests(unittest.TestCase):
         self.assertFalse(result["execution_started"])
 
     def test_poll_connection_failure_is_shared(self):
-        client = MolmoBotClient.__new__(MolmoBotClient)
+        client = PolicyProcess.__new__(PolicyProcess)
         client.connection = Mock()
         client.connection.poll.side_effect = OSError(errno.EPIPE, "closed channel")
         with self.assertRaises(PolicyInfrastructureError):

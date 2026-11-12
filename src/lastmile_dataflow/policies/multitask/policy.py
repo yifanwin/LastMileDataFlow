@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 import numpy as np
 from pydantic import BaseModel
-from .inference import SynthManipMolmoInferenceWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -60,16 +59,6 @@ class _BufferedPolicy:
         self.step_count = 0
         self._conditioning_points: dict | None = None
         self._logged_obs_keys = False
-
-    def prepare_model(self):
-        """Load SynthManipMolmoInferenceWrapper from checkpoint."""
-        if self.agent is not None:
-            return
-        logger.info(f"Loading checkpoint from: {self.config.checkpoint_path}")
-        self.agent = SynthManipMolmoInferenceWrapper(
-            checkpoint_path=self.config.checkpoint_path
-        )
-        logger.info("Model loaded successfully")
 
     def reset(self):
         """Reset policy state for a new episode."""

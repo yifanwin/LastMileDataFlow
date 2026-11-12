@@ -247,7 +247,7 @@ def evaluate(benchmark, output, policy_path, *, gpu_ids):
             eid = episode['episode_id']
             snapshot = benchmark / episode['scene']
             robot = robot_config(read_json(snapshot / 'config.json')['robot'])
-            supported = robot.name == (getattr(policy_config,'embodiment','rby1m'))
+            supported = robot.name == (policy_config.embodiment)
             if not supported:
                 record = {'episode_id': eid, 'status': 'unsupported_policy', 'reason': selected_backend+' policy does not support ' + robot.name,
                           'recovery_success': None, 'recording_complete': False, 'executed_steps': 0}

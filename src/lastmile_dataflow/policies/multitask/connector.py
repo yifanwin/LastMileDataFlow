@@ -94,15 +94,6 @@ class ImageProjectorMLP(nn.Module):
         return x
 
 
-class Residual(nn.Module):
-    def __init__(self, submodule: nn.Module):
-        super().__init__()
-        self.submodule = submodule
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.submodule(x)
-
-
 class MolmoVisionBackbone(nn.Module):
     def __init__(self, config: MolmoVisionBackboneConfig, llm_config, device=None):
         super().__init__()
@@ -247,37 +238,6 @@ class MolmoVisionBackbone(nn.Module):
         cls, config: MolmoVisionBackboneConfig, outut_dim, device=None
     ) -> "MolmoVisionBackbone":
         return MolmoVisionBackbone(config, outut_dim, device)
-
-    def reset_connector_parameters(self):
-        if self.image_pooling_2d is not None:
-            if not self.config.use_deepstack or self.config.share_connector:
-                self.image_pooling_2d.reset_parameters()
-            else:
-                for module in self.image_pooling_2d:
-                    module.reset_parameters()
-        if not self.config.use_deepstack or self.config.share_connector:
-            if self.config.image_projector == "2mlp":
-                for module in self.image_projector:
-                    module.reset_parameters()
-            elif self.config.image_projector == "linear":
-                nn.init.xavier_uniform_(self.image_projector.weight)
-            elif self.config.image_projector in [ImageProjectType.random_linear]:
-                nn.init.uniform_(self.image_projector.weight, -0.02, 0.02)
-            else:
-                self.image_projector.reset_parameters()
-        else:
-            for module in self.image_projector:
-                if self.config.image_projector == "2mlp":
-                    for submodule in module:
-                        submodule.reset_parameters()
-                elif self.config.image_projector == "linear":
-                    nn.init.xavier_uniform_(module.weight)
-                elif self.config.image_projector in [ImageProjectType.random_linear]:
-                    nn.init.uniform_(module.weight, -0.02, 0.02)
-                else:
-                    module.reset_parameters()
-        if self.pad_embed is not None:
-            nn.init.zeros_(self.pad_embed)
 
     def encode_image(self, images: torch.Tensor) -> torch.Tensor:
         cfg = self.config

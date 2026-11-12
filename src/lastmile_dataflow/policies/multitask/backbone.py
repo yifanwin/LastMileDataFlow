@@ -20,10 +20,6 @@ log = logging.getLogger(__name__)
 class BackboneConfig(BaseModelConfig):
     _model_name: ClassVar[str] = "video_olmo"
 
-    @classmethod
-    def get_default_model_name(cls):
-        return "video_olmo"
-
     data_formatter: DataFormatter = field(default_factory=DataFormatter)
     llm: LlmConfig = field(default_factory=LlmConfig)
     vision_backbone: Optional[MolmoVisionBackboneConfig] = field(

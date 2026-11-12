@@ -575,22 +575,6 @@ def causal_attention_bias(seq_len: int, device: torch.device) -> torch.FloatTens
     return att_bias.view(1, 1, seq_len, seq_len)
 
 
-def get_causal_attention_bias(
-    cache: BufferCache, seq_len: int, device: torch.device
-) -> torch.Tensor:
-    if (
-        causal_bias := cache.get("causal_attention_bias")
-    ) is not None and causal_bias.shape[-1] >= seq_len:
-        if causal_bias.device != device:
-            causal_bias = causal_bias.to(device)
-            cache["causal_attention_bias"] = causal_bias
-        return causal_bias
-    with torch.autocast(device.type, enabled=False):
-        causal_bias = causal_attention_bias(seq_len, device)
-    cache["causal_attention_bias"] = causal_bias
-    return causal_bias
-
-
 class OLMoBlock(nn.Module):
     def __init__(
         self, layer_id: int, config: LlmConfig, cache: BufferCache, device=None

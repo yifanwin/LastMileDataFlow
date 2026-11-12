@@ -65,10 +65,6 @@ class VitConfig(BaseConfig):
         return SiglipVisionTransformer(self)
 
 
-def _expand_token(token, batch_size: int):
-    return token.view(1, 1, -1).expand(batch_size, -1, -1)
-
-
 class ViTMultiHeadDotProductAttention(nn.Module):
     def __init__(
         self, config: VitConfig, use_bias: bool = True, input_dim=None, device=None

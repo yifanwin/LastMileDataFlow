@@ -1,111 +1,54 @@
-"""One model subprocess per scene worker, exclusively owned and explicitly closed."""
-import logging
-import os
-from pathlib import Path
-import secrets
-import subprocess
-import tempfile
-import time
-from multiprocessing.connection import Client
+"""MolmoBot multitask client: one service process, one action per request."""
+from dataclasses import dataclass
+import math
 
-from ..runtime.control.action import InvalidAction
-from .config import load_molmobot_config as load_policy_config
-
-logger = logging.getLogger(__name__)
+from ..config import read_config
+from .process import PolicyAction, PolicyProcess
 
 
-class PolicyInfrastructureError(RuntimeError):
-    shared_resource = True
+@dataclass(frozen=True)
+class MolmoBotConfig:
+    checkpoint: str
+    python: str
+    embodiment: str = 'rby1m'
+    tokenizer_path: str | None = None
+    gripper_mode: str = 'model_default'
+    task_horizon: int = 400
+    rpc_timeout_s: float = 30.
+    load_timeout_s: float = 900.
+
+    def __post_init__(self):
+        if self.gripper_mode not in ('model_default', 'binary', 'continuous'):
+            raise ValueError('unknown gripper mode')
+        if type(self.task_horizon) is not int or self.task_horizon < 1:
+            raise ValueError('invalid task_horizon')
+        for name in ('rpc_timeout_s', 'load_timeout_s'):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError('invalid ' + name)
 
 
-class PolicyEpisodeError(RuntimeError):
-    """Consumed response to one bad request; RPC stream remains synchronized."""
-    pass
+def load_molmobot_config(path):
+    values = read_config(path, data_fields=('checkpoint', 'tokenizer_path'), repo_fields=('python',))
+    if values.pop('backend', 'molmobot') != 'molmobot':
+        raise ValueError('expected molmobot policy config')
+    return MolmoBotConfig(**values)
 
 
 class MolmoBotClient:
-    load_config = staticmethod(load_policy_config)
-    service_module = 'lastmile_dataflow.policies.molmobot_service'
-    policy_name = 'MolmoBot'
-
-    def prepare_environment(self, env):
-        return env
-
     def __init__(self, path, log_path):
-        logger.info('启动 %s 配置=%s 子进程日志=%s', self.policy_name, path, log_path, extra={'progress': True})
-        self.config = self.load_config(path)
-        self.directory = tempfile.TemporaryDirectory(prefix='lm-vla-')
-        socket = str(Path(self.directory.name)/'policy.sock')
-        token = secrets.token_hex(32)
-        env = dict(os.environ, LASTMILE_POLICY_AUTH=token,
-                   PYTHONDONTWRITEBYTECODE='1', TOKENIZERS_PARALLELISM='false', XLA_PYTHON_CLIENT_PREALLOCATE='false')
-        # Keep runtime caches with this experiment, not beside model weights.
-        cache = Path(log_path).parent.parent/'dependencies'/(self.policy_name.lower()+'-cache')
-        cache.mkdir(parents=True, exist_ok=True)
-        env.update(HF_HOME=str(cache/'hf'), XDG_CACHE_HOME=str(cache), TORCH_HOME=str(cache/'torch'))
-        env = self.prepare_environment(env)
-        self.log = Path(log_path).open('ab', buffering=0)
-        self.connection = None
-        self.process = subprocess.Popen([self.config.python, '-m',
-            self.service_module, '--config', str(path), '--socket', socket],
-            env=env, stdout=self.log, stderr=subprocess.STDOUT)
-        try:
-            deadline = time.monotonic()+self.config.load_timeout_s
-            while not Path(socket).exists():
-                if self.process.poll() is not None:
-                    raise PolicyInfrastructureError('model process exited; see '+str(log_path))
-                if time.monotonic() > deadline: raise PolicyInfrastructureError('model startup timeout')
-                time.sleep(.2)
-            self.connection = Client(socket, family='AF_UNIX', authkey=bytes.fromhex(token))
-            self.metadata = self.receive(max(.1, deadline-time.monotonic()))
-            if not self.metadata.get('ready'): raise PolicyInfrastructureError('model not ready')
-            logger.info('%s 已就绪 metadata=%s', self.policy_name, self.metadata)
-        except BaseException:
-            self.close(); raise
+        self.config = load_molmobot_config(path)
+        self.process = PolicyProcess(self.config, path, log_path, name='MolmoBot',
+                                     service_module='lastmile_dataflow.policies.molmobot_service')
+        self.metadata = self.process.metadata
 
-    def receive(self, timeout):
-        try:
-            if not self.connection.poll(timeout):
-                self.close()
-                raise PolicyInfrastructureError('model response timeout')
-            response = self.connection.recv()
-        except (EOFError, OSError) as exc:
-            raise PolicyInfrastructureError('model connection lost') from exc
-        if not isinstance(response,dict):
-            raise PolicyInfrastructureError('malformed model response')
-        if 'error' in response:
-            if response.get('invalid_action'): raise InvalidAction(response['error'])
-            message=response['type']+':'+response['error']
-            from ..runtime.execution.lifecycle import classify_episode_exception
-            if response['type'] not in ('MemoryError','OutOfMemoryError') and classify_episode_exception(RuntimeError(message))['failure_scope']=='episode':
-                raise PolicyEpisodeError(message)
-            raise PolicyInfrastructureError(message)
-        return response
-
-    def action(self, observation, *, task, attempt, seed, first=False, timeout=None):
-        """One prediction round-trip.
-
-        `timeout` defaults to the fixed `rpc_timeout_s`, which must stay decoupled
-        from the attempt wall-clock budget: a nearly-exhausted budget used to be
-        passed through here, so the last step of a full-horizon attempt always
-        raced a sub-second RPC deadline and turned into a bogus shared
-        `model response timeout`. The caller owns the attempt budget and re-checks
-        it after this returns.
-        """
-        try:
-            self.connection.send({'operation':task['operation'], 'attempt':attempt, 'seed':seed,
-                                  'observation':observation, 'first':first})
-        except (OSError, EOFError) as exc:
-            raise PolicyInfrastructureError('model connection lost') from exc
-        return self.receive(timeout or self.config.rpc_timeout_s)
+    def action(self, observation, *, task, attempt, seed, first=False):
+        reply = self.process.predict(observation, operation=task['operation'], attempt=attempt,
+                                     seed=seed, first=first)
+        return PolicyAction(reply['action'], reply['raw_action'], reply['new_chunk'], reply['chunk_index'],
+                            reply['chunk_serial'], reply['inference_s'], reply['model_prompt'],
+                            reply['model_chunk_state'], reply['processed_images'],
+                            reply['conditioning_points'], reply['gripper_binary'])
 
     def close(self):
-        if self.connection is not None:
-            self.connection.close(); self.connection = None
-        if getattr(self, 'process', None) is not None:
-            try: self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.terminate()
-                try: self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired: self.process.kill(); self.process.wait()
-        self.log.close(); self.directory.cleanup()
+        self.process.close()

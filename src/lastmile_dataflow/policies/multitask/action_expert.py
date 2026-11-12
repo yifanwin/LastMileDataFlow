@@ -292,10 +292,6 @@ class ActionExpert(nn.Module):
                     nn.init.zeros_(module.bias)
         self.final_layer.linear.reset_parameters()
 
-    def apply_compile(self, **compile_kwargs):
-        """Compile the action expert using torch.compile."""
-        self.compile(**compile_kwargs)
-
     def _encode_states(self, states: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
         if states is None:
             return None

@@ -246,23 +246,23 @@ class VLARollout:
                                       seed=self.seed, first=step == 0)
         self.recorder.phase = self.phase
         if step == 0:
-            for i, pixels in enumerate(response.pop("processed_images") or []):
+            for i, pixels in enumerate(response.processed_images or []):
                 imageio.imwrite(self.recorder.path / f"model_input_{i}.png", pixels)
             write_json(self.recorder.path / "policy_instruction.json", {
                 "instruction": prompt, "data_layer": "derived", "source_frame_id": 0,
                 "kind": "actual_policy_processed_input",
                 "target_conditioning": "one first-frame point" if self.points else "language only",
-                "model_prompt": response.get("model_prompt"),
-                "original_conditioning_points": response.get("conditioning_points")})
+                "model_prompt": response.model_prompt,
+                "original_conditioning_points": response.conditioning_points})
         self._check_budget()
         return response
 
     def _apply_action(self, response, step):
-        action = self.backend.to_execution(self.sim.robot, response["action"])
+        action = self.backend.to_execution(self.sim.robot, response.action)
         initial_video = self._video(self.frames) if step == 0 else None
         self.failures = []
         self._ensure_started()
-        _, failure = self._step(action, self._operation_check, command_raw=response["raw_action"])
+        _, failure = self._step(action, self._operation_check, command_raw=response.raw_action)
         if step == 0 and self.path is None:
             self.recorder.video_frame(initial_video)
         self._capture_frames()
