@@ -9,7 +9,7 @@
 | `benchmark/` | `BenchmarkConfig` | 困难起点、恢复区域与评测预算；`bench_build.py` 不给 `--config` 时用默认值（即 v0.1） |
 | `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器 |
 | `robots/` | `config.load_robot_config` | 机器人模型、控制 profile、相机与初始姿态 |
-| `rl/` | `workflows.rl_training` | 独立 RL 研究配置 |
+| `rl/` | `station_map.rl.training` | 独立 RL 研究配置 |
 
 `local.example.yaml` 可复制为 `local.yaml`，只提供 `assets_dir`（站位标定、采集省略 `--assets-dir` 时使用）。
 

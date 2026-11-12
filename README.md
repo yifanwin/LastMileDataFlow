@@ -13,7 +13,8 @@ scripts/install.sh
 
 | 阶段脚本 | 用途 |
 |---|---|
-| scripts/build_scenes.py | 找目标，生成原场景和桌面/地面障碍编辑场景，采站位并导出快照、预览 |
+| scripts/build_scenes.py | 找目标，生成原场景和桌面/地面障碍编辑场景，导出快照 |
+| scripts/sample_stations.py | 对场景库逐场景采候选站位并导出预览，没有合法站位的场景在这一步淘汰 |
 | scripts/station_map.py | cuRobo 逐点标定与热图 |
 | scripts/collect.py | 复用标定或先标定，执行 S0→S1→操作，直接导出自包含训练数据 |
 | scripts/bench_build.py | 按实测成功率选择困难 S0、参考站位与恢复区域 |
@@ -25,5 +26,5 @@ GPU 按实时空闲情况选择。--gpu 使用物理编号，EGL 自动映射并
 
 本轮真实检查覆盖场景构建、Panda单trial、3个连续配对、benchmark重建及π0.5两步调用链。整体回归未全绿，RGB与旧基线有最大2/255差异，未完成全部真实验收；已按用户要求停止所有实验与验证。详见 [最终总结](reports/simplify-refactor/delivery/10-final-summary.md)。
 
-- [架构](docs/architecture.md)、[数据格式](docs/data-format.md)、[配置](configs/README.md)、[测试](tests/README.md)。
+- [架构](docs/architecture.md)（源码按 pipeline 分层：utils → sim → robots → planning → operation → policies → scenes → station_map → lastmile_dataset / lastmile_benchmark）、[数据格式](docs/data-format.md)、[配置](configs/README.md)、[测试](tests/README.md)。
 - [报告入口](reports/README.md)与 [产物规则](outputs/RULES.md)。历史报告保留，历史成功不代表当前主链已验证。

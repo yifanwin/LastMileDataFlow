@@ -5,7 +5,7 @@
 LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 **场景增强与采样 → 场景库 → 逐点成败图 → S0→S1→操作 / 困难 S0 评测**。
 
-- 维护五个阶段脚本：`scripts/build_scenes.py`、`station_map.py`、`collect.py`、`bench_build.py`、`bench_evaluate.py`。
+- 维护六个阶段脚本：`scripts/build_scenes.py`、`sample_stations.py`、`station_map.py`、`collect.py`、`bench_build.py`、`bench_evaluate.py`。
 - 规划固定 cuRobo V2（0.8.0），策略为 MolmoBot multitask，导航为 A*。连续采集当前仅支持 cuRobo。
 - 当前能力与未验证边界查 README 和 `reports/README.md`；历史局部成功不证明当前主链闭环。
 
@@ -46,23 +46,27 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 
 ## 目录职责
 
-源码位于 `src/lastmile_dataflow/`，六个领域目录如下：
+源码位于 `src/lastmile_dataflow/`，按 pipeline 自下而上分层，只允许上层引用下层（`tests/test_layers.py` 检查，细节见 [docs/architecture.md](docs/architecture.md)）：
 
-| 目录 | 职责 |
-|---|---|
-| `scenes/` | 场景与资产加载、任务发现、站位采样、障碍物增强；子目录为 `loading/tasks/stations/edits` |
-| `runtime/` | 实际 stepping、控制、构建事务、执行与任务判定；子目录为 `control/construction/execution/outcomes` |
-| `planning/` | cuRobo V2、机器人规划适配、碰撞/FOV 和 A* |
-| `policies/` | MolmoBot 配置、客户端/服务及 `multitask/` 必要推理代码 |
-| `data/` | `recorder.py` 与 `evaluation/export/rendering/visualization`，负责记录、统计、导出和图像 |
-| `workflows/` | 场景构建、逐点标定、连续采集和 benchmark 的薄编排 |
+| 层 | 目录 | 职责 |
+|---|---|---|
+| 0 | `utils/` | 纯工具：读写、路径、日志、GPU/EGL 绑定、出图公共件；不含任务语义，不依赖 MuJoCo |
+| 1 | `sim/model/` | 只读模型：MJCF、几何与位姿、支撑面、房间地面 |
+| 2 | `robots/` | 公共件（registry、interface、joints、action、planning_common）+ `rby1/`、`panda_omron/` 各自的配置、适配器、规划模型 |
+| 3 | `sim/` | 仿真本体、快照、静置、状态迁移、机器人落位、接触、相机 |
+| 4 | `planning/` | cuRobo V2、A*、几何导航路线与底盘跟随 |
+| 5 | `operation/` | 站位上的单次操作试验：配置、episode 隔离、成败判定、控制、记录、试验外壳、`CuroboAttempt` |
+| 6 | `policies/` | MolmoBot、π0.5 客户端/服务与移植推理代码 |
+| 7 | `scenes/` | (a)(b) 场景构建、场景库、任务发现、障碍编辑、预览 |
+| 8 | `station_map/` | (c) 站位图：`sampling/` 候选站位 → `planner_trials/` 逐点试验或 `rl/`，`aggregate`、`heatmap` |
+| 9 | `lastmile_dataset/`、`lastmile_benchmark/` | (d)(e) 连续采集与导出、benchmark 构建与评测；两者互不引用 |
 
-入口脚本只做参数与设备绑定，`config.py` / `io.py` 管理共用配置与读写。
-算法放领域模块，编排放 `workflows`，实际运动放 `runtime`；不另起平行执行器或记录链路。
+入口脚本只做参数与设备绑定，阶段编排在各阶段目录的 `build.py`/`collect.py`/`evaluate.py`，实际推进仿真只经 `sim/simulation.py`；不另起平行执行器或记录链路。
+跨顶层包写绝对导入，包内用相对导入，`__init__.py` 保持为空。
 
 - 根目录 `configs/`：显式 YAML 输入配置，只写与默认值不同的字段；运行产物仍写 JSON；解析规则见下节。
 - 根目录 `data/`：可选的本地资产、权重和 tokenizer 存放位置，不是源码；不需要克隆整个 MolmoBot 仓库作为运行依赖。
-- `tests/`：按 `scenes/runtime/planning/policies/data/workflows` 分组；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
+- `tests/`：按源码顶层目录分组（`utils/sim/robots/planning/operation/policies/scenes/station_map/lastmile_dataset/lastmile_benchmark`），另有 `test_layers.py`、`test_scripts.py`；`helpers.py` 保存必要共享 fixture，`smoke/` 保存显式真实验证脚本。
 - `outputs/`：运行产物，细则见 [outputs/RULES.md](outputs/RULES.md)。
   1. `batches/` 用于批量运行、评测和采集；`experiments/` 用于特定问题的复现、对照和参数实验；`experiments/scratch/` 用于临时测试，无需完整实验管理。
   2. 一个单元回答一个问题；一个 run 是最小归档单位。配置、日志、指标、checkpoint、视频和生成输入均归入对应 `runs/<run>/`，内部目录按需创建。
@@ -96,7 +100,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
 
 # 改动相关领域或文件时先跑局部测试
 .venv/bin/python -m unittest discover -s tests/scenes -t . -v
-.venv/bin/python -m unittest tests.data.test_recording -v
+.venv/bin/python -m unittest tests.operation.test_recording -v
 ```
 
 - 先跑相关测试，再跑全套回归；测试跟随现有行为，不为已删除功能或内部旧路径保留回归。
