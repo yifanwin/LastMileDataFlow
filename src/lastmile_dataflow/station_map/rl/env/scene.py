@@ -6,6 +6,7 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.utils.io import REPO_ROOT
+from lastmile_dataflow.robots.interface import ROBOT_NAMESPACE
 from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.sim.source import SceneSource
@@ -13,6 +14,22 @@ from lastmile_dataflow.robots.registry import load_robot_spec
 from lastmile_dataflow.sim.state import migrate_state
 from lastmile_dataflow.sim.simulation import closed_on_error
 from lastmile_dataflow.sim.model.geometry import geom_points
+
+
+# mjlab names every element of an entity "<entity>/<name>"; the robot is the entity "robot",
+# so its elements are "robot/" + the protocol namespace.
+ROBOT_ENTITY = "robot"
+ENTITY_PREFIX = ROBOT_ENTITY + "/"
+ROBOT_PREFIX = ENTITY_PREFIX + ROBOT_NAMESPACE
+
+
+@dataclass(frozen=True)
+class EntityPandaConfig(PandaOmronConfig):
+    """PandaOmron as compiled into the mjlab scene: element names carry the entity prefix."""
+
+    @property
+    def namespace(self):
+        return ROBOT_PREFIX
 
 
 @dataclass(frozen=True)
@@ -31,6 +48,20 @@ class RLSceneConfig:
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
+
+    def robot_config(self, *, entity=False):
+        """PandaOmron for this scene; ``entity=True`` names its elements as in the compiled mjlab scene."""
+        cls = EntityPandaConfig if entity else PandaOmronConfig
+        return cls(
+            model_path=self.asset(self.robot_xml),
+            physics_dt=self.physics_dt,
+            initial={
+                "base_xyyaw": [0.0, 0.0, 0.0],
+                "lift": self.lift,
+                "arm_q": {"right": list(self.home)},
+                "gripper_width": {},
+            },
+        )
 
 
 @dataclass
@@ -74,17 +105,7 @@ def prepare_rl_scene(config):
     source = SceneSource(
         "val103-cup30", config.asset(config.scene_xml), config.asset(config.scene_metadata), "procthor-10k-val", "val"
     )
-    robot = PandaOmronConfig(
-        model_path=config.asset(config.robot_xml),
-        physics_dt=config.physics_dt,
-        cameras=("overview", "robot0_eye_in_hand"),
-        initial={
-            "base_xyyaw": [0.0, 0.0, 0.0],
-            "lift": config.lift,
-            "arm_q": {"right": list(config.home)},
-            "gripper_width": {},
-        },
-    )
+    robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
     target = sim.model.body(sim.target_id).name
     anchor = sim.data.xpos[sim.target_id].copy()

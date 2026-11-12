@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from lastmile_dataflow.sim.cameras import ThirdPersonCamera, ThirdPersonConfig
 
 from lastmile_dataflow.operation.recording.recorder import video_writer
+from .env.scene import ROBOT_PREFIX
 import mujoco
 import numpy as np
 from PIL import Image, ImageDraw
@@ -24,14 +25,14 @@ def render_rollout(model, states, metrics, path, label, result, settings, dt):
         model=model,
         data=data,
         target_id=target_id,
-        robot=SimpleNamespace(config=SimpleNamespace(namespace="robot/robot_0/")),
+        robot=SimpleNamespace(config=SimpleNamespace(namespace=ROBOT_PREFIX)),
     )
     close_observer = ThirdPersonCamera(ThirdPersonConfig(context_margin_m=0.04))
     close_sim = SimpleNamespace(
         model=model,
         data=data,
         target_id=target_id,
-        robot=SimpleNamespace(config=SimpleNamespace(namespace="robot/robot_0/gripper0_right")),
+        robot=SimpleNamespace(config=SimpleNamespace(namespace=ROBOT_PREFIX + "gripper0_right")),
     )
     path = Path(path)
     path.parent.mkdir(exist_ok=True)

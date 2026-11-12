@@ -5,6 +5,8 @@ from dataclasses import dataclass, fields
 import torch
 import numpy as np
 
+from .scene import ENTITY_PREFIX
+
 
 REWARD_COMPONENTS = (
     "position",
@@ -113,7 +115,7 @@ class GeometryObservation:
             b = int(model.geom_bodyid[g])
             name = model.body(b).name
             if (
-                "robot/" in name
+                ENTITY_PREFIX in name
                 or model.body_rootid[b] == target_root
                 or not (model.geom_contype[g] or model.geom_conaffinity[g])
                 or model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE

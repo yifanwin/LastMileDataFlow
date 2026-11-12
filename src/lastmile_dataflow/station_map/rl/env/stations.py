@@ -6,7 +6,6 @@ import math
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.sim.model.geometry import floor_support, room_triangles
 from lastmile_dataflow.sim.model.geometry import body_pose
@@ -33,17 +32,7 @@ def prepare_stations(model, prepared, config):
     """CPU preparation only, before GPU episodes; no IK, FOV or reach filter."""
 
     scene = RLSceneConfig(**config["scene"])
-    robot_config = PandaOmronConfig(
-        model_path=scene.asset(scene.robot_xml),
-        namespace="robot/robot_0/",
-        physics_dt=scene.physics_dt,
-        initial={
-            "base_xyyaw": [0.0, 0.0, 0.0],
-            "lift": scene.lift,
-            "arm_q": {"right": list(scene.home)},
-            "gripper_width": {},
-        },
-    )
+    robot_config = scene.robot_config(entity=True)
     sim = Simulation(model, robot_config, prepared.catalog, prepared.target_body)
     parked = deepcopy(robot_config.initial)
     parked["base_xyyaw"] = [-10.0, -10.0, 0.0]

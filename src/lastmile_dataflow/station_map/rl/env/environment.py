@@ -16,14 +16,12 @@ from mjlab.scene import SceneCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 
-from .scene import RLSceneConfig, prepare_rl_scene
+from .scene import ENTITY_PREFIX, ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig, prepare_rl_scene
+from lastmile_dataflow.robots.interface import ROBOT_NAMESPACE
 from .dls import BaseFrameDLSCfg
 from . import terms
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS
 from .terms import TaskState
-
-
-ROBOT_PREFIX = "robot/robot_0/"
 
 
 @dataclass(kw_only=True)
@@ -109,7 +107,9 @@ def build_sensors(prepared):
     for index, body in enumerate(prepared.robot_spec.bodies):
         if "finger" not in body.name and body.geoms:
             sensors.append(
-                contact_sensor(f"nonfinger_{index}", ContactMatch(mode="body", pattern="robot/" + body.name), target)
+                contact_sensor(
+                    f"nonfinger_{index}", ContactMatch(mode="body", pattern=ENTITY_PREFIX + body.name), target
+                )
             )
     return tuple(sensors)
 
@@ -125,7 +125,9 @@ class StationEnv(ManagerBasedRlEnv):
         self.task = None
         prepared = self.prepared
         initial = {
-            name.split("/")[-1]: value for name, value in prepared.initial_qpos.items() if name.startswith("robot_0/")
+            name.split("/")[-1]: value
+            for name, value in prepared.initial_qpos.items()
+            if name.startswith(ROBOT_NAMESPACE)
         }
         root = prepared.robot_spec.bodies[1]
         robot = EntityCfg(
@@ -140,7 +142,7 @@ class StationEnv(ManagerBasedRlEnv):
             scene=SceneCfg(
                 num_envs=num_envs or env_cfg["num_envs"],
                 env_spacing=0.0,
-                entities={"robot": robot},
+                entities={ROBOT_ENTITY: robot},
                 sensors=sensors,
                 spec_fn=prepared.attach_scene,
             ),
@@ -163,7 +165,7 @@ class StationEnv(ManagerBasedRlEnv):
             scale_rewards_by_dt=False,
             actions={
                 "tcp": BaseFrameDLSCfg(
-                    entity_name="robot",
+                    entity_name=ROBOT_ENTITY,
                     actuator_names=[f"robot0_joint{i}" for i in range(1, 8)] + ["mobilebase0_joint_torso_height"],
                     frame_type="site",
                     frame_name="gripper0_right_grip_site",
@@ -174,7 +176,7 @@ class StationEnv(ManagerBasedRlEnv):
                     joint_limit_weight=action["joint_limit_weight"],
                     joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
                 ),
-                "gripper": GripperCfg(entity_name="robot"),
+                "gripper": GripperCfg(entity_name=ROBOT_ENTITY),
             },
             observations={
                 "policy": ObservationGroupCfg(

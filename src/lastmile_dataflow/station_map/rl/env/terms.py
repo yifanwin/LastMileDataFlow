@@ -7,7 +7,7 @@ from mjlab.utils.lab_api.math import compute_pose_error, quat_from_matrix
 from .observation import GeometryObservation, REWARD_COMPONENTS
 from .stations import prepare_stations
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
-from .scene import RLSceneConfig
+from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 
 
 def contact_addresses(model, prefixes, field, device):
@@ -36,7 +36,7 @@ class TaskState:
         self.env = env
         self.device = env.device
         self.model = env.sim.mj_model
-        self.robot = env.scene["robot"]
+        self.robot = env.scene[ROBOT_ENTITY]
         n = env.num_envs
         self.target = self.model.body(env.prepared.target_body).id
         self.finger_addresses = contact_addresses(self.model, ("finger_",), "force", self.device)
@@ -50,8 +50,8 @@ class TaskState:
             if self.model.sensor(i).name.startswith(("environment_", "nonfinger_", "self_collision_"))
             and self.model.sensor(i).name.endswith("_found")
         ]
-        self.tcp = self.model.site("robot/robot_0/gripper0_right_grip_site").id
-        self.base = self.model.site("robot/robot_0/base_site").id
+        self.tcp = self.model.site(ROBOT_PREFIX + "gripper0_right_grip_site").id
+        self.base = self.model.site(ROBOT_PREFIX + "base_site").id
         self.arm, _ = self.robot.find_joints([f"robot0_joint{i}" for i in range(1, 8)], preserve_order=True)
         self.fingers, _ = self.robot.find_joints(
             ["gripper0_right_finger_joint1", "gripper0_right_finger_joint2"], preserve_order=True
@@ -66,10 +66,10 @@ class TaskState:
             preserve_order=True,
         )
         self.open_grip = float(
-            self.model.joint("robot/robot_0/gripper0_right_finger_joint1").range[1]
-            - self.model.joint("robot/robot_0/gripper0_right_finger_joint2").range[0]
+            self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint1").range[1]
+            - self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint2").range[0]
         )
-        self.lift_range = self.model.joint("robot/robot_0/mobilebase0_joint_torso_height").range.copy()
+        self.lift_range = self.model.joint(ROBOT_PREFIX + "mobilebase0_joint_torso_height").range.copy()
         self.graph = GeometryObservation(
             self.model,
             self.target,
