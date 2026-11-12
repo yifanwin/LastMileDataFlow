@@ -62,7 +62,7 @@
 
 ## 4. 实测现状
 
-归档记录（`reports/archives/benchmark/REPORT.md`，旧分支 `feat/lastmilebench-design`，旧命令名 `build-lastmilebench` / `evaluate-lastmilebench`）：
+归档记录（原 `reports/archives/benchmark/REPORT.md`，2026-11-12 已删除，见提交 780e3f2 的 Git 历史；旧分支 `feat/lastmilebench-design`，旧命令名 `build-lastmilebench` / `evaluate-lastmilebench`）：
 
 | 项 | 结果 |
 |---|---|

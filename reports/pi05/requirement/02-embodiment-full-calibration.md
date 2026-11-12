@@ -12,7 +12,7 @@
 | Panda-Omron | 0.9410662914823394 | 0.4382921400162225 | 0.10957303500405563 |
 | RBY-1 | 0.7928056080178096 | 0.4435184160005256 | 0.1108796040001314 |
 
-RBY 原比例见[历史运行说明](../../../docs/archives/no-edit-collection.md)和[稠密采样记录](../../archives/obstacle_augmentation/2026-10-11-dense-cases/REPORT.md)。本轮从实际模型复核了两本体数值；L 来自关节限位内的自由空间数值搜索，不代表所有姿态都无碰撞或所有范围内站位都能完成任务。
+RBY 原比例见历史运行说明 `docs/archives/no-edit-collection.md` 和稠密采样记录 `reports/archives/obstacle_augmentation/2026-10-11-dense-cases/REPORT.md`（2026-11-12 已删除，见提交 780e3f2 的 Git 历史）。本轮从实际模型复核了两本体数值；L 来自关节限位内的自由空间数值搜索，不代表所有姿态都无碰撞或所有范围内站位都能完成任务。
 
 ## 采样与执行
 
