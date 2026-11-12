@@ -39,7 +39,7 @@ class Pi05DatasetTests(unittest.TestCase):
             output = convert(source,root/'lerobot')
             config = Rby1DataConfig.load(output / 'data_config.json')
             stats = read_json(output / 'assets/norm_stats.json')['norm_stats']
-            self.assertEqual(config.values['frames'],6)
+            self.assertEqual(read_json(output / 'data_config.json')['frames'],6)
             np.testing.assert_allclose(stats['state']['mean'][:22],.5)
             dataset = config.create_dataset()
             item = dataset[2]

@@ -9,25 +9,37 @@ import json
 
 import numpy as np
 
+from .normalization import normalize
+
+PADDED_SIZE = 32
+
 
 @dataclass(frozen=True)
 class Rby1DataConfig:
+    """The fields of ``data_config.json`` (written by ``export_pi05``) that training reads."""
     root: Path
-    values: dict
+    repo_id: str
+    fps: int
+    action_horizon: int
+    norm_stats: str
+    task_prompts: dict
+    images: dict
 
     @classmethod
     def load(cls, path):
         path = Path(path).resolve()
-        return cls(path.parent, json.loads(path.read_text()))
+        values = json.loads(path.read_text())
+        return cls(path.parent, values['repo_id'], values['fps'], values['action_horizon'],
+                   values['norm_stats'], values['task_prompts'], values['images'])
 
     def create_dataset(self):
         import datasets
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         datasets.config.HF_DATASETS_CACHE = self.root.parent / 'dependencies' / 'datasets-cache'
-        source = LeRobotDataset(self.values['repo_id'], root=self.root,
-            delta_timestamps={'actions': [i/self.values['fps'] for i in range(self.values['action_horizon'])]})
-        stats = json.loads((self.root / self.values['norm_stats']).read_text())['norm_stats']
-        return Rby1Dataset(source, self.values, stats)
+        source = LeRobotDataset(self.repo_id, root=self.root,
+            delta_timestamps={'actions': [i/self.fps for i in range(self.action_horizon)]})
+        stats = json.loads((self.root / self.norm_stats).read_text())['norm_stats']
+        return Rby1Dataset(source, self, stats)
 
 
 class Rby1Dataset:
@@ -39,18 +51,14 @@ class Rby1Dataset:
 
     def __getitem__(self, index):
         item = self.source[index]
-        result = {'image': {}, 'image_mask': {}, 'prompt': self.config['task_prompts'][item['task']]}
-        for key in self.config['images']:
+        result = {'image': {}, 'image_mask': {}, 'prompt': self.config.task_prompts[item['task']]}
+        for key in self.config.images:
             # LeRobot decodes image features as CHW float32 [0,1].
             pixels = np.asarray(item[key]).transpose(1, 2, 0)
             result['image'][key] = np.rint(pixels*255).astype(np.uint8)
             result['image_mask'][key] = np.True_
         for field in ('state', 'actions'):
-            values = np.asarray(item[field], dtype=np.float32)
-            size = values.shape[-1]
-            low = np.asarray(self.stats[field]['q01'][:size], dtype=np.float32)
-            high = np.asarray(self.stats[field]['q99'][:size], dtype=np.float32)
-            values = (values-low)/(high-low+1e-6)*2-1
-            result[field] = np.pad(values, [(0,0)]*(values.ndim-1)+[(0,32-size)])
+            values = normalize(np.asarray(item[field], dtype=np.float32), self.stats[field], 'quantile')
+            result[field] = np.pad(values, [(0, 0)]*(values.ndim-1) + [(0, PADDED_SIZE-values.shape[-1])])
         result['actions_is_pad'] = np.asarray(item['actions_is_pad'])
         return result

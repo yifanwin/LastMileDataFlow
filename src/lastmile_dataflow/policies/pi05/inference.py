@@ -12,9 +12,9 @@ import sentencepiece
 from .core.models import model, pi0_config
 from .core.shared.image_tools import resize_with_pad
 from .core.shared.nnx_utils import module_jit
+from .config import IMAGE_KEYS
+from .normalization import normalize
 
-
-IMAGE_KEYS = ('base_0_rgb', 'left_wrist_0_rgb', 'right_wrist_0_rgb')
 logger = logging.getLogger(__name__)
 
 
@@ -48,19 +48,7 @@ class Pi05Inference:
     def normalize(self, value, field, *, inverse=False):
         if self.stats is None:
             raise ValueError('normalization unavailable; only normalized model smoke is supported')
-        stats = self.stats[field]
-        if self.config.normalization == 'mean_std':
-            offset = np.asarray(stats['mean'], np.float32)
-            scale = np.asarray(stats['std'], np.float32) + 1e-6
-        else:
-            low = np.asarray(stats['q01'], np.float32)
-            high = np.asarray(stats['q99'], np.float32)
-            scale = (high - low + 1e-6) / 2
-            offset = low + scale
-        size = min(value.shape[-1], len(offset))
-        result = value.copy()
-        result[..., :size] = value[..., :size] * scale[:size] + offset[:size] if inverse else (value[..., :size] - offset[:size]) / scale[:size]
-        return result
+        return normalize(value, self.stats[field], self.config.normalization, inverse=inverse)
 
     def infer(self, observation, *, normalized=False):
         config = self.config

@@ -1,8 +1,7 @@
 """Map physical RBY-1 predictions to the position command envelope."""
 import numpy as np
 
-from ...runtime.control.action import vector
-from ...runtime.control.action import sanitize_action
+from ...runtime.control.action import sanitize_action, vector
 
 
 def execution_action(robot, prediction):

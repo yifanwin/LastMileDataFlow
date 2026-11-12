@@ -7,7 +7,7 @@ import signal
 import traceback
 import time
 
-from .config import load_config
+from .config import IMAGE_KEYS, load_config
 
 
 def main():
@@ -28,7 +28,6 @@ def main():
     runner = Pi05Inference(load_config(args.config))
     # Compile once during startup, covered by the model load timeout.
     import numpy as np
-    from .inference import IMAGE_KEYS
     runner.infer({'state': np.zeros(runner.config.state_size, np.float32),
                   'images': {key: np.zeros((224, 224, 3), np.uint8) for key in IMAGE_KEYS},
                   'prompt': 'Pick up the cup.'})

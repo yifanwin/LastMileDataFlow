@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from ...config import read_config
 
 
+# π0.5 image slots → recorded camera names, per embodiment.
+PI05_CAMERAS = {
+    'rby1m': {'base_0_rgb': 'head_camera', 'left_wrist_0_rgb': 'wrist_camera_l',
+              'right_wrist_0_rgb': 'wrist_camera_r'},
+    'panda_omron': {'base_0_rgb': 'robot0_agentview_left', 'left_wrist_0_rgb': 'robot0_eye_in_hand',
+                    'right_wrist_0_rgb': 'robot0_agentview_right'},
+}
+IMAGE_KEYS = tuple(PI05_CAMERAS['rby1m'])
+
 @dataclass(frozen=True)
 class Pi05Config:
     embodiment: str
