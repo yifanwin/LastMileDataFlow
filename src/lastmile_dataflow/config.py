@@ -1,5 +1,5 @@
 """Robot/config parameters and explicit repository/data path loading."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 import json
 import os
@@ -151,7 +151,6 @@ class StationRun:
     max_trials: int | None = None
     record_video: bool = False
     recording_mode: str | None = None
-    station_workers: int = 1
     planning_workers_per_gpu: list = field(default_factory=lambda: [1])
     cpu_workers: int = 60
     preparation_workers: int = 12
@@ -159,6 +158,20 @@ class StationRun:
     def __post_init__(self):
         if self.recording_mode not in (None, 'numerical', 'visual'):
             raise ValueError('recording_mode must be numerical or visual')
+        cpus = max(1, os.cpu_count() or 1)
+        if not 1 <= self.cpu_workers <= cpus:
+            raise ValueError(f'cpu_workers must be between 1 and {cpus}')
+        if not 1 <= self.preparation_workers <= min(64, cpus):
+            raise ValueError(f'preparation_workers must be between 1 and {min(64, cpus)}')
+
+    @property
+    def mode(self):
+        """Calibration recording: numerical keeps no training RGB; visual records RGB (and video if asked)."""
+        return self.recording_mode or ('visual' if self.record_video else 'numerical')
+
+    def calibration_recording(self, collection):
+        visual = self.mode == 'visual'
+        return replace(collection, record_images=visual, record_video=visual and collection.record_video)
 
 
 def load_station_run(path):

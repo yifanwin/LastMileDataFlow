@@ -15,7 +15,7 @@ def main():
     from lastmile_dataflow.utils.logging_config import setup_logging
     from lastmile_dataflow.workflows.scene_datasets import build_scenes
     setup_logging()
-    print(build_scenes(args.config, args.output.parent, args.output.name, gpu_ids=args.gpu))
+    print(build_scenes(args.config, args.output, gpu_ids=args.gpu))
 
 
 if __name__ == '__main__':

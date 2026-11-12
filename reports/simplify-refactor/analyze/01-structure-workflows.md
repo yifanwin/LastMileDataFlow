@@ -1,5 +1,7 @@
 # 第 1 路：目录结构 + workflows / scripts / config / gpu / utils
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 审查对象：pro5000 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/simplify`，分支 `refactor/simplify`。
 内容以变基前的分支尖端 `bfd707d`（ORIG_HEAD）为准。审查时（11-12 00:20 CST 起）**这个工作树里有人正在做交互式变基**，停在 `0f8648c` 上，`pool.py`、`workers.py`、`scene_datasets.py` 里还有冲突标记，`workflows/collection.py` 处于 deleted-by-us 状态。本文只读代码，没有改动工作树，也没有运行任何程序。
 

@@ -1,8 +1,6 @@
 """Real spawn and MuJoCo stepping, synthetic planning; no Panda/GPU acceptance."""
 from dataclasses import asdict
 from functools import partial
-from itertools import count
-from pathlib import Path
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,9 +13,9 @@ from lastmile_dataflow.runtime.execution.lifecycle import isolated_episode
 from lastmile_dataflow.runtime.execution.protocol import PlanningResponse
 from lastmile_dataflow.runtime.execution.workers import execution_worker
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.workflows.station_map import RunResources
+from lastmile_dataflow.config import StationRun
 from lastmile_dataflow.utils.io import read_json, rows
-from lastmile_dataflow.workflows.station_map import calibrate_stations
+from lastmile_dataflow.workflows.station_map import StationRunContext, calibrate_stations
 from tests.helpers import DatasetTestCase
 
 
@@ -80,13 +78,13 @@ class SplitCalibrationTests(DatasetTestCase):
                 for identity in ('one', 'two')]
 
     def run_calibration(self, scenes, output, *, cpus=3):
-        config = ExecutionConfig(shared_station_preparation=True, initial_settle_s=.1, trials_per_station=3)
-        resources = RunResources((0,), cpu_workers=cpus, preparation_workers=2)
+        config = ExecutionConfig(initial_settle_s=.1, trials_per_station=3)
+        run = StationRun('unused', cpu_workers=cpus, preparation_workers=2)
         output.mkdir()
+        context = StationRunContext(output, scenes, config, self.collection, run, self.root, (0,))
         with patch('lastmile_dataflow.workflows.station_map.grasp_candidates', return_value=[]):
-            return calibrate_stations(scenes, self.root, config, self.collection, output, resources,
-                attempt_ids=count(), service_type=FixtureService,
-                trial_worker=partial(execution_worker, runner=fixture_runner))
+            return calibrate_stations(context, service_type=FixtureService,
+                                      trial_worker=partial(execution_worker, runner=fixture_runner))
 
     def test_one_planner_supplies_multiple_independent_cpu_trials_across_scenes(self):
         output = self.root / 'run'

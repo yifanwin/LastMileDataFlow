@@ -1,4 +1,5 @@
 """Scene recipes, station geometry independent of robot dimensions, and accepted scene records."""
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import math
 from pathlib import Path
@@ -8,6 +9,7 @@ import numpy as np
 from ..config import load_robot_config, read_config
 from ..utils.io import rows
 from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
+from ..runtime.simulation import Simulation
 
 
 def house_number(value):
@@ -156,6 +158,25 @@ class SceneRecipe:
     def selectors(self, house):
         return [t for h, values in self.targets.items() if house_number(h) == house for t in values]
 
+    def selects(self, task, house):
+        """Explicit per-house targets (instance, asset or task id); no targets selects every task."""
+        selectors = self.selectors(house)
+        return not selectors or any(selector in (task["instance_id"], task["asset_id"], task["task_id"])
+                                    for selector in selectors)
+
+    def rejection(self, task, house):
+        """Why the recipe's category/asset/task filters exclude ``task``, or None."""
+        if f"{house}:{task['task_id']}" in self.exclude_tasks:
+            return "excluded_task"
+        if self.include_categories and task["category"] not in self.include_categories:
+            return "not_included_target_category"
+        prefixes = self.include_assets.get(task["category"])
+        if prefixes and not any(str(task.get("asset_id", "")).startswith(prefix) for prefix in prefixes):
+            return "not_included_target_asset"
+        if task["category"] in self.exclude_categories:
+            return "excluded_target_category"
+        return None
+
 
 def load_scene_recipe(path):
     recipe = SceneRecipe(**read_config(path,
@@ -175,3 +196,14 @@ def load_scenes(dataset, samples=None):
         raise ValueError('requested scene not found')
     return [{**r, 'scene_path': str(root / r['scene'])} for r in records
             if not samples or r['scene_id'] in samples]
+
+
+@contextmanager
+def open_scene(scene):
+    """The library snapshot of ``scene`` (with ``robot_config`` resolved), closed on exit."""
+    sim = Simulation.from_snapshot(scene["scene_path"], scene["robot_config"],
+                                   target=scene["task"]["target_body"], scene_id=scene["scene_id"])
+    try:
+        yield sim
+    finally:
+        sim.close()

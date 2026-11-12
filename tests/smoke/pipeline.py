@@ -4,16 +4,14 @@ Optional benchmark execution requires an existing source cuRobo calibration.
 No synthetic recovery pair, automatic smoke fallback or relocation probe.
 """
 
-from lastmile_dataflow.gpu import select_devices
 import argparse
-import os
-from dataclasses import replace
 from pathlib import Path
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.config import read_config
+from lastmile_dataflow.gpu import select_devices
 from lastmile_dataflow.utils.io import create_run, rows, write_json
-from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.workflows.collect import collect_lastmile, evaluate_stations
+from lastmile_dataflow.workflows.collect import run_collection
+from lastmile_dataflow.workflows.station_map import run_station_map
 from lastmile_dataflow.workflows.lastmilebench import build, evaluate
 
 
@@ -30,40 +28,21 @@ def main():
     parser.add_argument("--policy-config", type=Path, default=Path("configs/policies/molmobot.json"))
     args = parser.parse_args()
     select_devices([args.gpu])
-    config = replace(load_execution_config(args.config), trials_per_station=args.trials_per_station)
-    root = create_run(
-        args.output,
-        {
-            "dataset": str(args.dataset.resolve()),
-            "scene_id": args.scene_id,
-            "gpu": args.gpu,
-            "seed": config.seed,
-        },
-    )
+    execution = {**read_config(args.config), "trials_per_station": args.trials_per_station}
+    root = create_run(args.output, {"dataset": str(args.dataset.resolve()), "scene_id": args.scene_id,
+                                    "gpu": args.gpu, "seed": execution.get("seed", 42)})
+    write_json(root / "execution.json", execution)
+    run_config = root / "run.json"
+    write_json(run_config, {"execution": str(root / "execution.json"), "assets_dir": str(args.assets_dir.resolve())})
     options = {"samples": [args.scene_id], "gpu_ids": [args.gpu]}
-    recording = CollectionConfig(
-        width=config.width, height=config.height, seed=config.seed, record_video=False
-    )
-    calibration = evaluate_stations(
-        args.dataset, args.assets_dir, config, recording, root, run_id="calibration", **options
-    )
-    collection = collect_lastmile(
-        args.dataset,
-        args.assets_dir,
-        config,
-        recording,
-        root,
-        run_id="collection",
-        calibration=calibration,
-        **options,
-    )
+    calibration = run_station_map(args.dataset, run_config, root / "calibration", **options)
+    collection = run_collection(args.dataset, run_config, root / "collection", calibration=calibration, **options)
     result = {"calibration": str(calibration), "collection": str(collection)}
     write_json(root / "results.json", result)
     if args.benchmark_calibration:
         bench = build(
             args.dataset,
             root / "bench",
-            gpu_ids=[args.gpu],
             calibration_dir=args.benchmark_calibration,
             config_path="configs/benchmark/v0.1.json",
         )
@@ -74,7 +53,6 @@ def main():
                     bench,
                     root / "evaluation",
                     args.policy_config,
-                    gpu_ids=[args.gpu],
                 )
             )
         else:

@@ -172,25 +172,23 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
                 return
 
 
+def per_gpu_workers(gpu_ids, workers):
+    """One planning-worker count (1–4) per GPU; a single value applies to every GPU."""
+    values = list(workers) if isinstance(workers, (list, tuple)) else [workers]
+    if len(values) == 1:
+        values = values * len(gpu_ids)
+    if len(values) != len(gpu_ids) or any(not isinstance(value, int) or not 1 <= value <= 4 for value in values):
+        raise ValueError("planning workers per GPU must be one value or one 1-4 value per GPU")
+    return tuple(values)
+
+
 class PlanningPool:
     def __init__(self, gpu_ids, *, service_type=PlanningService, workers_per_gpu=1):
-        values = (
-            list(workers_per_gpu)
-            if isinstance(workers_per_gpu, (list, tuple))
-            else [workers_per_gpu]
-        )
-        if len(values) == 1:
-            values = values * len(gpu_ids)
-        if len(values) != len(gpu_ids) or any(
-            (not isinstance(value, int) or not 1 <= value <= 4 for value in values)
-        ):
-            raise ValueError(
-                "planning workers per GPU must be one value or one 1-4 value per GPU"
-            )
+        values = per_gpu_workers(gpu_ids, workers_per_gpu)
         egl_devices = dict(zip(gpu_ids, resolve_egl_devices(gpu_ids)))
         self.context = multiprocessing.get_context("spawn")
         self.results = self.context.Queue()
-        self.workers_per_gpu = tuple(values)
+        self.workers_per_gpu = values
         self.worker_gpu = [
             gpu for (gpu, count) in zip(gpu_ids, values) for _ in range(count)
         ]

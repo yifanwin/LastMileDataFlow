@@ -149,17 +149,14 @@ def execution_worker(
             job = jobs.get()
             if job is None:
                 return
-            (scene, station_index, prepared, response, budget, candidates) = job
+            scene, station_index, prepared, response, budget, candidates = (
+                job.scene, job.index, job.prepared, job.response, job.budget, job.candidates)
             identity = response.identity
             inputs = PlanningInputs(scene["task"], scene["robot_config"], config, root, assets_dir,
                                     model_dir=scene["scene_path"])
             try:
-                baseline = scenes.get(
-                    scene["scene_path"],
-                    scene["robot_config"],
-                    scene["task"]["target_body"],
-                )
-                baseline.scene_id = scene["scene_id"]
+                baseline = scenes.get(scene["scene_path"], scene["robot_config"],
+                                      scene["task"]["target_body"], scene["scene_id"])
                 with closing(
                     PlanningClient(
                         index,

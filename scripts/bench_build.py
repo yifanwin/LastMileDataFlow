@@ -13,8 +13,7 @@ def main():
     from lastmile_dataflow.utils.logging_config import setup_logging
     from lastmile_dataflow.workflows.lastmilebench import build
     setup_logging()
-    print(build(args.dataset, args.output, calibration_dir=args.calibration, config_path=args.config,
-                gpu_ids=[None]))
+    print(build(args.dataset, args.output, calibration_dir=args.calibration, config_path=args.config))
 
 
 if __name__ == '__main__':

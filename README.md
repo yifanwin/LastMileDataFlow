@@ -2,7 +2,7 @@
 
 场景输入 → 场景准备 → 站位图 → Last-mile 数据集 → 数据使用。
 
-支持 PandaOmron 与 RBY-1。规划使用 cuRobo V2（0.8.0），导航使用 A*，benchmark 策略保留 MolmoBot 与 π0.5。RL 站位图是独立研究流程，本次精简不改其逻辑。
+支持 PandaOmron 与 RBY-1。规划使用 cuRobo V2（0.8.0），导航使用 A*，benchmark 策略保留 MolmoBot 与 π0.5。RL 站位图是独立研究流程；精简时可以调整 RL 代码的结构和位置，训练与评测行为保持不变。
 
 安装与路径见 [setup](docs/setup.md)，完整步骤见 [运行手册](docs/运行手册.md)。安装后从仓库根目录执行：
 

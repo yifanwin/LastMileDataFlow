@@ -33,7 +33,6 @@ class ExecutionConfig:
     environment_representation: str = "merged_hull"
     operation_base_mode: str = "holonomic_joint_planning"
     initial_settle_s: float = 0.0
-    shared_station_preparation: bool = False
     grasp_roll_rad: float = 0.0
     grasp_candidate_order: str = "facing"
     local_base_radius_m: float = 0.35

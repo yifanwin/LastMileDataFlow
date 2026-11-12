@@ -19,6 +19,5 @@
   "navigation_whole_body": true,
   "lastmile_low": 0.3333333333333333,
   "lastmile_high": 1.0,
-  "shared_station_preparation": true,
   "export_figures": false
 }

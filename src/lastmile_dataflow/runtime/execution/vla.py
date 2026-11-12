@@ -92,7 +92,7 @@ class VLARollout:
                   "collection": asdict(collection), "task": task, "station": station, "protocol": asdict(config),
                   "contact_policy": CONTACT_POLICY, "seed": seed, "policy": asdict(policy.config),
                   "model_service": policy.metadata, "navigation_path": path, "navigation_goal": goal,
-                  "scene": getattr(baseline, "scene_id", None)}
+                  "scene": baseline.scene_id}
         self.recorder = AttemptRecorder(root, packet, attempt_id=attempt_id)
         self.recorder.bind_simulation(self.sim, width=self.width, height=self.height)
         robot = self.sim.robot

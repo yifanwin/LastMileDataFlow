@@ -1,5 +1,7 @@
 # 第 2 路：runtime/ 精简审查
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 范围：`pro5000:/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/simplify/src/lastmile_dataflow/runtime/`，不含 `runtime/rl/`。RL 文件只记依赖，见第 5 节。
 方式：只读，没有改动代码，也没有运行任何程序。行号以 2026-11-11 读取时的工作树为准。
 

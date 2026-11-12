@@ -1,5 +1,7 @@
 # LastMileDataFlow 第二轮精简：目录分层与逐文件重构方案
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 对象：pro5000 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/simplify`，分支 `refactor/simplify`，尖端 `bfd707d`（2026-11-12 00:20 变基完成，EGL 修复 `0f8648c` 已在分支里）。
 方式：四路只读审查，不改代码，不运行程序。逐条依据（文件:行、改法、删减量、风险）见 `reports/simplify-refactor/analyze/` 下四份审查报告：
 
@@ -64,7 +66,7 @@ lastmile_dataflow/
 
 - **先精简、后搬家**。等各文件精简完，再单独提交一次迁移：只用 `git mv` 移动文件，不改逻辑。这一步不计入精简成果（AGENTS.md 也要求不以移动文件冒充精简）。
 - 迁移以后，测试里的 patch 路径要整体改，同时把 `tests/workflows` 里二十多处 patch 私有函数的写法改成注入假执行函数、走公开接口。
-- RL 文件这次不搬，只改 import 行。actor-critic 合并之后，再统一收进 `rl/` 包。
+- RL 文件随这次迁移一起整理：分散在 9 个目录里的 RL 代码统一收进 `rl/` 包（按 sim/execution/policies/data 的分层各归其位，或集中在 rl/ 下按职责分文件，以依赖方向不倒挂为准），原先为照顾 RL 留下的旧路径和 re-export 不保留。代价是以后合并 actor-critic 的 RL 改动时冲突更多，需要手工解决。
 - pool.py 和 remote.py 用户之前定为保留，这次只是改个位置（移到 execution/），内容只做内部精简。
 - 迁移以后，AGENTS.md 的目录职责表、`docs/architecture.md` 要同步更新。
 
@@ -150,7 +152,7 @@ curobo、navigation、state、pick、collision_world、analysis_video、lastmile
    - `export_molmobot`、`UnsupportedMolmoBotData` 删除；`state22` 挪到机器人状态布局所在的 sim/control 模块。
    - `load_training_batch` 保留，删除深度部分和旧布局兜底。
    - π0.5 训练准备链路（`pi05_dataset.convert`、`Rby1DataConfig`/`Rby1Dataset`）保留并精简：`Rby1DataConfig` 改成显式字段，归一化与 `inference.normalize` 共用一份，相机映射只留一份，`convert` 的命令行挪到 `scripts/export_pi05.py`。`configs/policies/pi05_rby1` 的 `norm_stats` 指向已不存在的 `outputs/training/pi05-rby1-position/...`，在配置注释和 README 里标明“需先重新运行 export_pi05 生成统计”，不伪造路径。
-7. **RL**：RL 文件只改 import 行，不搬家。Simulation 保留可写的 `local_model` 属性（并入 `SceneOrigin` 后用 property 暴露），`Simulation(...)` 新增参数给默认值，保证 `scenes/stations/rl.py`、`scenes/loading/rl_scene.py` 不用改。RL 依赖的接口清单见四份审查报告的 RL 一节。
+7. **RL**：（11-12 改定）用户原话『RL 文件为达到目标，可以做修改』。RL 文件可以按精简、去重、拆长函数和目录分层的需要修改和搬家，原先为 RL 保留的兼容做法（Simulation 可写的 `local_model`、`Simulation(...)` 为 RL 留的默认参数、`PICK_THRESHOLDS` 裸 dict、`gpu.sampler_entry` 反向引用 `workflows.rl_sampling` 等）可以一并收掉。仍要求训练和评测的行为与输出不变；改到的 RL 代码要有测试或导入检查覆盖，需要 GPU 的验证照常遵守 GPU 规矩。以后合并 actor-critic 时冲突会比原来多，需要手工解决。
 8. **multitask/、pi05/core/ 移植代码**：只删确认无引用的函数（审查报告列了 11 个，逐个 grep 包括字符串引用后再删），不做结构改写。
 
 ## 五、配置改造
@@ -158,9 +160,9 @@ curobo、navigation、state、pick、collision_world、analysis_video、lastmile
 现状：30 个文件 772 行，全部是 JSON。
 
 1. **改成 YAML**：`configs/**/*.json` 改为 `.yaml`，`config.read_config` 及各 `load_*_config` 统一用 `yaml.safe_load` 读取，`pyproject.toml` 声明 `pyyaml` 依赖。例外：
-   - `configs/rl/val103_cup30.json` 保持 JSON（`rl_training.py` 直接 `json.loads`，属于 RL 文件）；
+   - `configs/rl/val103_cup30.json` 也改 YAML，`rl_training.py` 改用统一读取函数（11-12 起 RL 文件可以修改）；
    - run 目录写出的 `config.json` 等运行产物保持 JSON；
-   - 读取函数不再接受 `.json` 输入配置，不保留兼容层（RL 那份除外，它不经过 `read_config`）。
+   - 读取函数不再接受 `.json` 输入配置，不保留兼容层。
 2. **删除或合并配置文件**：
    - `collection/` 两个文件只有 `execution` 一个键：删除这个目录，阶段脚本直接接收执行配置，`StationRun` 其余字段用默认值或命令行参数；
    - `execution/panda_omron_scene.json` 不是流程配置，挪到 `tests/smoke/` 由冒烟脚本自己持有；

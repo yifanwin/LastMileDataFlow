@@ -17,11 +17,10 @@ def main():
     from lastmile_dataflow.gpu import select_devices
     select_devices(args.gpu, args.egl_devices)
     from lastmile_dataflow.utils.logging_config import setup_logging
-    from lastmile_dataflow.workflows.collect import run_stations
+    from lastmile_dataflow.workflows.collect import run_collection
     setup_logging()
-    print(run_stations(args.dataset, args.config, args.output, gpu_ids=args.gpu, collect=True,
-                       calibration=args.calibration,
-                       samples=args.samples, egl_devices=args.egl_devices))
+    print(run_collection(args.dataset, args.config, args.output, gpu_ids=args.gpu, calibration=args.calibration,
+                         samples=args.samples))
 
 
 if __name__ == '__main__':

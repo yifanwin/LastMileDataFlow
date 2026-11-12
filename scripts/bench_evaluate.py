@@ -16,7 +16,7 @@ def main():
     from lastmile_dataflow.utils.logging_config import setup_logging
     from lastmile_dataflow.workflows.lastmilebench import evaluate
     setup_logging()
-    print(evaluate(args.benchmark, args.output, args.config, gpu_ids=[args.gpu]))
+    print(evaluate(args.benchmark, args.output, args.config))
 
 
 if __name__ == '__main__':

@@ -1,5 +1,7 @@
 # 第 3 路：planning/ 与 scenes/ 审查
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 审查对象：pro5000 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/simplify`（分支 refactor/simplify，HEAD 6b6b149）。只读审查，没有改代码，也没有运行任何程序。
 
 ## 0. 先说两件事

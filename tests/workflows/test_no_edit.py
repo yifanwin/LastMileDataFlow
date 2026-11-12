@@ -5,11 +5,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lastmile_dataflow.workflows.station_map import RunResources
+from lastmile_dataflow.config import StationRun
+from lastmile_dataflow.workflows.station_map import trial_record
 from lastmile_dataflow.scenes.edits.search import build_task
 from lastmile_dataflow.scenes.dataset import SceneRecipe
-from lastmile_dataflow.workflows.collect import _trial_record
-from lastmile_dataflow.workflows.scene_datasets import _task_preparation_rejections
+from lastmile_dataflow.workflows import scene_datasets
 
 
 class NoEditRecipeTests(unittest.TestCase):
@@ -42,7 +42,8 @@ class NoEditRecipeTests(unittest.TestCase):
             self.recipe(exclude_tasks=['pick-x'])
 
     def test_preparation_rejection_uses_no_edit_intent(self):
-        record = list(_task_preparation_rejections({'task_id': 'pick-x'}, self.recipe(), 0, 'boom'))
+        with patch.object(scene_datasets.BuildContext, 'prepare', side_effect=ValueError('boom')):
+            record, _ = scene_datasets._build_task(None, {'task_id': 'pick-x'}, 0, self.recipe(), 0, Path('.'), {})
         self.assertEqual(record, [{'house': 0, 'task_id': 'pick-x', 'proposal_intent': 'no_edit',
                                     'status': 'rejected', 'reason': 'task_preparation_failed',
                                     'detail': 'boom'}])
@@ -61,7 +62,7 @@ class NoEditRecipeTests(unittest.TestCase):
         result = {'status': 'failure', 'reason': 'lift_contact_hold_or_slip',
                   'attribution': {'category': 'GraspSlip', 'reason': 'lift_contact_hold_or_slip'},
                   'retry_history': [{'retry': 0, 'reason': 'x'}]}
-        record = _trial_record(result, {'scene_id': 's', 'task': {'task_id': 't'}},
+        record = trial_record(result, {'scene_id': 's', 'task': {'task_id': 't'}},
                                {'station_id': 'S0'}, 1, 43)
         self.assertEqual(record['attribution']['category'], 'GraspSlip')
         self.assertEqual(record['retry_history'][0]['reason'], 'x')
@@ -69,9 +70,9 @@ class NoEditRecipeTests(unittest.TestCase):
     def test_cpu_limits_follow_machine_capacity(self):
         cores = os.cpu_count() or 1
         if cores > 60:
-            self.assertEqual(RunResources(gpu_ids=(0,), cpu_workers=61).cpu_workers, 61)
+            self.assertEqual(StationRun('x', cpu_workers=61).cpu_workers, 61)
         if cores > 12:
-            self.assertEqual(RunResources(gpu_ids=(0,), preparation_workers=13).preparation_workers, 13)
+            self.assertEqual(StationRun('x', preparation_workers=13).preparation_workers, 13)
 
 
 if __name__ == '__main__':

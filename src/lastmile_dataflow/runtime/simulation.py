@@ -51,13 +51,13 @@ class SnapshotCache:
         self.capacity = capacity
         self.scenes = OrderedDict()
 
-    def get(self, path, robot, target):
+    def get(self, path, robot, target, scene_id=None):
         key = (str(path), target)
         if key not in self.scenes:
             while len(self.scenes) >= self.capacity:
                 _, old = self.scenes.popitem(last=False)
                 old.close()
-            self.scenes[key] = Simulation.from_snapshot(path, robot, target=target)
+            self.scenes[key] = Simulation.from_snapshot(path, robot, target=target, scene_id=scene_id)
         self.scenes.move_to_end(key)
         return self.scenes[key]
 
@@ -89,6 +89,7 @@ class Simulation:
         self.spec = None
         self.frozen_dir = None
         self.local_model = None
+        self.scene_id = None  # scene-library id, set when opened from a library snapshot
         self._frame_cache = None
 
     @classmethod
@@ -107,7 +108,7 @@ class Simulation:
         return sim
 
     @classmethod
-    def from_snapshot(cls, frozen_dir, robot_config, *, target=None):
+    def from_snapshot(cls, frozen_dir, robot_config, *, target=None, scene_id=None):
         frozen_dir = Path(frozen_dir)
         value = read_config(frozen_dir / 'config.json')
         if _normalized(asdict(robot_config)) != _normalized(asdict(parse_robot_config(value['robot']))):
@@ -117,6 +118,7 @@ class Simulation:
         model = mujoco.MjModel.from_binary_path(str(frozen_dir / 'model.mjb'))
         sim = cls(model, robot_config, value['instances'], target)
         sim.frozen_dir = str(frozen_dir.resolve())
+        sim.scene_id = scene_id
         sim.local_model = value.get('local_model')
         sim.source = SceneSource(**value['source'])
         sim.restore_snapshot(frozen_dir / 'initial.npz')

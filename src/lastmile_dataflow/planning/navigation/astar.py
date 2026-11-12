@@ -10,6 +10,9 @@ from scipy.ndimage import distance_transform_edt
 from ...scenes.geometry import body_points, collision_geoms, descendants, geom_points
 from ...scenes.stations.initialization import room_triangles
 
+# Height cleared by chassis-only navigation (the arm is held above it).
+CHASSIS_HEIGHT_M = .40
+
 
 @dataclass
 class Grid:
@@ -194,7 +197,15 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     return OccupancyMap(origin, resolution, occupied, distance, tuple(support_obstacles))
 
 
-def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=.40):
+def navigation_grid(sim, task, settings, footprint_radius, robot_height):
+    """Whole-room A* grid around a task; chassis-only navigation clears a fixed chassis height."""
+    return scene_grid(sim, task['anchor_world'], None, settings.map_resolution_m, footprint_radius,
+                      settings.navigation_margin_m,
+                      robot_height=robot_height if settings.navigation_whole_body else CHASSIS_HEIGHT_M,
+                      support_obstacles=task_support_obstacles(sim, task))
+
+
+def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=CHASSIS_HEIGHT_M):
     occupancy = scene_occupancy(sim, anchor, radius, resolution,
                                 support_obstacles=support_obstacles, robot_height=robot_height)
     return occupancy.navigation(footprint_radius, margin)

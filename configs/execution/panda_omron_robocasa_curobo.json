@@ -19,6 +19,5 @@
   "width": 256,
   "height": 256,
   "lastmile_low": 0.3333333333333333,
-  "lastmile_high": 1.0,
-  "shared_station_preparation": true
+  "lastmile_high": 1.0
 }

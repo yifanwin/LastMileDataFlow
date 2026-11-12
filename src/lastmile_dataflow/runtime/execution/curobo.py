@@ -63,7 +63,7 @@ def run_curobo_attempt(baseline, task, station, candidates, assets_dir, config, 
     packet = {'execution_semantics_version': semantics, 'robot': asdict(sim.robot.config),
               'collection': asdict(collection), 'task': task, 'station': station, 'protocol': asdict(config),
               'contact_policy': CONTACT_POLICY, 'seed': seed, 'path': path, 'goal': goal,
-              'scene': getattr(baseline, 'scene_id', None)}
+              'scene': baseline.scene_id}
     if prepared is not None:
         packet['preparation'] = {'path': prepared.path, 'actual_base': prepared.actual_base,
                                  'requested_station': station, 'elapsed_s': prepared.elapsed_s}

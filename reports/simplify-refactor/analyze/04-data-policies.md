@@ -1,5 +1,7 @@
 # 第 4 路：data/ 与 policies/ 精简审查
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 审查对象：`pro5000:/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/simplify`（分支 `refactor/simplify`，HEAD `6b6b149`）。本次只读，没有运行任何程序。
 
 > **注意**：审查时这个工作树正处在合并的中途，`git status` 显示 `UU planning/pool.py`、`UU runtime/execution/workers.py`、`UU workflows/scene_datasets.py`、`DU workflows/collection.py`、`UU reports/.../01-handover.md`。动手精简之前，要先把这次合并收尾（或者中止）。下面的行号以审查时的工作区为准。

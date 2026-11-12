@@ -102,3 +102,23 @@ class PlanningResponse:
     diagnostics: dict = field(default_factory=dict)
     queue_s: float = 0.
     completed_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass(frozen=True)
+class StationJob:
+    """Trials of one station that share one preparation and one batched grasp plan."""
+    scene: dict
+    index: int
+    identities: list[TrialIdentity]
+    budgets: list[TrialBudget]
+
+
+@dataclass(frozen=True)
+class ReadyTrial:
+    """A planned trial waiting for (or running on) a CPU execution worker."""
+    scene: dict
+    index: int
+    prepared: object
+    response: PlanningResponse
+    budget: TrialBudget
+    candidates: list

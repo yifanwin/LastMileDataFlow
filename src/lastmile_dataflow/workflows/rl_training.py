@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from ..policies.sac.agent import SAC, SACConfig
-from ..policies.sac.replay import Replay, Transition
+from ..policies.sac.replay import Replay
 from ..scenes.rl_observation import ARM_STATE_FIELDS, GraphObservation
 
 

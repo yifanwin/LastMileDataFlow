@@ -1,5 +1,7 @@
 # LastMileDataFlow 简化重构计划
 
+> 2026-11-12 更新：用户改了决定，『RL 文件为达到目标，可以做修改』。本文中“RL 文件只改 import 行、不搬、不动”的限制已作废，以方案 02 第四节第 7 条为准。
+
 - 日期：2026-11-12
 - 分支：`refactor/simplify`，从 `actor-critic` 的 `1b2f454` 拉出，worktree 在 `.worktrees/simplify`
 - 状态：active
