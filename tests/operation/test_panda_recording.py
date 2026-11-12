@@ -13,7 +13,7 @@ from lastmile_dataflow.robots.interface import RobotCommand
 from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.operation.control.context import clone_sim
 from lastmile_dataflow.sim.source import SceneSource
-from tests.runtime.test_robot_interface import panda_adapter
+from tests.robots.test_robot_interface import panda_adapter
 
 
 class PandaRecordingTests(unittest.TestCase):

@@ -10,7 +10,7 @@ import numpy as np
 
 from lastmile_dataflow.sim.settle import SettleConfig, preparation_guard, settle_scene
 from lastmile_dataflow.sim.simulation import Simulation
-from lastmile_dataflow.scenes.graph import build_scene_graph
+from lastmile_dataflow.scenes.graph import GraphConfig, build_scene_graph
 from tests.helpers import settled_scene, table_scene
 
 
@@ -21,7 +21,12 @@ class GraphTests(unittest.TestCase):
         self.source, self.robot = table_scene(self.root)
         self.original = Path(self.source.xml_path).read_bytes()
         self.sim, self.settling = settled_scene(self.source, self.robot)
-        self.config = SettleConfig().graph_config()
+        settle = SettleConfig()
+        self.config = GraphConfig(
+            support_tolerance_m=settle.support_tolerance_m,
+            boundary_tolerance_m=settle.boundary_tolerance_m,
+            penetration_tolerance_m=settle.penetration_m,
+        )
         self.graph = build_scene_graph(self.sim, stage="settled", config=self.config)
 
     def tearDown(self):

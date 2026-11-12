@@ -8,7 +8,6 @@ import mujoco
 import numpy as np
 
 from .model.geometry import quat_angle
-from lastmile_dataflow.scenes.graph import GraphConfig
 from .simulation import closed_on_error
 from .state import migrate_state
 
@@ -47,13 +46,6 @@ class SettleConfig:
                 raise ValueError("invalid settling setting: " + key)
         if not self.window_s <= self.settle_s <= self.max_settle_s:
             raise ValueError("invalid settling window/budget")
-
-    def graph_config(self):
-        return GraphConfig(
-            support_tolerance_m=self.support_tolerance_m,
-            boundary_tolerance_m=self.boundary_tolerance_m,
-            penetration_tolerance_m=self.penetration_m,
-        )
 
 
 def preparation_guard(sim):

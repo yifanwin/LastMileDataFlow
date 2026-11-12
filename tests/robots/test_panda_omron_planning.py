@@ -13,7 +13,7 @@ from lastmile_dataflow.robots.panda_omron.planning import (
     FULL_NAMES,
 )
 from lastmile_dataflow.robots.panda_omron.adapter import SCALE
-from tests.runtime.test_robot_interface import panda_adapter
+from tests.robots.test_robot_interface import panda_adapter
 
 
 class PandaPlanningTests(unittest.TestCase):

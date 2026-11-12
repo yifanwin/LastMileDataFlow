@@ -10,7 +10,6 @@ from scipy.ndimage import distance_transform_edt
 
 from lastmile_dataflow.sim.model.geometry import geom_points
 from lastmile_dataflow.sim.model.geometry import room_triangles
-from lastmile_dataflow.scenes.tasks import task_support_obstacles
 
 # Height cleared by chassis-only navigation (the arm is held above it).
 CHASSIS_HEIGHT_M = 0.40
@@ -204,17 +203,17 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     return OccupancyMap(origin, resolution, occupied, distance, tuple(support_obstacles))
 
 
-def navigation_grid(sim, task, settings, footprint_radius, robot_height):
-    """Whole-room A* grid around a task; chassis-only navigation clears a fixed chassis height."""
+def navigation_grid(sim, anchor, support_obstacles, settings, footprint_radius, robot_height):
+    """Whole-room A* grid around a task anchor; chassis-only navigation clears a fixed chassis height."""
     return scene_grid(
         sim,
-        task["anchor_world"],
+        anchor,
         None,
         settings.map_resolution_m,
         footprint_radius,
         settings.navigation_margin_m,
         robot_height=robot_height if settings.navigation_whole_body else CHASSIS_HEIGHT_M,
-        support_obstacles=task_support_obstacles(sim, task),
+        support_obstacles=support_obstacles,
     )
 
 

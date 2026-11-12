@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import torch
 
-from tests.policies.test_sac import observation
+from tests.station_map.test_rl_sac import observation
 from lastmile_dataflow.station_map.rl.sac.replay import Transition
 
 if importlib.util.find_spec("torch_geometric"):

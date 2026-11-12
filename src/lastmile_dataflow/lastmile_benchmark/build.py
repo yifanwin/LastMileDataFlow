@@ -14,6 +14,7 @@ from .summary import reference_calibration, select_starts, failure_family
 from .recovery import RecoveryRegion, difficulty
 from lastmile_dataflow.planning.navigation.astar import navigation_grid
 from lastmile_dataflow.planning.navigation.routes import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
+from lastmile_dataflow.scenes.tasks import task_support_obstacles
 from lastmile_dataflow.scenes.library import load_scenes, open_scene
 from lastmile_dataflow.sim.placement import place_frozen_station
 from lastmile_dataflow.sim.contacts import ContactSampler, NavigationContacts
@@ -64,7 +65,15 @@ def _navigation_region(sim, scene, calibration, settings):
         "height_m": max(f["max"][2] for f in footprints),
         "method": "held_whole_body_swept_circle" if settings.navigation_whole_body else "chassis_only",
     }
-    grid = navigation_grid(sim, scene["task"], settings, footprint["radius_m"], footprint["height_m"])
+    task = scene["task"]
+    grid = navigation_grid(
+        sim,
+        task["anchor_world"],
+        task_support_obstacles(sim, task),
+        settings,
+        footprint["radius_m"],
+        footprint["height_m"],
+    )
     # Existing station visibility is reusable: construction has not changed the
     # source model, cameras, target, or initialization. No rerender is needed.
     return RecoveryRegion.build(grid, measured, settings), legal, dict(rejected), footprint

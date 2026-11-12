@@ -14,7 +14,7 @@ from lastmile_dataflow.planning.navigation.astar import navigation_grid
 from lastmile_dataflow.planning.navigation.routes import GeometryNavigation, NavigationSettings
 from .continuous import run_continuous_attempt
 from lastmile_dataflow.scenes.library import open_scene
-from lastmile_dataflow.scenes.tasks import grasp_candidates
+from lastmile_dataflow.scenes.tasks import grasp_candidates, task_support_obstacles
 from lastmile_dataflow.sim.placement import robot_footprint
 from lastmile_dataflow.utils.io import append_row, rows, write_rows
 from lastmile_dataflow.utils.logging_config import Progress, trial_logging
@@ -133,7 +133,10 @@ def _execute(context, sim, scene, start, goal, path, seed, execute):
 def _navigation(context, sim, scene):
     config = context.config
     footprint = robot_footprint(sim, whole_body=config.navigation_whole_body)
-    grid = navigation_grid(sim, scene["task"], config, footprint["radius_m"], footprint["max"][2])
+    task = scene["task"]
+    grid = navigation_grid(
+        sim, task["anchor_world"], task_support_obstacles(sim, task), config, footprint["radius_m"], footprint["max"][2]
+    )
     settings = NavigationSettings.from_config(
         config, speed=config.navigation_speed_m_s, yaw_speed=config.navigation_yaw_speed_rad_s
     )
