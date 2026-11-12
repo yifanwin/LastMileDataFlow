@@ -45,8 +45,7 @@ class GraphTests(unittest.TestCase):
     def test_actual_support_and_surface(self):
         self.assertTrue(
             any(
-                e["predicate"] == "supported_by" and e["args"] == ["target", "table"]
-                for e in self.prepared.graph.edges
+                e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.prepared.graph.edges
             )
         )
         regions = [n for n in self.prepared.graph.nodes.values() if n["kind"] == "region"]
@@ -63,8 +62,7 @@ class GraphTests(unittest.TestCase):
         self.prepared.refresh()
         self.assertFalse(
             any(
-                e["predicate"] == "supported_by" and e["args"] == ["target", "table"]
-                for e in self.prepared.graph.edges
+                e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.prepared.graph.edges
             )
         )
         self.assertEqual(self.prepared.graph.nodes["target"]["parent_hint"], "table")

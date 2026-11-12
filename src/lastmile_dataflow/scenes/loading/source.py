@@ -1,4 +1,5 @@
 """原始 MJCF 来源与稳定实例映射；不需要 benchmark episode。"""
+
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -22,8 +23,9 @@ class SceneSource:
         if not isinstance(house, int) or house < 0:
             raise ValueError("house must be nonnegative integer")
         name = f"{split}_{house}"
-        return cls(f"{root.name}/{name}", str(root / f"{name}.xml"),
-                   str(root / f"{name}_metadata.json"), root.name, split)
+        return cls(
+            f"{root.name}/{name}", str(root / f"{name}.xml"), str(root / f"{name}_metadata.json"), root.name, split
+        )
 
     def to_dict(self):
         return asdict(self)
@@ -32,7 +34,7 @@ class SceneSource:
 def instance_catalog(model, source, *, metadata=None):
     if metadata is None:
         metadata = read_json(source.metadata_path) if source.metadata_path else {}
-    meta = metadata.get('objects', {})
+    meta = metadata.get("objects", {})
     result, used = [], set()
     body_names = {model.body(i).name: i for i in range(1, model.nbody)}
     for key, obj in sorted(meta.items()):
@@ -42,10 +44,21 @@ def instance_catalog(model, source, *, metadata=None):
             continue  # 显式导入删除后，源 metadata 的旧实例不再有效
         used.update(present)
         used.add(key)
-        result.append({"instance_id": key, "mjcf_body": key, "body_id": body_names[key],
-                       "asset_id": obj.get("asset_id"), "source_object_id": obj.get("object_id"),
-                       "category": obj.get("category"), "parent_instance_id": obj.get("parent"), "room_id": obj.get("room_id"),
-                       "name_map": present, "pose_frame": "world", "pose_order": "xyz_wxyz"})
+        result.append(
+            {
+                "instance_id": key,
+                "mjcf_body": key,
+                "body_id": body_names[key],
+                "asset_id": obj.get("asset_id"),
+                "source_object_id": obj.get("object_id"),
+                "category": obj.get("category"),
+                "parent_instance_id": obj.get("parent"),
+                "room_id": obj.get("room_id"),
+                "name_map": present,
+                "pose_frame": "world",
+                "pose_order": "xyz_wxyz",
+            }
+        )
     for i in range(1, model.nbody):
         name = model.body(i).name
         if not name or name in used or name.startswith("robot_0/"):
@@ -53,9 +66,18 @@ def instance_catalog(model, source, *, metadata=None):
         parent = int(model.body_parentid[i])
         if parent != 0 and not name.startswith("place_receptacle/"):
             continue
-        result.append({"instance_id": name, "mjcf_body": name, "body_id": i,
-                       "asset_id": None, "category": None, "name_map": {},
-                       "pose_frame": "world", "pose_order": "xyz_wxyz"})
+        result.append(
+            {
+                "instance_id": name,
+                "mjcf_body": name,
+                "body_id": i,
+                "asset_id": None,
+                "category": None,
+                "name_map": {},
+                "pose_frame": "world",
+                "pose_order": "xyz_wxyz",
+            }
+        )
     return result
 
 

@@ -1,4 +1,5 @@
 """Named joint/actuator groups of one robot inside a compiled MuJoCo model."""
+
 from dataclasses import dataclass
 
 import numpy as np

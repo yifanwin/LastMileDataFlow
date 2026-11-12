@@ -75,10 +75,7 @@ class AttemptRecorder:
             layout["state_key"]: self.sim.robot.record_state(),
         }
         self.samples.append(sample)
-        selected_video = (
-            self.collection["record_video"]
-            and self.collection.get("video_cameras") is not None
-        )
+        selected_video = self.collection["record_video"] and self.collection.get("video_cameras") is not None
         if self.collection["record_images"] or selected_video:
             frames = self.sim.render(self.width, self.height)
             if self.collection["record_images"]:
@@ -113,16 +110,12 @@ class AttemptRecorder:
             name = selected[camera] if selected is not None else camera
             # Selected raw views are captured once at each actual state boundary.
             # Existing execution hooks may submit that same frame again.
-            if selected is not None and self.video_counts.get(name, 0) >= len(
-                self.samples
-            ):
+            if selected is not None and self.video_counts.get(name, 0) >= len(self.samples):
                 continue
             if camera not in self.writers:
                 directory = self.path / "videos"
                 directory.mkdir(exist_ok=True)
-                self.writers[camera] = video_writer(
-                    directory / f"{name}.mp4", self.sim.robot.config.control_hz
-                )
+                self.writers[camera] = video_writer(directory / f"{name}.mp4", self.sim.robot.config.control_hz)
             self.writers[camera].append_data(pixels)
             self.video_counts[name] = self.video_counts.get(name, 0) + 1
 
@@ -135,10 +128,7 @@ class AttemptRecorder:
         if self.samples:
             layout = self.sim.robot.record_layout()
             size = layout.get("action_size", len(layout.get("action_fields", [])))
-            arrays = {
-                key: np.asarray([sample[key] for sample in self.samples])
-                for key in self.samples[0]
-            }
+            arrays = {key: np.asarray([sample[key] for sample in self.samples]) for key in self.samples[0]}
             arrays.update(
                 state_spec=np.asarray(int(self.sim.state_spec)),
                 actions=np.asarray(self.actions).reshape(self.steps, size),
@@ -148,18 +138,11 @@ class AttemptRecorder:
             np.savez_compressed(self.path / "trajectory.npz", **arrays)
         complete = not self.errors and len(self.samples) == self.steps + 1
         model_dir = self.sim.frozen_dir
-        replay_complete = (
-            complete
-            and model_dir is not None
-            and (Path(model_dir) / "model.mjb").is_file()
-        )
+        replay_complete = complete and model_dir is not None and (Path(model_dir) / "model.mjb").is_file()
         observation_complete = (
             complete
             and self.collection["record_images"]
-            and all(
-                self.image_counts.get(camera, 0) == self.steps + 1
-                for camera in self.sim.robot.camera_names
-            )
+            and all(self.image_counts.get(camera, 0) == self.steps + 1 for camera in self.sim.robot.camera_names)
         )
         if self.errors:
             status = (
@@ -201,10 +184,7 @@ class AttemptRecorder:
                         "path": f"videos/{name}.mp4",
                         "frames": count,
                         "fps": self.sim.robot.config.control_hz,
-                        "sample_times_s": [
-                            s["time_s"] - self.samples[0]["time_s"]
-                            for s in self.samples[:count]
-                        ],
+                        "sample_times_s": [s["time_s"] - self.samples[0]["time_s"] for s in self.samples[:count]],
                         "source": "live_render",
                     }
                     for name, count in self.video_counts.items()
@@ -219,7 +199,5 @@ class AttemptRecorder:
             try:
                 writer.close()
             except Exception as exc:
-                self.errors.append(
-                    {"camera": camera, **classify_episode_exception(exc, "recording")}
-                )
+                self.errors.append({"camera": camera, **classify_episode_exception(exc, "recording")})
             del self.writers[camera]

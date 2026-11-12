@@ -27,16 +27,9 @@ def initialize_preparation_worker():
 
 
 def prepare_job(scene, index, config, root):
-    path = (
-        Path(root)
-        / "preparations"
-        / scene["scene_id"]
-        / scene["stations"][index]["station_id"]
-    )
+    path = Path(root) / "preparations" / scene["scene_id"] / scene["stations"][index]["station_id"]
     try:
-        baseline = _scenes.get(
-            scene["scene_path"], scene["robot_config"], scene["task"]["target_body"]
-        )
+        baseline = _scenes.get(scene["scene_path"], scene["robot_config"], scene["task"]["target_body"])
         prepared = prepare_station(baseline, scene["stations"][index], config, path)
         return {"status": "ready", "prepared": prepared}
     except Exception as exc:
@@ -45,13 +38,9 @@ def prepare_job(scene, index, config, root):
         return failure
 
 
-def _record_planning_failure(
-    scene, prepared, response, budget, config, collection, root, scenes, started
-):
+def _record_planning_failure(scene, prepared, response, budget, config, collection, root, scenes, started):
     identity = response.identity
-    baseline = scenes.get(
-        scene["scene_path"], scene["robot_config"], scene["task"]["target_body"]
-    )
+    baseline = scenes.get(scene["scene_path"], scene["robot_config"], scene["task"]["target_body"])
     sim = clone_sim(baseline, target=scene["task"]["target_body"])
     prepared.state.initialize(sim)
     recorder = AttemptRecorder(
@@ -98,17 +87,13 @@ def _record_planning_failure(
         **recorder.result,
         "reason": reason,
         "rollout_id": identity.attempt_id,
-        "planning_ref": str(
-            recorder.path.relative_to(recorder.output_root) / "planning.json"
-        ),
+        "planning_ref": str(recorder.path.relative_to(recorder.output_root) / "planning.json"),
         "execution_termination": {"status": "not_executed", "reason": reason},
         "task_outcome": {"status": "unknown", "reason": reason},
     }
 
 
-def record_unexecuted(
-    scene, index, prepared, response, budget, config, collection, root
-):
+def record_unexecuted(scene, index, prepared, response, budget, config, collection, root):
     record = partial(
         _record_planning_failure,
         scene,
@@ -150,13 +135,21 @@ def execution_worker(
             if job is None:
                 return
             scene, station_index, prepared, response, budget, candidates = (
-                job.scene, job.index, job.prepared, job.response, job.budget, job.candidates)
+                job.scene,
+                job.index,
+                job.prepared,
+                job.response,
+                job.budget,
+                job.candidates,
+            )
             identity = response.identity
-            inputs = PlanningInputs(scene["task"], scene["robot_config"], config, root, assets_dir,
-                                    model_dir=scene["scene_path"])
+            inputs = PlanningInputs(
+                scene["task"], scene["robot_config"], config, root, assets_dir, model_dir=scene["scene_path"]
+            )
             try:
-                baseline = scenes.get(scene["scene_path"], scene["robot_config"],
-                                      scene["task"]["target_body"], scene["scene_id"])
+                baseline = scenes.get(
+                    scene["scene_path"], scene["robot_config"], scene["task"]["target_body"], scene["scene_id"]
+                )
                 with closing(
                     PlanningClient(
                         index,

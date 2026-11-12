@@ -1,4 +1,5 @@
 """One real settling sequence per station, before independent trial creation."""
+
 from contextlib import closing
 from dataclasses import dataclass
 from functools import partial
@@ -43,14 +44,21 @@ def prepare_station(baseline, station, config, path):
         with closing(clone_sim(sim, target=target)) as view:
             base = view.robot.base_pose().tolist()
             if not floor_support(view, base[:2]) or robot_contacts(view):
-                raise InitializationError('prepared_station_collision_or_floor')
-        sim.save_snapshot(path / 'state.npz')
+                raise InitializationError("prepared_station_collision_or_floor")
+        sim.save_snapshot(path / "state.npz")
         elapsed = time.monotonic() - started
-        write_json(path / 'preparation.json', {
-            'status': 'ready', 'requested_station': station, 'actual_base': base,
-            'state': 'state.npz', 'state_spec': state.state_spec,
-            'model_dir': baseline.frozen_dir,
-            'settled_simulation_s': float(sim.data.time - baseline.data.time),
-            'elapsed_s': elapsed, 'measured': sim.observe_state(),
-        })
+        write_json(
+            path / "preparation.json",
+            {
+                "status": "ready",
+                "requested_station": station,
+                "actual_base": base,
+                "state": "state.npz",
+                "state_spec": state.state_spec,
+                "model_dir": baseline.frozen_dir,
+                "settled_simulation_s": float(sim.data.time - baseline.data.time),
+                "elapsed_s": elapsed,
+                "measured": sim.observe_state(),
+            },
+        )
     return PreparedStation(state, str(path.resolve()), base, elapsed)

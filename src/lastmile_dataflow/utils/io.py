@@ -1,4 +1,5 @@
 """小型 JSON/JSONL 读写；数组单独存 NPZ。"""
+
 from dataclasses import asdict, is_dataclass
 from dataclasses import asdict, is_dataclass
 import json
@@ -35,7 +36,7 @@ def read_json(path):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + '.tmp')
+    temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(canonical(value) + b"\n")
     temporary.replace(path)
 
@@ -48,7 +49,7 @@ def rows(path):
 def append_row(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('ab') as stream:
+    with path.open("ab") as stream:
         stream.write(canonical(value) + b"\n")
         stream.flush()
 
@@ -56,15 +57,15 @@ def append_row(path, value):
 def write_rows(path, values):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + '.tmp')
-    temporary.write_bytes(b''.join(canonical(v) + b"\n" for v in values))
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_bytes(b"".join(canonical(v) + b"\n" for v in values))
     temporary.replace(path)
 
 
 def create_run(path, config, *, prepared=False):
     path = Path(path)
-    if prepared and (path / 'config.json').exists():
+    if prepared and (path / "config.json").exists():
         raise FileExistsError(path)
     path.mkdir(parents=True, exist_ok=prepared)
-    write_json(path / 'config.json', config)
+    write_json(path / "config.json", config)
     return path

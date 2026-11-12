@@ -1,4 +1,5 @@
 """CPU-side planner interface: numerical RPCs and existing trajectory tracking."""
+
 from dataclasses import replace
 import time
 
@@ -28,38 +29,56 @@ class PlanningClient:
         self.ctx = ctx
         ctx.stop = self.stop
         ctx.planner_factory = self.factory
-        ctx.plans.append({'phase': 'native_batch_grasp', 'query_id': self.first.query_id,
-                          'seed': self.identity.seed, **self.first.plan['diagnostics'],
-                          **self.first.diagnostics})
-        write_json(ctx.recorder.path / 'planning.json', ctx.plans)
+        ctx.plans.append(
+            {
+                "phase": "native_batch_grasp",
+                "query_id": self.first.query_id,
+                "seed": self.identity.seed,
+                **self.first.plan["diagnostics"],
+                **self.first.diagnostics,
+            }
+        )
+        write_json(ctx.recorder.path / "planning.json", ctx.plans)
 
     def factory(self, sim, config, side, path, *, workspace):
         return RemotePlanner(self, sim, config, side, path, workspace)
 
     def query(self, planner, goal):
         self.serial += 1
-        request = PlanningRequest(f'{self.identity.attempt_id}-q{self.serial}',
-            self.inputs.model_dir, [self.identity], SimulationState.capture(planner.sim),
-            'pose', [self.budget], replace(self.inputs, side=planner.side, phase=planner.single_phase,
-                                           attached=planner.attached, goal=goal,
-                                           recording_step=self.ctx.recorder.steps))
+        request = PlanningRequest(
+            f"{self.identity.attempt_id}-q{self.serial}",
+            self.inputs.model_dir,
+            [self.identity],
+            SimulationState.capture(planner.sim),
+            "pose",
+            [self.budget],
+            replace(
+                self.inputs,
+                side=planner.side,
+                phase=planner.single_phase,
+                attached=planner.attached,
+                goal=goal,
+                recording_step=self.ctx.recorder.steps,
+            ),
+        )
         self.requests.put((self.worker, request))
         response = self.responses.get()
         self.accept(response)
         self.ctx.plan_count = self.budget.plan_count
-        if response.status == 'infrastructure_error':
-            raise PlannerUnavailable(response.diagnostics['reason'])
-        if response.status == 'timeout' and 'result' not in response.plan:
-            raise TimeoutError(response.diagnostics.get('reason', 'attempt_active_budget'))
-        if response.status not in ('success', 'planning_no_solution', 'timeout'):
-            raise RuntimeError(response.diagnostics['reason'])
-        if 'attached_object' in response.plan:
-            write_json(self.ctx.recorder.path / 'attached_object.json', response.plan['attached_object'])
-        if 'result' not in response.plan:
-            return PlanResult('no_solution', tuple(planner.names), (), response.diagnostics)
-        result = response.plan['result']
-        result['diagnostics'].update(query_id=response.query_id, **response.diagnostics,
-                                     planning_s=response.planning_s, queue_s=response.queue_s)
+        if response.status == "infrastructure_error":
+            raise PlannerUnavailable(response.diagnostics["reason"])
+        if response.status == "timeout" and "result" not in response.plan:
+            raise TimeoutError(response.diagnostics.get("reason", "attempt_active_budget"))
+        if response.status not in ("success", "planning_no_solution", "timeout"):
+            raise RuntimeError(response.diagnostics["reason"])
+        if "attached_object" in response.plan:
+            write_json(self.ctx.recorder.path / "attached_object.json", response.plan["attached_object"])
+        if "result" not in response.plan:
+            return PlanResult("no_solution", tuple(planner.names), (), response.diagnostics)
+        result = response.plan["result"]
+        result["diagnostics"].update(
+            query_id=response.query_id, **response.diagnostics, planning_s=response.planning_s, queue_s=response.queue_s
+        )
         return PlanResult(**result)
 
     def close(self):
@@ -73,7 +92,7 @@ class RemotePlanner:
         self.names, self.base = self.model.names, self.model.base
         self.h_step_limit = self.model.h_step_limit
         self.attached = False
-        self.single_phase = 'pose'
+        self.single_phase = "pose"
 
     def base_target_world(self, point):
         return self.model.base_target_world(point)
@@ -82,13 +101,20 @@ class RemotePlanner:
         response = self.client.first
         self.client.first = None
         plan = response.plan
-        write_json(self.path / 'grasp_result.json', {'query_id': response.query_id,
-            'success': plan['success'], 'stages': plan['stages'], **plan['diagnostics']})
-        return plan['success'], plan['index'], plan['stages'], plan['diagnostics']
+        write_json(
+            self.path / "grasp_result.json",
+            {
+                "query_id": response.query_id,
+                "success": plan["success"],
+                "stages": plan["stages"],
+                **plan["diagnostics"],
+            },
+        )
+        return plan["success"], plan["index"], plan["stages"], plan["diagnostics"]
 
     def attach_target_geometry(self):
         self.attached = True
-        return {'physics_attachment': False, 'fitting': 'requested_on_next_planning_query'}
+        return {"physics_attachment": False, "fitting": "requested_on_next_planning_query"}
 
     def refresh_world(self, path):
         # Every RPC carries the current measured scene, including open-joint motion.

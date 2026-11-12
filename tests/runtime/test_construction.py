@@ -48,9 +48,7 @@ class TransactionTests(unittest.TestCase):
         self.assets = RuntimeGeometryCache(
             [{"asset_id": "chair", "xml_path": str(asset), "root_body": "chair", "category": "Chair"}]
         )
-        self.session = ObstacleEditSession(
-            self.sim, self.assets, SettleConfig(require_source_stability=False)
-        )
+        self.session = ObstacleEditSession(self.sim, self.assets, SettleConfig(require_source_stability=False))
         self.placement = {
             "asset_id": "chair",
             "kind": "ground",
@@ -91,9 +89,7 @@ class TransactionTests(unittest.TestCase):
             calls.append(True)
             return native(model, data)
 
-        with patch(
-            "lastmile_dataflow.runtime.construction.session.mujoco.mj_forward", side_effect=checked_forward
-        ):
+        with patch("lastmile_dataflow.runtime.construction.session.mujoco.mj_forward", side_effect=checked_forward):
             self.session.candidate(placements)
         self.assertEqual(len(calls), 1)
 

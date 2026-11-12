@@ -4,6 +4,7 @@ Preparation may initialize or restore state. After begin(), motion uses step()
 only; an independent trial requires a new Simulation. Snapshots retain clock
 remainder and fixed head targets as well as the physical state.
 """
+
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -22,7 +23,7 @@ from ..utils.io import canonical, read_json, write_json
 from .control.interface import RobotCommand
 from .control.robot import load_robot_spec, make_robot_adapter
 
-NATIVE_PROFILE = 'molmobot-native-v1'
+NATIVE_PROFILE = "molmobot-native-v1"
 _KEEP = object()
 
 
@@ -74,8 +75,8 @@ class Simulation:
         self.robot = make_robot_adapter(model, self.data, robot_config)
         self.catalog = catalog
         self.target_id = resolve_target(model, catalog, target)
-        self.handle_id = None      # open 任务的把手 body；由 executor 按 task 填入
-        self.started = False       # 是否已 begin()（连续执行纪律的开关）
+        self.handle_id = None  # open 任务的把手 body；由 executor 按 task 填入
+        self.started = False  # 是否已 begin()（连续执行纪律的开关）
         self.closed = False
         self.renderer = None
         self.third_person_camera = None
@@ -110,18 +111,18 @@ class Simulation:
     @classmethod
     def from_snapshot(cls, frozen_dir, robot_config, *, target=None, scene_id=None):
         frozen_dir = Path(frozen_dir)
-        value = read_json(frozen_dir / 'config.json')
-        if _normalized(asdict(robot_config)) != _normalized(asdict(parse_robot_config(value['robot']))):
-            raise ValueError('snapshot robot configuration mismatch')
-        if value['mujoco_version'] != mujoco.__version__:
-            raise ValueError('use the saved MuJoCo version; cross-version XML reconstruction is not verified')
-        model = mujoco.MjModel.from_binary_path(str(frozen_dir / 'model.mjb'))
-        sim = cls(model, robot_config, value['instances'], target)
+        value = read_json(frozen_dir / "config.json")
+        if _normalized(asdict(robot_config)) != _normalized(asdict(parse_robot_config(value["robot"]))):
+            raise ValueError("snapshot robot configuration mismatch")
+        if value["mujoco_version"] != mujoco.__version__:
+            raise ValueError("use the saved MuJoCo version; cross-version XML reconstruction is not verified")
+        model = mujoco.MjModel.from_binary_path(str(frozen_dir / "model.mjb"))
+        sim = cls(model, robot_config, value["instances"], target)
         sim.frozen_dir = str(frozen_dir.resolve())
         sim.scene_id = scene_id
-        sim.local_model = value.get('local_model')
-        sim.source = SceneSource(**value['source'])
-        sim.restore_snapshot(frozen_dir / 'initial.npz')
+        sim.local_model = value.get("local_model")
+        sim.source = SceneSource(**value["source"])
+        sim.restore_snapshot(frozen_dir / "initial.npz")
         return sim
 
     @staticmethod
@@ -143,8 +144,12 @@ class Simulation:
         """
         if target is _KEEP:
             target = self.model.body(self.target_id).name if self.target_id is not None else None
-        derived = Simulation(model or self.model, robot_config or self.robot.config,
-                             copy.deepcopy(self.catalog if catalog is None else catalog), target)
+        derived = Simulation(
+            model or self.model,
+            robot_config or self.robot.config,
+            copy.deepcopy(self.catalog if catalog is None else catalog),
+            target,
+        )
         derived.source, derived.source_metadata = self.source, self.source_metadata
         derived.frozen_dir, derived.local_model = self.frozen_dir, self.local_model
         derived.spec = self.spec if spec is _KEEP else spec
@@ -155,26 +160,30 @@ class Simulation:
         if self.spec is not None:
             return self.spec.copy()
         if self.frozen_dir:
-            return load_spec(Path(self.frozen_dir) / 'model.xml')
+            return load_spec(Path(self.frozen_dir) / "model.xml")
         return self.prepare_spec(self.source, self.robot.config)
 
     def freeze(self, path):
         """保存准备阶段场景。保留同版本二进制载荷，另导出 MJCF。"""
         if self.started:
-            raise RuntimeError('cannot save initialization after execution begins')
+            raise RuntimeError("cannot save initialization after execution begins")
         path = Path(path)
         path.mkdir(parents=True, exist_ok=False)
-        mujoco.mj_saveModel(self.model, str(path / 'model.mjb'), None)
+        mujoco.mj_saveModel(self.model, str(path / "model.mjb"), None)
         if self.spec is not None:
-            save_spec(self.spec, path / 'model.xml')
-        elif self.frozen_dir and (Path(self.frozen_dir) / 'model.xml').is_file():
-            copyfile(Path(self.frozen_dir) / 'model.xml', path / 'model.xml')
-        value = {'robot': asdict(self.robot.config), 'source': self.source.to_dict(),
-                 'mujoco_version': mujoco.__version__, 'instances': self.catalog}
+            save_spec(self.spec, path / "model.xml")
+        elif self.frozen_dir and (Path(self.frozen_dir) / "model.xml").is_file():
+            copyfile(Path(self.frozen_dir) / "model.xml", path / "model.xml")
+        value = {
+            "robot": asdict(self.robot.config),
+            "source": self.source.to_dict(),
+            "mujoco_version": mujoco.__version__,
+            "instances": self.catalog,
+        }
         if self.local_model is not None:
-            value['local_model'] = self.local_model
-        write_json(path / 'config.json', value)
-        self.save_snapshot(path / 'initial.npz')
+            value["local_model"] = self.local_model
+        write_json(path / "config.json", value)
+        self.save_snapshot(path / "initial.npz")
         return value
 
     def state_vector(self):
@@ -184,24 +193,28 @@ class Simulation:
         return state
 
     def save_snapshot(self, path):
-        with Path(path).open('xb') as stream:
-            np.savez_compressed(stream, state=self.state_vector(), state_spec=int(self.state_spec),
-                                control_json=json.dumps(self.robot.snapshot_control()),
-                                clock_remainder=self.clock_remainder)
+        with Path(path).open("xb") as stream:
+            np.savez_compressed(
+                stream,
+                state=self.state_vector(),
+                state_spec=int(self.state_spec),
+                control_json=json.dumps(self.robot.snapshot_control()),
+                clock_remainder=self.clock_remainder,
+            )
 
     def restore_snapshot(self, path):
         if self.started or self.closed:
-            raise RuntimeError('snapshot restore prohibited after execution begins')
+            raise RuntimeError("snapshot restore prohibited after execution begins")
         with np.load(path, allow_pickle=False) as saved:
-            state = saved['state']
+            state = saved["state"]
             if state.shape != self.state_vector().shape or not np.isfinite(state).all():
-                raise ValueError('snapshot state does not match this model')
-            self.set_state(state, json.loads(str(saved['control_json'])), float(saved['clock_remainder']))
+                raise ValueError("snapshot state does not match this model")
+            self.set_state(state, json.loads(str(saved["control_json"])), float(saved["clock_remainder"]))
 
     def set_state(self, integration, control, clock_remainder):
         """Install a captured integration state, robot control targets and clock remainder."""
         if self.started or self.closed:
-            raise RuntimeError('state initialization requires an unstarted simulation')
+            raise RuntimeError("state initialization requires an unstarted simulation")
         mujoco.mj_setState(self.model, self.data, integration, self.state_spec)
         self.robot.restore_control(control)
         self.clock_remainder = clock_remainder
@@ -237,15 +250,15 @@ class Simulation:
         """MolmoBot: set relative targets once, 5 control ticks × 5 physics ticks."""
         self._require_running()
         if self.robot.config.control_profile != NATIVE_PROFILE:
-            raise ValueError('step_policy requires native MolmoBot profile')
-        if not np.isclose(self.model.opt.timestep, .004) or self.robot.config.control_hz != 10:
-            raise ValueError('MolmoBot timing requires 100/20/4 ms')
+            raise ValueError("step_policy requires native MolmoBot profile")
+        if not np.isclose(self.model.opt.timestep, 0.004) or self.robot.config.control_hz != 10:
+            raise ValueError("MolmoBot timing requires 100/20/4 ms")
         command = self._submit(action, command_raw=command_raw)
-        command['timing_ms'] = {'policy': 100, 'control': 20, 'physics': 4}
+        command["timing_ms"] = {"policy": 100, "control": 20, "physics": 4}
         return self._advance(command, [5] * 5, substep_check)
 
     def _submit(self, action, *, fixed_base=False, command_raw=None):
-        if self.robot.config.control_profile == 'robocasa-v1' and isinstance(action, RobotCommand):
+        if self.robot.config.control_profile == "robocasa-v1" and isinstance(action, RobotCommand):
             action = self.robot.execution_action(action)
             if command_raw is None:
                 command_raw = action.copy()
@@ -253,7 +266,7 @@ class Simulation:
         if self.evidence_recorder:
             raw = action if command_raw is None else command_raw
             if isinstance(raw, RobotCommand):
-                raw = _requested_targets(self.robot, raw, command['submitted_action'])
+                raw = _requested_targets(self.robot, raw, command["submitted_action"])
             self.evidence_recorder.requested_action = self.robot.record_action(raw)
         return command
 
@@ -264,7 +277,7 @@ class Simulation:
         completed = False
         try:
             for ticks in tick_groups:
-                self.data.ctrl[:] = command['ctrl']
+                self.data.ctrl[:] = command["ctrl"]
                 for _ in range(ticks):
                     self.robot.update_control()
                     mujoco.mj_step(self.model, self.data)
@@ -277,28 +290,42 @@ class Simulation:
             completed = True
         finally:
             mujoco.mj_forward(self.model, self.data)
-            command.update(time_before_s=before, time_after_s=float(self.data.time),
-                           requested_physics_steps=sum(tick_groups), actual_physics_steps=actual_ticks,
-                           completion='complete' if completed and not stop else 'partial')
+            command.update(
+                time_before_s=before,
+                time_after_s=float(self.data.time),
+                requested_physics_steps=sum(tick_groups),
+                actual_physics_steps=actual_ticks,
+                completion="complete" if completed and not stop else "partial",
+            )
             if actual_ticks:
-                command['ctrl'] = self.data.ctrl.tolist()  # feedback controllers rewrite ctrl per substep
+                command["ctrl"] = self.data.ctrl.tolist()  # feedback controllers rewrite ctrl per substep
             if self.evidence_recorder and actual_ticks:
                 self.evidence_recorder.executed(command)
         return command, stop
 
     def observe_state(self):
         """Measured state; nonfinite values become null and their field paths are listed."""
-        bodies = {obj["instance_id"]: {"pose_world_xyz_wxyz": self._pose(obj["body_id"])}
-                  for obj in self.catalog}
+        bodies = {obj["instance_id"]: {"pose_world_xyz_wxyz": self._pose(obj["body_id"])} for obj in self.catalog}
         target = None
         if self.target_id is not None:
-            target = {"mjcf_body": self.model.body(self.target_id).name,
-                      "pose_world_xyz_wxyz": self._pose(self.target_id)}
+            target = {
+                "mjcf_body": self.model.body(self.target_id).name,
+                "pose_world_xyz_wxyz": self._pose(self.target_id),
+            }
         nonfinite = []
         result = _null_nonfinite(
-            {"time_s": float(self.data.time), "robot": self.robot.state(), "target": target,
-             "instances": bodies, "qpos": self.data.qpos.tolist(), "qvel": self.data.qvel.tolist(),
-             "ctrl": self.data.ctrl.tolist()}, "", nonfinite)
+            {
+                "time_s": float(self.data.time),
+                "robot": self.robot.state(),
+                "target": target,
+                "instances": bodies,
+                "qpos": self.data.qpos.tolist(),
+                "qvel": self.data.qvel.tolist(),
+                "ctrl": self.data.ctrl.tolist(),
+            },
+            "",
+            nonfinite,
+        )
         if nonfinite:
             result["nonfinite_fields"] = nonfinite
         return result
@@ -326,8 +353,7 @@ class Simulation:
             self.renderer.update_scene(self.data, camera=name)
             frames[alias] = self.renderer.render().copy()
         if self.third_person_camera is not None:
-            frames[self.third_person_camera.name] = self.third_person_camera.render(
-                self, self.renderer, width, height)
+            frames[self.third_person_camera.name] = self.third_person_camera.render(self, self.renderer, width, height)
         return frames
 
     def close(self):
@@ -342,9 +368,10 @@ def _requested_targets(robot, command, submitted):
     """Recorded requested action: fields left None hold the submitted absolute targets."""
     if not isinstance(submitted, dict):
         return robot.execution_action(command)
-    return {key: submitted[key] if value is None
-            else {**submitted[key], **value} if isinstance(value, dict) else value
-            for key, value in asdict(command).items()}
+    return {
+        key: submitted[key] if value is None else {**submitted[key], **value} if isinstance(value, dict) else value
+        for key, value in asdict(command).items()
+    }
 
 
 def _null_nonfinite(value, path, found):

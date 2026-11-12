@@ -1,4 +1,5 @@
 """Fixed task-local models, retaining complete object and articulated subtrees."""
+
 import mujoco
 import numpy as np
 
@@ -22,15 +23,22 @@ def local_model_bounds(sim):
         body = int(model.geom_bodyid[geom])
         if body:
             grouped.setdefault(roots[body], []).append(geom)
-    articulated = {roots[int(model.jnt_bodyid[j])] for j in range(model.njnt)
-                   if model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE}
+    articulated = {
+        roots[int(model.jnt_bodyid[j])] for j in range(model.njnt) if model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+    }
     bounds = []
     for body, geoms in grouped.items():
         name = model.body(body).name
-        structural = any(any(word in (model.geom(g).name or '').lower()
-                             for word in ('floor', 'wall', 'ceiling', 'door')) for g in geoms)
-        if (body in articulated or structural or name.startswith(sim.robot.config.namespace)
-                or any(model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE for g in geoms)):
+        structural = any(
+            any(word in (model.geom(g).name or "").lower() for word in ("floor", "wall", "ceiling", "door"))
+            for g in geoms
+        )
+        if (
+            body in articulated
+            or structural
+            or name.startswith(sim.robot.config.namespace)
+            or any(model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE for g in geoms)
+        ):
             continue
         points = np.concatenate([geom_points(sim, g) for g in geoms])[:, :2]
         bounds.append((body, points.min(axis=0), points.max(axis=0)))
@@ -45,8 +53,8 @@ def task_local_model(sim, task, radius, bounds=None):
     """
     spec = sim.spec.copy()
     model = sim.model
-    anchor = np.asarray(task['anchor_world'][:2])
-    target_root = root_body(model, model.body(task['target_body']).id)
+    anchor = np.asarray(task["anchor_world"][:2])
+    target_root = root_body(model, model.body(task["target_body"]).id)
     removed = []
     for body, low, high in local_model_bounds(sim) if bounds is None else bounds:
         if body != target_root and (np.any(high < anchor - radius) or np.any(low > anchor + radius)):
@@ -61,11 +69,17 @@ def task_local_model(sim, task, radius, bounds=None):
     catalog = []
     names = {local_model.body(b).name: b for b in range(local_model.nbody)}
     for entry in sim.catalog:
-        if entry['mjcf_body'] in names:
-            catalog.append({**entry, 'body_id': names[entry['mjcf_body']]})
-    with closed_on_error(sim.derive(model=local_model, catalog=catalog, target=task['target_body'], spec=spec)) as local:
+        if entry["mjcf_body"] in names:
+            catalog.append({**entry, "body_id": names[entry["mjcf_body"]]})
+    with closed_on_error(
+        sim.derive(model=local_model, catalog=catalog, target=task["target_body"], spec=spec)
+    ) as local:
         migrate_state(sim, local)
-    local.local_model = {'radius_m': radius, 'anchor_world': task['anchor_world'],
-                         'removed_roots': removed, 'source_bodies': model.nbody,
-                         'retained_bodies': local_model.nbody}
+    local.local_model = {
+        "radius_m": radius,
+        "anchor_world": task["anchor_world"],
+        "removed_roots": removed,
+        "source_bodies": model.nbody,
+        "retained_bodies": local_model.nbody,
+    }
     return local

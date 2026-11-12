@@ -43,19 +43,43 @@ from ..utils.io import append_row, create_run, read_json, rows, write_json
 logger = logging.getLogger(__name__)
 
 # Selection and display parameters do not change physical execution, so calibrations stay reusable across them.
-_SELECTION_KEYS = {"lastmile_low", "lastmile_high", "smoothing_sigma_m", "navigation_margin_m",
-                   "navigation_clearance_weight", "navigation_max_penetration_m"}
+_SELECTION_KEYS = {
+    "lastmile_low",
+    "lastmile_high",
+    "smoothing_sigma_m",
+    "navigation_margin_m",
+    "navigation_clearance_weight",
+    "navigation_max_penetration_m",
+}
 # Sampling geometry of the scene library that overrides the execution config.
 _LIBRARY_GEOMETRY = ("spacing_m", "width", "height", "min_target_pixels")
-_TRIAL_FIELDS = ("status", "reason", "execution_termination", "task_outcome", "recording_complete",
-                 "replay_complete", "observation_complete", "executed_steps", "navigation", "error",
-                 "failure_scope", "planning_ref", "attribution", "retry_history", "exception_detail")
+_TRIAL_FIELDS = (
+    "status",
+    "reason",
+    "execution_termination",
+    "task_outcome",
+    "recording_complete",
+    "replay_complete",
+    "observation_complete",
+    "executed_steps",
+    "navigation",
+    "error",
+    "failure_scope",
+    "planning_ref",
+    "attribution",
+    "retry_history",
+    "exception_detail",
+)
 
 
 def execution_profile(robot, config):
-    return {"robot": asdict(robot), "width": config.width, "height": config.height,
-            "backend": config.operation_backend,
-            "policy": asdict(load_policy_config(config.policy_config)) if config.policy_config else None}
+    return {
+        "robot": asdict(robot),
+        "width": config.width,
+        "height": config.height,
+        "backend": config.operation_backend,
+        "policy": asdict(load_policy_config(config.policy_config)) if config.policy_config else None,
+    }
 
 
 def calibration_execution(config):
@@ -66,6 +90,7 @@ def calibration_execution(config):
 @dataclass
 class StationRunContext:
     """One prepared calibration or collection run: inputs, run directory and the shared attempt counter."""
+
     root: Path
     scenes: list[dict]
     config: ExecutionConfig
@@ -99,9 +124,11 @@ def _reused_trials(calibration, dataset, profiles, config):
     """Trials of an earlier calibration whose scenes, profiles and physical execution all match."""
     logger.info("复用已有标定=%s，不重复 rollout", calibration)
     saved = read_json(Path(calibration) / "config.json")
-    if (Path(saved["dataset"]).resolve() != Path(dataset).resolve()
-            or any(saved["profiles"].get(sid) != profile for sid, profile in profiles.items())
-            or calibration_execution(saved["config"]) != calibration_execution(asdict(config))):
+    if (
+        Path(saved["dataset"]).resolve() != Path(dataset).resolve()
+        or any(saved["profiles"].get(sid) != profile for sid, profile in profiles.items())
+        or calibration_execution(saved["config"]) != calibration_execution(asdict(config))
+    ):
         raise ValueError("calibration scene/backend/robot/sensor/policy configuration mismatch")
     return rows(Path(calibration) / "trials.jsonl")
 
@@ -121,39 +148,70 @@ def prepare_run(dataset, run, output, gpu_ids, *, collect, samples=None, calibra
     # 复用采样间距和观测尺寸；操作工作区和导航碰撞参数由执行配置决定。
     geometry = read_json(Path(dataset) / "config.json").get("geometry", {})
     config = replace(config, **{key: geometry[key] for key in _LIBRARY_GEOMETRY if key in geometry})
-    collection = CollectionConfig(record_video=run.record_video, record_images=collect, width=config.width,
-                                  height=config.height, seed=config.seed, output_dir=str(output.parent.resolve()))
+    collection = CollectionConfig(
+        record_video=run.record_video,
+        record_images=collect,
+        width=config.width,
+        height=config.height,
+        seed=config.seed,
+        output_dir=str(output.parent.resolve()),
+    )
     scenes, profiles = _resolve_scenes(dataset, config, samples)
     prior = _reused_trials(calibration, dataset, profiles, config) if calibration else None
-    resources = {"gpu_ids": list(gpu_ids), "egl_devices": resolve_egl_devices(gpu_ids),
-                 "cpu_workers": run.cpu_workers, "preparation_workers": run.preparation_workers,
-                 "recording_mode": run.mode, "planning_workers_per_gpu": list(per_gpu_workers(gpu_ids, run.planning_workers_per_gpu))}
+    resources = {
+        "gpu_ids": list(gpu_ids),
+        "egl_devices": resolve_egl_devices(gpu_ids),
+        "cpu_workers": run.cpu_workers,
+        "preparation_workers": run.preparation_workers,
+        "recording_mode": run.mode,
+        "planning_workers_per_gpu": list(per_gpu_workers(gpu_ids, run.planning_workers_per_gpu)),
+    }
     # 保存本次运行实际使用的配置及输入引用。
-    root = create_run(output, {
-        "dataset": str(Path(dataset).resolve()),
-        "config": asdict(config),
-        "collection": asdict(collection),
-        "navigation_protocol": NAVIGATION_PROTOCOL,
-        "navigation_settings": asdict(NavigationSettings.from_config(
-            config, speed=config.navigation_speed_m_s, yaw_speed=config.navigation_yaw_speed_rad_s)),
-        "profiles": profiles,
-        "gpu": gpu_ids[0],
-        "seed": config.seed,
-        "calibration": str(Path(calibration).resolve()) if calibration else None,
-        "resources": resources,
-        "calibration_collection": asdict(run.calibration_recording(collection)),
-    }, prepared=True)
-    logger.info("运行=%s scene数=%s backend=%s GPU=%s 每点重复=%s 每场景预算=%s 标定来源=%s",
-                root, len(scenes), config.operation_backend, gpu_ids[0], config.trials_per_station,
-                run.max_trials if run.max_trials is not None else "完整标定", calibration or "当前 run 内执行")
+    root = create_run(
+        output,
+        {
+            "dataset": str(Path(dataset).resolve()),
+            "config": asdict(config),
+            "collection": asdict(collection),
+            "navigation_protocol": NAVIGATION_PROTOCOL,
+            "navigation_settings": asdict(
+                NavigationSettings.from_config(
+                    config, speed=config.navigation_speed_m_s, yaw_speed=config.navigation_yaw_speed_rad_s
+                )
+            ),
+            "profiles": profiles,
+            "gpu": gpu_ids[0],
+            "seed": config.seed,
+            "calibration": str(Path(calibration).resolve()) if calibration else None,
+            "resources": resources,
+            "calibration_collection": asdict(run.calibration_recording(collection)),
+        },
+        prepared=True,
+    )
+    logger.info(
+        "运行=%s scene数=%s backend=%s GPU=%s 每点重复=%s 每场景预算=%s 标定来源=%s",
+        root,
+        len(scenes),
+        config.operation_backend,
+        gpu_ids[0],
+        config.trials_per_station,
+        run.max_trials if run.max_trials is not None else "完整标定",
+        calibration or "当前 run 内执行",
+    )
     return StationRunContext(root, scenes, config, collection, run, assets_dir, gpu_ids, prior)
 
 
 def trial_record(result, scene, station, trial, seed):
     """提取执行结果，补齐场景、站位、试验序号和随机种子。"""
     record = {key: result.get(key) for key in _TRIAL_FIELDS}
-    record.update(scene_id=scene["scene_id"], station_id=station["station_id"], trial=trial, seed=seed,
-                  rollout_id=result.get("rollout_id"), task_id=scene["task"]["task_id"])
+    record.update(
+        scene_id=scene["scene_id"],
+        station_id=station["station_id"],
+        trial=trial,
+        seed=seed,
+        rollout_id=result.get("rollout_id"),
+        task_id=scene["task"]["task_id"],
+    )
     return record
 
 
@@ -164,24 +222,43 @@ def shared_failure(record):
 def station_summary(sim, scene, trials, config, root):
     """汇总一个场景的原始标定结果并导出展示热图；困难配对仍由原始标定结果决定。"""
     binding = {"scene_id": scene["scene_id"], "task_id": scene["task"]["task_id"]}
-    rates = station_calibration(scene["stations"], trials, config.trials_per_station, binding,
-                                config.operation_backend)
+    rates = station_calibration(scene["stations"], trials, config.trials_per_station, binding, config.operation_backend)
     if not rates["complete"]:
         logger.warning("scene=%s 标定不完整，不能用于正式困难配对", scene["scene_id"])
     if config.export_figures:
-        grid = scene_grid(sim, scene["task"]["anchor_world"], config.radius_m, config.map_resolution_m, 0.0, 0.0,
-                          support_obstacles=task_support_obstacles(sim, scene["task"]))
-        export_heatmap(root / "figures" / scene["scene_id"], grid,
-                       aggregate(scene["stations"], trials, config.trials_per_station),
-                       scene["task"]["anchor_world"], config.smoothing_sigma_m or config.spacing_m or 0.1,
-                       title=scene["scene_id"])
+        grid = scene_grid(
+            sim,
+            scene["task"]["anchor_world"],
+            config.radius_m,
+            config.map_resolution_m,
+            0.0,
+            0.0,
+            support_obstacles=task_support_obstacles(sim, scene["task"]),
+        )
+        export_heatmap(
+            root / "figures" / scene["scene_id"],
+            grid,
+            aggregate(scene["stations"], trials, config.trials_per_station),
+            scene["task"]["anchor_world"],
+            config.smoothing_sigma_m or config.spacing_m or 0.1,
+            title=scene["scene_id"],
+        )
     starts, goals = eligible_stations(scene["stations"], rates, config.lastmile_low, config.lastmile_high)
     pair_count = len(starts) * len(goals)
-    logger.info("scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s", scene["scene_id"], len(trials),
-                rates["complete"], pair_count,
-                root / "figures" / scene["scene_id"] if config.export_figures else "disabled")
-    return {"scene_id": scene["scene_id"], "calibration_complete": rates["complete"],
-            "eligible_pairs": pair_count, "successes": sum(r["successes"] for r in rates["stations"])}
+    logger.info(
+        "scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s",
+        scene["scene_id"],
+        len(trials),
+        rates["complete"],
+        pair_count,
+        root / "figures" / scene["scene_id"] if config.export_figures else "disabled",
+    )
+    return {
+        "scene_id": scene["scene_id"],
+        "calibration_complete": rates["complete"],
+        "eligible_pairs": pair_count,
+        "successes": sum(r["successes"] for r in rates["stations"]),
+    }
 
 
 def scene_trials(trials, scene):
@@ -189,19 +266,28 @@ def scene_trials(trials, scene):
 
 
 def log_scene_start(index, scenes, scene):
-    logger.info("场景 %s/%s 开始 scene=%s target=%s station数=%s", index, len(scenes), scene["scene_id"],
-                scene["task"].get("asset_id", scene["task"]["task_id"]), len(scene["stations"]),
-                extra={"progress": True})
+    logger.info(
+        "场景 %s/%s 开始 scene=%s target=%s station数=%s",
+        index,
+        len(scenes),
+        scene["scene_id"],
+        scene["task"].get("asset_id", scene["task"]["task_id"]),
+        len(scene["stations"]),
+        extra={"progress": True},
+    )
 
 
 def write_summary(context, summaries, stopped, **fields):
     """运行完整（全部场景处理且无共享失败）不等于任务成功。"""
     elapsed = time.monotonic() - context.started
     complete = len(summaries) == len(context.scenes) and not stopped
-    write_json(context.root / "summary.json", {"status": "completed" if complete else "incomplete",
-                                               "scenes": summaries, "elapsed_s": elapsed, **fields})
-    logger.info("运行收尾 输出=%s 已处理场景=%s/%s 耗时=%.1fs", context.root, len(summaries),
-                len(context.scenes), elapsed)
+    write_json(
+        context.root / "summary.json",
+        {"status": "completed" if complete else "incomplete", "scenes": summaries, "elapsed_s": elapsed, **fields},
+    )
+    logger.info(
+        "运行收尾 输出=%s 已处理场景=%s/%s 耗时=%.1fs", context.root, len(summaries), len(context.scenes), elapsed
+    )
     if not complete:
         logger.warning("运行未完整结束：已处理场景=%s/%s", len(summaries), len(context.scenes))
 
@@ -223,8 +309,7 @@ def run_station_map(dataset, run, output, *, gpu_ids, samples=None):
     finally:
         stopped = calibration is None or bool(calibration["failure"])
         stopped = stopped or any(summary["shared_failure"] for summary in summaries)
-        write_summary(context, summaries, stopped,
-                      **({"calibration": calibration} if calibration is not None else {}))
+        write_summary(context, summaries, stopped, **({"calibration": calibration} if calibration is not None else {}))
     return context.root
 
 
@@ -240,6 +325,7 @@ def _infrastructure_failure(reason):
 @dataclass(frozen=True)
 class _PlannedStation:
     """A prepared station whose batched grasp plan is on the GPU pool."""
+
     job: StationJob
     prepared: object
     candidates: list
@@ -255,8 +341,9 @@ class _CalibrationScheduler:
         self.trial_worker = trial_worker
         self.started = time.monotonic()
         self.mp = multiprocessing.get_context("spawn")
-        self.planned = sum(_planned_trials(s, self.config.trials_per_station, context.run.max_trials)
-                           for s in context.scenes)
+        self.planned = sum(
+            _planned_trials(s, self.config.trials_per_station, context.run.max_trials) for s in context.scenes
+        )
         self.cpu_count = min(context.run.cpu_workers, self.planned)
         self.capacity = context.run.cpu_workers + self.config.trials_per_station * len(context.gpu_ids)
         self.stop = self.mp.Event()
@@ -279,28 +366,53 @@ class _CalibrationScheduler:
         with self._started():
             while not self._step():
                 pass
-        return self.trials, {"planned_trials": self.planned, "recorded_trials": len(self.trials),
-                             "preparation_failures": self.preparation_failures, "failure": self.failure,
-                             "peaks": self.peaks, "gpu_active_s": self.gpu_active_s,
-                             "elapsed_s": time.monotonic() - self.started}
+        return self.trials, {
+            "planned_trials": self.planned,
+            "recorded_trials": len(self.trials),
+            "preparation_failures": self.preparation_failures,
+            "failure": self.failure,
+            "peaks": self.peaks,
+            "gpu_active_s": self.gpu_active_s,
+            "elapsed_s": time.monotonic() - self.started,
+        }
 
     @contextmanager
     def _started(self):
         """Start the pools and CPU workers; on exit settle every trial, then stop in reverse order."""
         with ExitStack() as stack:
             stack.callback(self._close_queues)
-            self.pool = PlanningPool(self.context.gpu_ids, workers_per_gpu=self.context.run.planning_workers_per_gpu,
-                                     service_type=self.service_type)
+            self.pool = PlanningPool(
+                self.context.gpu_ids,
+                workers_per_gpu=self.context.run.planning_workers_per_gpu,
+                service_type=self.service_type,
+            )
             stack.callback(self.pool.close)
-            self.cpus = [self.mp.Process(target=self.trial_worker, args=(
-                index, self.jobs[index], self.requests, self.replies[index], self.results, self.stop, self.config,
-                self.context.calibration_collection, self.context.assets_dir, self.context.root))
-                for index in range(self.cpu_count)]
+            self.cpus = [
+                self.mp.Process(
+                    target=self.trial_worker,
+                    args=(
+                        index,
+                        self.jobs[index],
+                        self.requests,
+                        self.replies[index],
+                        self.results,
+                        self.stop,
+                        self.config,
+                        self.context.calibration_collection,
+                        self.context.assets_dir,
+                        self.context.root,
+                    ),
+                )
+                for index in range(self.cpu_count)
+            ]
             for process in self.cpus:
                 process.start()
             stack.callback(self._stop_workers)
-            self.prep = ProcessPoolExecutor(max_workers=self.context.run.preparation_workers,
-                                            mp_context=self.mp, initializer=initialize_preparation_worker)
+            self.prep = ProcessPoolExecutor(
+                max_workers=self.context.run.preparation_workers,
+                mp_context=self.mp,
+                initializer=initialize_preparation_worker,
+            )
             stack.callback(self._shutdown_preparation)
             try:
                 yield
@@ -325,8 +437,7 @@ class _CalibrationScheduler:
         self._dispatch_trials()
         self._submit_preparations()
         self._dispatch_planning()
-        if self.exhausted and not (self.preparations or self.batches or self.recordings or self.ready
-                                   or self.active):
+        if self.exhausted and not (self.preparations or self.batches or self.recordings or self.ready or self.active):
             return True
         self._trials_completed(timeout=0.01)
         return False
@@ -339,17 +450,27 @@ class _CalibrationScheduler:
                 size = min(config.trials_per_station, remaining)
                 if size <= 0:
                     break
-                identities = [TrialIdentity(scene["scene_id"], index, trial,
-                                            f"r{next(self.context.attempt_ids):06d}",
-                                            config.seed + index * config.trials_per_station + trial)
-                              for trial in range(size)]
-                yield StationJob(scene, index, identities, [TrialBudget(config.attempt_timeout_s)
-                                                            for _ in identities])
+                identities = [
+                    TrialIdentity(
+                        scene["scene_id"],
+                        index,
+                        trial,
+                        f"r{next(self.context.attempt_ids):06d}",
+                        config.seed + index * config.trials_per_station + trial,
+                    )
+                    for trial in range(size)
+                ]
+                yield StationJob(scene, index, identities, [TrialBudget(config.attempt_timeout_s) for _ in identities])
                 remaining -= size
 
     def _save(self, trial, result):
-        record = trial_record(result, trial.scene, trial.scene["stations"][trial.index],
-                              trial.response.identity.trial, trial.response.identity.seed)
+        record = trial_record(
+            result,
+            trial.scene,
+            trial.scene["stations"][trial.index],
+            trial.response.identity.trial,
+            trial.response.identity.seed,
+        )
         record["station_index"] = trial.index
         append_row(Path(self.context.root) / "trials.jsonl", record)
         self.trials.append(record)
@@ -363,8 +484,17 @@ class _CalibrationScheduler:
         self._save(self.active.pop(worker), result)
 
     def _record_later(self, trial):
-        future = self.prep.submit(record_unexecuted, trial.scene, trial.index, trial.prepared, trial.response,
-                                  trial.budget, self.config, self.context.calibration_collection, self.context.root)
+        future = self.prep.submit(
+            record_unexecuted,
+            trial.scene,
+            trial.index,
+            trial.prepared,
+            trial.response,
+            trial.budget,
+            self.config,
+            self.context.calibration_collection,
+            self.context.root,
+        )
         self.recordings[future] = trial
 
     def _prepare_completed(self):
@@ -374,8 +504,9 @@ class _CalibrationScheduler:
             job = self.preparations.pop(future)
             result = future.result()
             if result["status"] != "ready":
-                self.preparation_failures.append({"scene_id": job.scene["scene_id"], "station_index": job.index,
-                                                  **result})
+                self.preparation_failures.append(
+                    {"scene_id": job.scene["scene_id"], "station_index": job.index, **result}
+                )
                 if result.get("failure_scope") == "shared":
                     self.failure = result
                     self.stop.set()
@@ -383,11 +514,23 @@ class _CalibrationScheduler:
             prepared = result["prepared"]
             candidates = grasp_candidates(job.scene["task"], self.context.assets_dir)
             query_id = f"{job.identities[0].attempt_id}-batch"
-            request = PlanningRequest(query_id, job.scene["scene_path"], job.identities, prepared.state, "preclose",
-                                      job.budgets, PlanningInputs(
-                                          job.scene["task"], job.scene["robot_config"], self.config,
-                                          self.context.root, self.context.assets_dir, candidates=candidates,
-                                          preparation_path=prepared.path))
+            request = PlanningRequest(
+                query_id,
+                job.scene["scene_path"],
+                job.identities,
+                prepared.state,
+                "preclose",
+                job.budgets,
+                PlanningInputs(
+                    job.scene["task"],
+                    job.scene["robot_config"],
+                    self.config,
+                    self.context.root,
+                    self.context.assets_dir,
+                    candidates=candidates,
+                    preparation_path=prepared.path,
+                ),
+            )
             self.batches[query_id] = _PlannedStation(job, prepared, candidates)
             self.pool.submit(request)
 
@@ -414,8 +557,9 @@ class _CalibrationScheduler:
                 continue
             planned = self.batches.pop(request.query_id)
             for response, budget in zip(responses, planned.job.budgets):
-                trial = ReadyTrial(planned.job.scene, planned.job.index, planned.prepared, response, budget,
-                                   planned.candidates)
+                trial = ReadyTrial(
+                    planned.job.scene, planned.job.index, planned.prepared, response, budget, planned.candidates
+                )
                 if response.status == "success":
                     self.ready.append(trial)
                 else:
@@ -440,8 +584,14 @@ class _CalibrationScheduler:
             code = self.cpus[worker].exitcode
             if code is not None:
                 trial = self.active.pop(worker)
-                self._save(trial, {**_infrastructure_failure(reason.format(worker=worker, code=code)),
-                                   "rollout_id": trial.response.identity.attempt_id, "recording_complete": False})
+                self._save(
+                    trial,
+                    {
+                        **_infrastructure_failure(reason.format(worker=worker, code=code)),
+                        "rollout_id": trial.response.identity.attempt_id,
+                        "recording_complete": False,
+                    },
+                )
 
     def _dispatch_trials(self):
         while self.idle and self.ready:
@@ -450,11 +600,18 @@ class _CalibrationScheduler:
             self.jobs[worker].put(self.active[worker])
 
     def _submit_preparations(self):
-        buffered = (len(self.active) + len(self.ready) + len(self.recordings)
-                    + sum(len(job.identities) for job in self.preparations.values())
-                    + sum(len(planned.job.budgets) for planned in self.batches.values()))
-        while (not self.exhausted and len(self.preparations) < self.context.run.preparation_workers
-               and buffered + self.config.trials_per_station <= self.capacity):
+        buffered = (
+            len(self.active)
+            + len(self.ready)
+            + len(self.recordings)
+            + sum(len(job.identities) for job in self.preparations.values())
+            + sum(len(planned.job.budgets) for planned in self.batches.values())
+        )
+        while (
+            not self.exhausted
+            and len(self.preparations) < self.context.run.preparation_workers
+            and buffered + self.config.trials_per_station <= self.capacity
+        ):
             job = next(self.units, None)
             if job is None:
                 self.exhausted = True
@@ -477,12 +634,23 @@ class _CalibrationScheduler:
         self.pool.failure = self.failure
         for worker, trial in self.active.items():
             identity = trial.response.identity
-            self.replies[worker].put(PlanningResponse(f"{identity.attempt_id}-stop", identity, "infrastructure_error",
-                                                      0.0, trial.budget.plan_count, diagnostics=self.failure))
+            self.replies[worker].put(
+                PlanningResponse(
+                    f"{identity.attempt_id}-stop",
+                    identity,
+                    "infrastructure_error",
+                    0.0,
+                    trial.budget.plan_count,
+                    diagnostics=self.failure,
+                )
+            )
         while self.ready:
             trial = self.ready.popleft()
-            self._record_later(replace(trial, response=replace(
-                trial.response, status="infrastructure_error", diagnostics=self.failure)))
+            self._record_later(
+                replace(
+                    trial, response=replace(trial.response, status="infrastructure_error", diagnostics=self.failure)
+                )
+            )
 
     def _drain_active(self):
         while self.active:

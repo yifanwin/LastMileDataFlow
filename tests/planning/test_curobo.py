@@ -49,9 +49,7 @@ class V2ModelTests(unittest.TestCase):
         canonical = joint_names("left")
         reversed_names = list(reversed(canonical))
         self.assertEqual(len(canonical), 11)
-        np.testing.assert_equal(
-            ordered_points(np.arange(11), reversed_names, list(canonical)), np.arange(10, -1, -1)
-        )
+        np.testing.assert_equal(ordered_points(np.arange(11), reversed_names, list(canonical)), np.arange(10, -1, -1))
         with self.assertRaises(ValueError):
             ordered_points(np.arange(12), list(canonical) + ["head_0"], list(canonical))
 
@@ -134,12 +132,13 @@ class V2ModelTests(unittest.TestCase):
         )
         ctx = ContinuousContext.__new__(ContinuousContext)
         from lastmile_dataflow.runtime.control.robot import RBY1Adapter
-        robot.arms = ('left', 'right')
-        groups['right_arm'] = np.zeros(7)
+
+        robot.arms = ("left", "right")
+        groups["right_arm"] = np.zeros(7)
         robot._hold_targets = groups
-        robot.base_pose = lambda: groups['base'].copy()
-        robot.arm_positions = lambda side: groups[side+'_arm'].copy()
-        robot.control_height = lambda: .3
+        robot.base_pose = lambda: groups["base"].copy()
+        robot.arm_positions = lambda side: groups[side + "_arm"].copy()
+        robot.control_height = lambda: 0.3
         robot.manipulation_command = lambda *a: RBY1Adapter.manipulation_command(robot, *a)
         ctx.sim = SimpleNamespace(robot=robot)
         ctx.config = ExecutionConfig()
@@ -147,8 +146,10 @@ class V2ModelTests(unittest.TestCase):
         actions = []
         ctx.tick = lambda a, **kw: actions.append(a)
         planner = SimpleNamespace(
-            names=joint_names("left"), h_step_limit=0.00125, base_target_world=lambda p: p[:3],
-            model=SimpleNamespace(arm_target=lambda p:p[3:10], height_target=lambda p:p[10])
+            names=joint_names("left"),
+            h_step_limit=0.00125,
+            base_target_world=lambda p: p[:3],
+            model=SimpleNamespace(arm_target=lambda p: p[3:10], height_target=lambda p: p[10]),
         )
         point = np.r_[0.1, 0, 0, np.full(7, 0.1), 0.4]
         scale = ctx.mobile_tick(planner, point, "left", -0.05)
@@ -164,6 +165,7 @@ class CollisionWorldTests(unittest.TestCase):
         import mujoco
         import trimesh
         from lastmile_dataflow.planning.curobo.collision_world import exported_geoms
+
         # An open L-shaped strip (no caps): ray parity on it is unreliable, its hull is not.
         m = mujoco.MjModel.from_xml_string("""<mujoco><asset>
           <mesh name="ell" vertex="0 0 0  1 0 0  1 .2 0  .2 .2 0  .2 1 0  0 1 0
@@ -174,13 +176,15 @@ class CollisionWorldTests(unittest.TestCase):
         d = mujoco.MjData(m)
         mujoco.mj_forward(m, d)
         sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
-        world = {m.geom(g).name: trimesh.Trimesh(v, f, process=False) for g, v, f in exported_geoms(sim, np.eye(4), 5.)}
+        world = {
+            m.geom(g).name: trimesh.Trimesh(v, f, process=False) for g, v, f in exported_geoms(sim, np.eye(4), 5.0)
+        }
         self.assertEqual(set(world), {"ell", "leg"})
         self.assertTrue(all(mesh.is_watertight and mesh.is_winding_consistent for mesh in world.values()))
         self.assertAlmostEqual(world["ell"].volume, trimesh.convex.convex_hull(world["ell"].vertices).volume)
         # The hull fills the Ls notch, as MuJoCos convex collision does.
-        self.assertTrue(world["ell"].contains([[.6, .6, .05]])[0])
-        target = list(exported_geoms(sim, np.eye(4), 5., target_only=True))
+        self.assertTrue(world["ell"].contains([[0.6, 0.6, 0.05]])[0])
+        target = list(exported_geoms(sim, np.eye(4), 5.0, target_only=True))
         self.assertEqual([m.geom(g).name for g, _, _ in target], ["cup"])
 
     def test_box_cuboids_keep_pose_and_size_in_the_measured_frame(self):
@@ -188,6 +192,7 @@ class CollisionWorldTests(unittest.TestCase):
         import mujoco
         from pathlib import Path
         from lastmile_dataflow.planning.curobo.collision_world import collision_world, exported_geoms
+
         m = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
           <body name="table" pos="1 .5 0" euler="0 0 30"><geom name="top" type="box" size=".4 .3 .02" pos="0 0 .74" euler="10 0 0"/>
             <geom name="leg" type="cylinder" size=".03 .36" pos=".3 .2 .36"/></body>
@@ -197,27 +202,28 @@ class CollisionWorldTests(unittest.TestCase):
         mujoco.mj_forward(m, d)
         sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
         base = np.eye(4)
-        base[:3, :3] = np.array([[0., -1, 0], [1, 0, 0], [0, 0, 1]])
-        base[:3, 3] = [.2, -.1, .05]
+        base[:3, :3] = np.array([[0.0, -1, 0], [1, 0, 0], [0, 0, 1]])
+        base[:3, 3] = [0.2, -0.1, 0.05]
         with tempfile.TemporaryDirectory() as tmp:
-            world = collision_world(sim, Path(tmp), 5., reference_base=base, cuboids=5., max_cuboids=4)
+            world = collision_world(sim, Path(tmp), 5.0, reference_base=base, cuboids=5.0, max_cuboids=4)
         self.assertEqual(len(world.cuboid), 1)
-        self.assertEqual(len(world.mesh), 1)          # the leg alone, as a closed hull
+        self.assertEqual(len(world.mesh), 1)  # the leg alone, as a closed hull
         cuboid, g = world.cuboid[0], m.geom("top").id
-        np.testing.assert_allclose(cuboid.dims, [.8, .6, .04])
+        np.testing.assert_allclose(cuboid.dims, [0.8, 0.6, 0.04])
         rotation = np.zeros(9)
         mujoco.mju_quat2Mat(rotation, np.asarray(cuboid.pose[3:]))
         inv = np.linalg.inv(base)
         np.testing.assert_allclose(cuboid.pose[:3], inv[:3, :3] @ d.geom_xpos[g] + inv[:3, 3], atol=1e-9)
         np.testing.assert_allclose(rotation.reshape(3, 3), inv[:3, :3] @ d.geom_xmat[g].reshape(3, 3), atol=1e-9)
-        leg = next(v for gg, v, _ in exported_geoms(sim, base, 5.) if m.geom(gg).name == "leg")
-        self.assertEqual(len(world.mesh[0].vertices), len(leg))   # the box is not also in the mesh
+        leg = next(v for gg, v, _ in exported_geoms(sim, base, 5.0) if m.geom(gg).name == "leg")
+        self.assertEqual(len(world.mesh[0].vertices), len(leg))  # the box is not also in the mesh
 
     def test_boxes_beyond_reach_or_cuboid_slots_stay_in_the_hull_mesh(self):
         import tempfile
         import mujoco
         from pathlib import Path
         from lastmile_dataflow.planning.curobo.collision_world import collision_world
+
         m = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
           <geom name="near" type="box" size=".1 .1 .1" pos=".5 0 .1"/><geom name="mid" type="box" size=".1 .1 .1" pos="1 0 .1"/>
           <geom name="far" type="box" size=".1 .1 .1" pos="3 0 .1"/>
@@ -227,7 +233,7 @@ class CollisionWorldTests(unittest.TestCase):
         mujoco.mj_forward(m, d)
         sim = SimpleNamespace(model=m, data=d, target_id=m.body("cup").id, planning_geometry={})
         with tempfile.TemporaryDirectory() as tmp:
-            world = collision_world(sim, Path(tmp), 5., reference_base=np.eye(4), cuboids=1.5, max_cuboids=1)
+            world = collision_world(sim, Path(tmp), 5.0, reference_base=np.eye(4), cuboids=1.5, max_cuboids=1)
             report = json.loads((Path(tmp) / "collision_world.json").read_text())
         self.assertEqual(report["cuboids"], ["near"])
         self.assertEqual(sorted(report["geoms"]), ["far", "mid"])

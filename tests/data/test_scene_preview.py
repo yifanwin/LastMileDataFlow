@@ -1,4 +1,5 @@
 """Contact-sheet layout and pairing; synthetic fixtures are not task evidence."""
+
 import tempfile
 from contextlib import closing
 import unittest
@@ -21,35 +22,43 @@ class ScenePreviewTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         source, robot = fixtures(self.root)
-        with closing(Simulation.from_source(source, robot, target='target')) as sim:
-            sim.freeze(self.root / 'before')
+        with closing(Simulation.from_source(source, robot, target="target")) as sim:
+            sim.freeze(self.root / "before")
         tree = ET.parse(source.xml_path)
-        body = ET.SubElement(tree.getroot().find('worldbody'), 'body',
-                             name='procedural_obstacle_0', pos='2.3 0 .2')
-        ET.SubElement(body, 'geom', type='box', size='.1 .1 .2')
+        body = ET.SubElement(tree.getroot().find("worldbody"), "body", name="procedural_obstacle_0", pos="2.3 0 .2")
+        ET.SubElement(body, "geom", type="box", size=".1 .1 .2")
         tree.write(source.xml_path)
-        with closing(Simulation.from_source(source, robot, target='target')) as sim:
-            sim.freeze(self.root / 'after')
+        with closing(Simulation.from_source(source, robot, target="target")) as sim:
+            sim.freeze(self.root / "after")
         self.record = {
-            'scene_id': 'fixture', 'status': 'accepted', 'scene': 'after',
-            'proposal_intent': 'reachability',
-            'task': {'target_body': 'target', 'anchor_world': [2, 0, .15],
-                     'category': 'Cup', 'operation': 'pick', 'instruction': '拿起杯子'},
-            'edits': {'placements': []}, 'stations': [{'station_id': 'S0001', 'xy': [1, 0], 'base': [1, 0, 0]}],
+            "scene_id": "fixture",
+            "status": "accepted",
+            "scene": "after",
+            "proposal_intent": "reachability",
+            "task": {
+                "target_body": "target",
+                "anchor_world": [2, 0, 0.15],
+                "category": "Cup",
+                "operation": "pick",
+                "instruction": "拿起杯子",
+            },
+            "edits": {"placements": []},
+            "stations": [{"station_id": "S0001", "xy": [1, 0], "base": [1, 0, 0]}],
         }
         self.calibration = {
-            'T_world_camera_optical': np.eye(4).tolist(), 'near_m': .01,
-            'projection_type': 'pinhole',
-            'K': [[10, 0, 320], [0, 10, 240], [0, 0, 1]],
-            'target_visible_pixels': 100,
+            "T_world_camera_optical": np.eye(4).tolist(),
+            "near_m": 0.01,
+            "projection_type": "pinhole",
+            "K": [[10, 0, 320], [0, 10, 240], [0, 0, 1]],
+            "target_visible_pixels": 100,
         }
 
-        renderer = patch.object(preview.mujoco, 'Renderer', side_effect=lambda *a, **k: MagicMock())
+        renderer = patch.object(preview.mujoco, "Renderer", side_effect=lambda *a, **k: MagicMock())
         renderer.start()
         self.addCleanup(renderer.stop)
 
     def observer(self, *args):
-        return Image.new('RGB', (preview.WIDTH, preview.HEIGHT), '#888888'), self.calibration
+        return Image.new("RGB", (preview.WIDTH, preview.HEIGHT), "#888888"), self.calibration
 
     def test_projection_uses_actual_intrinsics_and_ignores_behind_camera(self):
         projected = preview.project([[2, 0, 2], [0, 0, -1]], self.calibration)
@@ -60,10 +69,11 @@ class ScenePreviewTests(unittest.TestCase):
             with self.subTest(edited=edited):
                 row = {**self.record}
                 if edited:
-                    row.update(edits={'placements': [{}]}, before_scene='before',
-                               before_stations=self.record['stations'])
-                path = self.root / f'{edited}.png'
-                with patch.object(preview, 'observer', side_effect=self.observer) as render:
+                    row.update(
+                        edits={"placements": [{}]}, before_scene="before", before_stations=self.record["stations"]
+                    )
+                path = self.root / f"{edited}.png"
+                with patch.object(preview, "observer", side_effect=self.observer) as render:
                     preview.render_scene_preview(self.root, row, path)
                 with Image.open(path) as image:
                     self.assertEqual(image.size, (1280, 1228 if edited else 706))
@@ -74,35 +84,46 @@ class ScenePreviewTests(unittest.TestCase):
                     self.assertNotEqual(calls[0].args[0], calls[2].args[0])
 
     def test_existing_missing_baseline_is_not_reconstructed(self):
-        row = {**self.record, 'edits': {'placements': [{}]}, 'before_scene': None}
-        with patch.object(preview, 'observer', side_effect=self.observer), \
-             patch.object(preview.Simulation, 'from_snapshot', wraps=Simulation.from_snapshot) as load:
-            preview.render_scene_preview(self.root, row, self.root / 'legacy.png')
+        row = {**self.record, "edits": {"placements": [{}]}, "before_scene": None}
+        with (
+            patch.object(preview, "observer", side_effect=self.observer),
+            patch.object(preview.Simulation, "from_snapshot", wraps=Simulation.from_snapshot) as load,
+        ):
+            preview.render_scene_preview(self.root, row, self.root / "legacy.png")
         self.assertEqual(load.call_count, 1)
-        self.assertEqual(load.call_args.args[0], self.root / 'after')
+        self.assertEqual(load.call_args.args[0], self.root / "after")
 
     def test_index_links_image_reports_rejection_and_keeps_records_untouched(self):
-        record_file = self.root / 'scenes.jsonl'
+        record_file = self.root / "scenes.jsonl"
         append_row(record_file, self.record)
-        append_row(record_file, {'scene_id': 'rejected', 'status': 'rejected', 'reason': 'budget < limit'})
-        append_row(record_file, {'task_id': 'skipped-task', 'status': 'skipped',
-                                 'reason': 'mode_not_applicable', 'proposal_intent': 'articulated_interaction'})
+        append_row(record_file, {"scene_id": "rejected", "status": "rejected", "reason": "budget < limit"})
+        append_row(
+            record_file,
+            {
+                "task_id": "skipped-task",
+                "status": "skipped",
+                "reason": "mode_not_applicable",
+                "proposal_intent": "articulated_interaction",
+            },
+        )
         original = record_file.read_bytes()
-        with patch.object(preview, 'render_scene_preview') as render:
+        with patch.object(preview, "render_scene_preview") as render:
             index = preview.export_scene_previews(self.root)
         self.assertEqual(render.call_count, 1)
         page = index.read_text()
-        self.assertIn('previews/fixture.png', page)
-        self.assertIn('接受意图 reachability', page)
-        self.assertIn('budget &lt; limit', page)
-        self.assertIn('rejected · 意图 unknown', page)
-        self.assertIn('skipped-task · skipped · 意图 articulated_interaction', page)
+        self.assertIn("previews/fixture.png", page)
+        self.assertIn("接受意图 reachability", page)
+        self.assertIn("budget &lt; limit", page)
+        self.assertIn("rejected · 意图 unknown", page)
+        self.assertIn("skipped-task · skipped · 意图 articulated_interaction", page)
         self.assertEqual(record_file.read_bytes(), original)
 
     def test_render_failure_does_not_change_build_status(self):
-        append_row(self.root / 'scenes.jsonl', self.record)
-        with patch.object(preview, 'render_scene_preview', side_effect=RuntimeError('GL unavailable')), \
-             self.assertLogs(preview.logger, level='ERROR'):
+        append_row(self.root / "scenes.jsonl", self.record)
+        with (
+            patch.object(preview, "render_scene_preview", side_effect=RuntimeError("GL unavailable")),
+            self.assertLogs(preview.logger, level="ERROR"),
+        ):
             index = preview.export_scene_previews(self.root)
-        self.assertIn('accepted', index.read_text())
-        self.assertIn('GL unavailable', index.read_text())
+        self.assertIn("accepted", index.read_text())
+        self.assertIn("GL unavailable", index.read_text())

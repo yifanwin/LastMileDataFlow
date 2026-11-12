@@ -39,9 +39,7 @@ class RecordingTests(unittest.TestCase):
         sensors = {name: np.zeros((32, 32, 3), dtype=np.uint8) for name in self.sim.robot.camera_names}
         writers = [Mock() for _ in sensors]
         with (
-            patch(
-                "lastmile_dataflow.runtime.simulation.Simulation._render_cameras", return_value=sensors
-            ) as capture,
+            patch("lastmile_dataflow.runtime.simulation.Simulation._render_cameras", return_value=sensors) as capture,
             patch("lastmile_dataflow.data.recorder.imageio.get_writer", side_effect=writers),
         ):
             for phase in ("navigation", "operation"):
@@ -82,50 +80,56 @@ class RecordingTests(unittest.TestCase):
     def test_selected_video_views_keep_one_shared_frame_clock(self):
         from lastmile_dataflow.utils.io import read_json
 
-        recorder = self.recorder(record_images=False, record_video=True,
-            video_cameras={'head_camera': 'head', 'third_person_camera': 'third_person'})
-        frames = {k: np.zeros((32, 32, 3), dtype=np.uint8)
-                  for k in ('head_camera', 'third_person_camera', 'wrist_camera_l')}
+        recorder = self.recorder(
+            record_images=False,
+            record_video=True,
+            video_cameras={"head_camera": "head", "third_person_camera": "third_person"},
+        )
+        frames = {
+            k: np.zeros((32, 32, 3), dtype=np.uint8) for k in ("head_camera", "third_person_camera", "wrist_camera_l")
+        }
         writers = [Mock(), Mock()]
         with (
-            patch('lastmile_dataflow.data.recorder.imageio.get_writer', side_effect=writers) as create,
-            patch.object(self.sim, 'render', return_value=frames),
+            patch("lastmile_dataflow.data.recorder.imageio.get_writer", side_effect=writers) as create,
+            patch.object(self.sim, "render", return_value=frames),
         ):
             self.sim.begin()
             recorder.video_frame(frames)
             self.sim.step(self.sim.robot.neutral_action())
             recorder.video_frame(frames)
-            recorder.finish('failure', 'fixture')
-        self.assertEqual([Path(c.args[0]).name for c in create.call_args_list], ['head.mp4', 'third_person.mp4'])
-        metadata = read_json(recorder.path / 'recording.json')['videos']
-        self.assertEqual(metadata['head']['sample_times_s'], metadata['third_person']['sample_times_s'])
-        self.assertEqual(metadata['head']['frames'], 2)
+            recorder.finish("failure", "fixture")
+        self.assertEqual([Path(c.args[0]).name for c in create.call_args_list], ["head.mp4", "third_person.mp4"])
+        metadata = read_json(recorder.path / "recording.json")["videos"]
+        self.assertEqual(metadata["head"]["sample_times_s"], metadata["third_person"]["sample_times_s"])
+        self.assertEqual(metadata["head"]["frames"], 2)
         self.assertTrue(all(w.append_data.call_count == 2 for w in writers))
-        self.assertFalse((recorder.path / 'images').exists())
+        self.assertFalse((recorder.path / "images").exists())
 
 
 class TrajectoryTests(DatasetTestCase):
     def test_numeric_record_restores_full_measured_boundaries_without_stepping(self):
-        recorder = AttemptRecorder(self.root, {'collection': asdict(CollectionConfig(
-            record_images=False, record_video=False))}, attempt_id='measured')
+        recorder = AttemptRecorder(
+            self.root,
+            {"collection": asdict(CollectionConfig(record_images=False, record_video=False))},
+            attempt_id="measured",
+        )
         recorder.bind_simulation(self.sim)
         self.sim.begin()
         self.sim.step(self.sim.robot.neutral_action())
         measured = self.sim.state_vector().copy()
         controls = self.sim.robot.snapshot_control()
-        recorder.finish('failure', 'fixture')
+        recorder.finish("failure", "fixture")
         replay = mujoco.MjData(self.sim.model)
-        with np.load(recorder.path / 'trajectory.npz', allow_pickle=False) as data:
-            self.assertEqual(len(data['integration_state']), recorder.steps + 1)
-            mujoco.mj_setState(self.sim.model, replay, data['integration_state'][-1],
-                               int(data['state_spec']))
+        with np.load(recorder.path / "trajectory.npz", allow_pickle=False) as data:
+            self.assertEqual(len(data["integration_state"]), recorder.steps + 1)
+            mujoco.mj_setState(self.sim.model, replay, data["integration_state"][-1], int(data["state_spec"]))
             mujoco.mj_forward(self.sim.model, replay)
             restored = np.empty_like(measured)
-            mujoco.mj_getState(self.sim.model, replay, restored, int(data['state_spec']))
+            mujoco.mj_getState(self.sim.model, replay, restored, int(data["state_spec"]))
             np.testing.assert_array_equal(restored, measured)
-            np.testing.assert_allclose(replay.cam_xpos, data['camera_xpos'][-1])
-            self.assertEqual(replay.time, data['time_s'][-1])
-            self.assertEqual(json.loads(str(data['control_json'][-1])), controls)
+            np.testing.assert_allclose(replay.cam_xpos, data["camera_xpos"][-1])
+            self.assertEqual(replay.time, data["time_s"][-1])
+            self.assertEqual(json.loads(str(data["control_json"][-1])), controls)
         self.assertIsNone(self.sim.renderer)
 
     def test_single_live_trajectory_and_native_state_layout(self):

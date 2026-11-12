@@ -3,6 +3,7 @@
 apply() validates the complete command before writing ctrl. Native motor and
 position control profiles keep their own units and explicit limit projection.
 """
+
 from copy import deepcopy
 
 import mujoco
@@ -11,18 +12,30 @@ import numpy as np
 from ...scenes.geometry import descendants
 from ...scenes.loading.mjcf import load_spec
 from . import panda_omron, panda_robocasa
-from .action import (ANGULAR_TOLERANCE_RAD, ARM_SLICE, BASE_SLICE, GRIPPER_INDEX, TORSO_INDEX, InvalidAction,
-                     bounded_torso_command, project, torso_joints, validate_action, vector, yaw_interval)
+from .action import (
+    ANGULAR_TOLERANCE_RAD,
+    ARM_SLICE,
+    BASE_SLICE,
+    GRIPPER_INDEX,
+    TORSO_INDEX,
+    InvalidAction,
+    bounded_torso_command,
+    project,
+    torso_joints,
+    validate_action,
+    vector,
+    yaw_interval,
+)
 from .interface import RobotCommand
 from .joints import JointMap, check_cameras
 from .native_actions import NativeControl
 from .panda_omron import SCALE as PANDA_SCALE, PandaOmronAdapter
 from .panda_robocasa import PandaRoboCasaAdapter
 
-NATIVE_PROFILE = 'molmobot-native-v1'
+NATIVE_PROFILE = "molmobot-native-v1"
 
 # MolmoBot native camera field of view (degrees) on RBY-1.
-NATIVE_CAMERA_FOVY = {'head_camera': 139., 'wrist_camera_l': 58., 'wrist_camera_r': 58.}
+NATIVE_CAMERA_FOVY = {"head_camera": 139.0, "wrist_camera_l": 58.0, "wrist_camera_r": 58.0}
 
 
 def prepare_rby1_spec(spec, config):
@@ -33,9 +46,8 @@ def prepare_rby1_spec(spec, config):
         if act is None:
             raise ValueError("robot gripper actuator missing")
         if native:
-            if (act.biastype != mujoco.mjtBias.mjBIAS_NONE or
-                    not np.allclose(act.ctrlrange, [-100., 100.])):
-                raise ValueError('MolmoBot requires original motor grippers [-100,100]')
+            if act.biastype != mujoco.mjtBias.mjBIAS_NONE or not np.allclose(act.ctrlrange, [-100.0, 100.0]):
+                raise ValueError("MolmoBot requires original motor grippers [-100,100]")
             continue
         act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
         act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
@@ -61,15 +73,18 @@ RBY1_GROUPS = {
     "left_arm": [f"left_arm_{i}" for i in range(7)],
     "right_arm": [f"right_arm_{i}" for i in range(7)],
     "left_gripper": ["gripper_finger_l1", "gripper_finger_l2"],
-    "right_gripper": ["gripper_finger_r1", "gripper_finger_r2"]}
+    "right_gripper": ["gripper_finger_r1", "gripper_finger_r2"],
+}
 RBY1_ACTUATORS = {
     "base": ["base_x_act", "base_y_act", "base_theta_act"],
-    "torso": [f"link{i+1}_act" for i in range(6)],
+    "torso": [f"link{i + 1}_act" for i in range(6)],
     "head": [f"head_{i}_act" for i in range(2)],
-    "left_arm": [f"left_arm_{i+1}_act" for i in range(7)],
-    "right_arm": [f"right_arm_{i+1}_act" for i in range(7)],
-    "left_gripper": ["left_finger_act"], "right_gripper": ["right_finger_act"]}
-STATE22_GROUPS = ('base', 'left_arm', 'left_gripper', 'right_arm', 'right_gripper', 'torso')
+    "left_arm": [f"left_arm_{i + 1}_act" for i in range(7)],
+    "right_arm": [f"right_arm_{i + 1}_act" for i in range(7)],
+    "left_gripper": ["left_finger_act"],
+    "right_gripper": ["right_finger_act"],
+}
+STATE22_GROUPS = ("base", "left_arm", "left_gripper", "right_arm", "right_gripper", "torso")
 
 
 def state22(groups):
@@ -77,7 +92,7 @@ def state22(groups):
     parts = []
     for name in STATE22_GROUPS:
         values = np.asarray(groups[name], float)
-        parts.append(values[[1, 2, 3]] if name == 'torso' else values[:1] if name.endswith('gripper') else values)
+        parts.append(values[[1, 2, 3]] if name == "torso" else values[:1] if name.endswith("gripper") else values)
     return np.concatenate(parts).astype(np.float32)
 
 
@@ -89,11 +104,12 @@ class RBY1Adapter:
         adapter.initialize(...)        # 仅在准备阶段，写 qpos，同时间接设定 ctrl
         adapter.apply(action)          # 每个控制步：校验 + 原子写 ctrl
     """
+
     arms = ("left", "right")
     observation_camera = "head_camera"
     base_body = "base"
     initial_base_field = "base"
-    open_grip = -.05
+    open_grip = -0.05
     semantic_control = False
     plan_lift_before_close = True
     lock_base_after_close = False
@@ -133,11 +149,11 @@ class RBY1Adapter:
             if group == "torso":
                 if not self.config.torso_limits[0] <= q[0] <= self.config.torso_limits[1]:
                     raise ValueError("illegal initial torso")
-                q = torso_joints(q[0])          # 一维 h → 6 个联动关节
+                q = torso_joints(q[0])  # 一维 h → 6 个联动关节
             elif group.endswith("gripper"):
                 if not self.config.gripper_limits[0] - 1e-8 <= q[0] <= self.config.gripper_limits[1] + 1e-8:
                     raise ValueError("illegal initial gripper")
-                q = np.array([q[0], -q[0]])      # 两指对称张开
+                q = np.array([q[0], -q[0]])  # 两指对称张开
             for name, value in zip(names, q):
                 self.joints.check_joint(self.model, name, value)
                 values[name] = value
@@ -181,8 +197,9 @@ class RBY1Adapter:
             value = self.execution_action(value)
         if self.native is not None:
             command = self.native.apply(self, value, fixed_base=fixed_base)
-            self._hold_targets = {g: np.asarray(q).copy() for g, q in
-                                  (command["joint_targets"] | command["motor_targets"]).items()}
+            self._hold_targets = {
+                g: np.asarray(q).copy() for g, q in (command["joint_targets"] | command["motor_targets"]).items()
+            }
             return command
         a = validate_action(value, self.config, fixed_base=fixed_base)
         if fixed_base:
@@ -191,22 +208,27 @@ class RBY1Adapter:
             base_target = self._fixed_base_target.copy()
         else:
             base_target = self.group("base") + a[BASE_SLICE]
-        targets = {"base": base_target,
-                   "left_arm": self.group("left_arm") + a[ARM_SLICE["left"]],
-                   "left_gripper": a[GRIPPER_INDEX["left"]:GRIPPER_INDEX["left"] + 1],
-                   "right_arm": self.group("right_arm") + a[ARM_SLICE["right"]],
-                   "right_gripper": a[GRIPPER_INDEX["right"]:GRIPPER_INDEX["right"] + 1],
-                   "torso": torso_joints(a[TORSO_INDEX]), "head": self.fixed_head.copy()}
+        targets = {
+            "base": base_target,
+            "left_arm": self.group("left_arm") + a[ARM_SLICE["left"]],
+            "left_gripper": a[GRIPPER_INDEX["left"] : GRIPPER_INDEX["left"] + 1],
+            "right_arm": self.group("right_arm") + a[ARM_SLICE["right"]],
+            "right_gripper": a[GRIPPER_INDEX["right"] : GRIPPER_INDEX["right"] + 1],
+            "torso": torso_joints(a[TORSO_INDEX]),
+            "head": self.fixed_head.copy(),
+        }
         for group, qs in targets.items():
             for name, q in zip(self.joints.groups[group], qs):
                 self.joints.check_joint(self.model, name, q)
         ctrl = self.controls(targets)  # 全部验证完才原子下发，绝不部分修改或静默裁剪
         self.data.ctrl[:] = ctrl
         self._hold_targets = {g: qs.copy() for g, qs in targets.items()}
-        return {"submitted_action": a.tolist(),
-                "joint_targets": {k: v.tolist() for k, v in targets.items()},
-                "actuator_names": [self.model.actuator(i).name for i in range(self.model.nu)],
-                "ctrl": ctrl.tolist()}
+        return {
+            "submitted_action": a.tolist(),
+            "joint_targets": {k: v.tolist() for k, v in targets.items()},
+            "actuator_names": [self.model.actuator(i).name for i in range(self.model.nu)],
+            "ctrl": ctrl.tolist(),
+        }
 
     def neutral_action(self):
         """构造一条“什么都不改变”的 20 维动作。
@@ -221,7 +243,7 @@ class RBY1Adapter:
         return a
 
     def _legal_initial_yaw(self, value, adjustments):
-        return project(value, yaw_interval(self), ANGULAR_TOLERANCE_RAD, 'base_theta', adjustments)
+        return project(value, yaw_interval(self), ANGULAR_TOLERANCE_RAD, "base_theta", adjustments)
 
     def _head_axis(self, camera):
         return -self.data.cam_xmat[camera].reshape(3, 3)[:, 2]
@@ -235,34 +257,33 @@ class RBY1Adapter:
             forward = self._head_axis(camera)
             delta = np.asarray(anchor[:2]) - self.data.cam_xpos[camera, :2]
             error = np.arctan2(delta[1], delta[0]) - np.arctan2(forward[1], forward[0])
-            base[2] = self._legal_initial_yaw(float((base[2] + error + np.pi) % (2 * np.pi) - np.pi),
-                                              adjustments)
+            base[2] = self._legal_initial_yaw(float((base[2] + error + np.pi) % (2 * np.pi) - np.pi), adjustments)
             self.initialize(initial)
 
     def _aim_pitch(self, initial, anchor, camera):
         """Solve pitch from the ACTUAL optical axis; the short numerical derivative handles mount sign."""
-        low, high = self.model.jnt_range[self.joints.ids['head_1']]
+        low, high = self.model.jnt_range[self.joints.ids["head_1"]]
         for _ in range(2):
             forward = self._head_axis(camera)
             inclination = float(np.arctan2(forward[2], np.linalg.norm(forward[:2])))
             delta = np.asarray(anchor) - self.data.cam_xpos[camera]
             desired = float(np.arctan2(delta[2], np.linalg.norm(delta[:2])))
-            pitch = initial['head'][1]
-            probe = min(high, pitch + .001)
+            pitch = initial["head"][1]
+            probe = min(high, pitch + 0.001)
             if probe == pitch:
-                probe = max(low, pitch - .001)
-            initial['head'][1] = float(probe)
+                probe = max(low, pitch - 0.001)
+            initial["head"][1] = float(probe)
             self.initialize(initial)
             axis = self._head_axis(camera)
             slope = (float(np.arctan2(axis[2], np.linalg.norm(axis[:2]))) - inclination) / (probe - pitch)
-            corrected = pitch + (desired - inclination) / slope if abs(slope) > .1 else pitch
-            initial['head'][1] = float(np.clip(corrected, low, high))
+            corrected = pitch + (desired - inclination) / slope if abs(slope) > 0.1 else pitch
+            initial["head"][1] = float(np.clip(corrected, low, high))
             self.initialize(initial)
 
     def aim_station(self, initial, anchor):
         adjustments = []
-        initial['head'] = [0., .6]
-        camera = self.model.camera(self.camera_names['head_camera']).id
+        initial["head"] = [0.0, 0.6]
+        camera = self.model.camera(self.camera_names["head_camera"]).id
         self._aim_yaw(initial, anchor, camera, adjustments)
         self._aim_pitch(initial, anchor, camera)
         return adjustments
@@ -273,12 +294,14 @@ class RBY1Adapter:
 
     def snapshot_control(self):
         held = self._hold_targets
-        return {"fixed_head": self.fixed_head.tolist(),
-                "hold_targets": None if held is None else {k: v.tolist() for k, v in held.items()}}
+        return {
+            "fixed_head": self.fixed_head.tolist(),
+            "hold_targets": None if held is None else {k: v.tolist() for k, v in held.items()},
+        }
 
     def restore_control(self, saved):
         self.fixed_head = np.asarray(saved["fixed_head"])
-        held = saved.get('hold_targets')
+        held = saved.get("hold_targets")
         self._hold_targets = None if held is None else {k: np.asarray(v) for k, v in held.items()}
 
     def control_height(self):
@@ -291,21 +314,26 @@ class RBY1Adapter:
         a[TORSO_INDEX] = height
         for idle in self.arms:
             if idle != side:
-                a[ARM_SLICE[idle]] = self._hold_targets[idle + '_arm'] - self.arm_positions(idle)
+                a[ARM_SLICE[idle]] = self._hold_targets[idle + "_arm"] - self.arm_positions(idle)
         if base is not None:
             a[BASE_SLICE] = np.asarray(base) - self.base_pose()
         return a
 
     def record_layout(self):
-        return {"robot": self.config.name, "state_key": "state22", "state_layout": "state22",
-                "action_layout": "rby1-20d", "action_size": 20, "state_size": 22}
+        return {
+            "robot": self.config.name,
+            "state_key": "state22",
+            "state_layout": "state22",
+            "action_layout": "rby1-20d",
+            "action_size": 20,
+            "state_size": 22,
+        }
 
     def record_state(self):
         return state22({g: self.group(g) for g in STATE22_GROUPS})
 
     def record_action(self, command):
         return np.asarray(command, float)
-
 
     def base_pose(self):
         return self.group("base")
@@ -321,14 +349,18 @@ class RBY1Adapter:
         return self.model.site(self.config.namespace + "ee_site_" + arm[0]).id
 
     def finger_bodies(self, arm):
-        return tuple(descendants(self.model, self.model.body(self.config.namespace +
-                     f"ee_finger_{arm[0]}{i}").id) for i in (1, 2))
+        return tuple(
+            descendants(self.model, self.model.body(self.config.namespace + f"ee_finger_{arm[0]}{i}").id)
+            for i in (1, 2)
+        )
 
     def holding_state(self, arm):
         idle = "right" if arm == "left" else "left"
-        return {"head": self.group("head").tolist(),
-                "idle_arm": self.group(idle + "_arm").tolist(),
-                "torso": self.group("torso").tolist()}
+        return {
+            "head": self.group("head").tolist(),
+            "idle_arm": self.group(idle + "_arm").tolist(),
+            "torso": self.group("torso").tolist(),
+        }
 
     def execution_action(self, command):
         """Semantic command -> 20D delta action relative to the measured state."""
@@ -371,8 +403,8 @@ def load_robot_spec(config, scale=None):
     source = load_spec(config.model_path)
     prepare_robot_spec(source, config)
     if scale is None:
-        scale = PANDA_SCALE if config.name == 'panda_omron' else 1.
-    if scale == 1.:
+        scale = PANDA_SCALE if config.name == "panda_omron" else 1.0
+    if scale == 1.0:
         return source
     frames = [frame for frame in source.worldbody.frames if frame.frame is None]
     bodies = [body for body in source.worldbody.bodies if body.frame is None]

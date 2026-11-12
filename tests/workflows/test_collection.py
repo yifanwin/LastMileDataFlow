@@ -14,23 +14,45 @@ from lastmile_dataflow.workflows.collect import run_collection
 from lastmile_dataflow.workflows.station_map import prepare_run, run_station_map
 from tests.helpers import DatasetTestCase
 
-PATH = {"xy": [[0.0, 0.0], [1.0, 1.0], [3.0, 1.0]],
-        "poses": [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [3.0, 1.0, 0.0]]}
-SUCCESS = {"status": "success", "reason": "synthetic", "task_outcome": {"status": "success"},
-           "recording_complete": True, "observation_complete": True, "executed_steps": 3,
-           "navigation": {"status": "success", "steps": 2}}
-SHARED = {"status": "infrastructure_error", "failure_scope": "shared", "reason": "cuda error",
-          "executed_steps": 2, "navigation": {"status": "unknown", "steps": 2}}
+PATH = {"xy": [[0.0, 0.0], [1.0, 1.0], [3.0, 1.0]], "poses": [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [3.0, 1.0, 0.0]]}
+SUCCESS = {
+    "status": "success",
+    "reason": "synthetic",
+    "task_outcome": {"status": "success"},
+    "recording_complete": True,
+    "observation_complete": True,
+    "executed_steps": 3,
+    "navigation": {"status": "success", "steps": 2},
+}
+SHARED = {
+    "status": "infrastructure_error",
+    "failure_scope": "shared",
+    "reason": "cuda error",
+    "executed_steps": 2,
+    "navigation": {"status": "unknown", "steps": 2},
+}
 
 
 def trial_rows(scene_id, task_id, counts, trials_per_station):
     """``counts[i]`` successes out of ``trials_per_station`` at station ``s{i}``."""
-    return [{"scene_id": scene_id, "task_id": task_id, "station_id": f"s{i}", "station_index": i, "trial": trial,
-             "seed": trial, "rollout_id": f"{scene_id}-r{i}-{trial}",
-             "status": "success" if trial < successes else "failure",
-             "task_outcome": {"status": "success" if trial < successes else "failure"},
-             "recording_complete": True, "observation_complete": True, "executed_steps": 3}
-            for i, successes in enumerate(counts) for trial in range(trials_per_station)]
+    return [
+        {
+            "scene_id": scene_id,
+            "task_id": task_id,
+            "station_id": f"s{i}",
+            "station_index": i,
+            "trial": trial,
+            "seed": trial,
+            "rollout_id": f"{scene_id}-r{i}-{trial}",
+            "status": "success" if trial < successes else "failure",
+            "task_outcome": {"status": "success" if trial < successes else "failure"},
+            "recording_complete": True,
+            "observation_complete": True,
+            "executed_steps": 3,
+        }
+        for i, successes in enumerate(counts)
+        for trial in range(trials_per_station)
+    ]
 
 
 class Executor:
@@ -40,8 +62,9 @@ class Executor:
         self.results = list(results)
         self.calls = []
 
-    def __call__(self, sim, task, start, candidates, assets_dir, config, collection, *, root, attempt_id, seed,
-                 path, goal):
+    def __call__(
+        self, sim, task, start, candidates, assets_dir, config, collection, *, root, attempt_id, seed, path, goal
+    ):
         self.calls.append(attempt_id)
         result = self.results.pop(0) if len(self.results) > 1 else self.results[0]
         return {**result, "rollout_id": attempt_id}
@@ -51,8 +74,11 @@ class CollectionTests(DatasetTestCase):
     def setUp(self):
         super().setUp()
         # These fixtures do not write trajectories; export has its own file tests.
-        for started in (patch.object(collect, "finalize_dataset"), patch.object(station_map, "export_heatmap"),
-                        patch.object(collect, "grasp_candidates", return_value=[])):
+        for started in (
+            patch.object(collect, "finalize_dataset"),
+            patch.object(station_map, "export_heatmap"),
+            patch.object(collect, "grasp_candidates", return_value=[]),
+        ):
             started.start()
             self.addCleanup(started.stop)
 
@@ -62,8 +88,10 @@ class CollectionTests(DatasetTestCase):
         return StationRun(str(path), assets_dir=str(self.root), cpu_workers=2, preparation_workers=1)
 
     def six_station_dataset(self, scene_ids=("one",)):
-        self.scene["stations"] = [{**self.points[0], "station_id": f"s{i}", "xy": [i * 2.0, 0.0],
-                                   "base": [i * 2.0, 0.0, 0.0]} for i in range(6)]
+        self.scene["stations"] = [
+            {**self.points[0], "station_id": f"s{i}", "xy": [i * 2.0, 0.0], "base": [i * 2.0, 0.0, 0.0]}
+            for i in range(6)
+        ]
         dataset = self.dataset()
         for scene_id in scene_ids[1:]:
             append_row(dataset / "scenes.jsonl", {**self.scene, "scene_id": scene_id})
@@ -71,6 +99,7 @@ class CollectionTests(DatasetTestCase):
 
     def calibrate(self, dataset, trials, config, name="calibration"):
         """A finished station-map run whose calibration produced exactly ``trials``."""
+
         def fake(context):
             for row in trials:
                 append_row(context.root / "trials.jsonl", row)
@@ -80,12 +109,15 @@ class CollectionTests(DatasetTestCase):
             return run_station_map(dataset, config, self.root / name, gpu_ids=[0])
 
     def collect(self, dataset, config, calibration, execute, name="collect"):
-        with patch.object(collect, "navigation_grid"), \
-                patch.object(collect, "robot_footprint", return_value={"radius_m": 0.1, "max": [0, 0, 1]}), \
-                patch.object(collect, "GeometryNavigation") as navigator:
+        with (
+            patch.object(collect, "navigation_grid"),
+            patch.object(collect, "robot_footprint", return_value={"radius_m": 0.1, "max": [0, 0, 1]}),
+            patch.object(collect, "GeometryNavigation") as navigator,
+        ):
             navigator.return_value.plan.side_effect = lambda start, goals: self.plans.pop(0)
-            return run_collection(dataset, config, self.root / name, gpu_ids=[0], calibration=calibration,
-                                  execute=execute)
+            return run_collection(
+                dataset, config, self.root / name, gpu_ids=[0], calibration=calibration, execute=execute
+            )
 
     def test_prepared_run_keeps_inputs_and_logs_and_refuses_overwrite(self):
         dataset = self.dataset()
@@ -100,11 +132,22 @@ class CollectionTests(DatasetTestCase):
 
     def test_sampling_geometry_does_not_override_execution_workspace(self):
         dataset = self.dataset()
-        write_json(dataset / "config.json", {"geometry": {
-            "radius_m": 1.0, "spacing_m": 0.25, "width": 256, "height": 256,
-            "navigation_margin_m": 0.8, "navigation_whole_body": False}})
-        config = self.run_config(radius_m=2.0, local_base_radius_m=0.35, navigation_margin_m=0.02,
-                                 navigation_whole_body=True)
+        write_json(
+            dataset / "config.json",
+            {
+                "geometry": {
+                    "radius_m": 1.0,
+                    "spacing_m": 0.25,
+                    "width": 256,
+                    "height": 256,
+                    "navigation_margin_m": 0.8,
+                    "navigation_whole_body": False,
+                }
+            },
+        )
+        config = self.run_config(
+            radius_m=2.0, local_base_radius_m=0.35, navigation_margin_m=0.02, navigation_whole_body=True
+        )
         context = prepare_run(dataset, config, self.root / "geometry", [0], collect=True)
         effective = context.config
         self.assertEqual((effective.radius_m, effective.local_base_radius_m), (2.0, 0.35))
@@ -136,8 +179,9 @@ class CollectionTests(DatasetTestCase):
         execute = Executor(SUCCESS)
         root = self.collect(dataset, config, calibration, execute)
         pairs = rows(root / "pair_index.jsonl")
-        self.assertEqual({(p["s0"], p["s1"]) for p in pairs},
-                         {(s0, s1) for s0 in ("s0", "s1") for s1 in ("s2", "s3", "s4")})
+        self.assertEqual(
+            {(p["s0"], p["s1"]) for p in pairs}, {(s0, s1) for s0 in ("s0", "s1") for s1 in ("s2", "s3", "s4")}
+        )
         self.assertEqual(len(execute.calls), 5)
         self.assertEqual(pairs[0]["status"], "path_unavailable")
         self.assertIsNone(pairs[0]["rollout_id"])
@@ -147,8 +191,9 @@ class CollectionTests(DatasetTestCase):
         training = rows(root / "train_index.jsonl")
         # 17 次完整的标定成功（低率点的单次成功也纳入）+ 5 次连续成功。
         self.assertEqual(len(training), 22)
-        self.assertEqual(Counter(r["source_type"] for r in training),
-                         {"s1_direct_operation": 17, "s0_to_s1_continuous": 5})
+        self.assertEqual(
+            Counter(r["source_type"] for r in training), {"s1_direct_operation": 17, "s0_to_s1_continuous": 5}
+        )
         summary = read_json(root / "summary.json")
         self.assertEqual(summary["status"], "completed")
         self.assertEqual((summary["planned_pairs"], summary["executed_pairs"]), (6, 5))
@@ -158,8 +203,7 @@ class CollectionTests(DatasetTestCase):
         dataset = self.six_station_dataset(("one", "two"))
         config = self.run_config(trials_per_station=5)
         counts = [0, 1, 4, 5, 5, 2]
-        trials = (trial_rows("one", self.task["task_id"], counts, 5)
-                  + trial_rows("two", self.task["task_id"], counts, 5))
+        trials = trial_rows("one", self.task["task_id"], counts, 5) + trial_rows("two", self.task["task_id"], counts, 5)
         calibration = self.calibrate(dataset, trials, config)
         self.plans = [{"path": PATH, "reason": "valid"}] * 12
         execute = Executor(SHARED)
@@ -207,14 +251,26 @@ class CollectionTests(DatasetTestCase):
         dataset = self.dataset()
         trials = trial_rows("one", self.task["task_id"], [0, 0], 1)
         calibration = self.calibrate(dataset, trials, self.run_config())
-        selection = self.run_config("selection", lastmile_low=0.1, lastmile_high=0.9, navigation_margin_m=0.03,
-                                    navigation_clearance_weight=3.0, navigation_max_penetration_m=0.004)
+        selection = self.run_config(
+            "selection",
+            lastmile_low=0.1,
+            lastmile_high=0.9,
+            navigation_margin_m=0.03,
+            navigation_clearance_weight=3.0,
+            navigation_max_penetration_m=0.004,
+        )
         self.plans = []
         root = self.collect(dataset, selection, calibration, Executor(SUCCESS), name="reuse-selection")
         self.assertEqual(rows(root / "pair_index.jsonl"), [])
         with self.assertRaisesRegex(ValueError, "configuration mismatch"):
-            prepare_run(dataset, self.run_config("physics", attempt_timeout_s=60.0), self.root / "reuse-physics",
-                        [0], collect=True, calibration=calibration)
+            prepare_run(
+                dataset,
+                self.run_config("physics", attempt_timeout_s=60.0),
+                self.root / "reuse-physics",
+                [0],
+                collect=True,
+                calibration=calibration,
+            )
 
     def test_numeric_success_selects_rates_without_claiming_a_visual_demonstration(self):
         dataset = self.dataset()

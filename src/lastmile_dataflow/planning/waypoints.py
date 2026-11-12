@@ -1,8 +1,9 @@
 """Planning/navigation execution boundary: explicit results and measured state."""
+
 from dataclasses import dataclass
 
 
-GRASP_APPROACH_DISTANCE_M = .08
+GRASP_APPROACH_DISTANCE_M = 0.08
 
 
 @dataclass(frozen=True)

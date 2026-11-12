@@ -30,12 +30,8 @@ def main():
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)
     robot = robot_config(read_json(Path(scene["scene_path"]) / "config.json")["robot"])
-    collection = CollectionConfig(
-        record_video=False, width=config.width, height=config.height, seed=config.seed
-    )
-    root = create_run(
-        args.output, {"config": asdict(config), "seed": config.seed, "scene": scene["scene_id"]}
-    )
+    collection = CollectionConfig(record_video=False, width=config.width, height=config.height, seed=config.seed)
+    root = create_run(args.output, {"config": asdict(config), "seed": config.seed, "scene": scene["scene_id"]})
     sim = Simulation.from_snapshot(scene["scene_path"], robot, target=scene["task"]["target_body"])
     sim.scene_id = scene["scene_id"]
     try:

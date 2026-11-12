@@ -38,18 +38,19 @@ logger = logging.getLogger(__name__)
 
 def _target_distance(left, right):
     """按世界坐标 XY 距离选目标，不把支撑面的高度差算作空间分散。"""
-    return float(
-        np.linalg.norm(
-            np.asarray(left["task"]["anchor_world"][:2])
-            - right["task"]["anchor_world"][:2]
-        )
-    )
+    return float(np.linalg.norm(np.asarray(left["task"]["anchor_world"][:2]) - right["task"]["anchor_world"][:2]))
 
 
 def _spread_key(rooms, supports, candidate):
     row, distance = candidate
-    return (row["task"]["room_id"] not in rooms, row["support_id"] not in supports, distance,
-            row["support_area_m2"], row["prefilter_count"], row["task"]["task_id"])
+    return (
+        row["task"]["room_id"] not in rooms,
+        row["support_id"] not in supports,
+        distance,
+        row["support_area_m2"],
+        row["prefilter_count"],
+        row["task"]["task_id"],
+    )
 
 
 def spatial_select(candidates, count):
@@ -84,13 +85,20 @@ def _physical_rejection(sim, task, recipe, floor):
         surfaces = support_regions(sim, {**task, "support_obstacles": task_support_obstacles(sim, task)})
         if not surfaces:
             return "missing_valid_support", None
-    coarse = [station for station in disk_samples(task["anchor_world"], 1.0, 0.25)
-              if len(floor) and inside_triangles(np.asarray(station["xy"]), floor)]
+    coarse = [
+        station
+        for station in disk_samples(task["anchor_world"], 1.0, 0.25)
+        if len(floor) and inside_triangles(np.asarray(station["xy"]), floor)
+    ]
     if not coarse:
         return "no_source_floor_in_sampling_disk", None
     area = max(((r.bounds[1] - r.bounds[0]) * (r.bounds[3] - r.bounds[2]) for r in surfaces), default=0.0)
-    return None, {"task": task, "support_id": surfaces[0].support if surfaces else task["target_body"],
-                  "support_area_m2": area, "prefilter_count": len(coarse)}
+    return None, {
+        "task": task,
+        "support_id": surfaces[0].support if surfaces else task["target_body"],
+        "support_area_m2": area,
+        "prefilter_count": len(coarse),
+    }
 
 
 def _select_tasks(sim, recipe, house):
@@ -122,8 +130,14 @@ def _select_tasks(sim, recipe, house):
 
 
 def _rejection(house, task, intent, reason, detail):
-    return {"house": house, "task_id": task["task_id"], "proposal_intent": intent, "status": "rejected",
-            "reason": reason, "detail": detail}
+    return {
+        "house": house,
+        "task_id": task["task_id"],
+        "proposal_intent": intent,
+        "status": "rejected",
+        "reason": reason,
+        "detail": detail,
+    }
 
 
 class _TaskTimeout(Exception):
@@ -160,16 +174,29 @@ def _build_task(sim, task, task_index, recipe, house, root, baseline_cache):
                 records = [_rejection(house, task, intent, "task_preparation_failed", str(exc)) for intent in intents]
                 return records, {"task_id": task["task_id"], "status": "preparation_rejected", "reason": str(exc)}
             with ctx:
-                records = list(build_task(ctx, root, house=house, seed=recipe.seed + house * 10000 + task_index,
-                                          baseline_cache=baseline_cache))
+                records = list(
+                    build_task(
+                        ctx,
+                        root,
+                        house=house,
+                        seed=recipe.seed + house * 10000 + task_index,
+                        baseline_cache=baseline_cache,
+                    )
+                )
                 return records, {
-                    "task_id": task["task_id"], "preparation_s": ctx.timings, "grasp_evidence": ctx.grasp_evidence,
+                    "task_id": task["task_id"],
+                    "preparation_s": ctx.timings,
+                    "grasp_evidence": ctx.grasp_evidence,
                     "asset_compiles": ctx.assets.compile_count,
-                    "station_initializations": sum(r.get("build_metrics", {}).get("station_initializations", 0)
-                                                   for r in records)}
+                    "station_initializations": sum(
+                        r.get("build_metrics", {}).get("station_initializations", 0) for r in records
+                    ),
+                }
     except _TaskTimeout as exc:
-        return ([_rejection(house, task, "no_edit", "task_timeout", str(exc))],
-                {"task_id": task["task_id"], "status": "rejected", "reason": "task_timeout", "detail": str(exc)})
+        return (
+            [_rejection(house, task, "no_edit", "task_timeout", str(exc))],
+            {"task_id": task["task_id"], "status": "rejected", "reason": "task_timeout", "detail": str(exc)},
+        )
 
 
 def _open_house(recipe, house, robot):
@@ -233,8 +260,16 @@ def _build_into_root(recipe, robot, root, gpu_ids):
     start = time.monotonic()
     workers = recipe.build_workers
     jobs = [(recipe, house, robot, root, gpu_ids[i % len(gpu_ids)]) for i, house in enumerate(recipe.houses)]
-    summary = {"status": "running", "sources": [], "accepted": 0, "rejected": 0, "skipped": 0,
-               "isolated_errors": 0, "build_workers": workers, "gpu_ids": list(gpu_ids)}
+    summary = {
+        "status": "running",
+        "sources": [],
+        "accepted": 0,
+        "rejected": 0,
+        "skipped": 0,
+        "isolated_errors": 0,
+        "build_workers": workers,
+        "gpu_ids": list(gpu_ids),
+    }
     progress = Progress(logger)
     error, pool, pending, finished = None, None, [], False
     try:
@@ -246,8 +281,14 @@ def _build_into_root(recipe, robot, root, gpu_ids):
             results = map(_build_house, jobs)
         for result in results:
             _save_house(result, root, summary)
-            progress.update("场景准备 来源=%s/%s 接受=%s 拒绝=%s 跳过=%s", len(summary["sources"]), len(jobs),
-                            summary["accepted"], summary["rejected"], summary["skipped"])
+            progress.update(
+                "场景准备 来源=%s/%s 接受=%s 拒绝=%s 跳过=%s",
+                len(summary["sources"]),
+                len(jobs),
+                summary["accepted"],
+                summary["rejected"],
+                summary["skipped"],
+            )
             error = result["source"].get("error")
             if error:
                 break
@@ -259,8 +300,10 @@ def _build_into_root(recipe, robot, root, gpu_ids):
             pool.shutdown(wait=True, cancel_futures=True)
             for result in _late_results(pending, summary):
                 _save_house(result, root, summary)
-        summary.update(status="completed" if finished and not error else "infrastructure_error",
-                       wall_elapsed_s=time.monotonic() - start)
+        summary.update(
+            status="completed" if finished and not error else "infrastructure_error",
+            wall_elapsed_s=time.monotonic() - start,
+        )
         if error:
             summary["error"] = error
         summary["intent_counts"] = dict(Counter(row["proposal_intent"] for row in rows(root / "scenes.jsonl")))
@@ -276,8 +319,10 @@ def build_scenes(config, output, *, gpu_ids):
     if not 1 <= recipe.build_workers <= limit:
         raise ValueError(f"build workers must be between 1 and {limit}")
     robot = load_robot_config(recipe.robot_config)
-    root = create_run(Path(output), {"recipe": asdict(recipe), "robot": asdict(robot),
-                                     "geometry": asdict(recipe.geometry), "seed": recipe.seed})
+    root = create_run(
+        Path(output),
+        {"recipe": asdict(recipe), "robot": asdict(robot), "geometry": asdict(recipe.geometry), "seed": recipe.seed},
+    )
     _build_into_root(recipe, robot, root, gpu_ids)
     export_scene_previews(root)
     return root

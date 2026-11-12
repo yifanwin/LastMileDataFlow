@@ -33,9 +33,7 @@ def fixtures(root):
         ("base_theta", "hinge", "0 0 1", "-3.14 3.14"),
     ]:
         ET.SubElement(body, "joint", name="robot_0/" + name, type=kind, axis=axis, range=ran)
-        ET.SubElement(
-            actuators, "position", name="robot_0/" + name + "_act", joint="robot_0/" + name, ctrlrange=ran
-        )
+        ET.SubElement(actuators, "position", name="robot_0/" + name + "_act", joint="robot_0/" + name, ctrlrange=ran)
     for group, count in [("torso", 6), ("head", 2), ("left_arm", 7), ("right_arm", 7)]:
         child = body
         for i in range(count):
@@ -77,9 +75,7 @@ def fixtures(root):
                 range="-.05 0" if i == 1 else "0 .05",
             )
             if i == 1:
-                ET.SubElement(
-                    actuators, "motor", name="robot_0/" + side + "_finger_act", joint="robot_0/" + name
-                )
+                ET.SubElement(actuators, "motor", name="robot_0/" + side + "_finger_act", joint="robot_0/" + name)
     for name in ("head_camera", "wrist_camera_l", "wrist_camera_r"):
         ET.SubElement(body, "camera", name="robot_0/" + name, pos="1 0 1", xyaxes="0 1 0 -.7 0 .7")
     ET.ElementTree(xml).write(robot_path)

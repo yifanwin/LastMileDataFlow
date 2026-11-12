@@ -49,8 +49,7 @@ class ExperimentLogFilter(logging.Filter):
 
     def filter(self, record):
         # 隐藏第三方内部 INFO；WARNING/ERROR 原样保留，DEBUG 模式可查看细节。
-        return (self.debug or not record.name.startswith(("curobo", "OpenGL"))
-                or record.levelno >= logging.WARNING)
+        return self.debug or not record.name.startswith(("curobo", "OpenGL")) or record.levelno >= logging.WARNING
 
 
 class ColorFormatter(logging.Formatter):

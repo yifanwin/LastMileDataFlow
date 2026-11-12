@@ -41,10 +41,8 @@ cuRobo V2 规划适配、机器人模型、碰撞导出和导航工具。
 ```python
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 
-planner = V2Planner(sim, config, side='right', path=output_dir, 
-                    workspace=(center, radius))
-success, index, stages, diagnostics = planner.grasp(
-    matrices, on_query=lambda phase: ..., lift=True)
+planner = V2Planner(sim, config, side="right", path=output_dir, workspace=(center, radius))
+success, index, stages, diagnostics = planner.grasp(matrices, on_query=lambda phase: ..., lift=True)
 ```
 
 ### 多进程服务

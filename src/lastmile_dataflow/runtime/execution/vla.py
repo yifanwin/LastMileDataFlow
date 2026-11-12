@@ -1,4 +1,5 @@
 """Shared VLA rollout with embodiment observations and actual physical stepping."""
+
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 import time
@@ -18,10 +19,22 @@ from ...utils.io import write_json
 from ...utils.logging_config import trial_progress
 from ..control.action import InvalidAction
 from ..execution_config import TORSO_ERROR_POLICY
-from ..outcomes.contacts import CONTACT_POLICY, ContactSampler, ContactStatistics, NavigationContacts, simulation_failure
+from ..outcomes.contacts import (
+    CONTACT_POLICY,
+    ContactSampler,
+    ContactStatistics,
+    NavigationContacts,
+    simulation_failure,
+)
 from ..outcomes.task import VLA_PROTOCOL as PROTOCOL, PickMonitor, constraint, evaluate, torso_tracking_error
-from .attempt import (attempt_result, failure_status, finish_navigation, open_attempt_sim,
-                      trajectory_metrics, unexpected_failure)
+from .attempt import (
+    attempt_result,
+    failure_status,
+    finish_navigation,
+    open_attempt_sim,
+    trajectory_metrics,
+    unexpected_failure,
+)
 from .lifecycle import isolated_episode, mark_episode_phase
 from .navigation import navigate
 from .protocol import OperationFailure
@@ -46,23 +59,34 @@ def unchanged_action(robot, action):
 @dataclass(frozen=True)
 class VLABackend:
     """What differs between VLA policies; the rollout itself is shared."""
+
     name: str
     schema_version: str
     control_policy: str
-    resolution: tuple[int, int] | None   # None: use the execution config size
+    resolution: tuple[int, int] | None  # None: use the execution config size
     camera_order: tuple[str, ...] | None  # None: the robot's own cameras
     fisheye: str | bool
-    native_stepping: bool                 # MolmoBot 100 ms policy steps vs one control interval
-    point_conditioning: bool              # open tasks get one first-frame target point
+    native_stepping: bool  # MolmoBot 100 ms policy steps vs one control interval
+    point_conditioning: bool  # open tasks get one first-frame target point
     observe: Callable
     to_execution: Callable
 
 
-MOLMOBOT = VLABackend('molmobot', 'molmobot-station-v1', 'MolmoBot-RBY1Multitask', MOLMOBOT_RESOLUTION,
-                      MOLMOBOT_CAMERAS, 'upstream image_warping_utils, once in model process', True, True,
-                      molmobot_observation, unchanged_action)
-PI05 = VLABackend('pi05', 'pi05-station-v1', 'pi05', None, None, False, False, False,
-                  pi05_observation, pi05_execution_action)
+MOLMOBOT = VLABackend(
+    "molmobot",
+    "molmobot-station-v1",
+    "MolmoBot-RBY1Multitask",
+    MOLMOBOT_RESOLUTION,
+    MOLMOBOT_CAMERAS,
+    "upstream image_warping_utils, once in model process",
+    True,
+    True,
+    molmobot_observation,
+    unchanged_action,
+)
+PI05 = VLABackend(
+    "pi05", "pi05-station-v1", "pi05", None, None, False, False, False, pi05_observation, pi05_execution_action
+)
 BACKENDS = {backend.name: backend for backend in (MOLMOBOT, PI05)}
 
 
@@ -81,24 +105,36 @@ def first_point(sim, task):
 class VLARollout:
     """One policy-driven attempt; also the NavigationRunner for its optional approach."""
 
-    def __init__(self, baseline, task, station, config, collection, *, root, attempt_id, seed, policy,
-                 path=None, goal=None):
+    def __init__(
+        self, baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None
+    ):
         self.task, self.station, self.config, self.policy = task, station, config, policy
         self.seed, self.path, self.goal = seed, path, goal
         self.backend = BACKENDS[config.operation_backend]
         self.width, self.height = self.backend.resolution or (config.width, config.height)
         self.sim = open_attempt_sim(baseline, task, station, config)
-        packet = {"schema_version": self.backend.schema_version, "robot": asdict(self.sim.robot.config),
-                  "collection": asdict(collection), "task": task, "station": station, "protocol": asdict(config),
-                  "contact_policy": CONTACT_POLICY, "seed": seed, "policy": asdict(policy.config),
-                  "model_service": policy.metadata, "navigation_path": path, "navigation_goal": goal,
-                  "scene": baseline.scene_id}
+        packet = {
+            "schema_version": self.backend.schema_version,
+            "robot": asdict(self.sim.robot.config),
+            "collection": asdict(collection),
+            "task": task,
+            "station": station,
+            "protocol": asdict(config),
+            "contact_policy": CONTACT_POLICY,
+            "seed": seed,
+            "policy": asdict(policy.config),
+            "model_service": policy.metadata,
+            "navigation_path": path,
+            "navigation_goal": goal,
+            "scene": baseline.scene_id,
+        }
         self.recorder = AttemptRecorder(root, packet, attempt_id=attempt_id)
         self.recorder.bind_simulation(self.sim, width=self.width, height=self.height)
         robot = self.sim.robot
         self.all_fingers = {body for side in robot.arms for group in robot.finger_bodies(side) for body in group}
-        self.monitors = {side: PickMonitor(self.sim, side, allowed_target_fingers=self.all_fingers)
-                         for side in robot.arms}
+        self.monitors = {
+            side: PickMonitor(self.sim, side, allowed_target_fingers=self.all_fingers) for side in robot.arms
+        }
         for monitor in self.monitors.values():
             monitor.initial.update(workspace_center_xy=task["anchor_world"][:2], workspace_radius_m=config.radius_m)
         self.target_bodies = next(iter(self.monitors.values())).target_bodies
@@ -107,8 +143,11 @@ class VLARollout:
         self.contact_sampler = ContactSampler(self.sim)
         self.navigation_contacts = NavigationContacts()
         self.initial_height = float(self.sim.data.xpos[self.sim.target_id, 2])
-        self.analysis = (AnalysisVideo(task, station, radius_m=config.radius_m)
-                         if config.third_person_enabled and collection.video_cameras is None else None)
+        self.analysis = (
+            AnalysisVideo(task, station, radius_m=config.radius_m)
+            if config.third_person_enabled and collection.video_cameras is None
+            else None
+        )
         self.status, self.reason = "infrastructure_error", "unfinished"
         self.verdict = self.exception_detail = None
         self.frames = self.points = self.initial_navigation_video = None
@@ -147,8 +186,9 @@ class VLARollout:
             raise OperationFailure(failure)
 
     def _sample_contacts(self):
-        self.contact_stats.update_frame(self.contact_sampler.capture(
-            target_bodies=self.target_bodies, fingers=self.all_fingers))
+        self.contact_stats.update_frame(
+            self.contact_sampler.capture(target_bodies=self.target_bodies, fingers=self.all_fingers)
+        )
 
     def _navigation_check(self):
         failure = simulation_failure(self.sim)
@@ -191,12 +231,21 @@ class VLARollout:
         if not (self.analysis and "third_person_camera" in frames):
             return frames
         side = max(self.monitors, key=lambda s: len(self.samples[s][-1]["finger_forces_n"]) if self.samples[s] else 0)
-        return {**frames, "third_person_camera": self.analysis.frame(
-            frames, phase=self.phase, time_s=float(self.sim.data.time), base_xy=self.sim.robot.group("base")[:2],
-            target_height=float(self.sim.data.xpos[self.sim.target_id, 2]), initial_height=self.initial_height,
-            facts=self.samples[side][-1] if self.samples[side] else None, side=side,
-            collisions=self.contact_stats.forbidden_contact_count,
-            wrist_camera="robot0_eye_in_hand" if self.sim.robot.config.name == "panda_omron" else None)}
+        return {
+            **frames,
+            "third_person_camera": self.analysis.frame(
+                frames,
+                phase=self.phase,
+                time_s=float(self.sim.data.time),
+                base_xy=self.sim.robot.group("base")[:2],
+                target_height=float(self.sim.data.xpos[self.sim.target_id, 2]),
+                initial_height=self.initial_height,
+                facts=self.samples[side][-1] if self.samples[side] else None,
+                side=side,
+                collisions=self.contact_stats.forbidden_contact_count,
+                wrist_camera="robot0_eye_in_hand" if self.sim.robot.config.name == "panda_omron" else None,
+            ),
+        }
 
     # --- phases -------------------------------------------------------------
     def _navigate(self):
@@ -222,19 +271,33 @@ class VLARollout:
         state_name = "operation_initial_state.json" if self.path is not None else "initial_state.json"
         write_json(self.recorder.path / state_name, self.sim.observe_state())
         cameras = self.sim.robot.camera_names
-        write_json(self.recorder.path / "camera_profile.json", {
-            "resolution": [self.width, self.height],
-            "camera_order": list(self.backend.camera_order or cameras),
-            "fovy_deg": {name: float(self.sim.model.cam_fovy[self.sim.model.camera(alias).id])
-                         for name, alias in cameras.items()},
-            "extrinsic_jitter": False, "fisheye": self.backend.fisheye})
+        write_json(
+            self.recorder.path / "camera_profile.json",
+            {
+                "resolution": [self.width, self.height],
+                "camera_order": list(self.backend.camera_order or cameras),
+                "fovy_deg": {
+                    name: float(self.sim.model.cam_fovy[self.sim.model.camera(alias).id])
+                    for name, alias in cameras.items()
+                },
+                "extrinsic_jitter": False,
+                "fisheye": self.backend.fisheye,
+            },
+        )
         if self.sim.third_person_camera:
             write_json(self.recorder.path / "third_person_initial.json", self.sim.third_person_camera.metadata())
         if self.analysis is not None:
-            write_json(self.recorder.path / "analysis_video.json", {
-                "style": "actual observer + wrist inset + measured facts", "camera": "third_person_camera",
-                "dimensions": [1280, 720], "planned_path": None, "policy_input": False,
-                "robot_videos": f"raw {self.width}x{self.height} RGB"})
+            write_json(
+                self.recorder.path / "analysis_video.json",
+                {
+                    "style": "actual observer + wrist inset + measured facts",
+                    "camera": "third_person_camera",
+                    "dimensions": [1280, 720],
+                    "planned_path": None,
+                    "policy_input": False,
+                    "robot_videos": f"raw {self.width}x{self.height} RGB",
+                },
+            )
         mark_episode_phase("execution")
 
     def _request_action(self, step):
@@ -242,18 +305,25 @@ class VLARollout:
         observation = self.backend.observe(self.sim, self.frames, prompt)
         if step == 0 and self.points is not None:
             observation["object_image_points"] = self.points
-        response = self.policy.action(observation, task=self.task, attempt=self.recorder.attempt_id,
-                                      seed=self.seed, first=step == 0)
+        response = self.policy.action(
+            observation, task=self.task, attempt=self.recorder.attempt_id, seed=self.seed, first=step == 0
+        )
         self.recorder.phase = self.phase
         if step == 0:
             for i, pixels in enumerate(response.processed_images or []):
                 imageio.imwrite(self.recorder.path / f"model_input_{i}.png", pixels)
-            write_json(self.recorder.path / "policy_instruction.json", {
-                "instruction": prompt, "data_layer": "derived", "source_frame_id": 0,
-                "kind": "actual_policy_processed_input",
-                "target_conditioning": "one first-frame point" if self.points else "language only",
-                "model_prompt": response.model_prompt,
-                "original_conditioning_points": response.conditioning_points})
+            write_json(
+                self.recorder.path / "policy_instruction.json",
+                {
+                    "instruction": prompt,
+                    "data_layer": "derived",
+                    "source_frame_id": 0,
+                    "kind": "actual_policy_processed_input",
+                    "target_conditioning": "one first-frame point" if self.points else "language only",
+                    "model_prompt": response.model_prompt,
+                    "original_conditioning_points": response.conditioning_points,
+                },
+            )
         self._check_budget()
         return response
 
@@ -269,8 +339,9 @@ class VLARollout:
         return failure
 
     def _evaluate(self):
-        return evaluate(self.task, self.samples, {side: m.initial for side, m in self.monitors.items()},
-                        self.config.open_hold_s)
+        return evaluate(
+            self.task, self.samples, {side: m.initial for side, m in self.monitors.items()}, self.config.open_hold_s
+        )
 
     def _run_policy(self):
         horizon = self.policy.config.task_horizon
@@ -278,8 +349,9 @@ class VLARollout:
         for step in range(horizon):
             self._check_budget()
             failure = self._apply_action(self._request_action(step), step)
-            trial_progress("VLA rollout 已执行策略步=%s/%s 耗时=%.1fs", step + 1, horizon,
-                           time.monotonic() - self.started)
+            trial_progress(
+                "VLA rollout 已执行策略步=%s/%s 耗时=%.1fs", step + 1, horizon, time.monotonic() - self.started
+            )
             if failure:
                 self.reason = self.failures[0]
                 self.status = failure_status(self.reason)
@@ -294,26 +366,40 @@ class VLARollout:
         if self.path is not None:
             self.navigation = finish_navigation(self.navigation, self.navigation_contacts, self.reason)
         mark_episode_phase("finalize")
-        termination = {"status": "completed" if self.status in ("success", "failure") else self.status,
-                       "reason": self.reason}
+        termination = {
+            "status": "completed" if self.status in ("success", "failure") else self.status,
+            "reason": self.reason,
+        }
         if self.status == "timeout":
             self.verdict = self._evaluate()
             if self.verdict["status"] == "success":
                 self.status, self.reason = "success", self.verdict["reason"]
         task_status = self.status if self.status in ("success", "failure") else "unknown"
         outcome = {
-            "status": self.status, "reason": self.reason, "verdict": self.verdict, "protocol": PROTOCOL,
-            "execution_termination": termination, "task_outcome": {"status": task_status, "reason": self.reason},
-            "exception_detail": self.exception_detail, "operation_backend": self.config.operation_backend,
-            "continuous_simulation": True, "navigation": self.navigation,
+            "status": self.status,
+            "reason": self.reason,
+            "verdict": self.verdict,
+            "protocol": PROTOCOL,
+            "execution_termination": termination,
+            "task_outcome": {"status": task_status, "reason": self.reason},
+            "exception_detail": self.exception_detail,
+            "operation_backend": self.config.operation_backend,
+            "continuous_simulation": True,
+            "navigation": self.navigation,
             "gripper_mode": getattr(self.policy.config, "gripper_mode", "embodiment_default"),
-            "seed": self.seed, "elapsed_wall_s": time.monotonic() - self.started,
-            "trajectory_metrics": trajectory_metrics(self.contact_stats, self.sim, status=self.status,
-                                                     task_status=task_status),
+            "seed": self.seed,
+            "elapsed_wall_s": time.monotonic() - self.started,
+            "trajectory_metrics": trajectory_metrics(
+                self.contact_stats, self.sim, status=self.status, task_status=task_status
+            ),
             "contact_policy": CONTACT_POLICY,
-            "attribution": {"category": _ATTRIBUTION.get(self.status, "Unknown"), "reason": self.reason,
-                            "collisions": self.contact_stats.examples},
-            "control": {"seed": self.seed, "policy": self.backend.control_policy}}
+            "attribution": {
+                "category": _ATTRIBUTION.get(self.status, "Unknown"),
+                "reason": self.reason,
+                "collisions": self.contact_stats.examples,
+            },
+            "control": {"seed": self.seed, "policy": self.backend.control_policy},
+        }
         self.recorder.finish(self.status, self.reason)
         return outcome
 
@@ -346,7 +432,19 @@ class VLARollout:
 
 
 @isolated_episode
-def run_vla_attempt(baseline, task, station, config, collection, *, root, attempt_id, seed, policy,
-                    path=None, goal=None):
-    return VLARollout(baseline, task, station, config, collection, root=root, attempt_id=attempt_id, seed=seed,
-                      policy=policy, path=path, goal=goal).run()
+def run_vla_attempt(
+    baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None
+):
+    return VLARollout(
+        baseline,
+        task,
+        station,
+        config,
+        collection,
+        root=root,
+        attempt_id=attempt_id,
+        seed=seed,
+        policy=policy,
+        path=path,
+        goal=goal,
+    ).run()

@@ -6,7 +6,11 @@ from io import StringIO
 from unittest.mock import patch
 
 from lastmile_dataflow.utils.logging_config import (
-    ColorFormatter, ExperimentLogFilter, Progress, setup_logging, trial_logging,
+    ColorFormatter,
+    ExperimentLogFilter,
+    Progress,
+    setup_logging,
+    trial_logging,
 )
 
 
@@ -21,7 +25,7 @@ class LoggingTests(unittest.TestCase):
 
     def test_fast_progress_is_silent_and_final_update_is_not_throttled(self):
         with (
-            patch("lastmile_dataflow.utils.logging_config.time.monotonic", side_effect=[0, .1, 1.9, 2, 2.1]),
+            patch("lastmile_dataflow.utils.logging_config.time.monotonic", side_effect=[0, 0.1, 1.9, 2, 2.1]),
             self.assertLogs("test.progress", level="INFO") as logs,
         ):
             progress = Progress(logging.getLogger("test.progress"))
@@ -34,8 +38,9 @@ class LoggingTests(unittest.TestCase):
 
     def test_internal_logs_are_hidden_but_failures_keep_trial_context(self):
         noise = logging.LogRecord("curobo", logging.INFO, __file__, 1, "Running optimizer 1/1", (), None)
-        collision = logging.LogRecord("curobo", logging.WARNING, __file__, 1,
-                                      "Start or End state in collision", (), None)
+        collision = logging.LogRecord(
+            "curobo", logging.WARNING, __file__, 1, "Start or End state in collision", (), None
+        )
         self.assertFalse(ExperimentLogFilter().filter(noise))
         self.assertTrue(ExperimentLogFilter(debug=True).filter(noise))
         self.assertTrue(ExperimentLogFilter().filter(collision))

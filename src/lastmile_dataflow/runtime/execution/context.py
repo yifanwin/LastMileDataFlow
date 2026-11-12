@@ -107,9 +107,7 @@ class ContinuousContext:
                     self.recorder.path / "third_person_initial.json",
                     self.sim.third_person_camera.metadata(),
                 )
-            self.last_video_frames = self.video_frames(
-                frames, float(self.sim.data.time)
-            )
+            self.last_video_frames = self.video_frames(frames, float(self.sim.data.time))
 
     def hold_torso_target(self):
         """Keep the last submitted target, not a physically overshooting qpos."""
@@ -124,9 +122,7 @@ class ContinuousContext:
             failures.append(health)
             return health
         mujoco.mj_forward(self.sim.model, self.sim.data)
-        contacts = self.contact_sampler.capture(
-            target_bodies=self.target_bodies, fingers=self.fingers
-        )
+        contacts = self.contact_sampler.capture(target_bodies=self.target_bodies, fingers=self.fingers)
         self.contact_stats.update_frame(contacts)
         if self.phase in ("navigation", "arrival"):
             if self.navigation_contacts.observe(
@@ -158,22 +154,13 @@ class ContinuousContext:
     def tick(self, action, *, fixed_base=False):
         if isinstance(action, RobotCommand):
             action = self.sim.robot.execution_action(action)
-        semantic = (
-            isinstance(action, RobotCommand)
-            or self.sim.robot.config.control_profile == "robocasa-v1"
-        )
-        raw_action = (
-            copy.deepcopy(action)
-            if semantic
-            else np.asarray(action, dtype=float).copy()
-        )
+        semantic = isinstance(action, RobotCommand) or self.sim.robot.config.control_profile == "robocasa-v1"
+        raw_action = copy.deepcopy(action) if semantic else np.asarray(action, dtype=float).copy()
         self.recorder.phase = self.phase
         action = raw_action
         if not semantic:
             action = raw_action.copy()
-            action[19] = bounded_torso_command(
-                action[19], self.sim.robot.config.torso_limits
-            )
+            action[19] = bounded_torso_command(action[19], self.sim.robot.config.torso_limits)
             if action[19] != raw_action[19]:
                 event = {
                     "phase": self.phase,
@@ -182,18 +169,12 @@ class ContinuousContext:
                     "submitted_h": float(action[19]),
                     "command_tolerance_rad": COMMAND_TOLERANCE_RAD,
                 }
-                with (self.recorder.path / "torso_command_adjustments.jsonl").open(
-                    "ab"
-                ) as stream:
+                with (self.recorder.path / "torso_command_adjustments.jsonl").open("ab") as stream:
                     stream.write(canonical(event) + b"\n")
-            (action, adjustments) = sanitize_action(
-                self.sim.robot, action, fixed_base=fixed_base
-            )
+            (action, adjustments) = sanitize_action(self.sim.robot, action, fixed_base=fixed_base)
             for adjustment in adjustments:
                 adjustment.update(phase=self.phase, time_s=float(self.sim.data.time))
-                with (self.recorder.path / "command_limit_adjustments.jsonl").open(
-                    "ab"
-                ) as stream:
+                with (self.recorder.path / "command_limit_adjustments.jsonl").open("ab") as stream:
                     stream.write(canonical(adjustment) + b"\n")
         self.deadline()
         self.begin()
@@ -205,9 +186,7 @@ class ContinuousContext:
                 substep_check=partial(self._check_tick, failures, semantic),
                 command_raw=raw_action,
             )
-        self.last_legal_torso_target = (
-            self.sim.robot.control_height() if semantic else float(action[19])
-        )
+        self.last_legal_torso_target = self.sim.robot.control_height() if semantic else float(action[19])
         after = float(self.sim.data.time)
         if self.record_video:
             with timed(self, "rendering"):
@@ -285,20 +264,14 @@ class ContinuousContext:
         self.plan_count += 1
         with timed(self, "motion_planning"):
             result = planner.plan(goal)
-        self.plans.append(
-            {"phase": self.phase, "goal_world": goal.tolist(), **asdict(result)}
-        )
+        self.plans.append({"phase": self.phase, "goal_world": goal.tolist(), **asdict(result)})
         write_json(self.recorder.path / "planning.json", self.plans)
         self.deadline()
         if result.status != "success":
             diagnostic = dict(result.diagnostics)
             raise OperationFailure(
                 diagnostic.get("failure_reason")
-                or (
-                    "fov_constraint_failed"
-                    if result.status == "fov_constraint_failed"
-                    else "planning_no_solution"
-                ),
+                or ("fov_constraint_failed" if result.status == "fov_constraint_failed" else "planning_no_solution"),
                 diagnostic,
             )
         return result
@@ -326,13 +299,7 @@ class ContinuousContext:
         for _ in range(100):
             base_gap = joint_base_error(planner.base_target_world(goal_q), self.sim.robot.group("base"))
             if (
-                np.max(
-                    np.abs(
-                        self.sim.robot.arm_positions(side)
-                        - planner.model.arm_target(goal_q)
-                    )
-                )
-                < 0.01
+                np.max(np.abs(self.sim.robot.arm_positions(side) - planner.model.arm_target(goal_q))) < 0.01
                 and np.linalg.norm(base_gap[:2]) < self.config.arrival_tolerance_m
                 and (abs(base_gap[2]) < self.config.arrival_tolerance_rad)
             ):
@@ -346,8 +313,10 @@ class ContinuousContext:
         if goal is None:
             return
         measured = tcp_pose(self.sim, side)
-        if (np.linalg.norm(measured[:3, 3] - goal[:3, 3]) > 0.015
-                or rotation_error(measured[:3, :3], goal[:3, :3]) > 0.06):
+        if (
+            np.linalg.norm(measured[:3, 3] - goal[:3, 3]) > 0.015
+            or rotation_error(measured[:3, :3], goal[:3, :3]) > 0.06
+        ):
             raise OperationFailure("tcp_tracking_timeout")
 
     def _follow_robocasa(self, planner, positions, side, grip):
@@ -357,8 +326,9 @@ class ContinuousContext:
             point = np.asarray(point)
             base = planner.base_target_world(point)
             self.manip_base_target = np.asarray(base).copy()
-            command = RobotCommand(base_xyyaw=base, arm_q={side: planner.model.arm_target(point)},
-                                   gripper_width={side: grip})
+            command = RobotCommand(
+                base_xyyaw=base, arm_q={side: planner.model.arm_target(point)}, gripper_width={side: grip}
+            )
             robot.execution_action(command)
             site = robot.tcp_site(side)
             target_xyz = robot.scratch.site_xpos[site].copy()
@@ -367,10 +337,12 @@ class ContinuousContext:
                 self.tick(command)
                 measured = tcp_pose(self.sim, side)
                 gap = joint_base_error(base, robot.base_pose())
-                if (np.linalg.norm(target_xyz - measured[:3, 3]) <= 0.01
-                        and rotation_error(measured[:3, :3], target_rotation) <= 0.06
-                        and np.linalg.norm(gap[:2]) <= self.config.arrival_tolerance_m
-                        and abs(gap[2]) <= self.config.arrival_tolerance_rad):
+                if (
+                    np.linalg.norm(target_xyz - measured[:3, 3]) <= 0.01
+                    and rotation_error(measured[:3, :3], target_rotation) <= 0.06
+                    and np.linalg.norm(gap[:2]) <= self.config.arrival_tolerance_m
+                    and abs(gap[2]) <= self.config.arrival_tolerance_rad
+                ):
                     break
             else:
                 raise OperationFailure("robocasa_reference_tracking_timeout")

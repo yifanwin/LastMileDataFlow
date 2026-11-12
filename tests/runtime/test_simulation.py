@@ -23,18 +23,23 @@ class SimulationTests(unittest.TestCase):
         from lastmile_dataflow.scenes.loading.mjcf import load_spec
 
         source, robot = fixtures(self.root)
-        imageio.imwrite(self.root / 'sky.png', np.arange(24, dtype=np.uint8).reshape(2, 4, 3))
+        imageio.imwrite(self.root / "sky.png", np.arange(24, dtype=np.uint8).reshape(2, 4, 3))
         scene = Path(source.xml_path)
-        scene.write_text(scene.read_text().replace('<worldbody>', f'<asset><texture name="sky" type="skybox" '
-            f'file="{self.root}/sky.png" gridsize="2 4" gridlayout="LFRB.D.."/></asset><worldbody>'))
-        sim = Simulation.from_source(source, robot, target='target')
+        scene.write_text(
+            scene.read_text().replace(
+                "<worldbody>",
+                f'<asset><texture name="sky" type="skybox" '
+                f'file="{self.root}/sky.png" gridsize="2 4" gridlayout="LFRB.D.."/></asset><worldbody>',
+            )
+        )
+        sim = Simulation.from_source(source, robot, target="target")
         self.addCleanup(sim.close)
-        frozen = self.root / 'skybox'
+        frozen = self.root / "skybox"
         sim.freeze(frozen)
-        rebuilt = load_spec(frozen / 'model.xml').compile()
+        rebuilt = load_spec(frozen / "model.xml").compile()
         np.testing.assert_array_equal(rebuilt.tex_data, sim.model.tex_data)
         np.testing.assert_array_equal(rebuilt.tex_height, sim.model.tex_height)
-        self.assertIn('gridlayout="LFRB.D.."', (frozen / 'model.xml').read_text())
+        self.assertIn('gridlayout="LFRB.D.."', (frozen / "model.xml").read_text())
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -114,10 +119,10 @@ class CloneTests(unittest.TestCase):
             self.addCleanup(sim.close)
             sim.begin()
             command = sim.robot.neutral_action()
-            command[3] = .03
+            command[3] = 0.03
             sim.step(command)
             saved = pickle.loads(pickle.dumps(SimulationState.capture(sim)))
-            clone = clone_sim(sim, target='target')
+            clone = clone_sim(sim, target="target")
             self.addCleanup(clone.close)
             saved.initialize(clone)
             self.assertIs(clone.model, sim.model)
@@ -127,7 +132,7 @@ class CloneTests(unittest.TestCase):
             before = sim.state_vector().copy()
             clone.begin()
             clone.step(clone.robot.neutral_action())
-            self.assertAlmostEqual(clone.data.time, .1)
+            self.assertAlmostEqual(clone.data.time, 0.1)
             np.testing.assert_array_equal(sim.state_vector(), before)
             with self.assertRaises(RuntimeError):
                 saved.initialize(sim)

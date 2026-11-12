@@ -10,8 +10,8 @@ from pathlib import Path
 import traceback
 
 
-_SCOPE = ContextVar('episode_scope', default=None)
-LOCAL_ERRORS = ('initialization_error', 'episode_error', 'recording_error')
+_SCOPE = ContextVar("episode_scope", default=None)
+LOCAL_ERRORS = ("initialization_error", "episode_error", "recording_error")
 _FATAL_ERRNOS = {
     errno.ENOSPC,
     errno.EDQUOT,
@@ -26,60 +26,60 @@ _FATAL_ERRNOS = {
 }
 
 
-def classify_episode_exception(exc, phase='execution'):
+def classify_episode_exception(exc, phase="execution"):
     message = str(exc).lower()
-    if getattr(exc, 'shared_resource', False):
-        status, category = 'infrastructure_error', 'SharedPolicyFailure'
-    elif (isinstance(exc, MemoryError) or type(exc).__name__ == 'OutOfMemoryError') or (
+    if getattr(exc, "shared_resource", False):
+        status, category = "infrastructure_error", "SharedPolicyFailure"
+    elif (isinstance(exc, MemoryError) or type(exc).__name__ == "OutOfMemoryError") or (
         isinstance(exc, OSError) and exc.errno in _FATAL_ERRNOS
     ):
-        status, category = 'infrastructure_error', 'SharedResourceFailure'
+        status, category = "infrastructure_error", "SharedResourceFailure"
     elif any(
         s in message
         for s in (
-            'cuda out of memory',
-            'cuda error',
-            'device-side assert',
-            'illegal memory access',
-            'context lost',
-            'egl_not_initialized',
-            'valid opengl context has not been created',
-            'egl_bad_alloc',
-            'egl_bad_context',
-            'cuda driver',
-            'cuda initialization',
-            'no cuda gpus are available',
+            "cuda out of memory",
+            "cuda error",
+            "device-side assert",
+            "illegal memory access",
+            "context lost",
+            "egl_not_initialized",
+            "valid opengl context has not been created",
+            "egl_bad_alloc",
+            "egl_bad_context",
+            "cuda driver",
+            "cuda initialization",
+            "no cuda gpus are available",
         )
     ):
-        status, category = 'infrastructure_error', 'SharedGPUFailure'
+        status, category = "infrastructure_error", "SharedGPUFailure"
     else:
         status = (
-            'initialization_error'
-            if phase == 'initialize'
-            else 'recording_error'
-            if phase in ('finalize', 'recording')
-            else 'episode_error'
+            "initialization_error"
+            if phase == "initialize"
+            else "recording_error"
+            if phase in ("finalize", "recording")
+            else "episode_error"
         )
         category = {
-            'initialization_error': 'EpisodeInitializationError',
-            'recording_error': 'EpisodeRecordingError',
-            'episode_error': 'EpisodeExecutionError',
+            "initialization_error": "EpisodeInitializationError",
+            "recording_error": "EpisodeRecordingError",
+            "episode_error": "EpisodeExecutionError",
         }[status]
     return {
-        'status': status,
-        'failure_scope': 'shared' if status == 'infrastructure_error' else 'episode',
-        'attribution': {
-            'category': category,
-            'error_type': type(exc).__name__,
-            'message': str(exc),
-            'phase': phase,
+        "status": status,
+        "failure_scope": "shared" if status == "infrastructure_error" else "episode",
+        "attribution": {
+            "category": category,
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+            "phase": phase,
         },
-        'reason': type(exc).__name__ + ':' + str(exc),
+        "reason": type(exc).__name__ + ":" + str(exc),
     }
 
 
 def episode_phase():
-    return _SCOPE.get().phase if _SCOPE.get() is not None else 'execution'
+    return _SCOPE.get().phase if _SCOPE.get() is not None else "execution"
 
 
 def mark_episode_phase(phase):
@@ -103,19 +103,19 @@ def track_recorder(recorder):
 
 class EpisodeScope:
     def __init__(self):
-        self.phase = 'initialize'
+        self.phase = "initialize"
         self.resources = []
         self.recorder = None
 
     def cleanup(self):
         errors = []
         for resource, close in reversed(self.resources):
-            if getattr(resource, 'closed', False) is True:
+            if getattr(resource, "closed", False) is True:
                 continue
             try:
                 close()
             except Exception as exc:
-                errors.append(classify_episode_exception(exc, 'finalize'))
+                errors.append(classify_episode_exception(exc, "finalize"))
         return errors
 
 
@@ -124,17 +124,17 @@ def _run(function, scope, *, root, station, attempt_id):
     try:
         return function(), None
     except Exception as exc:
-        steps = getattr(scope.recorder, 'steps', None)
+        steps = getattr(scope.recorder, "steps", None)
         return {
             **classify_episode_exception(exc, scope.phase),
-            'station_id': station['station_id'],
-            'attempt': str(Path(root) / 'rollouts' / attempt_id),
-            'executed_steps': steps,
-            'recorded_steps': steps,
-            'execution_started': any(getattr(r, 'started', False) is True for r, _ in scope.resources),
-            'artifact_complete': False,
-            'task_completion': 'unknown',
-            'video_status': 'unavailable',
+            "station_id": station["station_id"],
+            "attempt": str(Path(root) / "rollouts" / attempt_id),
+            "executed_steps": steps,
+            "recorded_steps": steps,
+            "execution_started": any(getattr(r, "started", False) is True for r, _ in scope.resources),
+            "artifact_complete": False,
+            "task_completion": "unknown",
+            "video_status": "unavailable",
         }, traceback.format_exc()
 
 
@@ -143,21 +143,21 @@ def _merge_cleanup(result, errors):
         return result
     return {
         **result,
-        **next((e for e in errors if e['failure_scope'] == 'shared'), errors[0]),
-        'original_episode_status': result.get('status'),
-        'cleanup_errors': errors,
-        'artifact_complete': False,
+        **next((e for e in errors if e["failure_scope"] == "shared"), errors[0]),
+        "original_episode_status": result.get("status"),
+        "cleanup_errors": errors,
+        "artifact_complete": False,
     }
 
 
 def _normalize_scope(result):
     """Local errors stay inside the episode; infrastructure errors are shared."""
-    if result.get('status') in LOCAL_ERRORS:
-        result = {**result, 'failure_scope': 'episode', 'artifact_complete': False, 'task_completion': 'unknown'}
-        if result.get('exception_detail'):
-            result['attribution'] = result['exception_detail']['attribution']
-    if result.get('status') == 'infrastructure_error':
-        result['failure_scope'] = 'shared'
+    if result.get("status") in LOCAL_ERRORS:
+        result = {**result, "failure_scope": "episode", "artifact_complete": False, "task_completion": "unknown"}
+        if result.get("exception_detail"):
+            result["attribution"] = result["exception_detail"]["attribution"]
+    if result.get("status") == "infrastructure_error":
+        result["failure_scope"] = "shared"
     return result
 
 
@@ -171,7 +171,7 @@ def execute_isolated_episode(function, *, root, station, attempt_id):
             cleanup_errors = scope.cleanup()
         result = _normalize_scope(_merge_cleanup(result, cleanup_errors))
         if caught:
-            result['error'] = caught
+            result["error"] = caught
         return result
     finally:
         _SCOPE.reset(token)
@@ -192,7 +192,7 @@ def recording_operation(function):
         scope = _SCOPE.get()
         previous = scope.phase if scope is not None else None
         if scope is not None:
-            scope.phase = 'recording'
+            scope.phase = "recording"
         # On error, retain recording phase for the enclosing isolation boundary.
         result = function(*args, **kwargs)
         if scope is not None:

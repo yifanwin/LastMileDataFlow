@@ -31,8 +31,15 @@ def main():
     args = parser.parse_args()
     select_devices([args.gpu])
     execution = {**read_config(args.config), "trials_per_station": args.trials_per_station}
-    root = create_run(args.output, {"dataset": str(args.dataset.resolve()), "scene_id": args.scene_id,
-                                    "gpu": args.gpu, "seed": execution.get("seed", 42)})
+    root = create_run(
+        args.output,
+        {
+            "dataset": str(args.dataset.resolve()),
+            "scene_id": args.scene_id,
+            "gpu": args.gpu,
+            "seed": execution.get("seed", 42),
+        },
+    )
     (root / "execution.yaml").write_text(yaml.safe_dump(execution))
     run = StationRun(str(root / "execution.yaml"), assets_dir=str(args.assets_dir.resolve()))
     options = {"samples": [args.scene_id], "gpu_ids": [args.gpu]}

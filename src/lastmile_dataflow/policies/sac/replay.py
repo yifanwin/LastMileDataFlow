@@ -1,4 +1,5 @@
 """Uniform replay with owned storage and true pre-reset next observations."""
+
 from ...scenes.rl_observation import REWARD_COMPONENTS
 from dataclasses import dataclass, fields
 
@@ -18,11 +19,17 @@ class Transition:
     reward_components: torch.Tensor | None = None
     station_id: torch.Tensor | None = None
 
-
     def map(self, function):
-        return Transition(*(value.map(function) if isinstance(value, GraphObservation)
-                            else function(value) if value is not None else None
-                            for value in (getattr(self, f.name) for f in fields(self))))
+        return Transition(
+            *(
+                value.map(function)
+                if isinstance(value, GraphObservation)
+                else function(value)
+                if value is not None
+                else None
+                for value in (getattr(self, f.name) for f in fields(self))
+            )
+        )
 
     def __getitem__(self, index):
         return self.map(lambda value: value[index])
@@ -36,8 +43,10 @@ class Replay:
         self.capacity = capacity
         self.size = self.cursor = 0
         self.device = example.nodes.device
+
         def allocate(value):
             return torch.empty((capacity, *value.shape[1:]), dtype=value.dtype, device=self.device)
+
         self.obs = example.map(allocate)
         self.next_obs = example.map(allocate)
         self.action = torch.empty(capacity, action_dim, device=self.device)
@@ -58,12 +67,22 @@ class Replay:
                 getattr(target, name)[ids] = getattr(source, name)[start:]
         for name in ("action", "reward", "terminated", "truncated"):
             getattr(self, name)[ids] = getattr(transition, name)[start:]
-        self.reward_components[ids] = (0 if transition.reward_components is None else transition.reward_components[start:])
-        self.station_id[ids] = (-1 if transition.station_id is None else transition.station_id[start:])
+        self.reward_components[ids] = (
+            0 if transition.reward_components is None else transition.reward_components[start:]
+        )
+        self.station_id[ids] = -1 if transition.station_id is None else transition.station_id[start:]
         self.cursor = (self.cursor + len(ids)) % self.capacity
         self.size = min(self.capacity, self.size + len(ids))
 
     def sample(self, batch_size):
         ids = torch.randint(self.size, (batch_size,), device=self.device)
-        return Transition(self.obs[ids], self.action[ids], self.reward[ids], self.next_obs[ids],
-                          self.terminated[ids], self.truncated[ids], self.reward_components[ids], self.station_id[ids])
+        return Transition(
+            self.obs[ids],
+            self.action[ids],
+            self.reward[ids],
+            self.next_obs[ids],
+            self.terminated[ids],
+            self.truncated[ids],
+            self.reward_components[ids],
+            self.station_id[ids],
+        )

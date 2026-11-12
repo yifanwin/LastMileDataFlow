@@ -1,7 +1,7 @@
 """Semantic position targets; physical joints and dataset layouts stay separate."""
+
 from dataclasses import dataclass, field
 from typing import Protocol
-
 
 
 @dataclass
@@ -14,6 +14,7 @@ class RobotCommand:
 
 class RobotInterface(Protocol):
     """Interface shared by RBY1Adapter, PandaOmronAdapter and PandaRoboCasaAdapter."""
+
     config: object
     joints: object
     arms: tuple

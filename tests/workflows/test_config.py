@@ -15,12 +15,12 @@ class PathTests(unittest.TestCase):
     def test_local_config_is_optional_and_paths_use_repository_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch('lastmile_dataflow.config.REPO_ROOT', root):
+            with patch("lastmile_dataflow.config.REPO_ROOT", root):
                 self.assertEqual(load_local_config(), LocalConfig())
-                write_json(root / 'configs/local.yaml', {'assets_dir': '/shared/assets'})
-                self.assertEqual(load_local_config(), LocalConfig(Path('/shared/assets')))
-                write_json(root / 'configs/local.yaml', {'assets_dir': 'data/assets'})
-                self.assertEqual(load_local_config().assets_dir, root / 'data/assets')
+                write_json(root / "configs/local.yaml", {"assets_dir": "/shared/assets"})
+                self.assertEqual(load_local_config(), LocalConfig(Path("/shared/assets")))
+                write_json(root / "configs/local.yaml", {"assets_dir": "data/assets"})
+                self.assertEqual(load_local_config().assets_dir, root / "data/assets")
 
     def test_data_paths_use_explicit_data_root_not_config_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -53,9 +53,7 @@ class PathTests(unittest.TestCase):
             interpreter.parent.mkdir(parents=True)
             interpreter.symlink_to(base)
             path = root / "configs/nested/policy.yaml"
-            write_json(
-                path, {"data_root": "data", "checkpoint": "models/multitask", "python": ".venv/bin/python"}
-            )
+            write_json(path, {"data_root": "data", "checkpoint": "models/multitask", "python": ".venv/bin/python"})
             with patch("lastmile_dataflow.config.REPO_ROOT", root):
                 config = load_policy_config(path)
             self.assertEqual(config.python, str(interpreter))
@@ -79,18 +77,21 @@ class ConfigurationTests(unittest.TestCase):
         from lastmile_dataflow.runtime.execution_config import load_execution_config
         from lastmile_dataflow.data.evaluation.calibration import eligible_stations
 
-        for name in ('panda_omron_curobo',):
-            config = load_execution_config(f'configs/execution/{name}.yaml')
+        for name in ("panda_omron_curobo",):
+            config = load_execution_config(f"configs/execution/{name}.yaml")
             self.assertEqual(config.trials_per_station, 3)
-            stations = [{'station_id': str(i), 'geometry': 'valid'} for i in range(4)]
-            calibration = {'complete': True, 'stations': [
-                {'station_id': str(i), 'trials': 3, 'successes': i} for i in range(4)]}
+            stations = [{"station_id": str(i), "geometry": "valid"} for i in range(4)]
+            calibration = {
+                "complete": True,
+                "stations": [{"station_id": str(i), "trials": 3, "successes": i} for i in range(4)],
+            }
             low, high = eligible_stations(stations, calibration, config.lastmile_low, config.lastmile_high)
-            self.assertEqual([s['station_id'] for s in low], ['0', '1'])
-            self.assertEqual([s['station_id'] for s in high], ['3'])
-            calibration['complete'] = False
-            self.assertEqual(eligible_stations(stations, calibration, config.lastmile_low,
-                                               config.lastmile_high), ([], []))
+            self.assertEqual([s["station_id"] for s in low], ["0", "1"])
+            self.assertEqual([s["station_id"] for s in high], ["3"])
+            calibration["complete"] = False
+            self.assertEqual(
+                eligible_stations(stations, calibration, config.lastmile_low, config.lastmile_high), ([], [])
+            )
 
     def test_reject_unknown_and_invalid_config(self):
         for args in ({"typo": 1}, {"max_steps": 0}, {"width": 321}, {"penetration_ratio": float("nan")}):

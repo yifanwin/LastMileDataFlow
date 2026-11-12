@@ -1,4 +1,5 @@
 """Eight-neighbor A* with no corner cutting and metric distance fields."""
+
 from dataclasses import dataclass
 import heapq
 import math
@@ -11,7 +12,7 @@ from ...scenes.geometry import body_points, collision_geoms, descendants, geom_p
 from ...scenes.stations.initialization import room_triangles
 
 # Height cleared by chassis-only navigation (the arm is held above it).
-CHASSIS_HEIGHT_M = .40
+CHASSIS_HEIGHT_M = 0.40
 
 
 @dataclass
@@ -22,31 +23,31 @@ class Grid:
     support_obstacles: tuple = ()
 
     def cell(self, xy):
-        x,y = np.rint((np.asarray(xy)-self.origin)/self.resolution).astype(int)
+        x, y = np.rint((np.asarray(xy) - self.origin) / self.resolution).astype(int)
         if 0 <= y < self.free.shape[0] and 0 <= x < self.free.shape[1]:
-            return (int(y),int(x))
+            return (int(y), int(x))
         return None
 
     def xy(self, cell):
-        y,x = cell
-        return self.origin+np.array([x,y])*self.resolution
+        y, x = cell
+        return self.origin + np.array([x, y]) * self.resolution
 
     def neighbors(self, cell):
-        y,x = cell
-        for dy,dx in ((0,1),(1,0),(0,-1),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)):
-            yy,xx = y+dy,x+dx
-            if not (0 <= yy < self.free.shape[0] and 0 <= xx < self.free.shape[1]) or not self.free[yy,xx]:
+        y, x = cell
+        for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            yy, xx = y + dy, x + dx
+            if not (0 <= yy < self.free.shape[0] and 0 <= xx < self.free.shape[1]) or not self.free[yy, xx]:
                 continue
-            if dy and dx and (not self.free[y,xx] or not self.free[yy,x]):
+            if dy and dx and (not self.free[y, xx] or not self.free[yy, x]):
                 continue
-            yield (yy,xx), self.resolution*(math.sqrt(2) if dx and dy else 1.)
+            yield (yy, xx), self.resolution * (math.sqrt(2) if dx and dy else 1.0)
 
 
 def _dijkstra(grid, start, limit=math.inf):
     """Metric distances from start over free cells, and the parent of each reached cell."""
-    distance = {start: 0.}
+    distance = {start: 0.0}
     parent = {}
-    queue = [(0., start)]
+    queue = [(0.0, start)]
     while queue:
         cost, node = heapq.heappop(queue)
         if cost > distance[node] + 1e-10:
@@ -99,13 +100,13 @@ def search_region(grid, start_xy, goals):
     reachable = []
     start_offset = float(np.linalg.norm(np.asarray(start_xy) - grid.xy(start)))
     for goal in goals:
-        cell = grid.cell(goal['xy'])
-        if cell not in distance or not segment_free(grid, grid.xy(cell), goal['xy']):
+        cell = grid.cell(goal["xy"])
+        if cell not in distance or not segment_free(grid, grid.xy(cell), goal["xy"]):
             continue
-        length = start_offset + distance[cell] + float(np.linalg.norm(grid.xy(cell) - goal['xy']))
-        direct = cell == start and segment_free(grid, start_xy, goal['xy'])
+        length = start_offset + distance[cell] + float(np.linalg.norm(grid.xy(cell) - goal["xy"]))
+        direct = cell == start and segment_free(grid, start_xy, goal["xy"])
         if direct:
-            length = float(np.linalg.norm(np.asarray(start_xy) - goal['xy']))
+            length = float(np.linalg.norm(np.asarray(start_xy) - goal["xy"]))
         reachable.append((length, cell, goal, direct))
     if not reachable:
         return None
@@ -114,10 +115,12 @@ def search_region(grid, start_xy, goals):
     while node in parent:
         node = parent[node]
         cells.append(node)
-    xy = [list(start_xy), goal['xy']] if direct else [
-        list(start_xy), *(grid.xy(c).tolist() for c in reversed(cells)), goal['xy']]
-    return {'xy': xy, 'length_m': float(length), 'goal': goal,
-            'reachable_goals': [item[2] for item in reachable]}
+    xy = (
+        [list(start_xy), goal["xy"]]
+        if direct
+        else [list(start_xy), *(grid.xy(c).tolist() for c in reversed(cells)), goal["xy"]]
+    )
+    return {"xy": xy, "length_m": float(length), "goal": goal, "reachable_goals": [item[2] for item in reachable]}
 
 
 @dataclass
@@ -140,11 +143,10 @@ class OccupancyMap:
 def _mark_box(occupied, xy, lo, hi, resolution):
     """Occupy raster cells intersecting a measured conservative AABB, including obstacles thinner
     than one cell. No robot radius/margin enters here."""
-    occupied |= ((xy >= np.asarray(lo)[:2] - resolution / 2) &
-                 (xy <= np.asarray(hi)[:2] + resolution / 2)).all(axis=-1)
+    occupied |= ((xy >= np.asarray(lo)[:2] - resolution / 2) & (xy <= np.asarray(hi)[:2] + resolution / 2)).all(axis=-1)
 
 
-def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), robot_height=.40):
+def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), robot_height=0.40):
     """Rasterize once without inflation, then measure distance to occupied cells.
 
     radius=None uses the full source floor. D is conservative at raster precision:
@@ -152,10 +154,10 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     """
     triangles = room_triangles(sim)
     if radius is None:
-        if sim.local_model and sim.local_model.get('removed_roots'):
-            raise ValueError('room navigation requires a full scene')
+        if sim.local_model and sim.local_model.get("removed_roots"):
+            raise ValueError("room navigation requires a full scene")
         if not len(triangles):
-            raise ValueError('room navigation requires bounded source floor geometry')
+            raise ValueError("room navigation requires bounded source floor geometry")
         points = triangles.reshape(-1, 2)
         origin = np.floor(points.min(axis=0) / resolution) * resolution
         nx, ny = np.ceil((points.max(axis=0) - origin) / resolution).astype(int) + 1
@@ -164,7 +166,11 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
         origin = np.asarray(anchor[:2]) - radius
     yy, xx = np.indices((ny, nx))
     xy = origin + np.stack((xx, yy), axis=-1) * resolution
-    allowed = np.ones((ny, nx), dtype=bool) if radius is None else np.linalg.norm(xy - np.asarray(anchor[:2]), axis=-1) <= radius + 1e-9
+    allowed = (
+        np.ones((ny, nx), dtype=bool)
+        if radius is None
+        else np.linalg.norm(xy - np.asarray(anchor[:2]), axis=-1) <= radius + 1e-9
+    )
     if len(triangles):
         floor = np.zeros((ny, nx), dtype=bool)
         for triangle in triangles:
@@ -180,7 +186,7 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
     for g in range(sim.model.ngeom):
         name = sim.model.geom(g).name
         body = sim.model.body(int(sim.model.geom_bodyid[g])).name
-        if body.startswith('robot_0/') or 'floor' in name.lower():
+        if body.startswith("robot_0/") or "floor" in name.lower():
             continue
         if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]):
             continue
@@ -188,26 +194,35 @@ def scene_occupancy(sim, anchor, radius, resolution, *, support_obstacles=(), ro
             continue
         points = geom_points(sim, g)
         lo, hi = points.min(axis=0), points.max(axis=0)
-        if hi[2] > .005 and lo[2] < robot_height:
+        if hi[2] > 0.005 and lo[2] < robot_height:
             _mark_box(occupied, xy, lo, hi, resolution)
     for obstacle in support_obstacles:
-        _mark_box(occupied, xy, obstacle['min'], obstacle['max'], resolution)
+        _mark_box(occupied, xy, obstacle["min"], obstacle["max"], resolution)
     distance = distance_transform_edt(np.pad(~occupied, 1, constant_values=False))[1:-1, 1:-1] * resolution
-    distance = np.maximum(0., distance - resolution / math.sqrt(2))
+    distance = np.maximum(0.0, distance - resolution / math.sqrt(2))
     return OccupancyMap(origin, resolution, occupied, distance, tuple(support_obstacles))
 
 
 def navigation_grid(sim, task, settings, footprint_radius, robot_height):
     """Whole-room A* grid around a task; chassis-only navigation clears a fixed chassis height."""
-    return scene_grid(sim, task['anchor_world'], None, settings.map_resolution_m, footprint_radius,
-                      settings.navigation_margin_m,
-                      robot_height=robot_height if settings.navigation_whole_body else CHASSIS_HEIGHT_M,
-                      support_obstacles=task_support_obstacles(sim, task))
+    return scene_grid(
+        sim,
+        task["anchor_world"],
+        None,
+        settings.map_resolution_m,
+        footprint_radius,
+        settings.navigation_margin_m,
+        robot_height=robot_height if settings.navigation_whole_body else CHASSIS_HEIGHT_M,
+        support_obstacles=task_support_obstacles(sim, task),
+    )
 
 
-def scene_grid(sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=CHASSIS_HEIGHT_M):
-    occupancy = scene_occupancy(sim, anchor, radius, resolution,
-                                support_obstacles=support_obstacles, robot_height=robot_height)
+def scene_grid(
+    sim, anchor, radius, resolution, footprint_radius, margin, *, support_obstacles=(), robot_height=CHASSIS_HEIGHT_M
+):
+    occupancy = scene_occupancy(
+        sim, anchor, radius, resolution, support_obstacles=support_obstacles, robot_height=robot_height
+    )
     return occupancy.navigation(footprint_radius, margin)
 
 
@@ -218,32 +233,40 @@ def task_support_obstacles(sim, task):
     below the target. Without a hint, search collision surfaces under the target.
     Open tasks reserve their articulated furniture instance instead.
     """
-    target = sim.model.body(task['target_body']).id
-    target_bodies = descendants(sim.model,target)
-    target_lo = body_points(sim,target).min(axis=0)
-    anchor = np.asarray(task['anchor_world'])
-    hint = next((e.get('parent_instance_id') for e in sim.catalog
-                 if e['instance_id'] == task['instance_id']),None)
+    target = sim.model.body(task["target_body"]).id
+    target_bodies = descendants(sim.model, target)
+    target_lo = body_points(sim, target).min(axis=0)
+    anchor = np.asarray(task["anchor_world"])
+    hint = next((e.get("parent_instance_id") for e in sim.catalog if e["instance_id"] == task["instance_id"]), None)
     candidates = []
     for entry in sim.catalog:
-        is_open = task['operation'] == 'open' and entry['instance_id'] == task['instance_id']
-        if (entry['body_id'] in target_bodies and not is_open) or entry['mjcf_body'].startswith('robot_0/'):
+        is_open = task["operation"] == "open" and entry["instance_id"] == task["instance_id"]
+        if (entry["body_id"] in target_bodies and not is_open) or entry["mjcf_body"].startswith("robot_0/"):
             continue
-        points = [geom_points(sim,g) for g in collision_geoms(sim,entry['body_id'])
-                  if is_open or int(sim.model.geom_bodyid[g]) not in target_bodies]
+        points = [
+            geom_points(sim, g)
+            for g in collision_geoms(sim, entry["body_id"])
+            if is_open or int(sim.model.geom_bodyid[g]) not in target_bodies
+        ]
         if not points:
             continue
         tops = []
         for pts in points:
-            lo,hi = pts.min(axis=0),pts.max(axis=0)
-            if np.all(anchor[:2] >= lo[:2]) and np.all(anchor[:2] <= hi[:2]) and abs(hi[2]-target_lo[2]) <= .05:
+            lo, hi = pts.min(axis=0), pts.max(axis=0)
+            if np.all(anchor[:2] >= lo[:2]) and np.all(anchor[:2] <= hi[:2]) and abs(hi[2] - target_lo[2]) <= 0.05:
                 tops.append(hi[2])
         if not tops and not is_open:
             continue
-        pts = np.concatenate(points); lo,hi = pts.min(axis=0),pts.max(axis=0)
-        obstacle = {'body':entry['mjcf_body'],'min':lo.tolist(),'max':hi.tolist(),
-                    'kind':'support','evidence':'open_task_furniture' if is_open else 'surface_below_target_AABB'}
-        candidates.append((is_open or entry['instance_id'] == hint,max(tops,default=hi[2]),obstacle))
+        pts = np.concatenate(points)
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        obstacle = {
+            "body": entry["mjcf_body"],
+            "min": lo.tolist(),
+            "max": hi.tolist(),
+            "kind": "support",
+            "evidence": "open_task_furniture" if is_open else "surface_below_target_AABB",
+        }
+        candidates.append((is_open or entry["instance_id"] == hint, max(tops, default=hi[2]), obstacle))
     if not candidates:
         return []
-    return [max(candidates,key=lambda item:item[:2])[2]]
+    return [max(candidates, key=lambda item: item[:2])[2]]

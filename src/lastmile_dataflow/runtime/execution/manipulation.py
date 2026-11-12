@@ -19,9 +19,7 @@ from .protocol import OperationFailure
 
 
 def _candidate_score(sim, reference, method, candidate):
-    goal = (
-        body_pose(sim, sim.model.body(candidate["body"]).id) @ candidate["pose_local"]
-    )
+    goal = body_pose(sim, sim.model.body(candidate["body"]).id) @ candidate["pose_local"]
     if method == "tcp_distance":
         return float(np.linalg.norm(goal[:3, 3] - reference))
     vector = goal[:3, 3] - np.r_[reference[:2], goal[2, 3]]
@@ -31,11 +29,7 @@ def _candidate_score(sim, reference, method, candidate):
 def candidate_pool(sim, config, candidates, seed, forced):
     rng = np.random.default_rng(seed)
     if forced:
-        pool = [
-            c
-            for c in candidates
-            if c["row"] == forced["grasp_row"] and c["source"] == forced["grasp_source"]
-        ]
+        pool = [c for c in candidates if c["row"] == forced["grasp_row"] and c["source"] == forced["grasp_source"]]
         if not pool:
             raise ValueError("missing winning grasp")
         return pool[: config.max_grasp_candidates]
@@ -50,9 +44,7 @@ def candidate_pool(sim, config, candidates, seed, forced):
 
 def grasp_goals(sim, config, pool, *, retreat=False):
     """World grasp goals; open retreats along the approach, pick pushes in."""
-    goals = [
-        body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in pool
-    ]
+    goals = [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in pool]
     angle = config.grasp_roll_rad
     roll = np.array([[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]])
     offset = -config.approach_offset_m if retreat else config.approach_offset_m
@@ -65,6 +57,7 @@ def grasp_goals(sim, config, pool, *, retreat=False):
 @dataclass
 class GraspPlan:
     """The arm and grasp the planner accepted, plus where its artefacts live."""
+
     side: str
     candidate: dict
     goal: np.ndarray
@@ -107,15 +100,23 @@ class _Manipulation:
         ctx.plan_count += 1
         ctx.plan_serial += 1
         ctx.phase = "plan_" + phase
-        ctx.plans.append({"phase": ctx.phase, "query_index": ctx.plan_count, "plan_serial": ctx.plan_serial,
-                          "planner": PLANNER_BACKEND, "native_max_attempts": NATIVE_MAX_ATTEMPTS})
+        ctx.plans.append(
+            {
+                "phase": ctx.phase,
+                "query_index": ctx.plan_count,
+                "plan_serial": ctx.plan_serial,
+                "planner": PLANNER_BACKEND,
+                "native_max_attempts": NATIVE_MAX_ATTEMPTS,
+            }
+        )
         write_json(ctx.recorder.path / "planning.json", ctx.plans)
 
     def _make_planner(self, options, side, directory):
         directory.mkdir(parents=True, exist_ok=True)
         with timed(self.ctx, "planner_setup"):
-            self.planner = self.factory(self.sim, options, side, directory,
-                                        workspace=(self.task["anchor_world"], self.ctx.config.radius_m))
+            self.planner = self.factory(
+                self.sim, options, side, directory, workspace=(self.task["anchor_world"], self.ctx.config.radius_m)
+            )
 
     def _operation_state(self):
         """Measured state the planner starts from; split calibration reuses the prepared station state."""
@@ -135,8 +136,10 @@ class _Manipulation:
             directory = ctx.recorder.path / f"v080-{ctx.plan_serial}-{side}"
             self._make_planner(self.options, side, directory)
             goals = grasp_goals(self.sim, ctx.config, self.pool, retreat=self.task["operation"] == "open")
-            write_json(directory / "grasp_candidates.json",
-                       {"lanes": [{"seed": self.seed, "arm": side, "candidates": self.pool}]})
+            write_json(
+                directory / "grasp_candidates.json",
+                {"lanes": [{"seed": self.seed, "arm": side, "candidates": self.pool}]},
+            )
             if not goals:
                 raise OperationFailure("no_grasp_candidates")
             if operation_state is None:
@@ -144,8 +147,13 @@ class _Manipulation:
             with timed(ctx, "grasp_planning"):
                 success, index, stages, diagnostic = self.planner.grasp(goals, self._query, lift=lift)
             ctx.deadline()
-            ctx.plans.append({"phase": "native_grasp_result",
-                              "planning_state_ref": str(Path(operation_state).resolve()), **diagnostic})
+            ctx.plans.append(
+                {
+                    "phase": "native_grasp_result",
+                    "planning_state_ref": str(Path(operation_state).resolve()),
+                    **diagnostic,
+                }
+            )
             if success:
                 goal = goals[index]
                 pregrasp = goal.copy()
@@ -155,21 +163,29 @@ class _Manipulation:
         raise OperationFailure((diagnostic or {}).get("failure_reason") or "planning_no_solution", diagnostic)
 
     def _control_record(self, plan):
-        return {"arm": plan.side, "height_target": self.sim.robot.control_height(),
-                "grasp_row": plan.candidate["row"], "grasp_source": plan.candidate["source"], "seed": self.seed}
+        return {
+            "arm": plan.side,
+            "height_target": self.sim.robot.control_height(),
+            "grasp_row": plan.candidate["row"],
+            "grasp_source": plan.candidate["source"],
+            "seed": self.seed,
+        }
 
     def _initialize_monitor(self, plan):
         ctx = self.ctx
         ctx.monitor = PickMonitor(self.sim, plan.side)
         ctx.fingers = ctx.monitor.allowed_target_fingers
         ctx.samples = []
-        ctx.monitor.initial.update(workspace_center_xy=self.task["anchor_world"][:2],
-                                   workspace_radius_m=ctx.config.radius_m)
+        ctx.monitor.initial.update(
+            workspace_center_xy=self.task["anchor_world"][:2], workspace_radius_m=ctx.config.radius_m
+        )
         initial = copy.deepcopy(ctx.monitor.initial)
         ctx.pick_initial = initial if self.task["operation"] == "pick" else None
         ctx.active_control = self._control_record(plan)
-        write_json(ctx.recorder.path / "task_evidence_initial.json",
-                   {"operation": self.task["operation"], "initial": initial, "control": ctx.active_control})
+        write_json(
+            ctx.recorder.path / "task_evidence_initial.json",
+            {"operation": self.task["operation"], "initial": initial, "control": ctx.active_control},
+        )
         ctx.manip_base_target = self.sim.robot.group("base").copy()
         if self.task["operation"] == "open":
             joint = self.sim.model.joint(self.task["joint_name"]).id

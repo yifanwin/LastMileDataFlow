@@ -44,7 +44,9 @@ class TorsoCommandTests(unittest.TestCase):
         ctx = ContinuousContext.__new__(ContinuousContext)
         ctx.sim = SimpleNamespace(
             robot=SimpleNamespace(
-                control_height=lambda: .738, group=lambda _: [0, 0.739327605117437], config=SimpleNamespace(torso_limits=(0, 0.738))
+                control_height=lambda: 0.738,
+                group=lambda _: [0, 0.739327605117437],
+                config=SimpleNamespace(torso_limits=(0, 0.738)),
             )
         )
         ctx.last_legal_torso_target = 0.737261950969696
@@ -85,7 +87,8 @@ class TorsoCommandTests(unittest.TestCase):
                     warning=[],
                 )
                 robot = SimpleNamespace(
-                    config=SimpleNamespace(torso_limits=(0, 0.738), control_profile='position-v1'), group=lambda _: np.array([0, feedback])
+                    config=SimpleNamespace(torso_limits=(0, 0.738), control_profile="position-v1"),
+                    group=lambda _: np.array([0, feedback]),
                 )
                 submitted = []
 
@@ -96,6 +99,7 @@ class TorsoCommandTests(unittest.TestCase):
 
                 ctx.sim = SimpleNamespace(data=data, robot=robot, model=None, step=step)
                 from lastmile_dataflow.runtime.outcomes.contacts import ContactFrame
+
                 ctx.contact_sampler = SimpleNamespace(capture=lambda **kw: ContactFrame(ctx.sim, []))
                 action = np.zeros(20)
                 action[19] = 0.739327605117437
@@ -143,9 +147,9 @@ class NavigateTorsoLoopTests(unittest.TestCase):
             return np.zeros(7)
 
         robot.group = group
-        robot.arms = ('left','right')
-        robot.arm_positions = lambda arm: group(arm+'_arm')
-        robot.base_pose = lambda: group('base')
+        robot.arms = ("left", "right")
+        robot.arm_positions = lambda arm: group(arm + "_arm")
+        robot.base_pose = lambda: group("base")
         ctx = SimpleNamespace(
             sim=SimpleNamespace(robot=robot),
             navigation_contacts=NavigationContacts(),
@@ -157,7 +161,7 @@ class NavigateTorsoLoopTests(unittest.TestCase):
 
         def tick(a, **kw):
             action = np.zeros(20)
-            action[:3] = np.asarray(a.base_xyyaw)-state['base']
+            action[:3] = np.asarray(a.base_xyyaw) - state["base"]
             action[19] = hold_value
             ticks.append(action)
             state["base"] = np.asarray(a.base_xyyaw).copy()
@@ -177,10 +181,10 @@ class NavigateTorsoLoopTests(unittest.TestCase):
         self.assertTrue(all(a[19] == 0.4717424850553562 for a in ticks), [a[19] for a in ticks])
 
     def test_navigation_tracks_explicit_intermediate_yaw(self):
-        ctx, ticks = self.fake_ctx(.4)
-        path = {'poses': [[0., 0., 0.], [.4, 0., .5], [.8, 0., 0.]]}
-        result = navigate(ctx, path, {'base': [.8, 0., 0.]})
-        self.assertEqual(result['status'], 'success')
+        ctx, ticks = self.fake_ctx(0.4)
+        path = {"poses": [[0.0, 0.0, 0.0], [0.4, 0.0, 0.5], [0.8, 0.0, 0.0]]}
+        result = navigate(ctx, path, {"base": [0.8, 0.0, 0.0]})
+        self.assertEqual(result["status"], "success")
         yaw = np.cumsum([tick[2] for tick in ticks])
-        self.assertGreater(yaw.max(), .45)
-        self.assertLess(abs(yaw[-1]), .025)
+        self.assertGreater(yaw.max(), 0.45)
+        self.assertLess(abs(yaw[-1]), 0.025)

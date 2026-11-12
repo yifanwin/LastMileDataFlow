@@ -50,9 +50,7 @@ class MultitaskPolicyTests(unittest.TestCase):
             MolmoBotRBY1PickPnPPolicyConfig,
         )
 
-        config_cls = (
-            MolmoBotRBY1PickPnPPolicyConfig if operation == "pick" else MolmoBotRBY1DoorPlusOpenPolicyConfig
-        )
+        config_cls = MolmoBotRBY1PickPnPPolicyConfig if operation == "pick" else MolmoBotRBY1DoorPlusOpenPolicyConfig
         policy = MolmoBotRBY1MultitaskPolicy(config_cls(checkpoint_path="unused", img_resolution=(64, 48)))
 
         class Agent:

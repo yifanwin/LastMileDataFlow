@@ -155,9 +155,7 @@ class LifecycleIsolationTests(unittest.TestCase):
 
     def test_mid_execution_recorder_failure_classifies_as_recording_error(self):
         def run():
-            recorder = AttemptRecorder(
-                self.root, {"collection": {"record_video": False}}, attempt_id="bad-recording"
-            )
+            recorder = AttemptRecorder(self.root, {"collection": {"record_video": False}}, attempt_id="bad-recording")
             mark_episode_phase("execution")
             recorder.event("bad-event", bad=object())
 
@@ -180,7 +178,17 @@ class RetryDirectoryTests(unittest.TestCase):
             timings={},
             recorder=SimpleNamespace(path=path),
             config=ExecutionConfig(),
-            sim=SimpleNamespace(model=Mock(), save_snapshot=Mock(), robot=Mock(control_height=Mock(return_value=0.), open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False)),
+            sim=SimpleNamespace(
+                model=Mock(),
+                save_snapshot=Mock(),
+                robot=Mock(
+                    control_height=Mock(return_value=0.0),
+                    open_grip=-0.05,
+                    semantic_control=False,
+                    plan_lift_before_close=True,
+                    lock_base_after_close=False,
+                ),
+            ),
             budget=None,
             planner_factory=None,
             prepared_state=None,
@@ -273,14 +281,18 @@ class RetryDirectoryTests(unittest.TestCase):
             ctx = self.context(path)
             ctx.plan_serial = 1
             ctx.open_joint = 0
-            ctx.arm_tick = Mock(
-                side_effect=lambda *a, **k: ctx.samples.append({"finger_forces_n": [0.0, 0.0]})
-            )
+            ctx.arm_tick = Mock(side_effect=lambda *a, **k: ctx.samples.append({"finger_forces_n": [0.0, 0.0]}))
             ctx.sim = SimpleNamespace(
                 model=Mock(),
                 robot=SimpleNamespace(
-                    config=SimpleNamespace(control_hz=20), group=Mock(return_value=np.zeros(7)),
-                    arm_positions=Mock(return_value=np.zeros(7)), control_height=lambda:0., open_grip=-.05, semantic_control=False, plan_lift_before_close=True, lock_base_after_close=False
+                    config=SimpleNamespace(control_hz=20),
+                    group=Mock(return_value=np.zeros(7)),
+                    arm_positions=Mock(return_value=np.zeros(7)),
+                    control_height=lambda: 0.0,
+                    open_grip=-0.05,
+                    semantic_control=False,
+                    plan_lift_before_close=True,
+                    lock_base_after_close=False,
                 ),
                 data=SimpleNamespace(qpos=np.zeros(1), xaxis=np.zeros((1, 3)), xanchor=np.zeros(3)),
             )

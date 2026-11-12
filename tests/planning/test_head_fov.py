@@ -123,9 +123,7 @@ class HeadFOVTests(unittest.TestCase):
 
     def test_camera_fk_does_not_change_planner_goal_frames(self):
         cfg = {"kinematics": {"extra_links": {}, "tool_frames": ["ee_left_tcp"]}}
-        derived = camera_robot_config(
-            cfg, {"parent_link": "link_head_2", "mount_pose": [0, 0, 0, 1, 0, 0, 0]}
-        )
+        derived = camera_robot_config(cfg, {"parent_link": "link_head_2", "mount_pose": [0, 0, 0, 1, 0, 0, 0]})
         self.assertEqual(cfg["kinematics"]["tool_frames"], ["ee_left_tcp"])
         self.assertEqual(derived["kinematics"]["tool_frames"][:2], ["ee_left_tcp", "head_fov_optical"])
         self.assertEqual(len(derived["kinematics"]["tool_frames"]), 8)
@@ -151,9 +149,7 @@ class HeadFOVTests(unittest.TestCase):
 
         planner = V2Planner.__new__(V2Planner)
         planner.motion = SimpleNamespace(
-            plan_pose=lambda *a: SimpleNamespace(
-                success=torch.tensor([False]), status="FOV_CONSTRAINT_FAILED"
-            )
+            plan_pose=lambda *a: SimpleNamespace(success=torch.tensor([False]), status="FOV_CONSTRAINT_FAILED")
         )
         planner.names = joint_names("left")
         planner.query_log, planner.solver_log = [], []
@@ -161,7 +157,7 @@ class HeadFOVTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         planner.path = Path(directory.name)
         planner.fov_log = [{"valid": False}]
-        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
+        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=0.5)
         planner.base = np.eye(4)
         planner.sim = SimpleNamespace(robot=SimpleNamespace(config=SimpleNamespace(control_hz=20)))
         planner.goals = lambda g: g
@@ -183,7 +179,7 @@ class HeadFOVTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         planner.path = Path(directory.name)
         planner.fov_log = []
-        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=.5)
+        planner.config = SimpleNamespace(head_fov_enabled=True, time_dilation=0.5)
         planner.base = np.eye(4)
         planner.sim = SimpleNamespace(robot=SimpleNamespace(config=SimpleNamespace(control_hz=20)))
         planner.goals = lambda g: g

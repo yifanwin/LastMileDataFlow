@@ -3,29 +3,29 @@
 Metadata parent links are hints, not support edges. Numeric queries are deliberately
 lazy. Unsupported geometry remains unknown rather than being promoted to evidence.
 """
+
 import copy
 from dataclasses import dataclass, field, replace
 
 import mujoco
 import numpy as np
 
-from .geometry import (body_points, collision_geoms, descendants, extract_regions, geom_points, quat_yaw,
-                       support_rays)
+from .geometry import body_points, collision_geoms, descendants, extract_regions, geom_points, quat_yaw, support_rays
 
 
-STATION_ID = 'station_start'
+STATION_ID = "station_start"
 
 
 @dataclass(frozen=True)
 class GraphConfig:
-    support_tolerance_m: float = .008
-    boundary_tolerance_m: float = .001
-    penetration_tolerance_m: float = .01
+    support_tolerance_m: float = 0.008
+    boundary_tolerance_m: float = 0.001
+    penetration_tolerance_m: float = 0.01
 
     def __post_init__(self):
         for name, value in self.__dict__.items():
             if type(value) not in (int, float) or not np.isfinite(value) or value <= 0:
-                raise ValueError(f'invalid graph setting {name}')
+                raise ValueError(f"invalid graph setting {name}")
 
 
 @dataclass(frozen=True)
@@ -35,33 +35,44 @@ class SceneGraph:
     time_s: float
     nodes: dict
     edges: list
-    stage: str = 'observed'
+    stage: str = "observed"
     issues: list = field(default_factory=list)
 
     def __post_init__(self):
         if type(self.revision) is not int or self.revision < 0:
-            raise ValueError('revision must be a nonnegative integer')
-        if self.stage not in ('observed', 'settled'):
-            raise ValueError('unknown graph observation stage')
+            raise ValueError("revision must be a nonnegative integer")
+        if self.stage not in ("observed", "settled"):
+            raise ValueError("unknown graph observation stage")
         if not np.isfinite(self.time_s):
-            raise ValueError('nonfinite graph time')
+            raise ValueError("nonfinite graph time")
 
     def to_dict(self):
-        value = {'graph_version': '0.1', 'scene_id': self.scene_id,
-                 'revision': self.revision, 'time_s': self.time_s, 'stage': self.stage,
-                 'units': 'SI', 'pose_order': 'xyz_wxyz', 'nodes': copy.deepcopy(self.nodes),
-                 'edges': copy.deepcopy(self.edges), 'issues': copy.deepcopy(self.issues)}
-        value['graph_id'] = f'{self.scene_id}:{self.stage}:{self.revision}'
+        value = {
+            "graph_version": "0.1",
+            "scene_id": self.scene_id,
+            "revision": self.revision,
+            "time_s": self.time_s,
+            "stage": self.stage,
+            "units": "SI",
+            "pose_order": "xyz_wxyz",
+            "nodes": copy.deepcopy(self.nodes),
+            "edges": copy.deepcopy(self.edges),
+            "issues": copy.deepcopy(self.issues),
+        }
+        value["graph_id"] = f"{self.scene_id}:{self.stage}:{self.revision}"
         return value
 
 
 def _pose(position, quaternion):
-    return {'frame': 'world', 'position': np.asarray(position).tolist(),
-            'quaternion_wxyz': np.asarray(quaternion).tolist()}
+    return {
+        "frame": "world",
+        "position": np.asarray(position).tolist(),
+        "quaternion_wxyz": np.asarray(quaternion).tolist(),
+    }
 
 
 def _cross(a, b, c):
-    return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
 
 def _hull(points):
@@ -82,36 +93,51 @@ def _hull(points):
 
 def _geometry(node, points):
     if points is None:
-        node.update(geometry_status='unknown', footprint_world=None, bottom_height_m=None)
+        node.update(geometry_status="unknown", footprint_world=None, bottom_height_m=None)
     else:
         bottom = float(points[:, 2].min())
-        node.update(geometry_status='known', bottom_height_m=bottom,
-                    collision_bounds_world=[points.min(axis=0).tolist(), points.max(axis=0).tolist()],
-                    footprint_world=[[x, y, bottom] for x, y in _hull(points)],
-                    geometry_scope='collision_vertices_or_conservative_primitive_bounds')
+        node.update(
+            geometry_status="known",
+            bottom_height_m=bottom,
+            collision_bounds_world=[points.min(axis=0).tolist(), points.max(axis=0).tolist()],
+            footprint_world=[[x, y, bottom] for x, y in _hull(points)],
+            geometry_scope="collision_vertices_or_conservative_primitive_bounds",
+        )
 
 
 def _load_bearing(contacts, config):
     """A near-zero-gap, mostly vertical contact carrying force."""
-    return any(-config.penetration_tolerance_m <= c['distance_m'] <= config.support_tolerance_m
-               and c['normal_vertical'] > .7 and c['normal_force_n'] > 1e-8 for c in contacts)
+    return any(
+        -config.penetration_tolerance_m <= c["distance_m"] <= config.support_tolerance_m
+        and c["normal_vertical"] > 0.7
+        and c["normal_force_n"] > 1e-8
+        for c in contacts
+    )
 
 
 def _region_check(sim, points, body, region, contacts, config):
     inside = region.contains(points, config.boundary_tolerance_m)
     bottom = float(points[:, 2].min())
-    height = abs(bottom-region.height) <= config.support_tolerance_m
+    height = abs(bottom - region.height) <= config.support_tolerance_m
     contact = _load_bearing(contacts, config)
     rays = bool(inside and height and support_rays(sim, body, region, points))
     ok = bool(inside and height and rays and contact)
-    return {'region_id': region.region_id, 'valid': ok, 'footprint_inside': inside,
-            'height_correct': bool(height), 'support_rays_hit': rays, 'load_bearing_contact': bool(contact),
-            'bottom_height_m': bottom, 'support_height_m': region.height}
+    return {
+        "region_id": region.region_id,
+        "valid": ok,
+        "footprint_inside": inside,
+        "height_correct": bool(height),
+        "support_rays_hit": rays,
+        "load_bearing_contact": bool(contact),
+        "bottom_height_m": bottom,
+        "support_height_m": region.height,
+    }
 
 
 @dataclass
 class _Surfaces:
     """Per-instance measurements collected while building nodes."""
+
     roots: dict = field(default_factory=dict)
     points: dict = field(default_factory=dict)
     geoms: dict = field(default_factory=dict)
@@ -121,37 +147,48 @@ class _Surfaces:
 def _catalog_nodes(sim, nodes, surfaces, issues):
     """One object node per catalog instance found in the model."""
     m, d = sim.model, sim.data
-    for item in sorted(sim.catalog, key=lambda x: x['instance_id']):
-        name = item['instance_id']
+    for item in sorted(sim.catalog, key=lambda x: x["instance_id"]):
+        name = item["instance_id"]
         try:
-            body = m.body(item.get('mjcf_body', name)).id
+            body = m.body(item.get("mjcf_body", name)).id
         except KeyError:
-            issues.append({'code': 'instance_missing_from_model', 'instance': name})
+            issues.append({"code": "instance_missing_from_model", "instance": name})
             continue
         if name == STATION_ID:
-            raise ValueError('instance collides with station_start graph identity')
+            raise ValueError("instance collides with station_start graph identity")
         count = int(m.body_jntnum[body])
         free = count == 1 and m.jnt_type[int(m.body_jntadr[body])] == mujoco.mjtJoint.mjJNT_FREE
         surfaces.roots[name] = body
-        node = {'kind': 'object', 'instance_id': name, 'mjcf_body': m.body(body).name,
-                'asset_id': item.get('asset_id'), 'category': item.get('category'), 'room_id': item.get('room_id'),
-                'category_status': 'known' if item.get('category') is not None else 'unknown',
-                'manipulable': 'unknown', 'parent_hint': item.get('parent_instance_id'),
-                'root_motion': 'free' if free else 'fixed' if not count else 'articulated',
-                'pose': _pose(d.xpos[body], d.xquat[body]), 'directions': {}}
+        node = {
+            "kind": "object",
+            "instance_id": name,
+            "mjcf_body": m.body(body).name,
+            "asset_id": item.get("asset_id"),
+            "category": item.get("category"),
+            "room_id": item.get("room_id"),
+            "category_status": "known" if item.get("category") is not None else "unknown",
+            "manipulable": "unknown",
+            "parent_hint": item.get("parent_instance_id"),
+            "root_motion": "free" if free else "fixed" if not count else "articulated",
+            "pose": _pose(d.xpos[body], d.xquat[body]),
+            "directions": {},
+        }
         try:
             points = body_points(sim, body)
         except ValueError as exc:
             points = None
-            issues.append({'code': 'unsupported_collision_geometry', 'instance': name, 'reason': str(exc)})
+            issues.append({"code": "unsupported_collision_geometry", "instance": name, "reason": str(exc)})
         _geometry(node, points)
         # Known construction capabilities, not inferred robot manipulation ability.
         editable_root = int(m.body_parentid[body]) == 0
-        node['construction_capabilities'] = (['move', 'rotate', 'remove'] if (free or not count) and points is not None
-                                             else ['remove']) if editable_root else []
+        node["construction_capabilities"] = (
+            (["move", "rotate", "remove"] if (free or not count) and points is not None else ["remove"])
+            if editable_root
+            else []
+        )
         if points is not None:
-            local = (points-d.xpos[body]) @ d.xmat[body].reshape(3, 3)
-            node['collision_bounds_local'] = [local.min(axis=0).tolist(), local.max(axis=0).tolist()]
+            local = (points - d.xpos[body]) @ d.xmat[body].reshape(3, 3)
+            node["collision_bounds_local"] = [local.min(axis=0).tolist(), local.max(axis=0).tolist()]
         nodes[name] = node
         surfaces.points[name] = points
         geoms = surfaces.geoms[name] = set(collision_geoms(sim, body))
@@ -159,15 +196,22 @@ def _catalog_nodes(sim, nodes, surfaces, issues):
             regions = extract_regions(sim, m.body(body).name)
         except (ValueError, KeyError) as exc:
             regions = []
-            issues.append({'code': 'unsupported_support_geometry', 'instance': name, 'reason': str(exc)})
+            issues.append({"code": "unsupported_support_geometry", "instance": name, "reason": str(exc)})
         # Region support uses the stable instance ID, not the current body index.
         surfaces.regions[name] = [replace(r, support=name) for r in regions]
-        pure_plane = (not count and len(geoms) == 1 and all(
-            m.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE and
-            d.geom_xmat[g].reshape(3, 3)[2, 2] > .999 for g in geoms))
-        node['support_capability'] = 'planar' if surfaces.regions[name] else 'horizontal_plane' if pure_plane else 'unknown'
+        pure_plane = (
+            not count
+            and len(geoms) == 1
+            and all(
+                m.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE and d.geom_xmat[g].reshape(3, 3)[2, 2] > 0.999
+                for g in geoms
+            )
+        )
+        node["support_capability"] = (
+            "planar" if surfaces.regions[name] else "horizontal_plane" if pure_plane else "unknown"
+        )
         if pure_plane:
-            node['support_plane_origin_world'] = d.geom_xpos[next(iter(geoms))].tolist()
+            node["support_plane_origin_world"] = d.geom_xpos[next(iter(geoms))].tolist()
 
 
 def _world_surface_nodes(sim, nodes, surfaces):
@@ -177,26 +221,34 @@ def _world_surface_nodes(sim, nodes, surfaces):
         geom_name = m.geom(g).name
         if int(m.geom_bodyid[g]) != 0 or not geom_name or not (m.geom_contype[g] or m.geom_conaffinity[g]):
             continue
-        name = 'world:' + geom_name
+        name = "world:" + geom_name
         if name in nodes:
-            raise ValueError('duplicate world surface identity')
+            raise ValueError("duplicate world surface identity")
         plane = m.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE
-        horizontal = d.geom_xmat[g].reshape(3, 3)[2, 2] > .999
+        horizontal = d.geom_xmat[g].reshape(3, 3)[2, 2] > 0.999
         quaternion = np.zeros(4)
         mujoco.mju_mat2Quat(quaternion, d.geom_xmat[g])
-        node = {'kind': 'object', 'instance_id': name, 'category': None, 'category_status': 'unknown',
-                'root_motion': 'fixed', 'manipulable': 'unknown', 'world_geom': geom_name,
-                'pose': _pose(d.geom_xpos[g], quaternion), 'directions': {}}
+        node = {
+            "kind": "object",
+            "instance_id": name,
+            "category": None,
+            "category_status": "unknown",
+            "root_motion": "fixed",
+            "manipulable": "unknown",
+            "world_geom": geom_name,
+            "pose": _pose(d.geom_xpos[g], quaternion),
+            "directions": {},
+        }
         try:
             points = None if plane else geom_points(sim, g)
             regions = [] if plane else extract_regions(sim, m.body(0).name, geom_name)
         except ValueError:
             points, regions = None, []
         _geometry(node, points)
-        regions = [replace(r, support=name, region_id=name + ':top') for r in regions]
-        node['support_capability'] = 'horizontal_plane' if plane and horizontal else 'planar' if regions else 'unknown'
+        regions = [replace(r, support=name, region_id=name + ":top") for r in regions]
+        node["support_capability"] = "horizontal_plane" if plane and horizontal else "planar" if regions else "unknown"
         if plane and horizontal:
-            node['support_plane_origin_world'] = d.geom_xpos[g].tolist()
+            node["support_plane_origin_world"] = d.geom_xpos[g].tolist()
         nodes[name] = node
         surfaces.geoms[name] = {g}
         surfaces.regions[name] = regions
@@ -210,14 +262,14 @@ def _part_and_region_nodes(sim, nodes, edges, surfaces):
             if not part or part in surfaces.roots:
                 continue
             if part not in nodes:
-                nodes[part] = {'kind': 'part', 'pose': _pose(d.xpos[child], d.xquat[child]), 'directions': {}}
-                edges.append({'predicate': 'part_of', 'args': [part, name], 'source': 'model_tree'})
+                nodes[part] = {"kind": "part", "pose": _pose(d.xpos[child], d.xquat[child]), "directions": {}}
+                edges.append({"predicate": "part_of", "args": [part, name], "source": "model_tree"})
     for name, regions in surfaces.regions.items():
         for region in regions:
             if region.region_id in nodes:
-                raise ValueError('duplicate region identity')
-            nodes[region.region_id] = {**region.to_dict(), 'kind': 'region', 'region_kind': region.kind}
-            edges.append({'predicate': 'has_region', 'args': [name, region.region_id], 'source': 'collision_surface'})
+                raise ValueError("duplicate region identity")
+            nodes[region.region_id] = {**region.to_dict(), "kind": "region", "region_kind": region.kind}
+            edges.append({"predicate": "has_region", "args": [name, region.region_id], "source": "collision_surface"})
 
 
 def _contact_pairs(sim, surfaces):
@@ -235,10 +287,12 @@ def _contact_pairs(sim, surfaces):
             for right in geom_owners.get(int(contact.geom2), []):
                 if left == right:
                     continue
-                evidence = {'distance_m': float(contact.dist),
-                            'normal_vertical': abs(float(contact.frame[2])),
-                            'normal_force_n': float(force[0]),
-                            'geoms': [m.geom(int(contact.geom1)).name, m.geom(int(contact.geom2)).name]}
+                evidence = {
+                    "distance_m": float(contact.dist),
+                    "normal_vertical": abs(float(contact.frame[2])),
+                    "normal_force_n": float(force[0]),
+                    "geoms": [m.geom(int(contact.geom1)).name, m.geom(int(contact.geom2)).name],
+                }
                 pairs.setdefault((left, right), []).append(evidence)
                 pairs.setdefault((right, left), []).append(evidence)
     return pairs
@@ -250,41 +304,60 @@ def _support_observations(sim, name, nodes, edges, surfaces, contact_pairs, conf
     for (subject, support), contacts in contact_pairs.items():
         if subject != name:
             continue
-        capability = nodes[support]['support_capability']
-        if points is None or capability == 'unknown':
-            observations[support] = {'status': 'unknown', 'reason': 'unsupported_support_geometry'}
+        capability = nodes[support]["support_capability"]
+        if points is None or capability == "unknown":
+            observations[support] = {"status": "unknown", "reason": "unsupported_support_geometry"}
             uncertain = True
             continue
-        if capability == 'horizontal_plane':
+        if capability == "horizontal_plane":
             height = float(sim.data.geom_xpos[next(iter(surfaces.geoms[support])), 2])
-            ok = bool(abs(float(points[:, 2].min())-height) <= config.support_tolerance_m and
-                      _load_bearing(contacts, config))
-            checks = [{'valid': ok, 'support_height_m': height}]
+            ok = bool(
+                abs(float(points[:, 2].min()) - height) <= config.support_tolerance_m
+                and _load_bearing(contacts, config)
+            )
+            checks = [{"valid": ok, "support_height_m": height}]
         else:
-            checks = [_region_check(sim, points, body, r,
-                      [c for c in contacts if r.geom in c['geoms']], config) for r in surfaces.regions[support]]
-            ok = any(c['valid'] for c in checks)
-        observations[support] = {'status': 'pass' if ok else 'fail', 'value': ok,
-                                 'evidence': {'regions': checks, 'contacts': contacts,
-                                              'scope': 'conservative_geometry_contact_not_stability_certificate'}}
+            checks = [
+                _region_check(sim, points, body, r, [c for c in contacts if r.geom in c["geoms"]], config)
+                for r in surfaces.regions[support]
+            ]
+            ok = any(c["valid"] for c in checks)
+        observations[support] = {
+            "status": "pass" if ok else "fail",
+            "value": ok,
+            "evidence": {
+                "regions": checks,
+                "contacts": contacts,
+                "scope": "conservative_geometry_contact_not_stability_certificate",
+            },
+        }
         if ok:
             supported = True
-            edges.append({'predicate': 'supported_by', 'args': [name, support], 'source': 'geometry_and_load_bearing_contact'})
+            edges.append(
+                {"predicate": "supported_by", "args": [name, support], "source": "geometry_and_load_bearing_contact"}
+            )
     node = nodes[name]
-    node['support_observations'] = observations
-    node['support_status'] = 'pass' if supported else 'unknown' if (
-        uncertain or points is None or node['root_motion'] != 'free') else 'fail'
-    node['support_reason'] = 'verified_support' if supported else 'unsupported_or_kinematic_support' if node['support_status'] == 'unknown' else 'no_verified_support'
+    node["support_observations"] = observations
+    node["support_status"] = (
+        "pass" if supported else "unknown" if (uncertain or points is None or node["root_motion"] != "free") else "fail"
+    )
+    node["support_reason"] = (
+        "verified_support"
+        if supported
+        else "unsupported_or_kinematic_support"
+        if node["support_status"] == "unknown"
+        else "no_verified_support"
+    )
 
 
-def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station=None):
+def build_scene_graph(sim, *, revision=0, stage="observed", config=None, station=None):
     """Read the current model/data. Resolve names afresh even if catalog IDs are stale."""
     if sim.closed:
-        raise RuntimeError('cannot observe a closed simulation')
+        raise RuntimeError("cannot observe a closed simulation")
     config = config or GraphConfig()
     d = sim.data
     if not all(np.isfinite(x).all() for x in (d.xpos, d.xquat, d.geom_xpos)):
-        raise ValueError('nonfinite scene geometry')
+        raise ValueError("nonfinite scene geometry")
     nodes, edges, issues, surfaces = {}, [], [], _Surfaces()
     _catalog_nodes(sim, nodes, surfaces, issues)
     _world_surface_nodes(sim, nodes, surfaces)
@@ -293,10 +366,15 @@ def build_scene_graph(sim, *, revision=0, stage='observed', config=None, station
     for name in surfaces.roots:
         _support_observations(sim, name, nodes, edges, surfaces, contact_pairs, config)
     if station is None:
-        base = sim.robot.group('base')
-        station = _pose([float(base[0]), float(base[1]), 0.], quat_yaw(base[2]))
+        base = sim.robot.group("base")
+        station = _pose([float(base[0]), float(base[1]), 0.0], quat_yaw(base[2]))
     if STATION_ID in nodes:
-        raise ValueError('node collides with station_start graph identity')
-    nodes[STATION_ID] = {'kind': 'station', 'pose': copy.deepcopy(station), 'anchor': 'base_xy_floor_z', 'directions': {}}
-    scene_id = sim.source.scene_id if hasattr(sim, 'source') else 'unknown'
+        raise ValueError("node collides with station_start graph identity")
+    nodes[STATION_ID] = {
+        "kind": "station",
+        "pose": copy.deepcopy(station),
+        "anchor": "base_xy_floor_z",
+        "directions": {},
+    }
+    scene_id = sim.source.scene_id if hasattr(sim, "source") else "unknown"
     return SceneGraph(scene_id, revision, float(d.time), nodes, edges, stage, issues)

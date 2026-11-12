@@ -2,6 +2,7 @@
 
 Nothing here changes the MJCF, physics state or policy observations.
 """
+
 from dataclasses import asdict, dataclass
 import itertools
 import math
@@ -16,13 +17,13 @@ from ...scenes.geometry import descendants
 class ViewConfig:
     width: int = 640
     height: int = 480
-    fovy_rad: float = math.pi/4
+    fovy_rad: float = math.pi / 4
 
     def __post_init__(self):
         if any(type(v) is not int or v <= 0 for v in (self.width, self.height)):
-            raise ValueError('positive image dimensions required')
-        if not math.isfinite(self.fovy_rad) or not .1 < self.fovy_rad < 2.5:
-            raise ValueError('invalid fovy_rad')
+            raise ValueError("positive image dimensions required")
+        if not math.isfinite(self.fovy_rad) or not 0.1 < self.fovy_rad < 2.5:
+            raise ValueError("invalid fovy_rad")
 
 
 @dataclass(frozen=True)
@@ -33,19 +34,19 @@ class CameraRig:
     width: int
     height: int
     # Radians internally; only the MuJoCo free-camera adapter converts to degrees.
-    angles: tuple = ((0., -math.pi/2+.01), (math.pi/4, -.65), (-3*math.pi/4, -.65))
+    angles: tuple = ((0.0, -math.pi / 2 + 0.01), (math.pi / 4, -0.65), (-3 * math.pi / 4, -0.65))
 
     @classmethod
-    def fit(cls, points, config=None, *, expansion=1.):
+    def fit(cls, points, config=None, *, expansion=1.0):
         config = config or ViewConfig()
         points = np.asarray(points)
         if points.ndim != 2 or points.shape[1] != 3 or not len(points) or not np.isfinite(points).all():
-            raise ValueError('finite union framing points required')
+            raise ValueError("finite union framing points required")
         lo, hi = points.min(axis=0), points.max(axis=0)
-        center = (lo+hi)/2
-        radius = max(float(np.linalg.norm(hi-lo)/2), .15)
-        half_angle = min(config.fovy_rad/2, math.atan(math.tan(config.fovy_rad/2)*config.width/config.height))
-        distance = radius/math.sin(half_angle)*1.25*expansion
+        center = (lo + hi) / 2
+        radius = max(float(np.linalg.norm(hi - lo) / 2), 0.15)
+        half_angle = min(config.fovy_rad / 2, math.atan(math.tan(config.fovy_rad / 2) * config.width / config.height))
+        distance = radius / math.sin(half_angle) * 1.25 * expansion
         return cls(center.tolist(), distance, config.fovy_rad, config.width, config.height)
 
     def camera(self, index):
@@ -68,7 +69,7 @@ def body_geoms(model, body):
 def dense_segids(scene):
     # A compact ROI scene needs dense segids for Renderer's scene.ngeom lookup;
     # objid continues to identify the original model geometry.
-    for index, geom in enumerate(scene.geoms[:scene.ngeom]):
+    for index, geom in enumerate(scene.geoms[: scene.ngeom]):
         if geom.segid != -1:
             geom.segid = index
 
@@ -81,8 +82,7 @@ def geom_mask(renderer, geoms):
         segmentation = renderer.render()
     finally:
         renderer.disable_segmentation_rendering()
-    return ((segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM))
-            & np.isin(segmentation[:, :, 0], geoms))
+    return (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(segmentation[:, :, 0], geoms)
 
 
 def rendered_camera(renderer, width, height):
@@ -106,25 +106,31 @@ def rendered_camera(renderer, width, height):
     fy = height * (1 if orthographic else near) / (top - bottom)
     fx = width * (1 if orthographic else near) / (2 * half_width)
     # Pixel centres are integer coordinates; left edge is -0.5.
-    cx = width * (half_width - center) / (2 * half_width) - .5
-    cy = height * top / (top - bottom) - .5
-    return {'projection_type': 'orthographic' if orthographic else 'pinhole',
-            'K': [[fx, 0, cx], [0, fy, cy], [0, 0, 1]], 'near_m': near,
-            'T_world_camera_optical': transform.tolist()}
+    cx = width * (half_width - center) / (2 * half_width) - 0.5
+    cy = height * top / (top - bottom) - 0.5
+    return {
+        "projection_type": "orthographic" if orthographic else "pinhole",
+        "K": [[fx, 0, cx], [0, fy, cy], [0, 0, 1]],
+        "near_m": near,
+        "T_world_camera_optical": transform.tolist(),
+    }
 
 
 @dataclass(frozen=True)
 class ThirdPersonConfig:
-    context_margin_m: float = .35
-    elevations_deg: tuple = (-40., -70.)
-    azimuths_deg: tuple = (45., 135., 225., 315., 0., 90., 180., 270.)
+    context_margin_m: float = 0.35
+    elevations_deg: tuple = (-40.0, -70.0)
+    azimuths_deg: tuple = (45.0, 135.0, 225.0, 315.0, 0.0, 90.0, 180.0, 270.0)
 
     def __post_init__(self):
         if not math.isfinite(self.context_margin_m) or self.context_margin_m < 0:
-            raise ValueError('invalid context margin')
-        if not self.elevations_deg or not self.azimuths_deg or not all(
-                math.isfinite(v) for v in (*self.elevations_deg, *self.azimuths_deg)):
-            raise ValueError('invalid observer angles')
+            raise ValueError("invalid context margin")
+        if (
+            not self.elevations_deg
+            or not self.azimuths_deg
+            or not all(math.isfinite(v) for v in (*self.elevations_deg, *self.azimuths_deg))
+        ):
+            raise ValueError("invalid observer angles")
 
 
 class ThirdPersonCamera:
@@ -133,7 +139,8 @@ class ThirdPersonCamera:
     Angles remain fixed per attempt, avoiding arbitrary camera jumps. Occlusion
     is real: never hide walls/objects to manufacture visibility.
     """
-    name = 'third_person_camera'
+
+    name = "third_person_camera"
 
     def __init__(self, config=None):
         self.config = config or ThirdPersonConfig()
@@ -146,7 +153,7 @@ class ThirdPersonCamera:
         robot = {b for b in range(m.nbody) if m.body(b).name.startswith(sim.robot.config.namespace)}
         target = descendants(m, sim.target_id) if sim.target_id is not None else set()
         robot_geoms, target_geoms, points = [], [], []
-        corners = np.array(list(itertools.product((-1., 1.), repeat=3)))
+        corners = np.array(list(itertools.product((-1.0, 1.0), repeat=3)))
         for g in range(m.ngeom):
             b = int(m.geom_bodyid[g])
             if b not in robot and b not in target:
@@ -158,7 +165,7 @@ class ThirdPersonCamera:
             radius = float(m.geom_rbound[g]) + self.config.context_margin_m
             points.extend(d.geom_xpos[g] + corners * radius)
         if not points:
-            raise ValueError('no robot/target geometry to frame')
+            raise ValueError("no robot/target geometry to frame")
         config = ViewConfig(width=width, height=height, fovy_rad=math.radians(float(m.vis.global_.fovy)))
         return CameraRig.fit(np.asarray(points), config), robot_geoms, target_geoms
 
@@ -176,14 +183,17 @@ class ThirdPersonCamera:
                     geoms = seg[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM)
                     rp = int(np.count_nonzero(geoms & np.isin(seg[:, :, 0], robot_geoms)))
                     tp = int(np.count_nonzero(geoms & np.isin(seg[:, :, 0], target_geoms)))
-                    score = (min(rp/300., 1.)*min(tp/24., 1.), min(rp, tp), rp+tp)
+                    score = (min(rp / 300.0, 1.0) * min(tp / 24.0, 1.0), min(rp, tp), rp + tp)
                     if best is None or score > best[0]:
                         best = (score, angle, rp, tp)
         finally:
             renderer.disable_segmentation_rendering()
         self.angle = best[1]
-        self.initial_visibility = {'robot_pixels': best[2], 'target_pixels': best[3],
-                                   'both_visible': best[2] > 0 and best[3] > 0}
+        self.initial_visibility = {
+            "robot_pixels": best[2],
+            "target_pixels": best[3],
+            "both_visible": best[2] > 0 and best[3] > 0,
+        }
 
     def render(self, sim, renderer, width, height):
         fit, robot_geoms, target_geoms = self.framing(sim, width, height)
@@ -194,7 +204,13 @@ class ThirdPersonCamera:
         return renderer.render().copy()
 
     def metadata(self):
-        return {'name': self.name, 'kind': 'render_only_free_camera', 'mode': 'follow_robot_target_union',
-                'angle_policy': 'initial segmentation selection; fixed angles within attempt',
-                'config': asdict(self.config), 'rig': self.rig.to_dict() if self.rig else None,
-                'initial_visibility': self.initial_visibility, 'scene_geometry_hidden': False}
+        return {
+            "name": self.name,
+            "kind": "render_only_free_camera",
+            "mode": "follow_robot_target_union",
+            "angle_policy": "initial segmentation selection; fixed angles within attempt",
+            "config": asdict(self.config),
+            "rig": self.rig.to_dict() if self.rig else None,
+            "initial_visibility": self.initial_visibility,
+            "scene_geometry_hidden": False,
+        }

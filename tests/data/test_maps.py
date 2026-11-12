@@ -77,8 +77,7 @@ class SupportMapTests(unittest.TestCase):
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)
         catalog = [
-            {"instance_id": name, "mjcf_body": name, "body_id": model.body(name).id}
-            for name in ("table", "cup")
+            {"instance_id": name, "mjcf_body": name, "body_id": model.body(name).id} for name in ("table", "cup")
         ]
         return SimpleNamespace(model=model, data=data, catalog=catalog)
 
@@ -93,7 +92,7 @@ class SupportMapTests(unittest.TestCase):
         self.assertFalse(heat.free[heat.cell([0, 0])])
         self.assertTrue(heat.free[heat.cell([0.6, 0])])
         self.assertFalse(nav.free[nav.cell([0.6, 0])])
-        path = search_region(nav, [-1, 0], [{'xy': [1, 0], 'yaw': 0.}])
+        path = search_region(nav, [-1, 0], [{"xy": [1, 0], "yaw": 0.0}])
         self.assertIsNotNone(path)
         self.assertTrue(all(abs(p[0]) > 0.5 or abs(p[1]) > 0.4 for p in path["xy"]))
         row = {
@@ -134,9 +133,7 @@ class SupportMapTests(unittest.TestCase):
         self.assertEqual(frame[571, 1070].tolist(), [73, 61, 45])
 
     def test_station_circles_use_metric_robot_radius(self):
-        video = AnalysisVideo(
-            {"anchor_world": [0, 0, 1]}, {"xy": [-1, 0]}, goal={"xy": [1, 0]}, footprint_radius_m=0.4
-        )
+        video = AnalysisVideo({"anchor_world": [0, 0, 1]}, {"xy": [-1, 0]}, goal={"xy": [1, 0]}, footprint_radius_m=0.4)
         frame = video.frame(
             {"third_person_camera": np.zeros((200, 300, 3), np.uint8)},
             phase="initialize",
@@ -180,12 +177,12 @@ class HeatmapTests(unittest.TestCase):
     def test_heatmap_generates_only_labeled_svg_and_numeric_metadata(self):
         with tempfile.TemporaryDirectory() as d:
             grid = Grid(np.zeros(2), 0.5, np.ones((7, 7), bool))
-            path = export_heatmap(
-                d, grid, [rate_row("a", [1, 1], 3)], [1, 1, 1], 0.5, title="synthetic fixture only"
-            )
+            path = export_heatmap(d, grid, [rate_row("a", [1, 1], 3)], [1, 1, 1], 0.5, title="synthetic fixture only")
             self.assertGreater(path.stat().st_size, 1000)
-            self.assertEqual(path.name, 'success_heatmap_stations.svg')
-            self.assertEqual({file.name for file in Path(d).iterdir()},
-                             {'success_heatmap_stations.svg', 'success_heatmap.npz', 'heatmap.json'})
-            self.assertIn('<!-- a -->', path.read_text())
-            self.assertEqual(read_json(Path(d, 'heatmap.json'))['svg'], path.name)
+            self.assertEqual(path.name, "success_heatmap_stations.svg")
+            self.assertEqual(
+                {file.name for file in Path(d).iterdir()},
+                {"success_heatmap_stations.svg", "success_heatmap.npz", "heatmap.json"},
+            )
+            self.assertIn("<!-- a -->", path.read_text())
+            self.assertEqual(read_json(Path(d, "heatmap.json"))["svg"], path.name)

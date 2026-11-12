@@ -21,48 +21,69 @@ class SamplingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             sim, _ = make_sim(directory)
             try:
-                nominal = {**disk_samples([0, 0, 1], 1., .25)[0],
-                           'base': [0., -1., 0.], 'initial': sim.robot.config.initial}
-                candidates = [{**nominal, 'station_id': f"{nominal['xy_id']}-Y{i}", 'yaw': yaw, 'yaw_source': 'explicit'}
-                              for i, yaw in enumerate((-np.pi / 4, np.pi / 4), 1)]
+                nominal = {
+                    **disk_samples([0, 0, 1], 1.0, 0.25)[0],
+                    "base": [0.0, -1.0, 0.0],
+                    "initial": sim.robot.config.initial,
+                }
+                candidates = [
+                    {**nominal, "station_id": f"{nominal['xy_id']}-Y{i}", "yaw": yaw, "yaw_source": "explicit"}
+                    for i, yaw in enumerate((-np.pi / 4, np.pi / 4), 1)
+                ]
                 source = sim.data.qpos.copy()
-                target_dof = int(sim.model.jnt_dofadr[sim.model.joint('target_free').id])
-                sim.data.qvel[target_dof:target_dof + 6] = np.arange(6) * .01
-                object_velocity = sim.data.qvel[target_dof:target_dof + 6].copy()
-                with (patch('lastmile_dataflow.scenes.stations.sampling.floor_support', return_value=True),
-                      patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts', return_value=[]),
-                      patch.object(sim.robot, 'aim_station', side_effect=AssertionError('explicit yaw was aimed'))):
+                target_dof = int(sim.model.jnt_dofadr[sim.model.joint("target_free").id])
+                sim.data.qvel[target_dof : target_dof + 6] = np.arange(6) * 0.01
+                object_velocity = sim.data.qvel[target_dof : target_dof + 6].copy()
+                with (
+                    patch("lastmile_dataflow.scenes.stations.sampling.floor_support", return_value=True),
+                    patch("lastmile_dataflow.scenes.stations.sampling.robot_contacts", return_value=[]),
+                    patch.object(sim.robot, "aim_station", side_effect=AssertionError("explicit yaw was aimed")),
+                ):
                     for candidate in candidates:
-                        row = initialize_station(sim, candidate, [1., 0., 1.])
-                        self.assertEqual(row['geometry'], 'valid')
-                        self.assertAlmostEqual(row['base'][2], candidate['yaw'])
-                        rechecked = initialize_station(sim, row, [1., 0., 1.])
-                        self.assertAlmostEqual(rechecked['base'][2], candidate['yaw'])
+                        row = initialize_station(sim, candidate, [1.0, 0.0, 1.0])
+                        self.assertEqual(row["geometry"], "valid")
+                        self.assertAlmostEqual(row["base"][2], candidate["yaw"])
+                        rechecked = initialize_station(sim, row, [1.0, 0.0, 1.0])
+                        self.assertAlmostEqual(rechecked["base"][2], candidate["yaw"])
                 robot_q = set(sim.robot.joints.addresses.values())
                 object_q = [i for i in range(sim.model.nq) if i not in robot_q]
                 np.testing.assert_array_equal(sim.data.qpos[object_q], source[object_q])
-                np.testing.assert_array_equal(sim.data.qvel[target_dof:target_dof + 6], object_velocity)
+                np.testing.assert_array_equal(sim.data.qvel[target_dof : target_dof + 6], object_velocity)
             finally:
                 sim.close()
 
     def test_physical_station_check_does_not_render(self):
         from types import SimpleNamespace
         from lastmile_dataflow.scenes.stations.sampling import initialize_station
-        sim = SimpleNamespace(started=False, closed=False, target_id=0,
-            data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)), model=SimpleNamespace(nq=1, nv=1, jnt_dofadr=[], body=lambda _:SimpleNamespace(name='target')),
-            robot=SimpleNamespace(config=SimpleNamespace(initial={'base':[0,0,0]}), initial_base_field='base',
-                joints=JointMap({}, {}, {}, {}, {}, {}), aim_station=lambda *args:{}, group=lambda _:np.zeros(3), observation_camera='head'))
-        with (patch('lastmile_dataflow.scenes.stations.sampling.robot_contacts',return_value=[]),
-              patch('lastmile_dataflow.scenes.stations.sampling.mujoco.mj_forward'),
-              patch('lastmile_dataflow.scenes.stations.sampling.floor_support',return_value=True)):
-            row = initialize_station(sim,{'xy':[0,0]},[1,0,1])
-            self.assertEqual(row['geometry'],'valid')
-            self.assertIsNone(row['visibility'])
+
+        sim = SimpleNamespace(
+            started=False,
+            closed=False,
+            target_id=0,
+            data=SimpleNamespace(qpos=np.zeros(1), qvel=np.zeros(1)),
+            model=SimpleNamespace(nq=1, nv=1, jnt_dofadr=[], body=lambda _: SimpleNamespace(name="target")),
+            robot=SimpleNamespace(
+                config=SimpleNamespace(initial={"base": [0, 0, 0]}),
+                initial_base_field="base",
+                joints=JointMap({}, {}, {}, {}, {}, {}),
+                aim_station=lambda *args: {},
+                group=lambda _: np.zeros(3),
+                observation_camera="head",
+            ),
+        )
+        with (
+            patch("lastmile_dataflow.scenes.stations.sampling.robot_contacts", return_value=[]),
+            patch("lastmile_dataflow.scenes.stations.sampling.mujoco.mj_forward"),
+            patch("lastmile_dataflow.scenes.stations.sampling.floor_support", return_value=True),
+        ):
+            row = initialize_station(sim, {"xy": [0, 0]}, [1, 0, 1])
+            self.assertEqual(row["geometry"], "valid")
+            self.assertIsNone(row["visibility"])
 
     def test_sampling_defaults_are_independent_of_embodiment(self):
-        config = load_scene_recipe('configs/scenes/panda_omron.yaml')
-        self.assertEqual(config.geometry.radius_m, 1.)
-        self.assertEqual(config.geometry.spacing_m, .25)
+        config = load_scene_recipe("configs/scenes/panda_omron.yaml")
+        self.assertEqual(config.geometry.radius_m, 1.0)
+        self.assertEqual(config.geometry.spacing_m, 0.25)
         self.assertEqual(config.max_final_stations, 20)
 
     def test_invalid_parameters_rejected(self):
@@ -112,4 +133,3 @@ class StationSelectionTests(unittest.TestCase):
             {"station_id": "good", "xy": [1, 0], "geometry": "valid"},
         ]
         self.assertEqual(coverage_select(rows, [0, 0], 20)[0], [rows[1]])
-

@@ -51,5 +51,3 @@ class ObserverAndTimingTests(unittest.TestCase):
         self.assertEqual(image.shape, (720, 1280, 3))
         self.assertTrue(image.any())
         self.assertTrue(all(not rgb.any() for rgb in frames.values()))
-
-

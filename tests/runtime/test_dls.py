@@ -4,36 +4,39 @@ import unittest
 import torch
 
 
-@unittest.skipUnless(importlib.util.find_spec('mjlab'), 'requires the independent RL environment')
+@unittest.skipUnless(importlib.util.find_spec("mjlab"), "requires the independent RL environment")
 class JointCommandTests(unittest.TestCase):
     def test_command_rate_is_relative_to_previous_command(self):
         from lastmile_dataflow.runtime.control.dls import limit_joint_command
+
         current = torch.zeros(1, 7)
         command = current.clone()
         for _ in range(30):
             previous = command.clone()
-            command, _ = limit_joint_command(current, torch.full_like(current, .2), command, -.1, .1, .004)
-            self.assertTrue(((command - previous).abs() <= .004001).all())
-        torch.testing.assert_close(command, torch.full_like(current, .1))
+            command, _ = limit_joint_command(current, torch.full_like(current, 0.2), command, -0.1, 0.1, 0.004)
+            self.assertTrue(((command - previous).abs() <= 0.004001).all())
+        torch.testing.assert_close(command, torch.full_like(current, 0.1))
 
     def test_reference_ramp_inside_a_policy_step_is_not_a_limit(self):
         from lastmile_dataflow.runtime.control.dls import limit_joint_command
+
         current = torch.zeros(1, 7)
-        _, within = limit_joint_command(current, torch.full_like(current, .05), current, -1., 1., .004, 25)
-        _, beyond = limit_joint_command(current, torch.full_like(current, .2), current, -1., 1., .004, 25)
-        _, clamped = limit_joint_command(current, torch.full_like(current, .05), current, -.01, .01, .004, 25)
-        self.assertEqual(float(within), 0.)
-        self.assertEqual(float(beyond), 1.)
-        self.assertEqual(float(clamped), 1.)
+        _, within = limit_joint_command(current, torch.full_like(current, 0.05), current, -1.0, 1.0, 0.004, 25)
+        _, beyond = limit_joint_command(current, torch.full_like(current, 0.2), current, -1.0, 1.0, 0.004, 25)
+        _, clamped = limit_joint_command(current, torch.full_like(current, 0.05), current, -0.01, 0.01, 0.004, 25)
+        self.assertEqual(float(within), 0.0)
+        self.assertEqual(float(beyond), 1.0)
+        self.assertEqual(float(clamped), 1.0)
 
     def test_position_servo_can_converge_with_a_rate_limited_reference(self):
         from lastmile_dataflow.runtime.control.dls import limit_joint_command
-        dt, max_step = .002, 2.175 * .002
+
+        dt, max_step = 0.002, 2.175 * 0.002
         current = torch.zeros(1, 7)
         command = current.clone()
         for _ in range(500):
-            displacement = (.6 - current).clamp(-.1, .1)
-            command, _ = limit_joint_command(current, displacement, command, -1., 1., max_step)
+            displacement = (0.6 - current).clamp(-0.1, 0.1)
+            command, _ = limit_joint_command(current, displacement, command, -1.0, 1.0, max_step)
             # Low-frequency position servo response, kp/kv=10 as on Panda.
             current += 10 * (command - current) * dt
-        self.assertTrue((current > .55).all())
+        self.assertTrue((current > 0.55).all())

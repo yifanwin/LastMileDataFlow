@@ -101,9 +101,7 @@ def main():
             for rollout in solver.core.optimizer_rollouts:
                 assert rollout.cost_manager.head_fk is not None
                 assert rollout.constraint_manager.head_fk is None
-                managers.append(
-                    {"rollout": rollout.rollout_instance_name, "soft_fov": True, "constraint_fov": False}
-                )
+                managers.append({"rollout": rollout.rollout_instance_name, "soft_fov": True, "constraint_fov": False})
         # Independently compare real MuJoCo camera projection to CUDA FK at
         # torso heights spanning the robot's allowed range; scratch data only.
         optical = []

@@ -2,6 +2,7 @@
 
 No collision queries, projections or state writes are performed here.
 """
+
 from dataclasses import dataclass
 
 import torch
@@ -34,7 +35,7 @@ class BaseFrameDLS(DifferentialIKAction):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         if self._num_joints != len(cfg.joint_velocity_limits) or self._action_dim != 6:
-            raise ValueError('DLS requires one speed limit per controlled joint and six TCP actions')
+            raise ValueError("DLS requires one speed limit per controlled joint and six TCP actions")
         self.base_id = env.sim.mj_model.site(cfg.base_site).id
         limits = dict(zip(cfg.actuator_names, cfg.joint_velocity_limits))
         ordered_limits = [limits[self._entity.joint_names[i]] for i in self._joint_ids.tolist()]
@@ -46,8 +47,8 @@ class BaseFrameDLS(DifferentialIKAction):
         # Use the measured site rotation, not a nominal yaw from the station grid.
         rotation = self._env.sim.data.site_xmat[:, self.base_id].reshape(-1, 3, 3)
         world = actions.clone()
-        world[:, :3] = torch.einsum('bij,bj->bi', rotation, actions[:, :3])
-        world[:, 3:] = torch.einsum('bij,bj->bi', rotation, actions[:, 3:])
+        world[:, :3] = torch.einsum("bij,bj->bi", rotation, actions[:, :3])
+        world[:, 3:] = torch.einsum("bij,bj->bi", rotation, actions[:, 3:])
         super().process_actions(world)
         self._raw_actions[:] = actions
         self.limit_fraction.zero_()
@@ -55,8 +56,15 @@ class BaseFrameDLS(DifferentialIKAction):
     def apply_actions(self):
         dq = self.compute_dq()
         current = self._entity.data.joint_pos[:, self._joint_ids]
-        command, limited = limit_joint_command(current, dq, self.q_command, self._joint_lower, self._joint_upper,
-                                                self.velocity_step, self._env.cfg.decimation)
+        command, limited = limit_joint_command(
+            current,
+            dq,
+            self.q_command,
+            self._joint_lower,
+            self._joint_upper,
+            self.velocity_step,
+            self._env.cfg.decimation,
+        )
         self.q_command[:] = command
         self.limit_fraction = torch.maximum(self.limit_fraction, limited)
         self._entity.set_joint_position_target(self.q_command, joint_ids=self._joint_ids)

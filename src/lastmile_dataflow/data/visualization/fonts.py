@@ -1,16 +1,17 @@
 """Label fonts for PIL images; CJK when the host has one."""
+
 from functools import cache
 from pathlib import Path
 
 from PIL import ImageFont
 
 CJK_FONT_PATHS = (
-    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
-    '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
-    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
 )
-FALLBACK_FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
 @cache

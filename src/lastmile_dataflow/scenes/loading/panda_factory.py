@@ -1,4 +1,5 @@
 """One-off export of the robosuite PandaOmron factory model into a self-contained asset directory."""
+
 from pathlib import Path
 import shutil
 import sys
@@ -7,7 +8,7 @@ import xml.etree.ElementTree as ET
 import mujoco
 import numpy as np
 
-PIVOT = np.array([-.21, 0., 0.])
+PIVOT = np.array([-0.21, 0.0, 0.0])
 
 
 def factory_spec(robosuite_root, namespace="robot_0/"):
@@ -18,19 +19,18 @@ def factory_spec(robosuite_root, namespace="robot_0/"):
         from robosuite.models.bases import robot_base_factory
         from robosuite.models.grippers import gripper_factory
         from robosuite.models.robots import create_robot
+
         robot = create_robot("PandaOmron", idn=0)
         robot.add_base(robot_base_factory(robot.default_base, idn=0))
         robot.update_joints()
         robot.update_actuators()
-        robot.add_gripper(gripper_factory(robot.default_gripper["right"], idn="0_right"),
-                          robot.eef_name["right"])
+        robot.add_gripper(gripper_factory(robot.default_gripper["right"], idn="0_right"), robot.eef_name["right"])
         spec = mujoco.MjSpec.from_string(robot.get_xml())
     finally:
         sys.path.remove(path)
     base = spec.body("mobilebase0_base")
-    base.add_site(name="base_site", pos=PIVOT, size=[.005, 0, 0], rgba=[0, 0, 0, 0])
-    base.add_camera(name="overview", pos=[-1.3, 0., 2.2],
-                    quat=[.653288, .2705823, -.2705823, -.653288], fovy=60.)
+    base.add_site(name="base_site", pos=PIVOT, size=[0.005, 0, 0], rgba=[0, 0, 0, 0])
+    base.add_camera(name="overview", pos=[-1.3, 0.0, 2.2], quat=[0.653288, 0.2705823, -0.2705823, -0.653288], fovy=60.0)
     scene = mujoco.MjSpec()
     scene.worldbody.add_frame(pos=-PIVOT).attach_body(spec.body("robot0_base"), namespace, "")
     return scene

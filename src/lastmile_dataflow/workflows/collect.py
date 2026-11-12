@@ -30,9 +30,14 @@ from .station_map import (
 
 logger = logging.getLogger(__name__)
 
-_RESULT_LOG_LEVEL = {"initialization_error": logging.ERROR, "episode_error": logging.ERROR,
-                     "recording_error": logging.ERROR, "simulation_failure": logging.ERROR,
-                     "infrastructure_error": logging.ERROR, "timeout": logging.WARNING}
+_RESULT_LOG_LEVEL = {
+    "initialization_error": logging.ERROR,
+    "episode_error": logging.ERROR,
+    "recording_error": logging.ERROR,
+    "simulation_failure": logging.ERROR,
+    "infrastructure_error": logging.ERROR,
+    "timeout": logging.WARNING,
+}
 
 
 def _plan_pairs(context, trials):
@@ -43,18 +48,31 @@ def _plan_pairs(context, trials):
         binding = {"scene_id": scene["scene_id"], "task_id": scene["task"]["task_id"]}
         if any(row["task_id"] != binding["task_id"] for row in current):
             raise ValueError("calibration task mismatch")
-        rates = station_calibration(scene["stations"], current, config.trials_per_station, binding,
-                                    config.operation_backend)
+        rates = station_calibration(
+            scene["stations"], current, config.trials_per_station, binding, config.operation_backend
+        )
         points = {station["station_id"]: station for station in scene["stations"]}
         starts, goals = eligible_stations(scene["stations"], rates, config.lastmile_low, config.lastmile_high)
         for start, goal in product(starts, goals):
-            pairs.append({**binding, "pair_id": f"p{len(pairs):06d}", "s0": start["station_id"],
-                          "s1": goal["station_id"], "s0_success_rate": start["success_rate"],
-                          "s1_success_rate": goal["success_rate"], "seed": config.seed + len(pairs),
-                          "status": "not_executed", "reason": "pending",
-                          "euclidean_distance_m": math.dist(points[start["station_id"]]["xy"],
-                                                            points[goal["station_id"]]["xy"]),
-                          "astar_path_length_m": None, "navigation_steps": 0, "rollout_id": None})
+            pairs.append(
+                {
+                    **binding,
+                    "pair_id": f"p{len(pairs):06d}",
+                    "s0": start["station_id"],
+                    "s1": goal["station_id"],
+                    "s0_success_rate": start["success_rate"],
+                    "s1_success_rate": goal["success_rate"],
+                    "seed": config.seed + len(pairs),
+                    "status": "not_executed",
+                    "reason": "pending",
+                    "euclidean_distance_m": math.dist(
+                        points[start["station_id"]]["xy"], points[goal["station_id"]]["xy"]
+                    ),
+                    "astar_path_length_m": None,
+                    "navigation_steps": 0,
+                    "rollout_id": None,
+                }
+            )
     return pairs
 
 
@@ -75,16 +93,39 @@ def _plan_collection(context, trials, source):
 def _execute(context, sim, scene, start, goal, path, seed, execute):
     """分配本次运行内唯一的试验编号，执行一次连续 S0→S1 试验。"""
     attempt_id = f"r{next(context.attempt_ids):06d}"
-    logger.debug("试验开始 %s scene=%s station=%s backend=%s seed=%s", attempt_id, scene["scene_id"],
-                 start["station_id"], context.config.operation_backend, seed)
+    logger.debug(
+        "试验开始 %s scene=%s station=%s backend=%s seed=%s",
+        attempt_id,
+        scene["scene_id"],
+        start["station_id"],
+        context.config.operation_backend,
+        seed,
+    )
     started = time.monotonic()
-    result = execute(sim, scene["task"], start, grasp_candidates(scene["task"], context.assets_dir),
-                     context.assets_dir, context.config, context.collection, root=context.root,
-                     attempt_id=attempt_id, seed=seed, path=path, goal=goal)
-    logger.log(_RESULT_LOG_LEVEL.get(result.get("status"), logging.DEBUG),
-               "试验结束 %s status=%s reason=%s steps=%s recording_complete=%s elapsed=%.1fs", attempt_id,
-               result.get("status"), result.get("reason"), result.get("executed_steps"),
-               result.get("recording_complete"), time.monotonic() - started)
+    result = execute(
+        sim,
+        scene["task"],
+        start,
+        grasp_candidates(scene["task"], context.assets_dir),
+        context.assets_dir,
+        context.config,
+        context.collection,
+        root=context.root,
+        attempt_id=attempt_id,
+        seed=seed,
+        path=path,
+        goal=goal,
+    )
+    logger.log(
+        _RESULT_LOG_LEVEL.get(result.get("status"), logging.DEBUG),
+        "试验结束 %s status=%s reason=%s steps=%s recording_complete=%s elapsed=%.1fs",
+        attempt_id,
+        result.get("status"),
+        result.get("reason"),
+        result.get("executed_steps"),
+        result.get("recording_complete"),
+        time.monotonic() - started,
+    )
     return result
 
 
@@ -92,8 +133,9 @@ def _navigation(context, sim, scene):
     config = context.config
     footprint = robot_footprint(sim, whole_body=config.navigation_whole_body)
     grid = navigation_grid(sim, scene["task"], config, footprint["radius_m"], footprint["max"][2])
-    settings = NavigationSettings.from_config(config, speed=config.navigation_speed_m_s,
-                                              yaw_speed=config.navigation_yaw_speed_rad_s)
+    settings = NavigationSettings.from_config(
+        config, speed=config.navigation_speed_m_s, yaw_speed=config.navigation_yaw_speed_rad_s
+    )
     return GeometryNavigation(sim, grid, scene["stations"], settings, budget_s=min(120.0, config.attempt_timeout_s))
 
 
@@ -103,8 +145,9 @@ def _run_pair(context, navigation, sim, scene, pair, execute):
     start, goal = stations[pair["s0"]], stations[pair["s1"]]
     navigation.hold(start)
     if navigation.compatible(goal):
-        planned = navigation.plan(start["base"], [{"xy": goal["base"][:2], "yaw": goal["base"][2],
-                                                   "anchor_station_id": goal["station_id"]}])
+        planned = navigation.plan(
+            start["base"], [{"xy": goal["base"][:2], "yaw": goal["base"][2], "anchor_station_id": goal["station_id"]}]
+        )
     else:
         planned = {"path": None, "reason": "navigation_posture_mismatch"}
     path = planned["path"]
@@ -118,7 +161,8 @@ def _run_pair(context, navigation, sim, scene, pair, execute):
     result = _execute(context, sim, scene, start, goal, path, pair["seed"], execute)
     pair.update(trial_record(result, scene, start, None, pair["seed"]))
     pair["navigation_steps"] = (result.get("navigation") or {}).get(
-        "steps", 0 if result.get("executed_steps") == 0 else None)
+        "steps", 0 if result.get("executed_steps") == 0 else None
+    )
     if successful(pair, continuous=True, observations=True):
         append_row(context.root / "train_index.jsonl", training_record(pair, ".", "s0_to_s1_continuous"))
 
@@ -139,8 +183,14 @@ def _recovery_trials(context, sim, scene, pairs, execute):
             processed.append(pair)
             # 每个 pair 后重写整个索引（O(n²)，有意为之）：中途中断也能看到已完成的进度。
             write_rows(index_path, pairs)
-            progress.update("连续采集 scene=%s 已处理=%s/%s 当前pair=%s status=%s", scene["scene_id"],
-                            len(processed), len(current), pair["pair_id"], pair["status"])
+            progress.update(
+                "连续采集 scene=%s 已处理=%s/%s 当前pair=%s status=%s",
+                scene["scene_id"],
+                len(processed),
+                len(current),
+                pair["pair_id"],
+                pair["status"],
+            )
             if shared_failure(pair):
                 break
     finally:
@@ -170,17 +220,19 @@ def _finish_pairs(root, pairs, stopped):
     finalize_dataset(root)
     training = rows(root / "train_index.jsonl")
     executed = sum((pair.get("executed_steps") or 0) > 0 for pair in pairs)
-    return {"planned_pairs": len(pairs), "processed_pairs": sum(p["status"] != "not_executed" for p in pairs),
-            "executed_pairs": executed, "execution_coverage": executed / len(pairs) if pairs else 0.0,
-            "pair_status_counts": dict(Counter(p["status"] for p in pairs)),
-            "train_source_counts": dict(Counter(row["source_type"] for row in training))}
+    return {
+        "planned_pairs": len(pairs),
+        "processed_pairs": sum(p["status"] != "not_executed" for p in pairs),
+        "executed_pairs": executed,
+        "execution_coverage": executed / len(pairs) if pairs else 0.0,
+        "pair_status_counts": dict(Counter(p["status"] for p in pairs)),
+        "train_source_counts": dict(Counter(row["source_type"] for row in training)),
+    }
 
 
-def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=None,
-                   execute=run_curobo_attempt):
+def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=None, execute=run_curobo_attempt):
     """复用匹配的标定或先在本 run 内完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
-    context = prepare_run(dataset, run, output, gpu_ids, collect=True, samples=samples,
-                          calibration=calibration)
+    context = prepare_run(dataset, run, output, gpu_ids, collect=True, samples=samples, calibration=calibration)
     source = os.path.relpath(Path(calibration).resolve(), context.root.resolve()) if calibration else "."
     summaries, pairs, stopped, calibration_summary = [], [], False, None
     try:
@@ -201,7 +253,11 @@ def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=N
     finally:
         # 异常退出也保存已完成场景和完整计划。
         counts = _finish_pairs(context.root, pairs, stopped)
-        write_summary(context, summaries, stopped,
-                      **({"calibration": calibration_summary} if calibration_summary is not None else {}),
-                      **counts)
+        write_summary(
+            context,
+            summaries,
+            stopped,
+            **({"calibration": calibration_summary} if calibration_summary is not None else {}),
+            **counts,
+        )
     return context.root

@@ -1,4 +1,5 @@
 """Recorder-free semantic stepping shared by the smoke scripts."""
+
 from functools import partial
 
 import mujoco

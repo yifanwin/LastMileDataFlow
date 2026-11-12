@@ -56,6 +56,14 @@ pi05 = [
     "PyYAML>=6",
 ]
 
+[tool.ruff]
+line-length = 120
+# Ported upstream inference code keeps its original layout.
+extend-exclude = ["src/lastmile_dataflow/policies/multitask", "src/lastmile_dataflow/policies/pi05/core"]
+
+[tool.ruff.lint]
+select = ["E702", "E703"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

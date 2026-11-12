@@ -1,4 +1,5 @@
 """Full-height collision, physical support and matched-control effect checks."""
+
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -9,16 +10,16 @@ from ...runtime.construction.session import OBSTACLE_PREFIX, matched_control, ob
 from ..geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
 from .placement import ground_coverage
 
-UP = np.array([0., 0., 1.])
+UP = np.array([0.0, 0.0, 1.0])
 
 
 @dataclass(frozen=True)
 class PhysicalLimits:
-    collision_tolerance_m: float = .001
-    support_contact_tolerance_m: float = .008
-    source_effect_tolerance_m: float = .006
-    source_effect_rotation_rad: float = .04
-    max_tilt_rad: float = .10
+    collision_tolerance_m: float = 0.001
+    support_contact_tolerance_m: float = 0.008
+    source_effect_tolerance_m: float = 0.006
+    source_effect_rotation_rad: float = 0.04
+    max_tilt_rad: float = 0.10
 
 
 LIMITS = PhysicalLimits()
@@ -26,9 +27,11 @@ LIMITS = PhysicalLimits()
 
 def _is_support_geom(model, geom, placement):
     """Ground placements rest on a non-robot floor geom; surface placements on their measured support geom."""
-    if placement['kind'] == 'ground':
-        return 'floor' in model.geom(geom).name.lower() and not model.body(int(model.geom_bodyid[geom])).name.startswith('robot_0/')
-    return model.geom(geom).name == placement['support_geom']
+    if placement["kind"] == "ground":
+        return "floor" in model.geom(geom).name.lower() and not model.body(
+            int(model.geom_bodyid[geom])
+        ).name.startswith("robot_0/")
+    return model.geom(geom).name == placement["support_geom"]
 
 
 def _geom_identity(model, geom):
@@ -51,13 +54,14 @@ def collision_pairs(sim, placements, config):
     contact_distances = {}
     for contact in d.contact:
         key = tuple(sorted((int(contact.geom1), int(contact.geom2))))
-        contact_distances[key] = min(contact_distances.get(key, 0.), float(contact.dist))
+        contact_distances[key] = min(contact_distances.get(key, 0.0), float(contact.dist))
     for name, geoms in added.items():
         for g in geoms:
             # Plane has zero rbound: include it explicitly, not by sphere broad phase.
             distances = np.linalg.norm(d.geom_xpos - d.geom_xpos[g], axis=1)
-            nearby = np.flatnonzero((distances <= m.geom_rbound + m.geom_rbound[g] + .02)
-                                    | (m.geom_type == mujoco.mjtGeom.mjGEOM_PLANE))
+            nearby = np.flatnonzero(
+                (distances <= m.geom_rbound + m.geom_rbound[g] + 0.02) | (m.geom_type == mujoco.mjtGeom.mjGEOM_PLANE)
+            )
             for h in nearby:
                 h = int(h)
                 key = tuple(sorted((g, h)))
@@ -69,21 +73,29 @@ def collision_pairs(sim, placements, config):
                 placement = placements[owner[g]]
                 support = _is_support_geom(m, h, placement)
                 threshold = config.support_contact_tolerance_m if support else config.collision_tolerance_m
-                distance = float(mujoco.mj_geomDistance(m, d, g, h, .02, None))
+                distance = float(mujoco.mj_geomDistance(m, d, g, h, 0.02, None))
                 # Native geomDistance can return zero for exactly coincident boxes.
                 # Actual mj_forward contacts still carry the penetration depth.
                 # Use both; zero distance alone is not an overlap certificate.
                 distance = min(distance, contact_distances.get(key, distance))
-                row = {'obstacle': name, 'geom_ids': [g, h],
-                       'geoms': [m.geom(g).name, m.geom(h).name],
-                       'bodies': [m.body(int(m.geom_bodyid[g])).name, m.body(int(m.geom_bodyid[h])).name],
-                       'distance_m': distance, 'support_pair': bool(support)}
+                row = {
+                    "obstacle": name,
+                    "geom_ids": [g, h],
+                    "geoms": [m.geom(g).name, m.geom(h).name],
+                    "bodies": [m.body(int(m.geom_bodyid[g])).name, m.body(int(m.geom_bodyid[h])).name],
+                    "distance_m": distance,
+                    "support_pair": bool(support),
+                }
                 if distance < -threshold:
                     bad.append(row)
                 elif support and distance <= config.support_contact_tolerance_m:
                     supports.append(row)
-    return {'valid': not bad, 'illegal_pairs': bad, 'support_pairs': supports,
-            'scope': 'all_added_collision_geoms_against_full_height_scene_geoms'}
+    return {
+        "valid": not bad,
+        "illegal_pairs": bad,
+        "support_pairs": supports,
+        "scope": "all_added_collision_geoms_against_full_height_scene_geoms",
+    }
 
 
 def load_support(sim, placements, config):
@@ -102,41 +114,61 @@ def load_support(sim, placements, config):
                 continue
             force = np.zeros(6)
             mujoco.mj_contactForce(m, d, index, force)
-            contacts.append({'other_geom': m.geom(other).name, 'distance_m': float(c.dist),
-                             'normal_vertical': abs(float(c.frame[2])), 'normal_force_n': float(force[0])})
+            contacts.append(
+                {
+                    "other_geom": m.geom(other).name,
+                    "distance_m": float(c.dist),
+                    "normal_vertical": abs(float(c.frame[2])),
+                    "normal_force_n": float(force[0]),
+                }
+            )
         points = body_points(sim, body)
-        height_error = abs(float(points[:, 2].min()) - placement['support_height_m'])
+        height_error = abs(float(points[:, 2].min()) - placement["support_height_m"])
         tilt = float(np.arccos(np.clip(np.dot(d.xmat[body].reshape(3, 3)[:, 2], UP), -1, 1)))
-        load = any(-config.support_contact_tolerance_m <= c['distance_m'] <= config.support_contact_tolerance_m
-                   and c['normal_vertical'] > .7 and c['normal_force_n'] > 1e-8 for c in contacts)
-        coverage = ground_coverage(sim, points) if placement['kind'] == 'ground' else False
-        if placement['kind'] == 'surface':
+        load = any(
+            -config.support_contact_tolerance_m <= c["distance_m"] <= config.support_contact_tolerance_m
+            and c["normal_vertical"] > 0.7
+            and c["normal_force_n"] > 1e-8
+            for c in contacts
+        )
+        coverage = ground_coverage(sim, points) if placement["kind"] == "ground" else False
+        if placement["kind"] == "surface":
             # Recheck the SETTLED footprint. A pre-placement flag is not support proof.
-            regions = extract_regions(sim, placement['support_instance'], placement['support_geom'])
+            regions = extract_regions(sim, placement["support_instance"], placement["support_geom"])
             for region in regions:
                 inside = region.contains(points, config.collision_tolerance_m)
                 coverage |= bool(inside and support_rays(sim, body, region, points))
-        valid = bool(load and coverage and height_error <= config.support_contact_tolerance_m and tilt <= config.max_tilt_rad)
-        rows.append({'instance': name, 'valid': valid, 'load_bearing_contact': load,
-                     'height_error_m': height_error, 'tilt_rad': tilt,
-                     'coverage': coverage, 'contacts': contacts})
-    return {'valid': all(r['valid'] for r in rows), 'objects': rows}
+        valid = bool(
+            load and coverage and height_error <= config.support_contact_tolerance_m and tilt <= config.max_tilt_rad
+        )
+        rows.append(
+            {
+                "instance": name,
+                "valid": valid,
+                "load_bearing_contact": load,
+                "height_error_m": height_error,
+                "tilt_rad": tilt,
+                "coverage": coverage,
+                "contacts": contacts,
+            }
+        )
+    return {"valid": all(r["valid"] for r in rows), "objects": rows}
 
 
 def contact_minima(sim):
     result = {}
     for c in sim.data.contact:
         key = tuple(sorted((_geom_identity(sim.model, c.geom1), _geom_identity(sim.model, c.geom2))))
-        result[key] = min(result.get(key, 0.), float(c.dist))
+        result[key] = min(result.get(key, 0.0), float(c.dist))
     return result
 
 
 def matched_source_effects(control, candidate, config):
     if not np.isclose(control.data.time, candidate.data.time, atol=1e-8, rtol=0):
-        raise ValueError('matched control must have the same simulation time')
+        raise ValueError("matched control must have the same simulation time")
     rows = []
     for entry in control.catalog:
-        name = entry['mjcf_body']
+        name = entry["mjcf_body"]
         if name.startswith(control.robot.config.namespace):
             continue
         b0, b1 = control.model.body(name).id, candidate.model.body(name).id
@@ -144,32 +176,39 @@ def matched_source_effects(control, candidate, config):
             continue
         delta = float(np.linalg.norm(candidate.data.xpos[b1] - control.data.xpos[b0]))
         rotation = quat_angle(candidate.data.xquat[b1], control.data.xquat[b0])
-        rows.append({'instance': name, 'delta_vs_control_m': delta, 'rotation_vs_control_rad': rotation,
-                     'valid': delta <= config.source_effect_tolerance_m and rotation <= config.source_effect_rotation_rad})
+        rows.append(
+            {
+                "instance": name,
+                "delta_vs_control_m": delta,
+                "rotation_vs_control_rad": rotation,
+                "valid": delta <= config.source_effect_tolerance_m and rotation <= config.source_effect_rotation_rad,
+            }
+        )
     c0, c1 = contact_minima(control), contact_minima(candidate)
     added_contacts = []
     for key, value in c1.items():
         if any(name.startswith(OBSTACLE_PREFIX) for name, _ in key):
             continue
-        if value < -config.collision_tolerance_m and value < c0.get(key, 0.) - config.collision_tolerance_m:
-            added_contacts.append({'pair': key, 'candidate_distance_m': value, 'control_distance_m': c0.get(key)})
-    return {'valid': all(r['valid'] for r in rows) and not added_contacts,
-            'same_time_s': float(control.data.time), 'source_objects': rows,
-            'new_or_worse_source_penetrations': added_contacts,
-            'scope': 'unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_unedited_control'}
-
-
+        if value < -config.collision_tolerance_m and value < c0.get(key, 0.0) - config.collision_tolerance_m:
+            added_contacts.append({"pair": key, "candidate_distance_m": value, "control_distance_m": c0.get(key)})
+    return {
+        "valid": all(r["valid"] for r in rows) and not added_contacts,
+        "same_time_s": float(control.data.time),
+        "source_objects": rows,
+        "new_or_worse_source_penetrations": added_contacts,
+        "scope": "unedited_dynamic_source_bodies_and_source_contact_pairs_vs_equal_time_unedited_control",
+    }
 
 
 @contextmanager
 def proposal_scene(ctx, proposal, *, deadline=None):
     """Yield physical evidence; final proxy/station checks precede any freeze."""
-    placements = proposal.runtime_changes()['placements']
+    placements = proposal.runtime_changes()["placements"]
     sim = ctx.session.candidate(placements, deadline=deadline)
     try:
         collision = collision_pairs(sim, placements, LIMITS)
-        if not collision['valid']:
-            yield sim, None, {'valid': False, 'reason': 'initial_edit_collision', 'collision': collision}
+        if not collision["valid"]:
+            yield sim, None, {"valid": False, "reason": "initial_edit_collision", "collision": collision}
             return
         settling = ctx.session.settle(deadline=deadline)
         control, _ = matched_control(ctx.baseline, settling.simulated_s, ctx.settle_config, deadline)
@@ -178,10 +217,19 @@ def proposal_scene(ctx, proposal, *, deadline=None):
             support = load_support(sim, placements, LIMITS)
             effects = matched_source_effects(control, sim, LIMITS)
             healthy = bool(np.isfinite(sim.state_vector()).all() and not settling.new_warnings)
-            checks = {'valid': bool(settling.stable and healthy and collision['valid'] and support['valid'] and effects['valid']),
-                      'settling': settling, 'solver_health': healthy, 'collision': collision, 'support': support,
-                      'source_effects': effects, 'edited_source_bodies': [], 'task_completion': 'unknown'}
-            geometry = ctx.derive(sim) if checks['valid'] else None
+            checks = {
+                "valid": bool(
+                    settling.stable and healthy and collision["valid"] and support["valid"] and effects["valid"]
+                ),
+                "settling": settling,
+                "solver_health": healthy,
+                "collision": collision,
+                "support": support,
+                "source_effects": effects,
+                "edited_source_bodies": [],
+                "task_completion": "unknown",
+            }
+            geometry = ctx.derive(sim) if checks["valid"] else None
             yield sim, geometry, checks
         finally:
             control.close()

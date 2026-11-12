@@ -38,16 +38,10 @@ class DatasetTests(DatasetTestCase):
     def test_scene_roundtrip_and_xml_payload(self):
         dataset = self.dataset()
         record = load_scenes(dataset)[0]
-        restored = Simulation.from_snapshot(
-            record["scene_path"], self.robot, target="target"
-        )
+        restored = Simulation.from_snapshot(record["scene_path"], self.robot, target="target")
         try:
-            np.testing.assert_array_equal(
-                restored.state_vector(), self.sim.state_vector()
-            )
-            model = mujoco.MjModel.from_xml_path(
-                str(Path(record["scene_path"]) / "model.xml")
-            )
+            np.testing.assert_array_equal(restored.state_vector(), self.sim.state_vector())
+            model = mujoco.MjModel.from_xml_path(str(Path(record["scene_path"]) / "model.xml"))
             self.assertEqual(model.nq, self.sim.model.nq)
             self.assertEqual(
                 {p.name for p in Path(record["scene_path"]).iterdir()},
@@ -70,12 +64,16 @@ class DatasetTests(DatasetTestCase):
         binding = {"scene_id": "one", "task_id": "pick-target"}
         rates = station_calibration(self.points, trials, 2, binding, "curobo")
         self.assertEqual(
-            len(list(itertools.product(*eligible_stations(self.points, rates, config.lastmile_low, config.lastmile_high)))), 1
+            len(
+                list(
+                    itertools.product(*eligible_stations(self.points, rates, config.lastmile_low, config.lastmile_high))
+                )
+            ),
+            1,
         )
         incomplete = station_calibration(
             self.points,
-            trials[:-1]
-            + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
+            trials[:-1] + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
             2,
             binding,
             "curobo",

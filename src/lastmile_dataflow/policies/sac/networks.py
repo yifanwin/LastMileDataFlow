@@ -1,4 +1,5 @@
 """Independent GAT encoders and a tanh Gaussian policy."""
+
 import math
 
 import torch
@@ -21,8 +22,9 @@ class GraphEncoder(nn.Module):
 
 
 def mlp(input_dim, output_dim):
-    return nn.Sequential(nn.Linear(input_dim, 256), nn.ReLU(),
-                         nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, output_dim))
+    return nn.Sequential(
+        nn.Linear(input_dim, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, output_dim)
+    )
 
 
 class Actor(nn.Module):

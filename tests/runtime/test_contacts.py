@@ -47,33 +47,35 @@ CONTACT = {
 
 class ContactPolicyTests(unittest.TestCase):
     def test_navigation_distinguishes_shallow_contact_from_severe_collision(self):
-        model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
+        model = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
           <body name="robot_0/arm" pos="0 0 1"><freejoint/><geom type="sphere" size=".1"/></body>
           <body name="wall" pos=".198 0 1"><geom type="sphere" size=".1"/></body>
-        </worldbody></mujoco>''')
-        sim = SimpleNamespace(model=model, data=mujoco.MjData(model),
-                              robot=SimpleNamespace(config=SimpleNamespace(namespace='robot_0/')))
+        </worldbody></mujoco>""")
+        sim = SimpleNamespace(
+            model=model, data=mujoco.MjData(model), robot=SimpleNamespace(config=SimpleNamespace(namespace="robot_0/"))
+        )
         sampler, stats = ContactSampler(sim), NavigationContacts()
         mujoco.mj_forward(model, sim.data)
-        self.assertFalse(stats.observe(sim, sampler, .005))
-        self.assertAlmostEqual(stats.max_penetration_m, .002)
-        sim.data.qpos[0] = .01
+        self.assertFalse(stats.observe(sim, sampler, 0.005))
+        self.assertAlmostEqual(stats.max_penetration_m, 0.002)
+        sim.data.qpos[0] = 0.01
         mujoco.mj_forward(model, sim.data)
-        self.assertTrue(stats.observe(sim, sampler, .005))
-        self.assertGreater(stats.max_penetration_m, .005)
+        self.assertTrue(stats.observe(sim, sampler, 0.005))
+        self.assertGreater(stats.max_penetration_m, 0.005)
 
     def pick_sim(self, directory):
         from lastmile_dataflow.runtime.simulation import Simulation
+
         source, robot = fixtures(directory)
         tree = ET.parse(robot.model_path)
-        for side in ('left', 'right'):
+        for side in ("left", "right"):
             for finger in (1, 2):
                 body = tree.find(f".//body[@name='robot_0/gripper_finger_{side[0]}{finger}']")
-                body.set('name', f'robot_0/ee_finger_{side[0]}{finger}')
+                body.set("name", f"robot_0/ee_finger_{side[0]}{finger}")
             arm = tree.find(f".//body[@name='robot_0/{side}_arm_6_link']")
-            ET.SubElement(arm, 'site', name=f'robot_0/ee_site_{side[0]}')
+            ET.SubElement(arm, "site", name=f"robot_0/ee_site_{side[0]}")
         tree.write(robot.model_path)
-        return Simulation.from_source(source, robot, target='target')
+        return Simulation.from_source(source, robot, target="target")
 
     def test_runtime_overlap_telemetry_but_initialization_rejected(self):
         with tempfile.TemporaryDirectory() as d:
@@ -98,8 +100,9 @@ class ContactPolicyTests(unittest.TestCase):
             sim.close()
 
     def test_pair_tick_count_not_mesh_manifold_count(self):
-        pair = ContactPair((1, 2), ("robot_0/left_arm_3_link", "table"), (1, 2), ("arm", "table"),
-                           (True, False), False, False)
+        pair = ContactPair(
+            (1, 2), ("robot_0/left_arm_3_link", "table"), (1, 2), ("arm", "table"), (True, False), False, False
+        )
 
         def frame(*forbidden):
             samples = [ContactSample(0, pair, 1000.0, True, False, value) for value in forbidden]
@@ -117,8 +120,10 @@ class ContactPolicyTests(unittest.TestCase):
     def test_runtime_observer_does_not_apply_initialization_depth_filter(self):
         shallow = dict(CONTACT, distance_m=-0.0001)
         frame = SimpleNamespace(observations=lambda: [shallow])
-        with patch("lastmile_dataflow.scenes.stations.sampling.ContactSampler",
-                   return_value=SimpleNamespace(capture=lambda **_: frame)):
+        with patch(
+            "lastmile_dataflow.scenes.stations.sampling.ContactSampler",
+            return_value=SimpleNamespace(capture=lambda **_: frame),
+        ):
             self.assertEqual(robot_contacts(None), [])
             self.assertEqual(robot_contacts(None, initialization=False), [shallow])
 
@@ -170,15 +175,24 @@ class ContactPolicyTests(unittest.TestCase):
             ctx = ContinuousContext(sim, recorder, ExecutionConfig())
             a = sim.robot.neutral_action()
             frame = ContactSampler(sim).capture()
-            with patch.object(frame, 'observations', return_value=[CONTACT]), patch.object(
-                ctx.contact_sampler, 'capture', return_value=frame
-            ) as contacts:
+            with (
+                patch.object(frame, "observations", return_value=[CONTACT]),
+                patch.object(ctx.contact_sampler, "capture", return_value=frame) as contacts,
+            ):
                 # Supply a forbidden pair while keeping the numerical contact
                 # frame separate from its optional detailed example dictionary.
                 from lastmile_dataflow.runtime.outcomes.contacts import ContactPair
-                pair = ContactPair((0, 1), tuple(CONTACT['body_names']), (0, 1),
-                                   tuple(CONTACT['geom_names']), (True, False), False, False)
-                frame.contacts = [ContactSample(0, pair, 1000., True, False, True)]
+
+                pair = ContactPair(
+                    (0, 1),
+                    tuple(CONTACT["body_names"]),
+                    (0, 1),
+                    tuple(CONTACT["geom_names"]),
+                    (True, False),
+                    False,
+                    False,
+                )
+                frame.contacts = [ContactSample(0, pair, 1000.0, True, False, True)]
                 ctx.tick(a)
                 ctx.tick(a)
             self.assertEqual(recorder.steps, 2)
@@ -190,16 +204,17 @@ class ContactPolicyTests(unittest.TestCase):
 
     def test_shared_contact_frame_preserves_pick_facts_and_counts_without_second_force_read(self):
         from lastmile_dataflow.runtime.outcomes.task import PickMonitor
+
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
             self.addCleanup(sim.close)
-            adr = sim.model.jnt_qposadr[sim.model.joint('target_free').id]
-            sim.data.qpos[adr + 2] = .02
+            adr = sim.model.jnt_qposadr[sim.model.joint("target_free").id]
+            sim.data.qpos[adr + 2] = 0.02
             mujoco.mj_forward(sim.model, sim.data)
-            monitor = PickMonitor(sim, 'left')
+            monitor = PickMonitor(sim, "left")
             expected = monitor.sample()
             sampler = ContactSampler(sim)
-            with patch('mujoco.mj_contactForce', wraps=mujoco.mj_contactForce) as force:
+            with patch("mujoco.mj_contactForce", wraps=mujoco.mj_contactForce) as force:
                 frame = sampler.capture(target_bodies=monitor.target_bodies, fingers=monitor.allowed_target_fingers)
                 facts = monitor.sample(frame)
                 stats = ContactStatistics()
@@ -208,27 +223,31 @@ class ContactPolicyTests(unittest.TestCase):
             self.assertGreater(len(details), 0)
             self.assertEqual(force.call_count, len(details))
             self.assertEqual(facts, expected)
-            self.assertTrue(facts['support_contact'])
+            self.assertTrue(facts["support_contact"])
             self.assertEqual(stats.contact_count, len(details))
-            self.assertEqual(stats.forbidden_contact_count,
-                             len({tuple(sorted(c['body_names'])) for c in details if c['forbidden']}))
+            self.assertEqual(
+                stats.forbidden_contact_count, len({tuple(sorted(c["body_names"])) for c in details if c["forbidden"]})
+            )
             self.assertEqual(stats.examples, details[:32])
 
     def test_no_trace_skips_serialization_but_keeps_physics_samples(self):
         from lastmile_dataflow.runtime.outcomes.task import PickMonitor
+
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
             self.addCleanup(sim.close)
-            recorder = AttemptRecorder(directory, {'collection': asdict(CollectionConfig(
-                record_images=False, record_video=False))})
+            recorder = AttemptRecorder(
+                directory, {"collection": asdict(CollectionConfig(record_images=False, record_video=False))}
+            )
             recorder.bind_simulation(sim)
             ctx = ContinuousContext(sim, recorder, ExecutionConfig())
             self.addCleanup(ctx.finish)
-            ctx.monitor = PickMonitor(sim, 'left')
-            ctx.monitor.initial.update(workspace_center_xy=[0., 0.], workspace_radius_m=2.)
-            with patch('lastmile_dataflow.runtime.execution.context.canonical',
-                       side_effect=AssertionError('trace disabled')):
+            ctx.monitor = PickMonitor(sim, "left")
+            ctx.monitor.initial.update(workspace_center_xy=[0.0, 0.0], workspace_radius_m=2.0)
+            with patch(
+                "lastmile_dataflow.runtime.execution.context.canonical", side_effect=AssertionError("trace disabled")
+            ):
                 ctx.tick(sim.robot.neutral_action())
             self.assertEqual(len(ctx.samples), 12)
-            self.assertAlmostEqual(ctx.samples[-1]['time_s'], .048)
-            self.assertFalse((recorder.path / 'physics.jsonl.gz').exists())
+            self.assertAlmostEqual(ctx.samples[-1]["time_s"], 0.048)
+            self.assertFalse((recorder.path / "physics.jsonl.gz").exists())

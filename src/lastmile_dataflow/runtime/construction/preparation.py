@@ -1,4 +1,5 @@
 """Unbound construction preparation and bounded, real physical settling."""
+
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -17,43 +18,56 @@ from ..simulation import InitializationError, Simulation, closed_on_error
 
 @dataclass(frozen=True)
 class SettleConfig:
-    settle_s: float = 1.
-    max_settle_s: float = 3.
-    window_s: float = .25
-    speed_m_s: float = .025
-    angular_speed_rad_s: float = .10
-    drift_m: float = .006
-    rotation_rad: float = .04
-    penetration_m: float = .01
+    settle_s: float = 1.0
+    max_settle_s: float = 3.0
+    window_s: float = 0.25
+    speed_m_s: float = 0.025
+    angular_speed_rad_s: float = 0.10
+    drift_m: float = 0.006
+    rotation_rad: float = 0.04
+    penetration_m: float = 0.01
     require_source_stability: bool = True
-    support_tolerance_m: float = .008
-    boundary_tolerance_m: float = .001
+    support_tolerance_m: float = 0.008
+    boundary_tolerance_m: float = 0.001
 
     def __post_init__(self):
         if not isinstance(self.require_source_stability, bool):
-            raise ValueError('require_source_stability must be boolean')
-        for key in ('settle_s', 'max_settle_s', 'window_s', 'speed_m_s', 'angular_speed_rad_s',
-                    'drift_m', 'rotation_rad', 'penetration_m', 'support_tolerance_m', 'boundary_tolerance_m'):
+            raise ValueError("require_source_stability must be boolean")
+        for key in (
+            "settle_s",
+            "max_settle_s",
+            "window_s",
+            "speed_m_s",
+            "angular_speed_rad_s",
+            "drift_m",
+            "rotation_rad",
+            "penetration_m",
+            "support_tolerance_m",
+            "boundary_tolerance_m",
+        ):
             value = getattr(self, key)
             if not np.isfinite(value) or value <= 0:
-                raise ValueError('invalid settling setting: ' + key)
+                raise ValueError("invalid settling setting: " + key)
         if not self.window_s <= self.settle_s <= self.max_settle_s:
-            raise ValueError('invalid settling window/budget')
+            raise ValueError("invalid settling window/budget")
 
     def graph_config(self):
-        return GraphConfig(support_tolerance_m=self.support_tolerance_m,
-                           boundary_tolerance_m=self.boundary_tolerance_m,
-                           penetration_tolerance_m=self.penetration_m)
+        return GraphConfig(
+            support_tolerance_m=self.support_tolerance_m,
+            boundary_tolerance_m=self.boundary_tolerance_m,
+            penetration_tolerance_m=self.penetration_m,
+        )
 
 
 def preparation_guard(sim):
     if sim.closed or sim.started or sim.robot.execution_started:
-        raise RuntimeError('construction requires an open, unstarted simulation')
+        raise RuntimeError("construction requires an open, unstarted simulation")
 
 
 @dataclass
 class SettleReport:
     """Outcome of one bounded settling run; field names are the written JSON keys."""
+
     status: str
     stable: bool
     observed_scene_stable: bool
@@ -70,8 +84,11 @@ class SettleReport:
 
 def _dynamic_bodies(sim):
     """Non-robot bodies with degrees of freedom."""
-    return [sim.model.body(b).name for b in range(1, sim.model.nbody)
-            if sim.model.body_dofnum[b] and not sim.model.body(b).name.startswith(sim.robot.config.namespace)]
+    return [
+        sim.model.body(b).name
+        for b in range(1, sim.model.nbody)
+        if sim.model.body_dofnum[b] and not sim.model.body(b).name.startswith(sim.robot.config.namespace)
+    ]
 
 
 def _bodies_under(sim, names, selected):
@@ -100,17 +117,20 @@ def _body_states(sim, names):
 def _window_metrics(history, name):
     states = [s[name] for _, s in history]
     pos, quat, _ = states[0]
-    return {'speed_m_s': max(float(np.linalg.norm(s[2][3:])) for s in states),
-            'angular_speed_rad_s': max(float(np.linalg.norm(s[2][:3])) for s in states),
-            'drift_m': max(float(np.linalg.norm(s[0]-pos)) for s in states),
-            'rotation_rad': max(quat_angle(s[1], quat) for s in states)}
+    return {
+        "speed_m_s": max(float(np.linalg.norm(s[2][3:])) for s in states),
+        "angular_speed_rad_s": max(float(np.linalg.norm(s[2][:3])) for s in states),
+        "drift_m": max(float(np.linalg.norm(s[0] - pos)) for s in states),
+        "rotation_rad": max(quat_angle(s[1], quat) for s in states),
+    }
 
 
 def _severe_penetrations(sim, limit):
-    return [{'distance_m': float(c.dist),
-             'geoms': [sim.model.geom(int(c.geom1)).name, sim.model.geom(int(c.geom2)).name]}
-            for c in sim.data.contact if c.dist < -limit
-            and sim.model.geom_bodyid[c.geom1] != sim.model.geom_bodyid[c.geom2]]
+    return [
+        {"distance_m": float(c.dist), "geoms": [sim.model.geom(int(c.geom1)).name, sim.model.geom(int(c.geom2)).name]}
+        for c in sim.data.contact
+        if c.dist < -limit and sim.model.geom_bodyid[c.geom1] != sim.model.geom_bodyid[c.geom2]
+    ]
 
 
 def settle_scene(sim, config=None, *, deadline=None, require_stability=True, stability_instances=None):
@@ -133,12 +153,12 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
     metrics = {}
     while sim.data.time - start < config.max_settle_s - 1e-10:
         if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError('construction wall-clock budget exhausted')
+            raise TimeoutError("construction wall-clock budget exhausted")
         mujoco.mj_step(sim.model, sim.data)
         mujoco.mj_forward(sim.model, sim.data)
         steps += 1
         if not np.isfinite(sim.state_vector()).all():
-            raise ValueError('nonfinite simulation state during settling')
+            raise ValueError("nonfinite simulation state during settling")
         history.append((float(sim.data.time), _body_states(sim, names)))
         while len(history) > 1 and history[1][0] <= sim.data.time - config.window_s:
             history.popleft()
@@ -157,20 +177,31 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
             break
     penetration = _severe_penetrations(sim, config.penetration_m)
     warnings = [i for i, w in enumerate(sim.data.warning) if int(w.number) > initial_warnings[i]]
-    status = 'settled' if stable else 'unsettled' if require_stability else 'observed_without_stability_gate'
+    status = "settled" if stable else "unsettled" if require_stability else "observed_without_stability_gate"
     return SettleReport(
-        status, bool(stable), bool(observed_scene_stable), require_stability,
-        'all_nonrobot_dynamic_bodies' if selected is None else sorted(selected), sorted(checked_names),
-        bool((stable or not require_stability) and not penetration and not warnings), steps,
-        float(sim.data.time) - start, metrics, penetration, warnings)
+        status,
+        bool(stable),
+        bool(observed_scene_stable),
+        require_stability,
+        "all_nonrobot_dynamic_bodies" if selected is None else sorted(selected),
+        sorted(checked_names),
+        bool((stable or not require_stability) and not penetration and not warnings),
+        steps,
+        float(sim.data.time) - start,
+        metrics,
+        penetration,
+        warnings,
+    )
 
 
 class PreparedScene:
     def __init__(self, sim, initialization, settling, *, graph_config=None):
         self.sim, self.initialization, self.settling = sim, initialization, settling
         self.graph_config = graph_config or GraphConfig()
-        self.graph = build_scene_graph(sim, stage='settled' if settling.stable else 'observed', config=self.graph_config)
-        self.station = self.graph.nodes['station_start']['pose']
+        self.graph = build_scene_graph(
+            sim, stage="settled" if settling.stable else "observed", config=self.graph_config
+        )
+        self.station = self.graph.nodes["station_start"]["pose"]
         self.revision = 0
 
     def refresh(self):
@@ -183,10 +214,16 @@ class PreparedScene:
         preparation_guard(self.sim)
         path = Path(path)
         path.mkdir(parents=True, exist_ok=False)
-        self.sim.freeze(path / 'scene')
-        write_json(path / 'graph.json', self.graph.to_dict())
-        write_json(path / 'preparation.json', {'initialization': self.initialization, 'settling': self.settling,
-                                              'graph_config': asdict(self.graph_config)})
+        self.sim.freeze(path / "scene")
+        write_json(path / "graph.json", self.graph.to_dict())
+        write_json(
+            path / "preparation.json",
+            {
+                "initialization": self.initialization,
+                "settling": self.settling,
+                "graph_config": asdict(self.graph_config),
+            },
+        )
 
     def close(self):
         self.sim.close()
@@ -198,27 +235,39 @@ class PreparedScene:
         self.close()
 
 
-def prepare_scene(source, robot_config, collection=None, *, base=None, settle_config=None,
-                  path=None, deadline=None, initial_snapshot=None):
+def prepare_scene(
+    source,
+    robot_config,
+    collection=None,
+    *,
+    base=None,
+    settle_config=None,
+    path=None,
+    deadline=None,
+    initial_snapshot=None,
+):
     if deadline is not None and time.monotonic() >= deadline:
-        raise TimeoutError('construction wall-clock budget exhausted')
+        raise TimeoutError("construction wall-clock budget exhausted")
     if initial_snapshot is not None:
         sim = Simulation.from_snapshot(initial_snapshot, robot_config, target=None)
         sim.spec = None  # Source spec is materialized only for structural edits.
     else:
         sim = Simulation.from_source(source, robot_config, target=None)
     with closed_on_error(sim):
-        if initial_snapshot is not None and (sim.source.scene_id != source.scene_id or
-                Path(sim.source.xml_path).resolve() != Path(source.xml_path).resolve()):
-            raise ValueError('snapshot source does not match requested scene')
+        if initial_snapshot is not None and (
+            sim.source.scene_id != source.scene_id
+            or Path(sim.source.xml_path).resolve() != Path(source.xml_path).resolve()
+        ):
+            raise ValueError("snapshot source does not match requested scene")
         initialization = initialize_robot(sim, collection or CollectionConfig(), base=base)
-        if initialization['status'] != 'valid':
-            raise InitializationError('robot initialization failed: ' + initialization['reason'])
+        if initialization["status"] != "valid":
+            raise InitializationError("robot initialization failed: " + initialization["reason"])
         config = settle_config or SettleConfig()
         settling = settle_scene(sim, config, deadline=deadline, require_stability=config.require_source_stability)
         if not settling.valid:
-            raise InitializationError('baseline is unstable or physically invalid',
-                                      {'stage': 'settling', 'settling': settling})
+            raise InitializationError(
+                "baseline is unstable or physically invalid", {"stage": "settling", "settling": settling}
+            )
         prepared = PreparedScene(sim, initialization, settling, graph_config=config.graph_config())
         if path is not None:
             prepared.save(path)

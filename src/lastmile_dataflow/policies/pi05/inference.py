@@ -1,4 +1,5 @@
 """One JAX π0.5 model, local tokenizer, explicit embodiment statistics."""
+
 import json
 import logging
 from pathlib import Path
@@ -22,23 +23,23 @@ class Pi05Inference:
     def __init__(self, config, *, require_stats=True):
         self.config = config
         self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=config.tokenizer_path)
-        path = Path(config.norm_stats) if config.norm_stats else Path(config.checkpoint) / 'assets' / 'norm_stats.json'
+        path = Path(config.norm_stats) if config.norm_stats else Path(config.checkpoint) / "assets" / "norm_stats.json"
         self.stats = None
         if path.is_file():
             data = json.loads(path.read_text())
-            self.stats = data.get('norm_stats', data)
-            keys = ('mean', 'std') if config.normalization == 'mean_std' else ('q01', 'q99')
-            for field in ('state', 'actions'):
+            self.stats = data.get("norm_stats", data)
+            keys = ("mean", "std") if config.normalization == "mean_std" else ("q01", "q99")
+            for field in ("state", "actions"):
                 for key in keys:
                     if key not in self.stats[field]:
-                        raise ValueError(f'{path}: missing {field}.{key}')
+                        raise ValueError(f"{path}: missing {field}.{key}")
         elif require_stats:
-            raise FileNotFoundError(f'π0.5 requires matching {config.embodiment} statistics: {path}')
-        logger.info('Restoring π0.5 params: %s',config.checkpoint)
-        params = model.restore_params(Path(config.checkpoint) / 'params', dtype=jnp.bfloat16)
-        logger.info('Parameters restored; constructing π0.5 graph')
+            raise FileNotFoundError(f"π0.5 requires matching {config.embodiment} statistics: {path}")
+        logger.info("Restoring π0.5 params: %s", config.checkpoint)
+        params = model.restore_params(Path(config.checkpoint) / "params", dtype=jnp.bfloat16)
+        logger.info("Parameters restored; constructing π0.5 graph")
         self.model = pi0_config.Pi0Config(pi05=True).load(params)
-        logger.info('π0.5 graph ready')
+        logger.info("π0.5 graph ready")
         self.sample = module_jit(self.model.sample_actions)
         self.reset(0)
 
@@ -47,43 +48,52 @@ class Pi05Inference:
 
     def normalize(self, value, field, *, inverse=False):
         if self.stats is None:
-            raise ValueError('normalization unavailable; only normalized model smoke is supported')
+            raise ValueError("normalization unavailable; only normalized model smoke is supported")
         return normalize(value, self.stats[field], self.config.normalization, inverse=inverse)
 
     def infer(self, observation, *, normalized=False):
         config = self.config
-        state = np.asarray(observation['state'], np.float32)
+        state = np.asarray(observation["state"], np.float32)
         if state.shape != (config.state_size,) or not np.isfinite(state).all():
-            raise ValueError(f'expected finite {config.state_size}D {config.embodiment} state')
+            raise ValueError(f"expected finite {config.state_size}D {config.embodiment} state")
         if not normalized:
-            state = self.normalize(state, 'state')
+            state = self.normalize(state, "state")
         state = np.pad(state, (0, 32 - len(state)))
-        prompt = observation['prompt'].strip().replace('_', ' ').replace('\n', ' ')
+        prompt = observation["prompt"].strip().replace("_", " ").replace("\n", " ")
         bins = np.digitize(state, np.linspace(-1, 1, 257)[:-1]) - 1
-        text = f'Task: {prompt}, State: {" ".join(map(str, bins))};\nAction: '
+        text = f"Task: {prompt}, State: {' '.join(map(str, bins))};\nAction: "
         tokens = self.tokenizer.encode(text, add_bos=True)[:200]
         mask = np.arange(200) < len(tokens)
-        tokens = np.pad(np.asarray(tokens, np.int32), (0, 200-len(tokens)))
+        tokens = np.pad(np.asarray(tokens, np.int32), (0, 200 - len(tokens)))
         images = {}
         processed = []
         for name in IMAGE_KEYS:
-            image = np.asarray(observation['images'][name])
+            image = np.asarray(observation["images"][name])
             if image.dtype != np.uint8 or image.ndim != 3 or image.shape[-1] != 3:
-                raise ValueError(f'{name} requires HWC uint8 RGB')
+                raise ValueError(f"{name} requires HWC uint8 RGB")
             image = np.asarray(resize_with_pad(image, 224, 224))
             processed.append(image)
             images[name] = jnp.asarray(image[None], jnp.float32) / 255 * 2 - 1
-        obs = model.Observation(images=images,
+        obs = model.Observation(
+            images=images,
             image_masks={name: jnp.ones((1,), dtype=bool) for name in IMAGE_KEYS},
-            state=jnp.asarray(state[None]), tokenized_prompt=jnp.asarray(tokens[None]),
-            tokenized_prompt_mask=jnp.asarray(mask[None]))
+            state=jnp.asarray(state[None]),
+            tokenized_prompt=jnp.asarray(tokens[None]),
+            tokenized_prompt_mask=jnp.asarray(mask[None]),
+        )
         self.rng, key = jax.random.split(self.rng)
         started = time.monotonic()
         raw = np.asarray(self.sample(key, obs, num_steps=config.sample_steps))[0]
-        actions = raw if normalized else self.normalize(raw, 'actions', inverse=True)
-        actions = actions[:, :config.action_size]
+        actions = raw if normalized else self.normalize(raw, "actions", inverse=True)
+        actions = actions[:, : config.action_size]
         if actions.shape != (50, config.action_size) or not np.isfinite(actions).all():
-            raise ValueError('invalid π0.5 action chunk')
-        return {'actions': actions, 'raw_actions': raw, 'inference_s': time.monotonic()-started,
-                'processed_images': processed, 'model_state': state, 'model_prompt': text,
-                'normalized_smoke': normalized}
+            raise ValueError("invalid π0.5 action chunk")
+        return {
+            "actions": actions,
+            "raw_actions": raw,
+            "inference_s": time.monotonic() - started,
+            "processed_images": processed,
+            "model_state": state,
+            "model_prompt": text,
+            "normalized_smoke": normalized,
+        }

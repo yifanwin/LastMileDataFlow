@@ -1,4 +1,5 @@
 """Planning robot models and assets."""
+
 from .panda_omron import PlanningModel as PandaPlanningModel
 from .rby1m_mobile_torso import PlanningModel as RBY1PlanningModel
 

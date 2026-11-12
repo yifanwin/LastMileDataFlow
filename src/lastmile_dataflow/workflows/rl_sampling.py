@@ -1,4 +1,5 @@
 """Actor-only sampling; CPU payloads and interruptible bounded-queue writes."""
+
 import io
 import pickle
 from queue import Full, Empty
@@ -14,6 +15,7 @@ from ..scenes.rl_observation import REWARD_COMPONENTS
 
 def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
     from ..runtime.rl.environment import StationEnv
+
     seed_all(seed)
     env = StationEnv(config, gpu=0, seed=seed, num_envs=num_envs)
     try:
@@ -33,26 +35,34 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
             while channel.poll() or paused:
                 if stop.is_set():
                     return
-                if not channel.poll(.1):
+                if not channel.poll(0.1):
                     continue
                 command, _ = channel.recv()
-                if command == 'pause':
+                if command == "pause":
                     paused = True
-                    channel.send('paused')
-                elif command == 'resume':
+                    channel.send("paused")
+                elif command == "resume":
                     paused = False
             with torch.no_grad():
-                action = (torch.rand(env.num_envs, 7, device=env.device) * 2 - 1
-                          if random_actions else actor.sample(obs)[0])
+                action = (
+                    torch.rand(env.num_envs, 7, device=env.device) * 2 - 1 if random_actions else actor.sample(obs)[0]
+                )
                 observations, reward, terminated, truncated, _ = env.step(action)
                 nxt = graph_observation(observations)
                 terminated = terminated | truncated
                 healthy = ~env.task.unhealthy
                 if not healthy.any():
-                    raise RuntimeError('All sampler environments unhealthy')
-                batch = Transition(obs[healthy], action[healthy], reward[healthy], nxt[healthy],
-                                   terminated[healthy], torch.zeros_like(truncated[healthy]),
-                                   env.task.reward_components[healthy], env.task.station_ids[healthy]).to('cpu')
+                    raise RuntimeError("All sampler environments unhealthy")
+                batch = Transition(
+                    obs[healthy],
+                    action[healthy],
+                    reward[healthy],
+                    nxt[healthy],
+                    terminated[healthy],
+                    torch.zeros_like(truncated[healthy]),
+                    env.task.reward_components[healthy],
+                    env.task.station_ids[healthy],
+                ).to("cpu")
                 returns += reward
                 components += env.task.reward_components
                 steps += 1
@@ -66,12 +76,19 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     obs.replace(ids, graph_observation(reset))
             # Messages own their bytes: no producer tensor lifetime or CUDA IPC.
             for start in range(0, len(batch.reward), 256):
-                payload = pickle.dumps((worker, version, random_actions, batch[start:start + 256],
-                                        episodes.getvalue() if start == 0 else ''))
+                payload = pickle.dumps(
+                    (
+                        worker,
+                        version,
+                        random_actions,
+                        batch[start : start + 256],
+                        episodes.getvalue() if start == 0 else "",
+                    )
+                )
                 blocked = time.perf_counter()
                 while not stop.is_set():
                     try:
-                        queue.put((payload, time.perf_counter() - blocked), timeout=.1)
+                        queue.put((payload, time.perf_counter() - blocked), timeout=0.1)
                         break
                     except Full:
                         # Pause is acknowledged only after this finite step is delivered.

@@ -7,19 +7,42 @@ from ..config import read_config
 
 # Fixed execution contract; written into results, not configurable.
 PLANNER_BACKEND = "curobo_v2_v080"
-NATIVE_MAX_ATTEMPTS = 5            # cuRobo V2 native plan_pose default; not a trial count
+NATIVE_MAX_ATTEMPTS = 5  # cuRobo V2 native plan_pose default; not a trial count
 TORSO_ERROR_POLICY = "record_only"
-MAX_OPERATION_RETRIES = 1          # S1 permits at most one outer retry after navigation
+MAX_OPERATION_RETRIES = 1  # S1 permits at most one outer retry after navigation
 
-_POSITIVE_INTS = ("trials_per_station", "min_target_pixels", "max_navigation_steps", "max_operation_plans",
-                  "max_open_plans", "max_grasp_candidates", "num_ik_seeds", "num_trajopt_seeds", "width", "height")
+_POSITIVE_INTS = (
+    "trials_per_station",
+    "min_target_pixels",
+    "max_navigation_steps",
+    "max_operation_plans",
+    "max_open_plans",
+    "max_grasp_candidates",
+    "num_ik_seeds",
+    "num_trajopt_seeds",
+    "width",
+    "height",
+)
 _NONNEGATIVE_INTS = ("seed", "operation_retries")
-_POSITIVE = ("local_base_radius_m", "head_fov_min_depth_m", "radius_m", "map_resolution_m", "navigation_speed_m_s",
-             "navigation_yaw_speed_rad_s", "arrival_tolerance_m", "arrival_tolerance_rad", "attempt_timeout_s",
-             "gripper_width_m", "open_hinge_rad", "open_slide_m", "open_hold_s", "open_waypoint_step_rad",
-             "open_waypoint_step_m")
+_POSITIVE = (
+    "local_base_radius_m",
+    "head_fov_min_depth_m",
+    "radius_m",
+    "map_resolution_m",
+    "navigation_speed_m_s",
+    "navigation_yaw_speed_rad_s",
+    "arrival_tolerance_m",
+    "arrival_tolerance_rad",
+    "attempt_timeout_s",
+    "gripper_width_m",
+    "open_hinge_rad",
+    "open_slide_m",
+    "open_hold_s",
+    "open_waypoint_step_rad",
+    "open_waypoint_step_m",
+)
 _NONNEGATIVE = ("navigation_margin_m", "navigation_clearance_weight", "navigation_max_penetration_m")
-_UNIT = ("time_dilation", "open_fraction")   # (0, 1]
+_UNIT = ("time_dilation", "open_fraction")  # (0, 1]
 
 
 @dataclass(frozen=True)
@@ -90,7 +113,11 @@ class ExecutionConfig:
             raise ValueError("invalid head FOV weight")
         if self.grasp_candidate_order not in ("facing", "tcp_distance"):
             raise ValueError("unknown grasp candidate order")
-        if not math.isfinite(self.grasp_roll_rad) or not math.isfinite(self.initial_settle_s) or self.initial_settle_s < 0:
+        if (
+            not math.isfinite(self.grasp_roll_rad)
+            or not math.isfinite(self.initial_settle_s)
+            or self.initial_settle_s < 0
+        ):
             raise ValueError("invalid grasp roll/settling")
         if self.environment_representation not in ("merged_hull", "box_cuboids"):
             raise ValueError("unknown environment representation")

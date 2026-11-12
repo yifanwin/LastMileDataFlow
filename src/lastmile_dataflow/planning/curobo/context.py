@@ -1,4 +1,5 @@
 """Planner context state container."""
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,7 @@ class PlannerContext:
     Checkers keep their identity across rebinds; ContactManager cost terms
     hold references to them, so contents are reloaded, never replaced.
     """
+
     # Scene collision checkers (required)
     target_checker: object
     handle_checker: Optional[object] = None

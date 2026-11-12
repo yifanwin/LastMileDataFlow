@@ -8,7 +8,13 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution.checkpoint import PickEvidenceComplete, checkpoint_pick_success, hold_pick, resolve_timeout, timed
+from lastmile_dataflow.runtime.execution.checkpoint import (
+    PickEvidenceComplete,
+    checkpoint_pick_success,
+    hold_pick,
+    resolve_timeout,
+    timed,
+)
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.outcomes.task import attribute, evaluate_mobile_pick, evaluate_open, torso_tracking_error
 from lastmile_dataflow.runtime.outcomes.task import evaluate_pick
@@ -142,27 +148,34 @@ class EvidenceTests(unittest.TestCase):
             self.addCleanup(baseline.close)
 
             def navigation(ctx, path, goal):
-                ctx.phase = 'navigation'
+                ctx.phase = "navigation"
                 for _ in range(3):
                     ctx.tick(ctx.sim.robot.neutral_action())
-                ctx.phase = 'arrival'
+                ctx.phase = "arrival"
                 ctx.tick(ctx.sim.robot.neutral_action())
-                raise OperationFailure('arrival_tracking_error')
+                raise OperationFailure("arrival_tracking_error")
 
             with (
-                patch('lastmile_dataflow.runtime.execution.attempt.place_frozen_station'),
-                patch('lastmile_dataflow.runtime.execution.curobo.navigate', side_effect=navigation),
+                patch("lastmile_dataflow.runtime.execution.attempt.place_frozen_station"),
+                patch("lastmile_dataflow.runtime.execution.curobo.navigate", side_effect=navigation),
             ):
                 result = run_curobo_attempt(
-                    baseline, {'target_body': 'target', 'operation': 'pick'},
-                    {'station_id': 's', 'base': [0., 0., 0.]}, [], root,
+                    baseline,
+                    {"target_body": "target", "operation": "pick"},
+                    {"station_id": "s", "base": [0.0, 0.0, 0.0]},
+                    [],
+                    root,
                     ExecutionConfig(third_person_enabled=False),
                     CollectionConfig(record_video=False, record_images=False),
-                    root=root, attempt_id='navigation-fixture', seed=1,
-                    path={'xy': [[0., 0.], [.1, 0.]]}, goal={'base': [.1, 0., 0.]})
-            self.assertEqual(result['navigation']['status'], 'failure')
-            self.assertEqual(result['navigation']['steps'], 3)
-            self.assertEqual(result['executed_steps'], 4)
+                    root=root,
+                    attempt_id="navigation-fixture",
+                    seed=1,
+                    path={"xy": [[0.0, 0.0], [0.1, 0.0]]},
+                    goal={"base": [0.1, 0.0, 0.0]},
+                )
+            self.assertEqual(result["navigation"]["status"], "failure")
+            self.assertEqual(result["navigation"]["steps"], 3)
+            self.assertEqual(result["executed_steps"], 4)
 
 
 class MobileManipulationTests(unittest.TestCase):
@@ -208,9 +221,7 @@ class MobileManipulationTests(unittest.TestCase):
 class OpenAndAttributionTests(unittest.TestCase):
     def test_open_requires_real_joint_progress_and_contact_hold(self):
         task = {"joint_initial": 0, "joint_goal": 0.1}
-        samples = [
-            {"time_s": i * 0.004, "joint_value": 0.1, "finger_forces_n": {"1": 1, "2": 1}} for i in range(276)
-        ]
+        samples = [{"time_s": i * 0.004, "joint_value": 0.1, "finger_forces_n": {"1": 1, "2": 1}} for i in range(276)]
         self.assertEqual(evaluate_open(task, samples, 1.0)["status"], "success")
         samples[-1]["finger_forces_n"] = {}
         self.assertEqual(evaluate_open(task, samples, 1.0)["status"], "failure")

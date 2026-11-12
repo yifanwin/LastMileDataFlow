@@ -29,16 +29,19 @@ def _consume_plan_budget(budgets, max_plans, phase):
 
 
 def _write_query(directory, request, started):
-    write_json(directory / "query.json", {
-        "query_id": request.query_id,
-        "started_at": started,
-        "identities": [asdict(identity) for identity in request.identities],
-        "budgets": [asdict(budget) for budget in request.budgets],
-        "stage": request.stage,
-        "model_dir": request.model_dir,
-        "preparation_path": request.inputs.preparation_path,
-        "recording_step": request.inputs.recording_step,
-    })
+    write_json(
+        directory / "query.json",
+        {
+            "query_id": request.query_id,
+            "started_at": started,
+            "identities": [asdict(identity) for identity in request.identities],
+            "budgets": [asdict(budget) for budget in request.budgets],
+            "stage": request.stage,
+            "model_dir": request.model_dir,
+            "preparation_path": request.inputs.preparation_path,
+            "recording_step": request.inputs.recording_step,
+        },
+    )
 
 
 def _grasp_lanes(planner, sim, request, directory, side, on_query):
@@ -48,9 +51,15 @@ def _grasp_lanes(planner, sim, request, directory, side, on_query):
     if not pools[0]:
         raise OperationFailure("no_grasp_candidates")
     goals = [grasp_goals(sim, inputs.config, pool, retreat=inputs.task["operation"] == "open") for pool in pools]
-    write_json(directory / "grasp_candidates.json", {"lanes": [
-        {"identity": asdict(identity), "seed": identity.seed, "candidates": pool}
-        for identity, pool in zip(request.identities, pools)]})
+    write_json(
+        directory / "grasp_candidates.json",
+        {
+            "lanes": [
+                {"identity": asdict(identity), "seed": identity.seed, "candidates": pool}
+                for identity, pool in zip(request.identities, pools)
+            ]
+        },
+    )
     lanes = planner.grasp_batch(goals, seeds, on_query)
     for lane in lanes:
         lane.update(side=side, joint_names=list(planner.names), reference_world=planner.base.tolist())
@@ -74,17 +83,29 @@ def _responses(request, lanes, directory, *, closed, queue_s, elapsed):
     responses = []
     for index, (identity, lane) in enumerate(zip(request.identities, lanes)):
         lane.setdefault("diagnostics", {}).update(
-            query_id=request.query_id, identity=asdict(identity), batch_slot=index,
-            query_ref=str((directory / "query.json").resolve()))
+            query_id=request.query_id,
+            identity=asdict(identity),
+            batch_slot=index,
+            query_ref=str((directory / "query.json").resolve()),
+        )
         if not closed:
             lane["diagnostics"]["planning_state_ref"] = str(Path(request.inputs.preparation_path) / "state.npz")
         success = lane["result"]["status"] == "success" if closed else lane["success"]
         status = "success" if success else "planning_no_solution"
         if request.budgets[index].remaining_s <= elapsed:
             status = "timeout"
-        responses.append(PlanningResponse(
-            request.query_id, identity, status, elapsed, request.budgets[index].plan_count, lane,
-            {"stage": request.stage, "query_path": str(directory)}, queue_s))
+        responses.append(
+            PlanningResponse(
+                request.query_id,
+                identity,
+                status,
+                elapsed,
+                request.budgets[index].plan_count,
+                lane,
+                {"stage": request.stage, "query_path": str(directory)},
+                queue_s,
+            )
+        )
     return responses
 
 
@@ -108,24 +129,36 @@ class PlanningService:
         max_plans = config.max_open_plans if task["operation"] == "open" else config.max_operation_plans
         on_query = partial(_consume_plan_budget, request.budgets, max_plans)
         closed = request.stage == "pose"
-        with closing(clone_sim(self.baseline(request), target=task["target_body"],
-                               handle=task.get("handle_body"))) as sim:
+        with closing(
+            clone_sim(self.baseline(request), target=task["target_body"], handle=task.get("handle_body"))
+        ) as sim:
             request.state.initialize(sim)
             side = inputs.side or sim.robot.arms[0]
             options = config
             if closed and sim.robot.lock_base_after_close:
                 options = replace(config, operation_base_mode="fixed")
             options = planner_options(options, inputs.assets_dir, request.identities[0].seed)
-            lease = self.planners.acquire(sim, options, side, directory,
-                                          workspace=(task["anchor_world"], config.radius_m),
-                                          batch_size=len(request.identities))
+            lease = self.planners.acquire(
+                sim,
+                options,
+                side,
+                directory,
+                workspace=(task["anchor_world"], config.radius_m),
+                batch_size=len(request.identities),
+            )
             with lease as planner:
                 if closed:
                     lanes = _pose_lanes(planner, request, side, on_query)
                 else:
                     lanes = _grasp_lanes(planner, sim, request, directory, side, on_query)
-        return _responses(request, lanes, directory, closed=closed,
-                          queue_s=started - request.enqueued_at, elapsed=time.monotonic() - started)
+        return _responses(
+            request,
+            lanes,
+            directory,
+            closed=closed,
+            queue_s=started - request.enqueued_at,
+            elapsed=time.monotonic() - started,
+        )
 
     def close(self):
         self.planners.close()
@@ -133,16 +166,23 @@ class PlanningService:
 
 
 def _failed(request, started, failure):
-    return [PlanningResponse(request.query_id, identity, failure["status"], time.monotonic() - started,
-                             budget.plan_count, diagnostics=failure, queue_s=started - request.enqueued_at)
-            for identity, budget in zip(request.identities, request.budgets)]
+    return [
+        PlanningResponse(
+            request.query_id,
+            identity,
+            failure["status"],
+            time.monotonic() - started,
+            budget.plan_count,
+            diagnostics=failure,
+            queue_s=started - request.enqueued_at,
+        )
+        for identity, budget in zip(request.identities, request.budgets)
+    ]
 
 
 def _planning_worker(index, gpu, requests, results, service_type, egl_device):
     bind_device(gpu, egl_device)
-    os.environ.update(
-        OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1"
-    )
+    os.environ.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
     with closing(service_type()) as service:
         while True:
             request = requests.get()
@@ -152,10 +192,13 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
             try:
                 responses = service.execute(request)
             except TimeoutError as exc:
-                responses = _failed(request, started, {"status": "timeout", "reason": str(exc), "failure_scope": "episode"})
+                responses = _failed(
+                    request, started, {"status": "timeout", "reason": str(exc), "failure_scope": "episode"}
+                )
             except OperationFailure as exc:
-                responses = _failed(request, started, {"status": "planning_no_solution", "reason": str(exc),
-                                                       "failure_scope": "episode"})
+                responses = _failed(
+                    request, started, {"status": "planning_no_solution", "reason": str(exc), "failure_scope": "episode"}
+                )
             except Exception as exc:  # batch isolation: an infrastructure fault fails only this request
                 responses = _failed(request, started, classify_episode_exception(exc, "planning"))
             for response in responses:
@@ -166,9 +209,7 @@ def _planning_worker(index, gpu, requests, results, service_type, egl_device):
                     cuda_visible_devices=os.environ["CUDA_VISIBLE_DEVICES"],
                 )
             results.put((index, responses))
-            if any(
-                (response.status == "infrastructure_error" for response in responses)
-            ):
+            if any((response.status == "infrastructure_error" for response in responses)):
                 return
 
 
@@ -189,9 +230,7 @@ class PlanningPool:
         self.context = multiprocessing.get_context("spawn")
         self.results = self.context.Queue()
         self.workers_per_gpu = values
-        self.worker_gpu = [
-            gpu for (gpu, count) in zip(gpu_ids, values) for _ in range(count)
-        ]
+        self.worker_gpu = [gpu for (gpu, count) in zip(gpu_ids, values) for _ in range(count)]
         self.requests = [self.context.Queue() for _ in self.worker_gpu]
         self.processes = [
             self.context.Process(
@@ -221,14 +260,10 @@ class PlanningPool:
         self.serial += 1
 
     def dispatch(self):
-        idle = [
-            index for index in range(len(self.processes)) if index not in self.active
-        ]
+        idle = [index for index in range(len(self.processes)) if index not in self.active]
         while idle and self.pending and (self.failure is None):
             (_, _, request) = heapq.heappop(self.pending)
-            index = next(
-                (i for i in idle if self.models.get(i) == request.model_dir), idle[0]
-            )
+            index = next((i for i in idle if self.models.get(i) == request.model_dir), idle[0])
             idle.remove(index)
             self.requests[index].put(request)
             self.active[index] = request
@@ -247,9 +282,7 @@ class PlanningPool:
                     }
             return None
         request = self.active.pop(index)
-        shared = next(
-            (r for r in responses if r.status == "infrastructure_error"), None
-        )
+        shared = next((r for r in responses if r.status == "infrastructure_error"), None)
         if shared is not None:
             self.failure = shared.diagnostics
         return (request, responses)

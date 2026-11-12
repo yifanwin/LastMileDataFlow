@@ -6,6 +6,7 @@ self-collision managers always see the original, unmodified spheres.
 This module loads cuRobo on import; the planner imports it only when it builds
 solvers, so CPU-only execution paths never pull cuRobo in.
 """
+
 import copy
 from dataclasses import dataclass
 
@@ -24,7 +25,7 @@ def contact_spheres(spheres, indices, allowed):
     """Clone only the target query geometry; original robot spheres stay intact."""
     result = spheres.clone()
     if allowed:
-        result[..., indices, 3] = -100.
+        result[..., indices, 3] = -100.0
     return result
 
 
@@ -41,6 +42,7 @@ class ContactManager(RobotCostManager):
     `config.context` is the owning planner's PlannerContext, shared by
     reference: phase and attach flags change during one query.
     """
+
     def initialize_from_config(self, config, transition_model, scene_collision_checker=None, **kwargs):
         super().initialize_from_config(config, transition_model, scene_collision_checker, **kwargs)
         self.context = config.context
@@ -54,8 +56,7 @@ class ContactManager(RobotCostManager):
         self.contact_indices = link_sphere_indices(params, self.context.contact_links)
         self.handle_indices = link_sphere_indices(params, self.context.handle_contact_links)
         self.head_fk = None
-        if ((config.head_fov_cost_enabled or config.head_fov_endpoint_check)
-                and self.context.fov_robot is not None):
+        if (config.head_fov_cost_enabled or config.head_fov_endpoint_check) and self.context.fov_robot is not None:
             self.head_fk = Kinematics(self.context.fov_robot.kinematics, compute_spheres=False)
             self.head_indices = [self.names.index(n) for n in self.head_fk.joint_names]
 
@@ -76,15 +77,13 @@ class ContactManager(RobotCostManager):
         if not self.context.attached:
             idxs = goal.idxs_env.view(-1) if goal is not None and goal.idxs_env is not None else None
             if self.target_cost is not None:
-                result.add(self._contact_cost(state, self.target_cost, self.contact_indices, idxs),
-                           'target_collision')
+                result.add(self._contact_cost(state, self.target_cost, self.contact_indices, idxs), "target_collision")
             if self.handle_cost is not None:
                 # A pinch on a deep handle puts the palm against it; only the
                 # handle is relaxed, the surrounding body stays a hard obstacle.
-                result.add(self._contact_cost(state, self.handle_cost, self.handle_indices, idxs),
-                           'handle_contact')
+                result.add(self._contact_cost(state, self.handle_cost, self.handle_indices, idxs), "handle_contact")
         if self.config.scene_collision_cfg is not None and self.context.movable_base:
-            result.add(self._workspace_cost(state), 'workspace_circle')
+            result.add(self._workspace_cost(state), "workspace_circle")
         if self.head_fk is not None:
             self._add_head_fov(state, result)
         return result
@@ -96,9 +95,10 @@ class ContactManager(RobotCostManager):
         return cost.forward(kin, idxs, trajectory_dt=state.joint_state.dt)
 
     def _workspace_cost(self, state):
-        xy = state.joint_state.position[..., [self.names.index('base_x'), self.names.index('base_y')]]
-        gap = torch.clamp(torch.linalg.vector_norm(xy - self.context.local_center, dim=-1)
-                          - self.context.radius, min=0.)
+        xy = state.joint_state.position[..., [self.names.index("base_x"), self.names.index("base_y")]]
+        gap = torch.clamp(
+            torch.linalg.vector_norm(xy - self.context.local_center, dim=-1) - self.context.radius, min=0.0
+        )
         return gap.unsqueeze(-1) * self.config.scene_collision_cfg.weight.reshape(-1)[0]
 
     def _add_head_fov(self, state, result):
@@ -107,7 +107,7 @@ class ContactManager(RobotCostManager):
         q = state.joint_state.position[..., self.head_indices]
         if not self.config.head_fov_endpoint_check:
             js = JointState.from_position(q, joint_names=self.head_fk.joint_names)
-            result.add(self.context.fov_cost(target_camera_torch(self.head_fk, js, self.context)), 'head_fov')
+            result.add(self.context.fov_cost(target_camera_torch(self.head_fk, js, self.context)), "head_fov")
             return
         # The tag ranks seeds by pose error/time, NOT custom soft
         # costs. Endpoint-only metrics reject invisible IK goals,
@@ -117,11 +117,13 @@ class ContactManager(RobotCostManager):
         local = target_camera_torch(self.head_fk, js, self.context)
         depth = -local[..., 2]
         cost = self.context.fov_cost
-        invalid = ((depth <= cost.min_depth)
-                   | (local[..., 0].abs() >= depth*cost.tan_half_x)
-                   | (local[..., 1].abs() >= depth*cost.tan_half_y))
-        prefix = torch.zeros((*q.shape[:1], q.shape[1]-1, 1), device=q.device, dtype=q.dtype)
-        result.add(torch.cat((prefix, invalid.to(q.dtype).unsqueeze(-1)), dim=1), 'head_fov_endpoint')
+        invalid = (
+            (depth <= cost.min_depth)
+            | (local[..., 0].abs() >= depth * cost.tan_half_x)
+            | (local[..., 1].abs() >= depth * cost.tan_half_y)
+        )
+        prefix = torch.zeros((*q.shape[:1], q.shape[1] - 1, 1), device=q.device, dtype=q.dtype)
+        result.add(torch.cat((prefix, invalid.to(q.dtype).unsqueeze(-1)), dim=1), "head_fov_endpoint")
 
 
 @dataclass
@@ -139,10 +141,12 @@ class ContactManagerCfg(RobotCostManagerCfg):
     @classmethod
     def create(cls, data_dict, **kwargs):
         original = RobotCostManagerCfg.create(data_dict, **kwargs)
-        return cls(**vars(original),
-                   head_fov_cost_enabled=data_dict.get('head_fov_cost_enabled', False),
-                   head_fov_endpoint_check=data_dict.get('head_fov_endpoint_check', False),
-                   context=cls.planner_context)
+        return cls(
+            **vars(original),
+            head_fov_cost_enabled=data_dict.get("head_fov_cost_enabled", False),
+            head_fov_endpoint_check=data_dict.get("head_fov_endpoint_check", False),
+            context=cls.planner_context,
+        )
 
 
 def manager_type(context):
@@ -152,7 +156,7 @@ def manager_type(context):
     requires `type(cfg)` to equal the configured type, so the context travels
     on a per-planner subclass rather than through a closure.
     """
-    return type('PlannerContactManagerCfg', (ContactManagerCfg,), {'planner_context': context})
+    return type("PlannerContactManagerCfg", (ContactManagerCfg,), {"planner_context": context})
 
 
 def fov_optimizer_configs():
@@ -162,10 +166,10 @@ def fov_optimizer_configs():
     FOV there would incorrectly turn the safety margin into a native constraint.
     """
     result = []
-    for name in ('ik/lbfgs_ik.yml', 'trajopt/lbfgs_bspline_trajopt.yml'):
+    for name in ("ik/lbfgs_ik.yml", "trajopt/lbfgs_bspline_trajopt.yml"):
         config = load_yaml(join_path(get_task_configs_path(), name))
-        config['rollout']['cost_cfg']['head_fov_cost_enabled'] = True
+        config["rollout"]["cost_cfg"]["head_fov_cost_enabled"] = True
         result.append(config)
-    metrics = load_yaml(join_path(get_task_configs_path(), 'metrics_base.yml'))
-    metrics['rollout']['constraint_cfg']['head_fov_endpoint_check'] = True
+    metrics = load_yaml(join_path(get_task_configs_path(), "metrics_base.yml"))
+    metrics["rollout"]["constraint_cfg"]["head_fov_endpoint_check"] = True
     return (*result, metrics)
