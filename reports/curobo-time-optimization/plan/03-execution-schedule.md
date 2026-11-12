@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-25
 - 替代：无；将主方案拆成可执行工作包
-- 关联：[主方案](01-panda-omron-time-optimization.md)、[并行专项](02-parallel-execution.md)、[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)
+- 关联：[主方案](01-panda-omron-time-optimization.md)、[并行专项](02-parallel-execution.md)、[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../analyze/01-current-status.md)
 
 **执行顺序：确定配置和接口 → 完成全部流程加速与离线视频能力 → 软件回归 → 首阶段单任务正式全量 → 最终批次提前估时 → 100 个 val 来源全 Case 正式运行。** 开发阶段不安排 Panda 基线、抽点预跑或逐项性能 A/B。下表持续记录实际实施与验收状态。
 

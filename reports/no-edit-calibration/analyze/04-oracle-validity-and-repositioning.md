@@ -3,7 +3,7 @@
 - 状态：done（按跨策略普适性目标修订；实验为建议，未执行）
 - 日期：2026-10-29
 - 替代：无；不改写既有标定与 benchmark 协议
-- 关联：[标定修复摘要](../delivery/05-repair-summary.md)、[任务模式标定](../../task-modes/delivery/02-calibration-delivery.md)、[benchmark 需求](../../benchmark/requirement/01-lastmile-bench-v0.1.md)、[共享控制方案](../../pi05/info/01-panda-shared-control.md)
+- 关联：[标定修复摘要](../delivery/05-repair-summary.md)、[任务模式标定](../../archives/task-modes/delivery/02-calibration-delivery.md)、[benchmark 需求](../../benchmark/requirement/01-lastmile-bench-v0.1.md)、[共享控制方案](../../pi05/analyze/01-panda-shared-control.md)
 
 落实到代码范围、先后顺序与完成标志的清单见[跨策略操作区域调整方案](../plan/05-policy-agnostic-region-adjustments.md)。以下保留研究推理与协议边界。
 

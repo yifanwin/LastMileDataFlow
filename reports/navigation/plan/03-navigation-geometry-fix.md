@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-26
 - 替代：无
-- 关联：[Cup 复核](../delivery/06-cup-navigation-review.md)、[下游交付](../../task-modes/delivery/03-downstream-delivery.md)、[任务需求](../../task-modes/requirement/01-task-mode-construction.md)
+- 关联：[Cup 复核](../delivery/06-cup-navigation-review.md)、[下游交付](../../archives/task-modes/delivery/03-downstream-delivery.md)、[任务需求](../../archives/task-modes/requirement/01-task-mode-construction.md)
 
 ## 1. 修复目标与范围
 

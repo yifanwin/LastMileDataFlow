@@ -3,7 +3,7 @@
 - 状态：draft
 - 日期：2026-10-24
 - 替代：无
-- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[最新方案](../plan/01-panda-omron-time-optimization.md)、[执行计划表](../plan/03-execution-schedule.md)、[当前状况](../info/01-current-status.md)
+- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[最新方案](../plan/01-panda-omron-time-optimization.md)、[执行计划表](../plan/03-execution-schedule.md)、[当前状况](01-current-status.md)
 
 **本文只做运行前的数量与时长估算，不是实测结果。** 加速链（P03–P08）尚未实现，标定口径取方案中未验证的“满 20×3 ≤30 min/场景”作为下限，取历史 Panda 实测 69.3 s/trial 作为上限。
 

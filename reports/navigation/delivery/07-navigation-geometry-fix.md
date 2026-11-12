@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-26
 - 替代：接续 06 号原因复核；原实验 run 和计数不改写
-- 关联：[修复方案](../plan/03-navigation-geometry-fix.md)、[原因复核](06-cup-navigation-review.md)、[运行清单](../../task-modes/delivery/05-run-inventory.md)、[下游交付](../../task-modes/delivery/03-downstream-delivery.md)
+- 关联：[修复方案](../plan/03-navigation-geometry-fix.md)、[原因复核](06-cup-navigation-review.md)、[运行清单](../../archives/task-modes/delivery/05-run-inventory.md)、[下游交付](../../archives/task-modes/delivery/03-downstream-delivery.md)
 
 ## 1. 执行过程与实际改动
 

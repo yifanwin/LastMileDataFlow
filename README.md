@@ -27,4 +27,4 @@ GPU 按实时空闲情况选择。--gpu 使用物理编号，EGL 自动映射并
 本轮真实检查覆盖场景构建、Panda单trial、3个连续配对、benchmark重建及π0.5两步调用链。整体回归未全绿，RGB与旧基线有最大2/255差异，未完成全部真实验收；已按用户要求停止所有实验与验证。详见 [第一轮总结](reports/simplify-refactor/delivery/10-final-summary.md)。第二轮精简与目录分层后，在 GPU 0 上以最小规模跑通了场景构建、站位采样、标定、采集和 benchmark 构建，只验证能运行，策略评测未跑；见 [第二轮总结](reports/simplify-refactor/delivery/12-second-pass-summary.md)。
 
 - [架构](docs/architecture.md)（源码按 pipeline 分层：utils → sim → robots → planning → operation → policies → scenes → station_map → lastmile_dataset / lastmile_benchmark）、[数据格式](docs/data-format.md)、[配置](configs/README.md)、[测试](tests/README.md)。
-- [报告入口](reports/README.md)与 [产物规则](outputs/RULES.md)。历史报告保留，历史成功不代表当前主链已验证。
+- [报告入口](reports/README.md)与 [产物规则](outputs/RULES.md)。过时报告在 `reports/archives/`，历史成功不代表当前主链已验证。

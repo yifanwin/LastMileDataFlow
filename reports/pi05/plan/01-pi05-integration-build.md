@@ -3,7 +3,7 @@
 状态：active  
 日期：2026-10-18  
 替代：无  
-关联：[接入需求](../requirement/01-pi05-integration.md)、[Panda profile 评估](../info/01-panda-robocasa-alignment.md)、[路线 B 链路评估](../info/01-panda-shared-control.md)、[方案编写总结](../delivery/02-build-plan.md)
+关联：[接入需求](../requirement/01-pi05-integration.md)、[Panda profile 评估](../analyze/01-panda-robocasa-alignment.md)、[路线 B 链路评估](../analyze/01-panda-shared-control.md)、[方案编写总结](../delivery/02-build-plan.md)
 
 ## 1. 构建目标与本轮边界
 
@@ -150,7 +150,7 @@ cuRobo 继续规划关节与底盘轨迹，沿用其时间重采样。FK 使用 
 
 A* 路径仍可复用，导航执行改为同协议的底盘 action，并按基座参考保持末端、torso 和夹爪意图。原保持关节姿态的整机包络需核对实际臂运动，不能只验证操作段而漏掉导航。
 
-若代表性验证显示原 OSC 零空间行为无法满足 cuRobo 所需路径，保留真实负结果，不直接确认默认迁移。届时先保留可用的 Panda π0.5 RoboCasa 接入，再明确示教方案调整；不悄悄仅给示教增加部署时没有的控制输入。详细推导见[链路评估](../info/01-panda-shared-control.md)。
+若代表性验证显示原 OSC 零空间行为无法满足 cuRobo 所需路径，保留真实负结果，不直接确认默认迁移。届时先保留可用的 Panda π0.5 RoboCasa 接入，再明确示教方案调整；不悄悄仅给示教增加部署时没有的控制输入。详细推导见[链路评估](../analyze/01-panda-shared-control.md)。
 
 ## 7. RBY-1：先固定待微调协议，再补齐统计与能力验证
 

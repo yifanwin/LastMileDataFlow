@@ -1,84 +1,47 @@
-# 报告组织与当前状态
+# 报告
 
-## 当前简化分支收束（2026-11-12）
+报告记录需求、方案、交付和分析，不作为运行输入；当前命令见 [docs/runbook.md](../docs/runbook.md)。历史报告只描述对应版本，不能作为当前代码已通过真实验收的依据。
 
-2026-11-12T00:14:45+08:00：simplify分支已按用户要求停止全部实验/对比/验证。主要精简及真实最小运行结果见[最终总结](simplify-refactor/delivery/10-final-summary.md)。最后回归并非全绿，RGB严格一致性未通过，不宣称全部计划验收完成。2026-11-12 第二轮精简（含按 pipeline 的目录分层）见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)：迁移后只做了最小规模的可运行验证。
+## 目录约定
 
-## 历史版本记录（保留原文）
+按主题组织，主题目录名用英文小写加连字符；主题内按用途分类，目录按需创建：
 
-**当前五命令软件回归可用；lastmile-bench v0.1 已完成既有数据构建及 RBY-1 真实评测，恢复成功能力尚未取得正例。**
-运行方式见 [运行手册](../docs/runbook.md)，不要从历史实施步骤寻找当前命令。
+- `requirement/`：需求；`plan/`：方案、计划；`delivery/`：结果、交付（含该主题的运行指南）；`analyze/`：分析、现状。
+- 尚未明确分类的文档放主题根目录，不另建 `other/`。
+- `archives/<主题>/`：已过时的报告（已删除的功能、被取代的方案、旧实验记录），保持原主题内的相对结构，定期整体清理，历史留在 Git 里。主题内不再另建 `archive/`。
+- 不在这里堆积视频、日志等运行产物。
 
-当前actor-critic算法与训练主链见[算法设计与训练核心 Pipeline](rl-station-map/docs/02-algorithm-training-pipeline.md)。
+## 当前状态
 
-2026-11-11 新增[1–8 GPU 分布式采样与集中式 Learner 方案](rl-station-map/plan/03-distributed-sampling-centralized-learner.md)：采用简化架构：主进程 Learner、多 Sampler、CPU Replay、普通有界队列及每 16 次更新同步 Actor；每张 GPU 一个 Sampler，Learner 与 S0 共享卡，单卡也使用两个独立进程；启动时固定分配，预热后全局 UTD=1/128。每 100,000 条暂停采样同步验证固定点，完整 Q 图仅在结束后用 best 模型生成一次；不做动态调度或 Learner 迁移。已实施代码并完成单卡真实短程；多卡吞吐尚未测量，见[交付记录](rl-station-map/delivery/09-distributed-sampling.md)。
+- 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。
+- RL 站位图：仍在研究，学习策略尚无成功；算法与训练主链见[算法与训练 pipeline](rl-station-map/delivery/algorithm-training-pipeline.md)，运行见[运行指南](rl-station-map/delivery/running.md)，接手见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)。
+- lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
+- 公开机器人配套资产是否齐全仍是复现限制。
 
-2026-11-11 RL 调整见[小动作、四阶段奖励与可动升降方案](rl-station-map/plan/02-staged-reward-and-lift.md)：目标为 2 cm / 5°、阶段奖励、可动升降及抬升 1 cm / 保持 1 s；闭合奖励 0.05/s、持物奖励 0.5/s，抬升采用回合历史最高进度增量，新增 7 项奖励分量可视化和代表性视频输出。代码与短验证已完成，见[交付记录](rl-station-map/delivery/07-staged-reward-and-lift.md)：相关测试23项通过，脚本在新协议下无碰撞成功；2400条短训练未得到Actor抓取成功，已有奖励图和沿用既有角度的视频。全套回归仍有缺依赖及旧失败，未完成站位图验收。
+## 主题
 
-## 验证边界
+| 主题 | 内容 | 入口 |
+|---|---|---|
+| `simplify-refactor/` | 两轮精简重构的方案、进度与总结 | [第二轮方案](simplify-refactor/plan/02-further-simplify-plan.md)、[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md) |
+| `project-overview/` | pipeline 总图与站位热图示意 | [pipeline 图](project-overview/delivery/2026-11-02-pipeline-figure.md) |
+| `rl-station-map/` | 固定底盘 SAC 站位图（mjlab 独立环境） | [需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)、[分布式采样方案](rl-station-map/plan/03-distributed-sampling-centralized-learner.md) |
+| `benchmark/` | lastmile-bench：困难 S0、恢复区域与评测 | [需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[现状](benchmark/analyze/01-current-status.md) |
+| `build-lastmile-datasets/` | 连续采集数据集的需求与首轮实现 | [需求](build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[实现交付](build-lastmile-datasets/delivery/01-implementation.md) |
+| `curobo-time-optimization/` | PandaOmron 场景构建与 cuRobo 标定加速（GPU 规划/CPU 执行拆分） | [当前需求](curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)、[现状](curobo-time-optimization/analyze/01-current-status.md)、[规划失败分析](curobo-time-optimization/analyze/2026-10-25-planning-failure-analysis.md) |
+| `collision-handling/` | 局部碰撞表示：机器人柱体/底盘球、结构化局部环境 | [需求](collision-handling/requirement/02-local-collision-representation.md)、[方案](collision-handling/plan/04-local-collision-representation.md) |
+| `navigation/` | A* 导航几何修复与软净空 | [专题入口](navigation/README.md)、[软净空实施结果](navigation/delivery/08-navigation-soft-clearance.md) |
+| `no-edit-calibration/` | 无编辑场景标定实验、低成功率归因与 Oracle 边界分析 | [需求](no-edit-calibration/requirement/01-requirement.md)、[成功率归因](no-edit-calibration/analyze/01-low-success-analysis.md)、[Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md) |
+| `panda-omron/` | PandaOmron 接入、全流程与整机缩放 | [全流程需求](panda-omron/requirement/02-panda-omron-full-flow.md)、[整机缩放 0.9](panda-omron/delivery/20261111-scale-09.md) |
+| `pi05/` | π0.5 双本体接入与运行 | [需求](pi05/requirement/01-pi05-integration.md)、[构建报告](pi05/delivery/03-implementation.md)、[运行指南](pi05/delivery/running.md) |
+| `raw-assets/` | THOR 资产库、DROID 抓取库、ProcTHOR 场景库的内容分析 | [analyze/](raw-assets/analyze/) |
 
-- [固定底盘 SAC 站位图需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)：独立mjlab环境、DLS、图观测、SAC双Q、Replay、六指标/四组图已实现并有真实运行证据。已有12轮训练、保存交互约511万条，记录训练回合12260个与重复validation rollout896次均无成功；当前停在P4学习。`123bc88` 的4cm / 7.5° / 60s脚本抓取成功43/128、无非法碰撞成功35/128，尚无新尺度训练结果。工作区后续将γ从0.995调至0.999，待训练验证；尚无有效站位排序验收结论。见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)、[实施记录](rl-station-map/delivery/04-implementation.md)、[运行指南](rl-station-map/docs/01-running.md)。
+## 归档
 
-  [mjlab 适配评估](rl-station-map/delivery/02-mjlab-assessment.md)保留选型前分析；当前路线与依赖以构建方案为准。此前的[需求梳理](rl-station-map/delivery/01-requirements-review.md)记录论文核对过程。
-
-- [跨策略站位可行性与 cuRobo Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md)：探索初始可抓握、后续门/抽屉运动与底盘占位冲突的任务。固定底盘仅作构建诊断，正式评测允许全身协调；S1 为参考解。[调整清单](no-edit-calibration/plan/05-policy-agnostic-region-adjustments.md)落实任务判据、自由度、搜索覆盖、四类标签、区域验证及跨策略对照；仅完成分析，尚未实施代码或新实验。
-
-- [PandaOmron 标定修复与排查方案](collision-handing/archive/03-calibration-repair-and-diagnosis.md)：P1 Pick 顺序对照已恢复；N0–N2 已完成，见[阶段交付第 7 节](collision-handing/archive/04-calibration-repair.md#7-方案-n0n2-实施结果2026-10-27)。当前重构代码的 Cup_30 真实执行与原结果逐条一致，Pick/Open 家族复用与 fresh 规划一致（Open 只验证了规划）；修正后的测距显示，初始状态下 4 个球侵入站位的实体底盘均未接触障碍。IK 和轨迹候选的同状态对照（N3）未开始，没有修改碰撞球，采样参数调整不在范围内。
-
-- benchmark 静态构建图与评测组合图已解耦，按最新要求输出 PNG；已有 RBY-1 两条 rollout 的 head / 第三人称共四个视频单独保留，见[图片交付](benchmark/delivery/phase_02/2026-10-18-png.md)。
-- lastmile-bench v0.1 已在独立工作区复用 6 组既有标定完成构建；当前 RBY-1 / Panda 输入分别得到 2 / 1 个 episode，实际导航与区域进入检查通过。RBY-1 Full policy TSR=0/2、Recovery=0/2、coverage=100%，见[实施与构建记录](benchmark/delivery/phase_01/2026-10-18-build.md)。来源标定允许底盘移动，没有重新标定；当前没有 Open 来源数据，该轮尚未接入 Panda VLA；新 π0.5 进度见下方独立报告。
-
-- 第一轮有限真实实验已生成并重载增强场景，执行过 cuRobo V2 逐点规划和连续导航；没有得到成功操作示教。MolmoBot 逐点与单例 bench smoke 也未成功，不能视为困难评测完成。原记录 `archives/轻量化/` 已于 2026-11-12 删除（见 Git 历史）。
-- 第二轮在迁移后的源码上完成软件回归与真实快照 CPU stepping；没有重新验收 GPU rollout、模型推理和五命令端到端。原记录同上，已删除。
-- 本次 PandaOmron 文档整理见[交付报告](curobo-time-optimization/delivery/2026-10-24-document-consolidation.md)；该轮未运行新实验。GPU 规划/CPU 执行拆分现已实现，设计见[并行专项](curobo-time-optimization/plan/02-parallel-execution.md)，首阶段实测见下条交付。测试入口与验证类型见 [tests](../tests/README.md)。
-- lastmile-datasets 的全组合、两类示教索引和独立物化已完成软件实现，验证见[交付报告](build-lastmile-datasets/delivery/01-implementation.md)；合成数据搬迁读取不代表真实机器人成功采集。
-- 构建与 cuRobo 加速资料统一放在 `curobo-time-optimization/`，主线为 **PandaOmron、每站位 3 次、先完成流程加速再统一全量实验**（[当前需求](curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)）。Panda 配置已为 3 次；CUDA Graph 不纳入实现，数值标定关闭在线视觉记录。双池、共享准备和 solver 复用已完成软件检查与首阶段实测。见[当前状况](curobo-time-optimization/info/01-current-status.md)及[最新方案](curobo-time-optimization/plan/01-panda-omron-time-optimization.md)。旧报告随主题迁移归档，首阶段真实双 GPU、20×3 全量标定已完成（225.458 s、20/60 成功），成功/失败回放视频解码通过；结论限于 val103/Cup_30/Case2。百来源全 Case 正式批次已完成：183 accepted/37 rejected，计划 8,466、记录 8,463（另 1 站准备失败），820 成功、284 执行失败、7,359 执行前无解，标定 2.88 h；6 段实际轨迹视频通过。Case3 无物理执行证据，复现命令见[首阶段交付](curobo-time-optimization/delivery/2026-10-24-stage1-experiment.md)及[最终批次交付](curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)；分 Case 的失败原因分布见[规划失败分析](curobo-time-optimization/analyze/2026-10-25-planning-failure-analysis.md)。
-
-历史事实只描述对应版本，不能作为当前代码已通过真实验收的依据。公开机器人配套资产是否齐全仍是复现限制。
-
-## 目录职责
-
-`reports/` 按主题组织，每个主题内部按文档用途分类。例如：
-
-```text
-reports/
-├── README.md
-├── curobo-time-optimization/       # 场景构建与 cuRobo 标定加速
-│   ├── requirement/               # 需求文档
-│   ├── info/                      # 当前状况
-│   ├── plan/                      # 方案、计划文档
-│   ├── delivery/                  # 结果、交付文档
-│   └── archive/                   # 旧分析、方案与实验记录
-├── build-lastmile-datasets/        # 数据集生成与物化需求、交付
-└── archives/                      # 已过时报告，按主题存放
-```
-
-当前主题：`curobo-time-optimization/`（[当前状况](curobo-time-optimization/info/01-current-status.md)、[PandaOmron 加速方案](curobo-time-optimization/plan/01-panda-omron-time-optimization.md)、[整理与迁移结果](curobo-time-optimization/delivery/2026-10-24-document-consolidation.md)）、`build-lastmile-datasets/`（[数据集生成需求](build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[实现交付](build-lastmile-datasets/delivery/01-implementation.md)）、`benchmark/`（[lastmile-bench v0.1 需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[实施方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[困难 S0 benchmark 现状](benchmark/info/01-current-status.md)）、`panda-omron/`。加速主题的 `info/` 保存当前状况，`archive/` 保留被新方案接续的历史材料。
-
-- `task-modes/`：[需求](task-modes/requirement/01-task-mode-construction.md)、[实施方案](task-modes/plan/01-task-mode-implementation.md)、[计划表](task-modes/plan/02-build-schedule.md)、[build-scenes 八模式构造说明](task-modes/info/01-build-scenes-modes.md)。用户最新要求本轮止于标定，P0–P4 已交付，后续采集/导出/benchmark 暂不推进。
-
-  [标定交付](task-modes/delivery/02-calibration-delivery.md)：修复后的四批完整标定共 222 条 trial、63 条真实任务成功；六类有实际标签正例，Orientation/Visibility 尚无正例。最新回归 355 项：353 通过、2 跳过。旧 Case 链路退出；Blackwell 环境及 RoboCasa 闭爪底盘保持问题已修复，历史结果保留，见[修复记录](task-modes/delivery/04-mobile-base-hold-fix.md)。全部 60 个 run 的分类、数字与待复核项见[运行产物总览](task-modes/delivery/05-run-inventory.md)；38 个 accepted 构建场景的渲染图见[候选构建场景预览](task-modes/delivery/build-scenes-previews.md)。[Cup 导航复核](navigation/delivery/06-cup-navigation-review.md)确认保守栅格误拒绝；后续[导航修复交付](navigation/delivery/07-navigation-geometry-fix.md)完成源码修复，新 Cup/Open benchmark 为 2/7、7/7，Train 9/13 对找到参考路线，四条实际导航通过；专项回归 367 项，365 通过、2 跳过。没有新增完整连续操作示教或策略任务成功结论。
-
-- `navigation/`：[导航专题入口](navigation/README.md)、[软净空需求](navigation/requirement/02-navigation-soft-clearance.md)、[修改方案](navigation/plan/04-navigation-soft-clearance.md)、[实施结果](navigation/delivery/08-navigation-soft-clearance.md)。已取消 20 mm 硬门槛，基准为 20 mm 软目标、权重 2.0、独立 5 mm 穿透判据；Cup/Open 各 7/7、Train 11/13 对有路线，五条实际物理导航通过。最终软件回归 374 项，372 通过、2 跳过；没有新增完整连续操作示教或策略任务成功结论。
-
-- `collision-handing/`：[局部碰撞需求](collision-handing/requirement/02-local-collision-representation.md)、[实现方案](collision-handing/plan/04-local-collision-representation.md)（机器人柱体/底盘球 → 结构化局部环境 → 条件性静态 ESDF → 固定样本回归）。此前的[修复诊断方案](collision-handing/archive/03-calibration-repair-and-diagnosis.md)与 N0–N5、凸包修复的[阶段交付](collision-handing/archive/04-calibration-repair.md)已归档到该主题 `archive/`。 [三个 Cup_30 近站位关闭规划碰撞对照](collision-handing/delivery/05-cup30-no-collision.md)已完成：S0022 0/3、S0030 0/3、S0038 1/3；8 次进入实际执行，8 段实测视频解码通过，物理接触保持开启。 [执行跟踪超时诊断](collision-handing/delivery/06-cup30-tracking-timeout.md)：七次均触发单点 6 秒收敛上限，其中六次底座参考姿态与桌子相交，一次为末端 10.38 mm 稳态残差；仅做已有数据分析，未修复。
-
-- `no-edit-calibration/`：[需求](no-edit-calibration/requirement/01-requirement.md)、[计划](no-edit-calibration/plan/01-experiment-plan.md)、[实时状态](no-edit-calibration/delivery/status.md)、[成功率归因](no-edit-calibration/analyze/01-low-success-analysis.md)、[全量 trial 统计](no-edit-calibration/analyze/02-all-runs-trial-statistics.md)、[planner 复用缺陷](no-edit-calibration/analyze/03-planner-reuse-target-binding.md)。2026-10-27 16:20 快照覆盖 14 个 run / 58,441 trial；主 cohort 成功率 2.88%，最大失败池是 goalset 的底座-场景碰撞，pick 执行损失与 planner 复用错绑强相关。
-
-- `pi05/`：[双本体接入需求](pi05/requirement/01-pi05-integration.md)（active）、[Panda 控制对齐评估](pi05/info/01-panda-robocasa-alignment.md)（需求阶段源码评估）、[本轮梳理结果](pi05/delivery/01-requirements-review.md)。
-
-  [cuRobo 与 π0.5 共用控制链路](pi05/info/01-panda-shared-control.md)进一步说明动作汇合、轨迹跟踪、控制时序及待验证条件；尚未切换默认 profile。
-
-  [双本体构建方案](pi05/plan/01-pi05-integration-build.md)规定环境、推理核心、本体适配、工作流和 P0–P6 实施验收；[方案编写总结](pi05/delivery/02-build-plan.md)记录方案阶段的文档交付。当前实现、真实验证与边界见[构建报告](pi05/delivery/03-implementation.md)，命令见[π0.5 运行指南](pi05/docs/01-running.md)。
-
-  首轮构建完成：两权重推理与两本体短 rollout 已运行；Panda 路线 B 固定抓取和 A* 绕障通过，π0.5 短 rollout 均未抓取成功。RBY-1 48 条示教 / 13,167 行已完成 LeRobot 转换和本体统计；尚未微调。最终软件回归共 237 项：236 项通过、1 项跳过。
-
-- 新文档先确定所属主题，再放入对应分类目录；分类目录按需创建。
-- 尚未明确分类的文档先放在所属主题根目录，例如 `reports/build-lastmile-datasets/`，不另建 `other/`。
-- 报告不作为运行输入；不新增报告附件索引，不在这里堆积视频、日志等运行产物。
-
-- [Panda π0.5 benchmark 首轮运行](pi05/delivery/04-panda-benchmark.md)：重建 RoboCasa profile 并完成 3 站位 × 2 标定，0/6 成功、无高率恢复站位；benchmark 为 0 episode，策略评测入口停止，未加载模型。
-
-- [双本体全量标定需求纠正](pi05/requirement/02-embodiment-full-calibration.md)：Panda-Omron / RBY-1 分别配置固定肩枢轴至 TCP 工作臂展 L 和底盘半径 B；按 RBY 原规则整理为半径 L、间距 B/4，可见性只记录；全部候选物理检查后，均匀保留最多 20 点完整标定。上轮 3 点结果仅为局部结果，新标定已启动。
-
-- 两本体站位配置已改为各自固定臂展与底盘半径四分之一间距；全部候选完成物理检查后，每场景均匀保留最多 20 点，可见性只记录。新 cuRobo 标定启动与命令见[执行记录](pi05/delivery/05-full-calibration-start.md)。
+| 位置 | 内容 | 归档原因 |
+|---|---|---|
+| `archives/task-modes/` | 八类任务模式构造的需求、方案与交付 | 任务模式功能已删除 |
+| `archives/info/` | build-scenes → 标定的 seed 汇总（2026-10-25） | 针对旧命令和旧链路的一次性盘点 |
+| `archives/benchmark/docs/` | lastmile-bench v0.1 旧运行指南 | 旧命令和 JSON 配置，已由 docs/runbook.md 取代 |
+| `archives/panda-omron/docs/` | PandaOmron phase01 worktree 的运行指南 | 指向已不存在的 worktree 和旧配置 |
+| `archives/collision-handling/` | 标定修复诊断方案与 N0–N5 阶段交付 | 原 `collision-handing/archive/`，已被局部碰撞方案接续 |
+| `archives/curobo-time-optimization/2026-10-24/` | 加速专题的旧方案、探针与耗时分析 | 原 `curobo-time-optimization/archive/`，已被当前方案接续 |

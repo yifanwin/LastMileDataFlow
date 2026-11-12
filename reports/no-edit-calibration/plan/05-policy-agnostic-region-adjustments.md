@@ -3,7 +3,7 @@
 - 状态：draft（调整梳理完成，代码和实验尚未实施）
 - 日期：2026-10-29
 - 替代：无；本清单落实分析报告，不改写历史实验结论
-- 关联：[Oracle 边界与研究分析](../analyze/04-oracle-validity-and-repositioning.md)、[标定修复摘要](../delivery/05-repair-summary.md)、[任务模式标定](../../task-modes/delivery/02-calibration-delivery.md)
+- 关联：[Oracle 边界与研究分析](../analyze/04-oracle-validity-and-repositioning.md)、[标定修复摘要](../delivery/05-repair-summary.md)、[任务模式标定](../../archives/task-modes/delivery/02-calibration-delivery.md)
 
 ## 1. 固定研究目标
 

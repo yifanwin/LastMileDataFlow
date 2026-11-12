@@ -3,7 +3,7 @@
 状态：done  
 日期：2026-10-18  
 替代：无  
-关联：[接入需求](../requirement/01-pi05-integration.md)、[构建方案](../plan/01-pi05-integration-build.md)、[运行指南](../docs/01-running.md)
+关联：[接入需求](../requirement/01-pi05-integration.md)、[构建方案](../plan/01-pi05-integration-build.md)、[运行指南](running.md)
 
 **首轮构建完成：两份真权重均可推理，两本体均完成短闭环执行；Panda 路线 B 固定抓取与 A* 绕障通过，RBY-1 的 48 条示教已转换并生成本体统计。** 两次 π0.5 短 rollout 均未完成抓取；尚未进行微调或正式困难 S0 批量评测。
 

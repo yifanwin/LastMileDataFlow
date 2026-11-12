@@ -3,7 +3,7 @@
 状态：active  
 日期：2026-10-17  
 替代：无（在首期需求上新增后续范围）  
-关联：[实施结果](../delivery/phase_02/2026-10-17-panda-omron-full-flow.md)、[全流程实施方案](../plan/02-panda-omron-full-flow.md)、[首期需求](01-panda-omron.md)、[首期实施结果](../delivery/phase_01/2026-10-17-panda-omron-implementation.md)、[首期运行指南](../docs/panda-omron.md)
+关联：[实施结果](../delivery/phase_02/2026-10-17-panda-omron-full-flow.md)、[全流程实施方案](../plan/02-panda-omron-full-flow.md)、[首期需求](01-panda-omron.md)、[首期实施结果](../delivery/phase_01/2026-10-17-panda-omron-implementation.md)、[首期运行指南](../../archives/panda-omron/docs/panda-omron.md)
 
 ## 1. 目标与现状
 

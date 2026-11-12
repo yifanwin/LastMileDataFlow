@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：03-navigation-geometry-fix.md 中“全程及端点必须满足 20 mm 余量”的要求
-- 关联：[原任务需求](../../task-modes/requirement/01-task-mode-construction.md)、[修改方案](../plan/04-navigation-soft-clearance.md)、[原导航修复方案](../plan/03-navigation-geometry-fix.md)、[原修复交付](../delivery/07-navigation-geometry-fix.md)
+- 关联：[原任务需求](../../archives/task-modes/requirement/01-task-mode-construction.md)、[修改方案](../plan/04-navigation-soft-clearance.md)、[原导航修复方案](../plan/03-navigation-geometry-fix.md)、[原修复交付](../delivery/07-navigation-geometry-fix.md)
 
 ## 1. 用户已明确的目标
 

@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-24
 - 替代：旧 RBY-1 20×5 口径，以及本文件此前“先跑 Panda 基线、逐项优化再实验”的安排
-- 关联：[当前状况](../info/01-current-status.md)、[实施方案](../plan/01-panda-omron-time-optimization.md)、[数据集生成需求](../../build-lastmile-datasets/requirement/01-lastmile-datasets.md)
+- 关联：[当前状况](../analyze/01-current-status.md)、[实施方案](../plan/01-panda-omron-time-optimization.md)、[数据集生成需求](../../build-lastmile-datasets/requirement/01-lastmile-datasets.md)
 
 **目的：得到 PandaOmron 各初始站位的 cuRobo 实际执行成功率。** 每站位固定 3 次不同 seed 的独立 trial；加速以流程重组、公共准备复用、批量规划和并行执行为主。先完成本轮全部加速实现及必要软件检查，再统一运行全量实验；不先跑 Panda 基线、预实验或逐项性能对比。CUDA Graph 不纳入本轮。
 

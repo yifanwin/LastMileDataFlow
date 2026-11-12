@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-24
 - 替代：无
-- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)、[最新方案](../plan/01-panda-omron-time-optimization.md)
+- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[当前状况](../analyze/01-current-status.md)、[最新方案](../plan/01-panda-omron-time-optimization.md)
 
 本轮将实验主线收敛为 PandaOmron、每站位 3 次独立 trial，并合并 build-scenes 与 cuRobo 标定加速资料。完成文档整理，尚未应用配置、修改实现或运行新实验。
 

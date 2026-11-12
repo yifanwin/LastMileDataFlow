@@ -2,7 +2,7 @@
 
 - 状态：active
 - 日期：2026-10-22
-- 关联：[运行手册](runbook.md)、[π0.5 运行指南](../reports/pi05/docs/01-running.md)、[architecture.md](architecture.md)
+- 关联：[运行手册](runbook.md)、[π0.5 运行指南](../reports/pi05/delivery/running.md)、[architecture.md](architecture.md)
 
 从空白服务器配置可运行环境。数据统一放在大数据盘，不放进仓库。需要整体搬迁旧机器时见[附录 A](#附录-a从既有环境迁移)。
 
@@ -51,7 +51,7 @@ scripts/install/pi05.sh        # 需要 π0.5 时
   --index-url https://download.pytorch.org/whl/cu128
 ```
 
-版本命令见 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/)。2026-10-26 的真实 cuRobo smoke 已确认 cu126 报 no kernel image；cu128 安装、真实 CUDA 运算与完整规划验证已完成，见[标定交付](../reports/task-modes/delivery/02-calibration-delivery.md)。
+版本命令见 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/)。2026-10-26 的真实 cuRobo smoke 已确认 cu126 报 no kernel image；cu128 安装、真实 CUDA 运算与完整规划验证已完成，见[标定交付](../reports/archives/task-modes/delivery/02-calibration-delivery.md)。
 
 `pyproject.toml` 未锁定全部依赖。严格复现时从已知可用环境导出 `pip freeze --exclude-editable`，在新环境运行 `scripts/install/main.sh` 后安装该清单。
 
@@ -144,7 +144,7 @@ git -C "$DATA_ROOT/robosuite" checkout 5ce6643f
   --asset-output "$DATA_ROOT/assets/robots/panda_omron" --gpu "$GPU"
 ```
 
-输出目录必须不存在。校验 `model.xml` 存在、`meshes/` 有 71 个文件。生成后先跑 `--stage control`、`--stage align`，再标定；详见 [PandaOmron 运行指南](../reports/panda-omron/docs/panda-omron.md)。
+输出目录必须不存在。校验 `model.xml` 存在、`meshes/` 有 71 个文件。生成后先跑 `--stage control`、`--stage align`，再标定；详见 [PandaOmron 运行指南](../reports/archives/panda-omron/docs/panda-omron.md)。
 
 ### 3.3 模型权重
 
@@ -169,7 +169,7 @@ curl -L https://storage.googleapis.com/big_vision/paligemma_tokenizer.model \
   --local-dir "$DATA_ROOT/models"
 ```
 
-RBY-1 的 π0.5 本体统计需由项目数据生成，见 [π0.5 运行指南](../reports/pi05/docs/01-running.md)。
+RBY-1 的 π0.5 本体统计需由项目数据生成，见 [π0.5 运行指南](../reports/pi05/delivery/running.md)。
 
 ## 4. 配置路径
 

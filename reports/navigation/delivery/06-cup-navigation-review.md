@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-26
 - 替代：无；更正 05 号清单中 Cup“没有导航路径”的解释，保留原 run 数字
-- 关联：[运行清单](../../task-modes/delivery/05-run-inventory.md)、[下游交付](../../task-modes/delivery/03-downstream-delivery.md)、[实施方案](../../task-modes/plan/01-task-mode-implementation.md)、[任务需求](../../task-modes/requirement/01-task-mode-construction.md)
+- 关联：[运行清单](../../archives/task-modes/delivery/05-run-inventory.md)、[下游交付](../../archives/task-modes/delivery/03-downstream-delivery.md)、[实施方案](../../archives/task-modes/plan/01-task-mode-implementation.md)、[任务需求](../../archives/task-modes/requirement/01-task-mode-construction.md)
 
 ## 1. 结果
 

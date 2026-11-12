@@ -3,7 +3,7 @@
 状态：active  
 日期：2026-10-18  
 替代：无  
-关联：[本轮梳理结果](../delivery/01-requirements-review.md)、[Panda 控制对齐评估](../info/01-panda-robocasa-alignment.md)、[Panda 现有全流程需求](../../panda-omron/requirement/02-panda-omron-full-flow.md)、[benchmark 需求](../../benchmark/requirement/01-lastmile-bench-v0.1.md)
+关联：[本轮梳理结果](../delivery/01-requirements-review.md)、[Panda 控制对齐评估](../analyze/01-panda-robocasa-alignment.md)、[Panda 现有全流程需求](../../panda-omron/requirement/02-panda-omron-full-flow.md)、[benchmark 需求](../../benchmark/requirement/01-lastmile-bench-v0.1.md)
 
 实施依据见[双本体构建方案](../plan/01-pi05-integration-build.md)，当前结果见[构建报告](../delivery/03-implementation.md)。RBY 使用 state22 / position action20，Panda 按路线 B 接入共用 controller。
 
@@ -67,7 +67,7 @@ Panda 的 zero-shot 指不使用当前目标任务数据更新权重；仍需要
 | 模型内部维度 | 参考配置默认 state/action 补齐至 32；checkpoint 统计文件的 state/actions mean/std 均为 32 项 |
 | 分块执行 | 参考默认预测 horizon 为 50；评测示例默认每次执行前 5 步后重新观测 |
 
-不能把 Panda 现有记录的 12D 绝对关节目标与上述 12D 策略动作等同。已补充核对官方 `convert_action` 与 Gym 映射，确认命名动作如何分派；checkpoint 对应版本的最终控制参数、参考系和实际响应仍需核对，不能仅凭维数实现映射。具体依据与差异见[控制对齐评估](../info/01-panda-robocasa-alignment.md)。
+不能把 Panda 现有记录的 12D 绝对关节目标与上述 12D 策略动作等同。已补充核对官方 `convert_action` 与 Gym 映射，确认命名动作如何分派；checkpoint 对应版本的最终控制参数、参考系和实际响应仍需核对，不能仅凭维数实现映射。具体依据与差异见[控制对齐评估](../analyze/01-panda-robocasa-alignment.md)。
 
 相邻 robosuite 的 `default_pandaomron.json` 使用末端 `OSC_POSE`、底盘速度和 torso 位置控制，进一步说明当前 position 适配器存在控制语义差异。但该文件本身不能证明与 checkpoint 对应 RoboCasa 版本完全一致。
 
@@ -102,10 +102,10 @@ Panda 的 zero-shot 指不使用当前目标任务数据更新权重；仍需要
 - 按参考 body/site 约定分别取位置与旋转，核对 base center 与项目 pivot；不能直接将现有 TCP site 位姿整体代入权重观测。
 - 实现 12D 动作到本体控制的对应关系，核对末端姿态、夹爪符号、底盘、升降和 control_mode 的语义及频率。
 - 使用 checkpoint 配套归一化统计，保留原始预测和实际提交控制的区别。
-- 评估 cuRobo 规划与 π0.5 共用 RoboCasa 执行层的可行性，使后续示教动作与部署协议一致。保留 cuRobo 规划能力；position profile 的迁移方式在跟踪、碰撞和任务对照后确认。详见[评估](../info/01-panda-robocasa-alignment.md)。
+- 评估 cuRobo 规划与 π0.5 共用 RoboCasa 执行层的可行性，使后续示教动作与部署协议一致。保留 cuRobo 规划能力；position profile 的迁移方式在跟踪、碰撞和任务对照后确认。详见[评估](../analyze/01-panda-robocasa-alignment.md)。
 - 共用控制层以未归一化 RoboCasa 12D 动作为边界，保留同一目标更新、mode、夹爪与低层反馈语义；cuRobo 和 A* 在上游转换参考轨迹，π0.5 在上游完成观测处理、反归一化和动作分块。Panda 的这一约定不强加给 RBY-1。
 - 当前按路线 B 细化：cuRobo 轨迹经 FK 提供位姿参考，由反馈跟踪器结合实测状态和 controller 目标生成 action；π0.5 提供相同协议 action，两路进入同一个 RoboCasa controller。FK 不修改执行中的仿真状态，不给示教端设置额外的下游控制辅助。
-- profile 对齐需同时评估 actuator、摩擦、重力补偿和物理步长；参考 OSC 与当前 position 响应不因共用动作字段就等同。cuRobo 实际关节路径和导航包络需重新核对。详见[共用链路评估](../info/01-panda-shared-control.md)。
+- profile 对齐需同时评估 actuator、摩擦、重力补偿和物理步长；参考 OSC 与当前 position 响应不因共用动作字段就等同。cuRobo 实际关节路径和导航包络需重新核对。详见[共用链路评估](../analyze/01-panda-shared-control.md)。
 - 控制或相机 profile 变化后重新构建适用的场景输入并标定；不能直接把旧 Panda cuRobo 标定当作 π0.5 标定。benchmark 的参考区域仍按其原有构建协议解释。
 
 ### 4.3 RBY-1 适配与后续微调
@@ -136,7 +136,7 @@ Panda 的 zero-shot 指不使用当前目标任务数据更新权重；仍需要
 
 ## 6. 尚需补齐的事项
 
-1. **技术核对与迁移判断**：已找到官方动作拆分和 Gym 映射；仍需核对 checkpoint 对应的 RoboCasa/robosuite 最终控制配置、相机标定、状态参考系及旋转顺序。cuRobo Panda 能否采用共用执行层，按[评估中的最小步骤](../info/01-panda-robocasa-alignment.md)验证后确认。
+1. **技术核对与迁移判断**：已找到官方动作拆分和 Gym 映射；仍需核对 checkpoint 对应的 RoboCasa/robosuite 最终控制配置、相机标定、状态参考系及旋转顺序。cuRobo Panda 能否采用共用执行层，按[评估中的最小步骤](../analyze/01-panda-robocasa-alignment.md)验证后确认。
 2. **RBY-1 协议**：为后续训练保持一致的 state/action 与归一化方案；不能默认 base 权重已经学过现有 20D 控制布局。
 3. **评测样例**：建议优先使用现有 Cup pick 做最小闭环，再扩展 open；具体样本和规模在实施方案中列明。暂不将未覆盖任务或连续采集列为已验收能力。
 

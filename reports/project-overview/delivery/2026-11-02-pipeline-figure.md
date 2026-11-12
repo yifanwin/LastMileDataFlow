@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-11-02
 - 替代：无
-- 关联：README.md、reports/task-modes/delivery/build-scenes-previews.md、reports/navigation/delivery/08-navigation-soft-clearance.md
+- 关联：README.md、reports/archives/task-modes/delivery/build-scenes-previews.md、reports/navigation/delivery/08-navigation-soft-clearance.md
 
 ## 交付
 
@@ -30,7 +30,7 @@ Make one focused replacement: replace ONLY the rainbow heatmap graphic and its c
 Keep the existing central heading exactly "Station success heatmap". Above the graphic, add only a small concise line "merged_hull · 46/60". Change the caption below heatmap to exactly "20 stations × 3 trials · Gaussian smoothing". Keep S0/S1 definition chips and "Pose = position + heading" footer. All five stage headings, arrows, scene screenshots, edit/no-edit panels, dataset and benchmark cards, and downstream use cards MUST REMAIN UNCHANGED. Preserve the overall figure dimensions/layout/typography and all other content in image 1. This is an accurate scientific source replacement, not a redesign. Final wide paper figure.
 ```
 
-核对 `.worktrees/collision-handling/reports/collision-handing/delivery/02-structured-environment.md` 第 7 节，用户表格对应 `outputs/experiments/collision-handling/runs/b6-merged-cup30-20261029`：20 站 × 3 trial、seed 42、任务成功 46/60、进入执行 51、规划无解 9、执行失败 5、回放无接触。该路径位于 collision-handling worktree。
+核对 `.worktrees/collision-handling/reports/collision-handling/delivery/02-structured-environment.md` 第 7 节，用户表格对应 `outputs/experiments/collision-handling/runs/b6-merged-cup30-20261029`：20 站 × 3 trial、seed 42、任务成功 46/60、进入执行 51、规划无解 9、执行失败 5、回放无接触。该路径位于 collision-handling worktree。
 
 采用该 worktree 已有 `outputs/experiments/collision-handling/analysis/b6-cup30-heatmaps-20261029/spatial_heatmaps.png` 的中间面板及共享蓝色色条；左侧基线 37/60、右侧 cuboid 44/60 均不采用。保留实际站位分布与高低率空间格局，图中标注 `merged_hull · 46/60`。未重跑实验，未修改来源 worktree。
 

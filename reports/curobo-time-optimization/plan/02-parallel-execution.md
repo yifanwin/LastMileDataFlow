@@ -3,7 +3,7 @@
 - 状态：draft
 - 日期：2026-10-24
 - 替代：无；资源探究与方案比较保留，具体规划/执行耦合已整合进总方案
-- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[总加速方案](01-panda-omron-time-optimization.md)、[当前状况](../info/01-current-status.md)
+- 关联：[当前需求](../requirement/02-panda-omron-time-optimization.md)、[总加速方案](01-panda-omron-time-optimization.md)、[当前状况](../analyze/01-current-status.md)
 
 **建议采用“GPU 常驻规划进程 + CPU 独立 trial 进程池 + 动态站位调度”。** 当前资源足以把单场景 20 点×3 次中的物理执行并发上限提高到 60；GPU 负责同站位三次闭爪前 batch 和闭爪后的独立规划，不要求一张 GPU 绑定一个物理试验。
 

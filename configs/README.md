@@ -59,7 +59,7 @@
 
 ## 策略
 
-`python` 指向本项目的 `.venv/bin/python`（MolmoBot）或 `.venv-pi05/bin/python`（π0.5）。`task_horizon` 是每任务策略步上限（默认 400）；`gripper_mode` 默认 `model_default`（pick 连续、open 二值）。`load_timeout_s=900` 是模型服务启动等待，`rpc_timeout_s` 是单次 RPC 等待，episode 总预算用执行配置的 `attempt_timeout_s`。π0.5 的 `embodiment` 必须匹配场景机器人，命令见 [π0.5 指南](../reports/pi05/docs/01-running.md)。`pi05_rby1.yaml` 的 `norm_stats` 指向的统计文件目前不存在，使用前需先运行 `scripts/lastmile_dataset/export_pi05.py` 重新生成。
+`python` 指向本项目的 `.venv/bin/python`（MolmoBot）或 `.venv-pi05/bin/python`（π0.5）。`task_horizon` 是每任务策略步上限（默认 400）；`gripper_mode` 默认 `model_default`（pick 连续、open 二值）。`load_timeout_s=900` 是模型服务启动等待，`rpc_timeout_s` 是单次 RPC 等待，episode 总预算用执行配置的 `attempt_timeout_s`。π0.5 的 `embodiment` 必须匹配场景机器人，命令见 [π0.5 指南](../reports/pi05/delivery/running.md)。`pi05_rby1.yaml` 的 `norm_stats` 指向的统计文件目前不存在，使用前需先运行 `scripts/lastmile_dataset/export_pi05.py` 重新生成。
 
 ## Benchmark
 

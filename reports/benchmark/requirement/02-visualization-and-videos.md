@@ -3,7 +3,7 @@
 状态：done
 日期：2026-10-18
 替代：无
-关联：[基础需求](01-lastmile-bench-v0.1.md)、[运行指南](../docs/运行指南.md)、[图片交付报告](../delivery/phase_02/2026-10-18-png.md)
+关联：[基础需求](01-lastmile-bench-v0.1.md)、[运行指南](../../archives/benchmark/docs/运行指南.md)、[图片交付报告](../delivery/phase_02/2026-10-18-png.md)
 
 ## 数据边界
 

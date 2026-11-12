@@ -3,7 +3,7 @@
 状态：superseded
 日期：2026-10-18
 替代：[PNG 图片交付](2026-10-18-png.md)
-关联：[需求](../../requirement/02-visualization-and-videos.md)、[运行指南](../../docs/运行指南.md)、[原始评测结果](../phase_01/2026-10-18-build.md)
+关联：[需求](../../requirement/02-visualization-and-videos.md)、[运行指南](../../../archives/benchmark/docs/运行指南.md)、[原始评测结果](../phase_01/2026-10-18-build.md)
 
 > 本报告保留原 HTML 实施记录；当前已按用户要求改为 PNG，实际输出以图片交付报告和运行指南为准。
 

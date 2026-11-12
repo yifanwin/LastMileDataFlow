@@ -3,7 +3,7 @@
 状态：done
 日期：2026-10-17
 替代：无
-关联：[v0.1 需求](../requirement/01-lastmile-bench-v0.1.md)、[标定口径修订](03-calibration-scope-correction.md)、[现状梳理](../info/01-current-status.md)
+关联：[v0.1 需求](../requirement/01-lastmile-bench-v0.1.md)、[标定口径修订](03-calibration-scope-correction.md)、[现状梳理](../analyze/01-current-status.md)
 
 ## 执行过程
 

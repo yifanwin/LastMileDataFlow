@@ -3,7 +3,7 @@
 状态：done  
 日期：2026-10-17  
 替代：无  
-关联：[需求](../../requirement/01-panda-omron.md)、[方案](../../plan/01-panda-omron-phase01.md)、[运行指南](../../docs/panda-omron.md)
+关联：[需求](../../requirement/01-panda-omron.md)、[方案](../../plan/01-panda-omron-phase01.md)、[运行指南](../../../archives/panda-omron/docs/panda-omron.md)
 
 **已完成 factory 整机、物理控制、相机、cuRobo V2 对齐及固定场景固定站位的一次真实 pick。** 最终版本复验也已通过。实现位于 `.worktrees/panda-omron-phase01`，分支 `feat/panda-omron-phase01`，从 `main` 创建；没有提交或合并。
 

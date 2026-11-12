@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-16
 - 替代：无
-- 关联：[需求定义](../requirement/01-lastmile-datasets.md)、[当前状况](../../curobo-time-optimization/info/01-current-status.md)
+- 关联：[需求定义](../requirement/01-lastmile-datasets.md)、[当前状况](../../curobo-time-optimization/analyze/01-current-status.md)
 
 本文保留当轮数据集软件交付事实；2026-10-24 的 PandaOmron 主体与每点 3 次需求见当前状况，不据此改写下文历史验证结果。
 

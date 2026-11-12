@@ -3,7 +3,7 @@
 状态：done  
 日期：2026-10-18  
 替代：无  
-关联：[π0.5 构建](03-implementation.md)、[运行指南](../docs/01-running.md)、[benchmark 指南](../../benchmark/docs/运行指南.md)
+关联：[π0.5 构建](03-implementation.md)、[运行指南](running.md)、[benchmark 指南](../../archives/benchmark/docs/运行指南.md)
 
 本轮目标是使用匹配 RoboCasa 控制 profile 的困难 S0 benchmark，实际运行 Panda π0.5 zero-shot，检查完整率、任务成功、区域进入和实际位移。已有依据是固定场景短 rollout 可执行，但尚未完成抓取；本轮不预设成功率。若没有合格标定配对或路径，保留负结果，不改阈值。
 

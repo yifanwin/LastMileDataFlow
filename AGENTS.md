@@ -29,13 +29,13 @@ LastMileDataFlow 是面向快速科研实验的机器人数据工程：
 - [docs/architecture.md](docs/architecture.md)：源码职责与实际调用链。
 - [docs/data-format.md](docs/data-format.md)：主记录、轨迹、动作与结果含义。
 - [configs/README.md](configs/README.md)、[tests/README.md](tests/README.md)：配置和验证分工。
-- [reports/README.md](reports/README.md)：报告目录约定与当前验证边界；已有 `reports/REPORT.md` 保留最近一次整理结果。
+- [reports/README.md](reports/README.md)：报告目录约定、当前状态、主题与归档索引。
 
 `reports/` 按主题组织，每个主题内部按文档用途分类，目录按需创建：
 
 - `requirement/`：需求文档。
 - `plan/`：方案、计划文档。
-- `delivery/`：结果、交付文档。
+- `delivery/`：结果、交付文档；该主题的运行指南也放这里。
 - `analyze/`：分析文档。
 
 尚未明确分类的文档先放在所属主题根目录，例如 `reports/build-lastmile-datasets/`，不另建 `other/`。主题目录名用英文小写加连字符。
