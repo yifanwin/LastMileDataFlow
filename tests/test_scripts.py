@@ -23,6 +23,7 @@ SCRIPTS = (
     "lastmile_dataset/export_pi05",
     "lastmile_benchmark/build",
     "lastmile_benchmark/evaluate",
+    "lastmile_benchmark/station_policy",
     "operation/replay",
 )
 

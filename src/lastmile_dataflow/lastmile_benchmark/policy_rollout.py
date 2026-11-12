@@ -26,6 +26,7 @@ from lastmile_dataflow.sim.contacts import (
     NavigationContacts,
     simulation_failure,
 )
+from lastmile_dataflow.operation.outcomes.pick_state import PICK_THRESHOLDS, update_hold_window
 from lastmile_dataflow.operation.outcomes.task import (
     VLA_PROTOCOL as PROTOCOL,
     PickMonitor,
@@ -112,9 +113,11 @@ class VLARollout:
     """One policy-driven attempt; also the NavigationRunner for its optional approach."""
 
     def __init__(
-        self, baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None
+        self, baseline, task, station, config, collection, *, root, attempt_id, seed, policy,
+        path=None, goal=None, pick_thresholds=None,
     ):
         self.task, self.station, self.config, self.policy = task, station, config, policy
+        self.pick_thresholds = pick_thresholds
         self.seed, self.path, self.goal = seed, path, goal
         self.backend = BACKENDS[config.operation_backend]
         self.width, self.height = self.backend.resolution or (config.width, config.height)
@@ -133,6 +136,7 @@ class VLARollout:
             "navigation_path": path,
             "navigation_goal": goal,
             "scene": baseline.scene_id,
+            "pick_success_protocol": pick_thresholds or PICK_THRESHOLDS,
         }
         self.recorder = AttemptRecorder(root, packet, attempt_id=attempt_id)
         self.recorder.bind_simulation(self.sim, width=self.width, height=self.height)
@@ -145,6 +149,8 @@ class VLARollout:
             monitor.initial.update(workspace_center_xy=task["anchor_world"][:2], workspace_radius_m=config.radius_m)
         self.target_bodies = next(iter(self.monitors.values())).target_bodies
         self.samples = {side: [] for side in self.monitors}
+        self.pick_windows = {side: (np.asarray(-1.0), np.zeros(3), np.eye(3)) for side in self.monitors}
+        self.initial_base = self.sim.robot.base_pose().copy()
         self.contact_stats = ContactStatistics()
         self.contact_sampler = ContactSampler(self.sim)
         self.navigation_contacts = NavigationContacts()
@@ -216,7 +222,32 @@ class VLARollout:
             violation = constraint(facts, monitor.initial)
             if violation:
                 self.failures.append(violation)
-        return min(self.failures, default=None)
+        if self.failures:
+            return min(self.failures)
+        if self.pick_thresholds is not None and self.task["operation"] == "pick":
+            for side, monitor in self.monitors.items():
+                if self._pick_complete(side, monitor):
+                    self.verdict = self._evaluate()
+                    return "pick_protocol_complete"
+        return None
+
+    def _pick_complete(self, side, monitor):
+        facts = self.samples[side][-1]
+        thresholds = self.pick_thresholds
+        held = (
+            set(map(int, facts["finger_forces_n"])) == set(monitor.initial["fingers"])
+            and len(facts["finger_forces_n"]) == 2
+            and all(force > thresholds["finger_force_min_n"] for force in facts["finger_forces_n"].values())
+            and facts["height_m"] - monitor.initial["height_m"] >= thresholds["lift_m"]
+            and not facts["support_contact"]
+        )
+        pose = np.asarray(facts["relative_pose"])
+        start, position, rotation, duration = update_hold_window(
+            facts["time_s"], np.asarray(held), pose[:3, 3], pose[:3, :3],
+            *self.pick_windows[side], xp=np, thresholds=thresholds,
+        )
+        self.pick_windows[side] = start, position, rotation
+        return duration >= thresholds["hold_s"] - 1e-9
 
     def _monitor_facts(self, monitor):
         robot = self.sim.robot
@@ -346,7 +377,8 @@ class VLARollout:
 
     def _evaluate(self):
         return evaluate(
-            self.task, self.samples, {side: m.initial for side, m in self.monitors.items()}, self.config.open_hold_s
+            self.task, self.samples, {side: m.initial for side, m in self.monitors.items()}, self.config.open_hold_s,
+            pick_thresholds=self.pick_thresholds or PICK_THRESHOLDS,
         )
 
     def _run_policy(self):
@@ -358,11 +390,15 @@ class VLARollout:
             trial_progress(
                 "VLA rollout 已执行策略步=%s/%s 耗时=%.1fs", step + 1, horizon, time.monotonic() - self.started
             )
+            if failure == "pick_protocol_complete":
+                self.status, self.reason = self.verdict["status"], self.verdict["reason"]
+                return
             if failure:
                 self.reason = self.failures[0]
                 self.status = failure_status(self.reason)
                 return
-            if step % VERDICT_EVERY_STEPS == VERDICT_EVERY_STEPS - 1 or step == horizon - 1:
+            periodic_verdict = self.pick_thresholds is None and step % VERDICT_EVERY_STEPS == VERDICT_EVERY_STEPS - 1
+            if periodic_verdict or step == horizon - 1:
                 self.verdict = self._evaluate()
                 if self.verdict["status"] in TERMINAL_VERDICTS:
                     self.status, self.reason = self.verdict["status"], self.verdict["reason"]
@@ -380,10 +416,18 @@ class VLARollout:
             self.verdict = self._evaluate()
             if self.verdict["status"] == "success":
                 self.status, self.reason = "success", self.verdict["reason"]
+        if self.pick_thresholds is not None:
+            self.verdict = self._evaluate()
+        if self.pick_thresholds is not None:
+            write_json(self.recorder.path / "physics.json", self.samples)
+            write_json(self.recorder.path / "final_state.json", self.sim.observe_state())
         task_status = self.status if self.status in ("success", "failure") else "unknown"
         outcome = {
             "status": self.status,
             "reason": self.reason,
+            "pick_success_protocol": self.pick_thresholds or PICK_THRESHOLDS,
+            "initial_base_xyyaw": self.initial_base.tolist(),
+            "final_base_xyyaw": self.sim.robot.base_pose().tolist(),
             "verdict": self.verdict,
             "protocol": PROTOCOL,
             "execution_termination": termination,
@@ -439,7 +483,8 @@ class VLARollout:
 
 @isolated_episode
 def run_vla_attempt(
-    baseline, task, station, config, collection, *, root, attempt_id, seed, policy, path=None, goal=None
+    baseline, task, station, config, collection, *, root, attempt_id, seed, policy,
+    path=None, goal=None, pick_thresholds=None,
 ):
     return VLARollout(
         baseline,
@@ -453,4 +498,5 @@ def run_vla_attempt(
         policy=policy,
         path=path,
         goal=goal,
+        pick_thresholds=pick_thresholds,
     ).run()

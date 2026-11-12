@@ -30,7 +30,7 @@
 | `collision-handling/` | 局部碰撞表示：机器人柱体/底盘球、结构化局部环境 | [需求](collision-handling/requirement/02-local-collision-representation.md)、[方案](collision-handling/plan/04-local-collision-representation.md) |
 | `navigation/` | A* 导航几何修复与软净空 | [专题入口](navigation/README.md)、[软净空实施结果](navigation/delivery/08-navigation-soft-clearance.md) |
 | `panda-omron/` | PandaOmron 接入、全流程与整机缩放 | [全流程需求](panda-omron/requirement/02-panda-omron-full-flow.md)、[整机缩放 0.9](panda-omron/delivery/20261111-scale-09.md) |
-| `pi05/` | π0.5 双本体接入与运行 | [需求](pi05/requirement/01-pi05-integration.md)、[构建报告](pi05/delivery/03-implementation.md)、[运行指南](pi05/delivery/running.md) |
+| `pi05/` | π0.5 双本体接入与运行 | [需求](pi05/requirement/01-pi05-integration.md)、[构建报告](pi05/delivery/03-implementation.md)、[运行指南](pi05/delivery/running.md)、[val103 多站位推理](pi05/delivery/06-val103-cup30-inference.md) |
 | `raw-assets/` | THOR 资产库、DROID 抓取库、ProcTHOR 场景库的内容分析 | [analyze/](raw-assets/analyze/) |
 
 ## 归档

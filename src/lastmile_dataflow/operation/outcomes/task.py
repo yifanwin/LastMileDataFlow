@@ -1,6 +1,6 @@
 """Strict force-aware pick evidence. Every physics tick, no agent override.
 
-【这个文件决定“抓取算不算成功”】协议 strict-pick-v3 是硬编码常量，**配置无法放宽**。
+【这个文件决定“抓取算不算成功”】默认协议 strict-pick-v3；实验可显式传入命名的 RL 协议。
 定义见下方 PROTOCOL：双指真实法向力、抬升高度、无支撑保持时长、相对滑移、底盘/头/闲置臂漂移、
 躯干联动误差、采样间隔上限、接触力下限。
 
@@ -148,12 +148,11 @@ def constraint_failure(row, initial, *, check_base=True, check_torso=True, check
     return None
 
 
-def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure):
+def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure, thresholds=PROTOCOL):
     """汇总全部物理样本，判定这次抓取尝试的最终结论。
 
     返回 status 为 success / failure / infrastructure_error 三者之一，并带诊断。
-    判定成功需要**同时满足**：两个指尖都承力、目标抬升 ≥ 5cm、目标已不靠桌面支撑，
-    且上述状态连续保持 ≥ 2s（允许期间因滑移重开计时窗口）。
+    默认要求双指承力、无支撑抬升 ≥ 5cm 且保持 ≥ 2s；显式 thresholds 可使用 RL 命名协议。
     """
     required = {
         "time_s",
@@ -177,7 +176,7 @@ def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure):
         len(times) < 2
         or not np.isfinite(times).all()
         or np.any(np.diff(times) <= 0)
-        or np.max(np.diff(times)) > PROTOCOL["max_sample_gap_s"]
+        or np.max(np.diff(times)) > thresholds["max_sample_gap_s"]
     ):
         return {"status": "infrastructure_error", "reason": "physics_trace_gap"}
     start = np.asarray(-1.0)
@@ -204,7 +203,7 @@ def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure):
             or not np.allclose(pose[3], [0, 0, 0, 1])
             or not np.allclose(pose[:3, :3].T @ pose[:3, :3], np.eye(3), atol=1e-5)
             or not np.isclose(np.linalg.det(pose[:3, :3]), 1)
-            or any(not np.isfinite(v) or v <= PROTOCOL["finger_force_min_n"] for v in forces.values())
+            or any(not np.isfinite(v) or v <= thresholds["finger_force_min_n"] for v in forces.values())
         ):
             return {"status": "infrastructure_error", "reason": "invalid_physics_evidence"}
         fail = constraint_checker(r, initial)
@@ -221,7 +220,7 @@ def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure):
         held = (
             set(forces) == set(initial["fingers"])
             and len(forces) == 2
-            and lift >= PROTOCOL["lift_m"]
+            and lift >= thresholds["lift_m"]
             and r["support_contact"] is False
         )
         start, reference_position, reference_rotation, tail = update_hold_window(
@@ -233,12 +232,14 @@ def evaluate_pick(samples, initial, *, constraint_checker=constraint_failure):
             reference_position,
             reference_rotation,
             xp=np,
+            thresholds=thresholds,
         )
         best = max(best, float(tail))
-    ok = tail >= PROTOCOL["hold_s"] - 1e-9
+    ok = tail >= thresholds["hold_s"] - 1e-9
     return {
         "status": "success" if ok else "failure",
-        "reason": "strict_pick" if ok else "lift_contact_hold_or_slip",
+        "reason": ("strict_pick" if thresholds["version"] == "strict-pick-v3" else "rl_pick")
+        if ok else "lift_contact_hold_or_slip",
         "first_failure_phase": None if ok else samples[-1]["phase"],
         "tail_held_s": float(tail),
         "max_held_s": float(best),
@@ -364,12 +365,14 @@ def evaluate_open(task, samples, hold_s):
     }
 
 
-def evaluate(task, samples, initials, hold_s):
+def evaluate(task, samples, initials, hold_s, *, pick_thresholds=PROTOCOL):
     verdicts = {}
     for side in samples:
         rows = samples[side]
         if task["operation"] == "pick":
-            verdicts[side] = evaluate_pick(rows, initials[side], constraint_checker=constraint)
+            verdicts[side] = evaluate_pick(
+                rows, initials[side], constraint_checker=constraint, thresholds=pick_thresholds
+            )
         else:
             verdicts[side] = evaluate_open(task, rows, hold_s)
     success = next((side for side, verdict in verdicts.items() if verdict["status"] == "success"), None)

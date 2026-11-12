@@ -1,6 +1,7 @@
 """Project-owned π0.5 process; inference only, no simulation dependencies."""
 
 import logging
+from pathlib import Path
 
 import jax
 import numpy as np
@@ -29,6 +30,7 @@ class Pi05Runner:
         )
         return {
             "device": str(jax.devices()[0]),
+            "source": str(Path(__file__).resolve()),
             "embodiment": self.config.embodiment,
             "normalization": self.config.normalization,
         }

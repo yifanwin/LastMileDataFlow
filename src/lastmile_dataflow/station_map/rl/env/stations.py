@@ -12,7 +12,8 @@ from lastmile_dataflow.sim.model.geometry import floor_support, room_triangles
 from lastmile_dataflow.sim.model.geometry import body_pose
 from lastmile_dataflow.scenes.tasks import local_bounds
 from lastmile_dataflow.scenes.tasks import disk_samples
-from lastmile_dataflow.sim.placement import robot_contacts
+from lastmile_dataflow.sim.placement import robot_contacts, place_frozen_station
+from lastmile_dataflow.operation.protocol import SimulationState
 from .scene import RLSceneConfig
 from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 
@@ -87,12 +88,25 @@ def prepare_stations(model, prepared, config):
         mujoco.mj_step(model, sim.data)
     mujoco.mj_forward(model, sim.data)
     initial_qpos = sim.data.qpos.copy()
+    rows = check_stations(sim, config["stations"])
+    sim.close()
+    if config["stations"].get("fixed_station") and not rows[0]["valid"]:
+        raise ValueError(f"Fixed station {rows[0]['station_id']} is invalid: {rows[0]['invalid_reason']}")
+    return rows, initial_qpos
+
+
+def check_stations(sim, settings, *, facing_only=False):
+    """Check sampled poses in a prepared model, restoring the complete baseline state."""
+    model = sim.model
+    robot_config = sim.robot.config
+    state = SimulationState.capture(sim)
     # Each station uses the same settled objects, never the previous station's state.
-    setting = config["stations"]
     # 0 deg faces the settled target's collision-bounds centre; the grid is centred there too.
     lo, hi = local_bounds(sim, sim.target_id)
     center = (body_pose(sim, sim.target_id) @ np.r_[(lo + hi) / 2, 1.0])[:3]
-    rows = station_candidates(center, setting)
+    rows = station_candidates(center, settings)
+    if facing_only:
+        rows = [row for row in rows if row["yaw_offset_rad"] in (None, 0.0)]
     triangles = room_triangles(sim)
 
     base = model.body(robot_config.namespace + "mobilebase0_base").id
@@ -125,12 +139,10 @@ def prepare_stations(model, prepared, config):
                 continue
             initial = deepcopy(robot_config.initial)
             initial["base_xyyaw"] = [row["x"], row["y"], row["yaw"]]
-            sim.data.qpos[:] = initial_qpos
-            sim.robot.initialize(initial)
+            state.initialize(sim)
+            place_frozen_station(sim, {"initial": initial})
             collisions = robot_contacts(sim)
             reason = "home_penetration" if collisions else "" if supported else "floor_support"
             row.update(valid=not reason, invalid_reason=reason)
-    sim.close()
-    if setting.get("fixed_station") and not rows[0]["valid"]:
-        raise ValueError(f"Fixed station {rows[0]['station_id']} is invalid: {rows[0]['invalid_reason']}")
-    return rows, initial_qpos
+    state.initialize(sim)
+    return rows

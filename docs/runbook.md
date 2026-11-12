@@ -69,3 +69,22 @@ $PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/r
 入口自动解析物理 GPU 和 EGL 的对应关系。手动覆盖示例为 --gpu 0 --egl-devices 7（本机2026-11-11映射），其他机器重新查询，不硬编码。多卡参数一一对应；CPU trial 不暴露 CUDA，仍在指定卡渲染。
 
 规划无解、导航失败、任务失败属于真实负结果。记录不完整或基础设施失败不能冒充任务失败。共享 GPU/文件系统故障停止新增工作并保存已完成记录。数据格式见 data-format.md。
+
+## π0.5 val103 / Cup_30 多初始站位推理
+
+先激活仿真环境（包含 EGL 动态库），并指定已有 π0.5 环境的解释器：
+
+```bash
+source .venv/bin/activate
+export PYTHONPATH="$PWD/src"
+python scripts/lastmile_benchmark/station_policy.py \
+  --output outputs/experiments/pi05-val103-cup30/runs/pilot \
+  --gpu 0 --station-limit 1 \
+  --policy-python /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.venv-pi05/bin/python
+```
+
+试运行检查完成后，改用新 run 路径，去掉 `--station-limit 1`，按实时资源填写 `--gpu 0 1 2 3 4 5 6 7`。每卡常驻一个模型服务，依次完成所分配站位的 seed 42、43、44，不因首次成功跳过后两次。
+
+默认读取 RL 的 val103-cup30 场景和 XY 采样配置，只保留正对杯子几何中心的朝向；使用 RoboCasa 控制和完整房间，初态合法性按本次模型重新检查。不使用规划器、导航或可达性筛选。成功条件为 `rl-pick-1cm-1s-v1`，允许底盘和升降运动，因此不能直接视为固定底盘 SAC 的同条件比较。
+
+`--prepare-only` 仅保存本 run 的场景、候选与筛选结果；`--summarize` 汇总已有 run。查看 `progress-gpu-*.json`、`logs/worker-*.log` 和 `trials-gpu-*.jsonl` 跟踪进度。`summary.json` 列出完整性、成功率、覆盖率、碰撞和设施错误；缺少的 seed 明确保留。热图在单元 `analysis/<run>/station-success.png`；回合轨迹、物理事实和四路视频在 run 的 `attempts/` 中按站位分组。
