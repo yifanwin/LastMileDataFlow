@@ -8,15 +8,15 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.runtime.execution.context import clone_sim, ContinuousContext
-from lastmile_dataflow.runtime.execution.lifecycle import isolated_episode
-from lastmile_dataflow.runtime.execution.protocol import PlanningResponse
-from lastmile_dataflow.runtime.execution.workers import execution_worker
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.operation.control.context import clone_sim, ContinuousContext
+from lastmile_dataflow.operation.episode import isolated_episode
+from lastmile_dataflow.operation.protocol import PlanningResponse
+from lastmile_dataflow.station_map.planner_trials.workers import execution_worker
+from lastmile_dataflow.operation.config import ExecutionConfig
 from lastmile_dataflow.station_map.config import StationRun
 from lastmile_dataflow.utils.io import read_json, rows
-from lastmile_dataflow.workflows.station_map import StationRunContext, calibrate_stations
+from lastmile_dataflow.station_map.planner_trials.build import StationRunContext, calibrate_stations
 from tests.helpers import DatasetTestCase
 
 
@@ -122,7 +122,7 @@ class SplitCalibrationTests(DatasetTestCase):
         run = StationRun("unused", cpu_workers=cpus, preparation_workers=2)
         output.mkdir()
         context = StationRunContext(output, scenes, config, self.collection, run, self.root, (0,))
-        with patch("lastmile_dataflow.workflows.station_map.grasp_candidates", return_value=[]):
+        with patch("lastmile_dataflow.station_map.planner_trials.build.grasp_candidates", return_value=[]):
             return calibrate_stations(
                 context, service_type=FixtureService, trial_worker=partial(execution_worker, runner=fixture_runner)
             )

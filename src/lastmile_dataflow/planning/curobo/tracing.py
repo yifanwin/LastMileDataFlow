@@ -6,8 +6,8 @@ state through closures, so they can be constructed and tested in isolation.
 
 import time
 
-from ...utils.logging_config import trial_progress
-from ..robots.common import static_ik_state, chain_state
+from lastmile_dataflow.utils.logging_config import trial_progress
+from lastmile_dataflow.robots.planning_common import static_ik_state, chain_state
 import numpy as np
 
 CONTACT_PHASES = ("goalset", "grasp", "approach_contact")

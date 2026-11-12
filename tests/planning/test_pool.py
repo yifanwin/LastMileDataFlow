@@ -6,8 +6,8 @@ import unittest
 
 import numpy as np
 
-from lastmile_dataflow.planning.pool import PlanningPool
-from lastmile_dataflow.runtime.execution.protocol import (
+from lastmile_dataflow.operation.control.planner_pool import PlanningPool
+from lastmile_dataflow.operation.protocol import (
     PlanningRequest,
     PlanningResponse,
     SimulationState,
@@ -105,7 +105,7 @@ class PlanningPoolTests(unittest.TestCase):
 
     def test_resident_service_uses_the_current_planner_module(self):
         from lastmile_dataflow.planning.curobo.planner import PlannerResources
-        from lastmile_dataflow.planning.pool import PlanningService
+        from lastmile_dataflow.operation.control.planner_pool import PlanningService
 
         service = PlanningService()
         self.addCleanup(service.close)

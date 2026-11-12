@@ -7,12 +7,10 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.runtime.control.action import (
-    InvalidAction,
-)
-from lastmile_dataflow.runtime.execution.context import clone_sim
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.loading.source import resolve_target
+from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.operation.control.context import clone_sim
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.sim.source import resolve_target
 from tests.helpers import make_sim
 
 
@@ -20,7 +18,7 @@ class SimulationTests(unittest.TestCase):
     def test_frozen_skybox_xml_reloads_with_the_original_layout_and_pixels(self):
         import imageio.v2 as imageio
         from tests.helpers import fixtures
-        from lastmile_dataflow.scenes.loading.mjcf import load_spec
+        from lastmile_dataflow.sim.model.mjcf import load_spec
 
         source, robot = fixtures(self.root)
         imageio.imwrite(self.root / "sky.png", np.arange(24, dtype=np.uint8).reshape(2, 4, 3))
@@ -112,7 +110,7 @@ class SimulationTests(unittest.TestCase):
 
 class CloneTests(unittest.TestCase):
     def test_prepared_state_transport_keeps_clock_controls_and_independent_data(self):
-        from lastmile_dataflow.runtime.execution.protocol import SimulationState
+        from lastmile_dataflow.operation.protocol import SimulationState
 
         with tempfile.TemporaryDirectory() as d:
             sim, _ = make_sim(d)

@@ -3,7 +3,7 @@
 from dataclasses import asdict, replace
 import unittest
 
-from lastmile_dataflow.scenes.dataset import SceneRecipe
+from lastmile_dataflow.scenes.library import SceneRecipe
 
 
 class TaskModeConfigTests(unittest.TestCase):

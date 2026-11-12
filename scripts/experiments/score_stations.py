@@ -4,7 +4,7 @@ from lastmile_dataflow.station_map.rl.devices import isolate_from_argv
 
 isolate_from_argv()  # before any CUDA library loads
 
-from lastmile_dataflow.workflows.rl_training import run_cli  # noqa: E402
+from lastmile_dataflow.station_map.rl.training import run_cli
 
 if __name__ == "__main__":
     run_cli("score")

@@ -6,10 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lastmile_dataflow.utils.io import LocalConfig, load_local_config, read_config
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
 from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
-from lastmile_dataflow.policies.molmobot import load_molmobot_config as load_policy_config
+from lastmile_dataflow.policies.molmobot.client import load_molmobot_config as load_policy_config
 from lastmile_dataflow.robots.registry import load_robot_config
 
 
@@ -76,8 +76,8 @@ class PathTests(unittest.TestCase):
 
 class ConfigurationTests(unittest.TestCase):
     def test_panda_three_trial_configs_match_collection_and_rate_groups(self):
-        from lastmile_dataflow.runtime.execution_config import load_execution_config
-        from lastmile_dataflow.data.evaluation.calibration import eligible_stations
+        from lastmile_dataflow.operation.config import load_execution_config
+        from lastmile_dataflow.station_map.aggregate import eligible_stations
 
         for name in ("panda_omron_curobo",):
             config = load_execution_config(f"configs/execution/{name}.yaml")

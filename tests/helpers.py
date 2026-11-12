@@ -7,11 +7,11 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
 from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.utils.io import append_row, create_run
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.loading.source import SceneSource
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.sim.source import SceneSource
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -204,9 +204,9 @@ class DatasetTestCase(unittest.TestCase):
 
 def settled_scene(source, robot, settle_config=None, *, base=(0, 0, 0)):
     """Fresh source scene with the robot at ``base`` after one real settling run: (sim, settling)."""
-    from lastmile_dataflow.runtime.execution_config import CollectionConfig
-    from lastmile_dataflow.runtime.construction.preparation import SettleConfig, settle_scene
-    from lastmile_dataflow.runtime.simulation import Simulation
+    from lastmile_dataflow.operation.config import CollectionConfig
+    from lastmile_dataflow.sim.settle import SettleConfig, settle_scene
+    from lastmile_dataflow.sim.simulation import Simulation
     from lastmile_dataflow.sim.placement import initialize_robot
 
     sim = Simulation.from_source(source, robot, target=None)

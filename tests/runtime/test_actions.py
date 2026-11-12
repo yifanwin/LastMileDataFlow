@@ -6,17 +6,10 @@ from types import SimpleNamespace
 import numpy as np
 
 from lastmile_dataflow.robots.rby1.config import RobotConfig
-from lastmile_dataflow.runtime.control.action import (
-    InvalidAction,
-    torso_joints,
-    validate_action,
-)
-from lastmile_dataflow.runtime.control.action import (
-    local_yaw_bounds,
-    sanitize_action,
-)
-from lastmile_dataflow.runtime.control.joints import JointMap
-from lastmile_dataflow.runtime.execution.context import joint_base_error
+from lastmile_dataflow.robots.action import InvalidAction, torso_joints, validate_action
+from lastmile_dataflow.robots.action import local_yaw_bounds, sanitize_action
+from lastmile_dataflow.robots.joints import JointMap
+from lastmile_dataflow.operation.control.context import joint_base_error
 
 
 def robot_fixture():

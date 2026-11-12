@@ -2,7 +2,7 @@
 
 import os
 import sys
-from lastmile_dataflow.gpu import bind_device, select_devices
+from lastmile_dataflow.utils.gpu import bind_device, select_devices
 
 
 def isolate_from_argv(argv=None):
@@ -34,7 +34,7 @@ def isolate_from_argv(argv=None):
 def sampler_entry(physical_gpu, *args):
     """Spawn target: isolate before importing CUDA-dependent worker code."""
     bind_device(int(physical_gpu))
-    from lastmile_dataflow.workflows.rl_sampling import sample
+    from .sampling import sample
 
     sample(*args)
 

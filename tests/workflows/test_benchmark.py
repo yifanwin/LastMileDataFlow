@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.data.evaluation.benchmark import select_starts, summarize
-from lastmile_dataflow.runtime.construction.benchmark_scene import native_scene
-from lastmile_dataflow.runtime.simulation import Simulation
+from lastmile_dataflow.lastmile_benchmark.summary import select_starts, summarize
+from lastmile_dataflow.sim.native_scene import native_scene
+from lastmile_dataflow.sim.simulation import Simulation
 from tests.helpers import make_sim
 
 

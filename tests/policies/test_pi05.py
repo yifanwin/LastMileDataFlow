@@ -10,8 +10,8 @@ from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.policies.config import check_profile, load_policy_config
 from lastmile_dataflow.policies.pi05.client import Pi05Client
-from lastmile_dataflow.runtime.control.panda_robocasa import rotation_matrix, rotation_vector
-from lastmile_dataflow.runtime.execution_config import load_execution_config
+from lastmile_dataflow.robots.panda_omron.robocasa import rotation_matrix, rotation_vector
+from lastmile_dataflow.operation.config import load_execution_config
 
 
 class Pi05Tests(unittest.TestCase):

@@ -6,15 +6,15 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.scenes.dataset import SceneStationConfig
-from lastmile_dataflow.scenes.tasks.discovery import discover_tasks, grasp_candidates
+from lastmile_dataflow.scenes.library import SceneStationConfig
+from lastmile_dataflow.scenes.tasks import discover_tasks, grasp_candidates
 from tests.helpers import make_sim
 
 
 class TaskTests(unittest.TestCase):
     def test_task_identity_survives_body_renumbering(self):
         import xml.etree.ElementTree as ET
-        from lastmile_dataflow.runtime.simulation import Simulation
+        from lastmile_dataflow.sim.simulation import Simulation
         from tests.helpers import fixtures
 
         with tempfile.TemporaryDirectory() as directory:

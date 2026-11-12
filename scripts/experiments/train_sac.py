@@ -4,6 +4,6 @@ if __name__ == "__main__":
     from lastmile_dataflow.station_map.rl.devices import isolate_training
 
     isolate_training()
-    from lastmile_dataflow.workflows.rl_training import run_cli
+    from lastmile_dataflow.station_map.rl.training import run_cli
 
     run_cli("train")

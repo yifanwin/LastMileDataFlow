@@ -10,10 +10,10 @@ import numpy as np
 
 from lastmile_dataflow.robots.registry import robot_config
 from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
-from lastmile_dataflow.runtime.control.interface import RobotCommand
-from lastmile_dataflow.runtime.control.panda_omron import PandaOmronAdapter
-from lastmile_dataflow.runtime.control.action import InvalidAction
-from lastmile_dataflow.runtime.outcomes.task import evaluate_pick
+from lastmile_dataflow.robots.interface import RobotCommand
+from lastmile_dataflow.robots.panda_omron.adapter import PandaOmronAdapter
+from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.operation.outcomes.task import evaluate_pick
 from tests.helpers import make_sim, evidence
 
 

@@ -1,7 +1,7 @@
 import unittest
 
-from lastmile_dataflow.data.evaluation.station_q import select_acceptance_stations, summarize_trials
-from lastmile_dataflow.scenes.stations.rl import spatial_split
+from lastmile_dataflow.station_map.rl.station_q import select_acceptance_stations, summarize_trials
+from lastmile_dataflow.station_map.rl.env.stations import spatial_split
 
 
 class StationQTests(unittest.TestCase):

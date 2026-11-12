@@ -4,19 +4,19 @@ from contextlib import contextmanager
 import logging
 from dataclasses import asdict, replace
 from pathlib import Path
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
 from lastmile_dataflow.robots.registry import robot_config
-from lastmile_dataflow.data.evaluation.benchmark import BenchmarkConfig
-from lastmile_dataflow.data.evaluation.benchmark import summarize
-from lastmile_dataflow.data.evaluation.recovery import RecoveryRegion, motion_diagnostics
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.construction.benchmark_scene import native_scene
-from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
-from lastmile_dataflow.scenes.dataset import open_scene
+from .summary import BenchmarkConfig
+from .summary import summarize
+from .recovery import RecoveryRegion, motion_diagnostics
+from lastmile_dataflow.operation.config import ExecutionConfig
+from lastmile_dataflow.sim.native_scene import native_scene
+from .policy_rollout import run_vla_attempt
+from lastmile_dataflow.scenes.library import open_scene
 from lastmile_dataflow.policies.config import backend, check_profile, create_policy, load_policy_config
 from lastmile_dataflow.utils.io import create_run, read_json, rows, write_json, append_row
 from lastmile_dataflow.utils.logging_config import Progress, trial_logging
-from lastmile_dataflow.data.visualization.benchmark import evaluation_view
+from .figures import evaluation_view
 
 logger = logging.getLogger(__name__)
 

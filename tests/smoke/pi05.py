@@ -26,7 +26,7 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     args.output.mkdir(parents=True, exist_ok=False)
-    from lastmile_dataflow.gpu import select_devices
+    from lastmile_dataflow.utils.gpu import select_devices
 
     select_devices([args.gpu])
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -73,13 +73,13 @@ def main():
         from copy import deepcopy
         from dataclasses import replace
         from lastmile_dataflow.utils.io import read_config
-        from lastmile_dataflow.runtime.execution_config import CollectionConfig
+        from lastmile_dataflow.operation.config import CollectionConfig
         from lastmile_dataflow.robots.registry import load_robot_config
-        from lastmile_dataflow.runtime.simulation import Simulation
-        from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-        from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
-        from lastmile_dataflow.scenes.loading.source import SceneSource
-        from lastmile_dataflow.scenes.tasks.discovery import discover_tasks
+        from lastmile_dataflow.sim.simulation import Simulation
+        from lastmile_dataflow.operation.config import ExecutionConfig
+        from lastmile_dataflow.lastmile_benchmark.policy_rollout import run_vla_attempt
+        from lastmile_dataflow.sim.source import SceneSource
+        from lastmile_dataflow.scenes.tasks import discover_tasks
         from lastmile_dataflow.policies.pi05.client import Pi05Client
 
         config = load_robot_config(args.robot_config)
@@ -134,8 +134,8 @@ def main():
             sim.close()
     else:
         from lastmile_dataflow.robots.registry import load_robot_config
-        from lastmile_dataflow.runtime.simulation import Simulation
-        from lastmile_dataflow.scenes.loading.source import SceneSource
+        from lastmile_dataflow.sim.simulation import Simulation
+        from lastmile_dataflow.sim.source import SceneSource
 
         path = args.output / "floor.xml"
         path.write_text(
@@ -156,10 +156,10 @@ def main():
                 np.savez_compressed(args.output / "observation.npz", state=obs["state"], **obs["images"])
                 packet = {"stage": "real_robot_observation", "state": obs["state"].tolist(), "task_success": None}
             elif args.stage == "tracking":
-                from lastmile_dataflow.runtime.control.interface import RobotCommand
+                from lastmile_dataflow.robots.interface import RobotCommand
                 from stepping import semantic_tick
-                from lastmile_dataflow.scenes.geometry import tcp_pose
-                from lastmile_dataflow.runtime.outcomes.task import rotation_error
+                from lastmile_dataflow.sim.model.geometry import tcp_pose
+                from lastmile_dataflow.operation.outcomes.task import rotation_error
 
                 goal = sim.robot.base_pose() + np.array([0.15, 0.08, 0.2])
                 command = RobotCommand(base_xyyaw=goal, arm_q={"right": sim.robot.arm_positions("right").copy()})
@@ -180,7 +180,7 @@ def main():
                     "task_success": None,
                 }
             else:
-                from lastmile_dataflow.runtime.control.interface import RobotCommand
+                from lastmile_dataflow.robots.interface import RobotCommand
 
                 initial = sim.robot.arm_positions("right").copy()
                 site = sim.robot.tcp_site("right")

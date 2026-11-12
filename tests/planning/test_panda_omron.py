@@ -5,14 +5,14 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from lastmile_dataflow.planning.robots.panda_omron import (
+from lastmile_dataflow.robots.panda_omron.planning import (
     configuration,
     robot_description,
     ASSETS,
     ARM_NAMES,
     FULL_NAMES,
 )
-from lastmile_dataflow.runtime.control.panda_omron import SCALE
+from lastmile_dataflow.robots.panda_omron.adapter import SCALE
 from tests.runtime.test_robot_interface import panda_adapter
 
 

@@ -10,20 +10,13 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.runtime.construction.preparation import (
-    SettleConfig,
-    settle_scene,
-)
-from lastmile_dataflow.runtime.construction.session import ObstacleEditSession, matched_control
-from lastmile_dataflow.runtime.construction.preparation import clone_preparation
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.edits.checks import (
-    collision_pairs,
-    load_support,
-    matched_source_effects,
-)
+from lastmile_dataflow.sim.settle import SettleConfig, settle_scene
+from lastmile_dataflow.scenes.edits.session import ObstacleEditSession, matched_control
+from lastmile_dataflow.sim.settle import clone_preparation
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.scenes.edits.checks import collision_pairs, load_support, matched_source_effects
 from lastmile_dataflow.scenes.edits.checks import PhysicalLimits
-from lastmile_dataflow.scenes.loading.assets import RuntimeGeometryCache
+from lastmile_dataflow.scenes.assets import RuntimeGeometryCache
 from tests.helpers import fixtures, settled_scene, table_scene
 
 
@@ -85,7 +78,7 @@ class TransactionTests(unittest.TestCase):
             calls.append(True)
             return native(model, data)
 
-        with patch("lastmile_dataflow.runtime.construction.session.mujoco.mj_forward", side_effect=checked_forward):
+        with patch("lastmile_dataflow.scenes.edits.session.mujoco.mj_forward", side_effect=checked_forward):
             self.session.candidate(placements)
         self.assertEqual(len(calls), 1)
 

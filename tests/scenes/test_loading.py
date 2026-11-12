@@ -7,7 +7,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.scenes.loading.mjcf import load_spec, save_spec
+from lastmile_dataflow.sim.model.mjcf import load_spec, save_spec
 
 
 class LoadingTests(unittest.TestCase):

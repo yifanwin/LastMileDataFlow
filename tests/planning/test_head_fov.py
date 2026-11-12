@@ -10,7 +10,7 @@ import mujoco
 import numpy as np
 import torch
 
-from lastmile_dataflow.runtime.control.joints import JointMap
+from lastmile_dataflow.robots.joints import JointMap
 from lastmile_dataflow.planning.curobo.head_fov import (
     HeadFOVCost,
     SparseFOVValidator,
@@ -18,9 +18,9 @@ from lastmile_dataflow.planning.curobo.head_fov import (
     knot_sample_indices,
     target_camera_torch,
 )
-from lastmile_dataflow.planning.robots.rby1m_mobile_torso import joint_names
-from lastmile_dataflow.planning.waypoints import PlanResult
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.robots.rby1.planning import joint_names
+from lastmile_dataflow.planning.result import PlanResult
+from lastmile_dataflow.operation.config import ExecutionConfig
 from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 

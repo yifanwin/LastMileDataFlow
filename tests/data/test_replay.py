@@ -8,10 +8,10 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.data.rendering.replay import render_rollout
-from lastmile_dataflow.runtime.simulation import Simulation
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.operation.recording.replay import render_rollout
+from lastmile_dataflow.sim.simulation import Simulation
 from tests.helpers import make_sim
 
 
@@ -44,8 +44,8 @@ class ReplayTests(unittest.TestCase):
                 (float(data.time), data.qpos.copy(), data.cam_xpos.copy(), kw["camera"])
             )
             with (
-                patch("lastmile_dataflow.data.rendering.replay.mujoco.Renderer", return_value=renderer),
-                patch("lastmile_dataflow.data.rendering.replay.imageio.get_writer", return_value=writer),
+                patch("lastmile_dataflow.operation.recording.replay.mujoco.Renderer", return_value=renderer),
+                patch("lastmile_dataflow.operation.recording.replay.imageio.get_writer", return_value=writer),
                 patch("mujoco.mj_step", side_effect=AssertionError("replay must not integrate")),
             ):
                 result = render_rollout(recorder.path, root / "video", camera="head_camera")

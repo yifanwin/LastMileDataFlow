@@ -15,10 +15,10 @@ def main():
     cli.add_argument("--gpu", type=int, required=True)
     cli.add_argument("--egl-devices", type=int, nargs="+", help="与 --gpu 对应的 EGL 设备号，默认自动查询")
     args = cli.parse_args()
-    from lastmile_dataflow.gpu import select_devices
+    from lastmile_dataflow.utils.gpu import select_devices
 
     select_devices([args.gpu], args.egl_devices)
-    from lastmile_dataflow.data.rendering.replay import render_rollout
+    from lastmile_dataflow.operation.recording.replay import render_rollout
 
     print(render_rollout(args.rollout, args.output, camera=args.camera, fps=args.fps))
 

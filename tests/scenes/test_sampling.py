@@ -5,17 +5,17 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.control.joints import JointMap
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.scenes.stations.sampling import coverage_select
-from lastmile_dataflow.scenes.tasks.discovery import disk_samples
-from lastmile_dataflow.scenes.dataset import load_scene_recipe
+from lastmile_dataflow.robots.joints import JointMap
+from lastmile_dataflow.operation.config import ExecutionConfig
+from lastmile_dataflow.station_map.sampling.sample import coverage_select
+from lastmile_dataflow.scenes.tasks import disk_samples
+from lastmile_dataflow.scenes.library import load_scene_recipe
 
 
 class SamplingTests(unittest.TestCase):
     def test_explicit_yaw_survives_initialization_and_recheck(self):
         import tempfile
-        from lastmile_dataflow.scenes.stations.sampling import initialize_station
+        from lastmile_dataflow.station_map.sampling.sample import initialize_station
         from tests.helpers import make_sim
 
         with tempfile.TemporaryDirectory() as directory:
@@ -35,8 +35,8 @@ class SamplingTests(unittest.TestCase):
                 sim.data.qvel[target_dof : target_dof + 6] = np.arange(6) * 0.01
                 object_velocity = sim.data.qvel[target_dof : target_dof + 6].copy()
                 with (
-                    patch("lastmile_dataflow.scenes.stations.sampling.floor_support", return_value=True),
-                    patch("lastmile_dataflow.scenes.stations.sampling.robot_contacts", return_value=[]),
+                    patch("lastmile_dataflow.station_map.sampling.sample.floor_support", return_value=True),
+                    patch("lastmile_dataflow.station_map.sampling.sample.robot_contacts", return_value=[]),
                     patch.object(sim.robot, "aim_station", side_effect=AssertionError("explicit yaw was aimed")),
                 ):
                     for candidate in candidates:
@@ -54,7 +54,7 @@ class SamplingTests(unittest.TestCase):
 
     def test_physical_station_check_does_not_render(self):
         from types import SimpleNamespace
-        from lastmile_dataflow.scenes.stations.sampling import initialize_station
+        from lastmile_dataflow.station_map.sampling.sample import initialize_station
 
         sim = SimpleNamespace(
             started=False,
@@ -72,9 +72,9 @@ class SamplingTests(unittest.TestCase):
             ),
         )
         with (
-            patch("lastmile_dataflow.scenes.stations.sampling.robot_contacts", return_value=[]),
-            patch("lastmile_dataflow.scenes.stations.sampling.mujoco.mj_forward"),
-            patch("lastmile_dataflow.scenes.stations.sampling.floor_support", return_value=True),
+            patch("lastmile_dataflow.station_map.sampling.sample.robot_contacts", return_value=[]),
+            patch("lastmile_dataflow.station_map.sampling.sample.mujoco.mj_forward"),
+            patch("lastmile_dataflow.station_map.sampling.sample.floor_support", return_value=True),
         ):
             row = initialize_station(sim, {"xy": [0, 0]}, [1, 0, 1])
             self.assertEqual(row["geometry"], "valid")

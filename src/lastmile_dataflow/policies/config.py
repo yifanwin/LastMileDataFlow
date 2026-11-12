@@ -1,7 +1,7 @@
 """Explicit selection of the two supported local VLA backends."""
 
 from lastmile_dataflow.utils.io import read_config
-from .molmobot import MolmoBotClient, load_molmobot_config
+from .molmobot.client import MolmoBotClient, load_molmobot_config
 from .pi05.client import Pi05Client
 from .pi05.config import load_config as load_pi05_config
 

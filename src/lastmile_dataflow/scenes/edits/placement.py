@@ -6,9 +6,9 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from ..geometry import extract_regions, quat_yaw, rotated_extent, support_rays
-from lastmile_dataflow.scenes.geometry import floor_support, inside_triangles, room_triangles, floor_height
-from ..loading.assets import AssetRequest
+from lastmile_dataflow.sim.model.geometry import extract_regions, quat_yaw, rotated_extent, support_rays
+from lastmile_dataflow.sim.model.geometry import floor_support, inside_triangles, room_triangles, floor_height
+from ..assets import AssetRequest
 
 PLACEMENT_GAP_M = 0.003  # clearance between an added obstacle and its support before settling
 SURFACE_MARGIN_M = 0.01  # footprint must stay this far inside the support surface

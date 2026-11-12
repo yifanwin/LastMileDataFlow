@@ -9,18 +9,18 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.control.action import InvalidAction
-from lastmile_dataflow.runtime.control.action import (
+from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.robots.action import (
     FEEDBACK_TOLERANCE_RAD,
     TORSO_SEVERE_FEEDBACK_RAD,
     bounded_torso_command,
     torso_feedback_margin,
 )
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.simulation import OperationFailure
-from lastmile_dataflow.runtime.execution.navigation import navigate
-from lastmile_dataflow.runtime.outcomes.contacts import NavigationContacts
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.control.context import ContinuousContext
+from lastmile_dataflow.sim.simulation import OperationFailure
+from lastmile_dataflow.planning.navigation.follow import navigate
+from lastmile_dataflow.sim.contacts import NavigationContacts
+from lastmile_dataflow.operation.config import ExecutionConfig
 
 
 class TorsoCommandTests(unittest.TestCase):
@@ -64,9 +64,7 @@ class TorsoCommandTests(unittest.TestCase):
                 ctx.phase = "close"
                 ctx.deadline = lambda: None
                 ctx.begin = lambda: None
-                from lastmile_dataflow.runtime.outcomes.contacts import (
-                    ContactStatistics,
-                )
+                from lastmile_dataflow.sim.contacts import ContactStatistics
 
                 ctx.contact_stats = ContactStatistics()
                 ctx.state = lambda: {"time_s": 0.0}
@@ -97,17 +95,17 @@ class TorsoCommandTests(unittest.TestCase):
                     return {"submitted_action": action.tolist()}, check
 
                 ctx.sim = SimpleNamespace(data=data, robot=robot, model=None, step=step)
-                from lastmile_dataflow.runtime.outcomes.contacts import ContactFrame
+                from lastmile_dataflow.sim.contacts import ContactFrame
 
                 ctx.contact_sampler = SimpleNamespace(capture=lambda **kw: ContactFrame(ctx.sim, []))
                 action = np.zeros(20)
                 action[19] = 0.739327605117437
                 with (
                     patch(
-                        "lastmile_dataflow.runtime.execution.context.sanitize_action",
+                        "lastmile_dataflow.operation.control.context.sanitize_action",
                         side_effect=lambda robot, a, **kw: (a, []),
                     ),
-                    patch("lastmile_dataflow.runtime.execution.context.mujoco.mj_forward"),
+                    patch("lastmile_dataflow.operation.control.context.mujoco.mj_forward"),
                 ):
                     if fails:
                         with self.assertRaisesRegex(OperationFailure, "torso_feedback_limit"):

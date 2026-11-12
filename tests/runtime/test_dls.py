@@ -7,7 +7,7 @@ import torch
 @unittest.skipUnless(importlib.util.find_spec("mjlab"), "requires the independent RL environment")
 class JointCommandTests(unittest.TestCase):
     def test_command_rate_is_relative_to_previous_command(self):
-        from lastmile_dataflow.runtime.control.dls import limit_joint_command
+        from lastmile_dataflow.station_map.rl.env.dls import limit_joint_command
 
         current = torch.zeros(1, 7)
         command = current.clone()
@@ -18,7 +18,7 @@ class JointCommandTests(unittest.TestCase):
         torch.testing.assert_close(command, torch.full_like(current, 0.1))
 
     def test_reference_ramp_inside_a_policy_step_is_not_a_limit(self):
-        from lastmile_dataflow.runtime.control.dls import limit_joint_command
+        from lastmile_dataflow.station_map.rl.env.dls import limit_joint_command
 
         current = torch.zeros(1, 7)
         _, within = limit_joint_command(current, torch.full_like(current, 0.05), current, -1.0, 1.0, 0.004, 25)
@@ -29,7 +29,7 @@ class JointCommandTests(unittest.TestCase):
         self.assertEqual(float(clamped), 1.0)
 
     def test_position_servo_can_converge_with_a_rate_limited_reference(self):
-        from lastmile_dataflow.runtime.control.dls import limit_joint_command
+        from lastmile_dataflow.station_map.rl.env.dls import limit_joint_command
 
         dt, max_step = 0.002, 2.175 * 0.002
         current = torch.zeros(1, 7)

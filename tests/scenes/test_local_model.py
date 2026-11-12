@@ -6,8 +6,8 @@ import unittest
 
 import numpy as np
 
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.loading.rl_scene import task_local_model
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.station_map.rl.env.scene import task_local_model
 from tests.helpers import table_scene
 
 

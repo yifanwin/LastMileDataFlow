@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ...runtime.control.action import sanitize_action, vector
+from lastmile_dataflow.robots.action import sanitize_action, vector
 
 
 def execution_action(robot, prediction):

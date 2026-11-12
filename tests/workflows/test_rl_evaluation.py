@@ -76,7 +76,7 @@ class TwoEpisodeEnv:
 @unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependencies")
 class ValidationTests(unittest.TestCase):
     def test_async_terminal_records_once_and_preserves_ongoing_observation(self):
-        from lastmile_dataflow.workflows.rl_evaluation import validation_rollout
+        from lastmile_dataflow.station_map.rl.evaluation import validation_rollout
 
         env = TwoEpisodeEnv()
         rows = validation_rollout(SimpleNamespace(actor=ObservationActor()), env, [0, 1], 42, 0.5)

@@ -7,14 +7,10 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.data.evaluation.calibration import (
-    aggregate,
-    eligible_stations,
-    station_calibration,
-)
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.dataset import load_scenes
+from lastmile_dataflow.station_map.aggregate import aggregate, eligible_stations, station_calibration
+from lastmile_dataflow.operation.config import ExecutionConfig
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.scenes.library import load_scenes
 from lastmile_dataflow.utils.io import append_row
 from tests.helpers import DatasetTestCase
 

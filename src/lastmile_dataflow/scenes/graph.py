@@ -10,7 +10,15 @@ from dataclasses import dataclass, field, replace
 import mujoco
 import numpy as np
 
-from .geometry import body_points, collision_geoms, descendants, extract_regions, geom_points, quat_yaw, support_rays
+from lastmile_dataflow.sim.model.geometry import (
+    body_points,
+    collision_geoms,
+    descendants,
+    extract_regions,
+    geom_points,
+    quat_yaw,
+    support_rays,
+)
 
 
 STATION_ID = "station_start"

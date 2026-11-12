@@ -1,15 +1,16 @@
-from lastmile_dataflow.runtime.control.interface import ROBOT_NAMESPACE
-from lastmile_dataflow.robots.rby1.config import RobotConfig
-from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
+from .interface import ROBOT_NAMESPACE
+from .rby1.config import RobotConfig
+from .panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.utils.io import read_config
 import mujoco
-from lastmile_dataflow.scenes.loading.mjcf import load_spec
-from lastmile_dataflow.runtime.control import panda_omron, panda_robocasa
-from lastmile_dataflow.runtime.control.panda_omron import SCALE as PANDA_SCALE, PandaOmronAdapter
-from lastmile_dataflow.runtime.control.panda_robocasa import PandaRoboCasaAdapter
-from lastmile_dataflow.runtime.control.robot import RBY1Adapter, prepare_rby1_spec
-from lastmile_dataflow.planning.robots.panda_omron import PlanningModel as PandaPlanningModel
-from lastmile_dataflow.planning.robots.rby1m_mobile_torso import PlanningModel as RBY1PlanningModel
+from lastmile_dataflow.sim.model.mjcf import load_spec
+from .panda_omron import adapter as panda_omron
+from .panda_omron import robocasa as panda_robocasa
+from .panda_omron.adapter import SCALE as PANDA_SCALE, PandaOmronAdapter
+from .panda_omron.robocasa import PandaRoboCasaAdapter
+from .rby1.adapter import RBY1Adapter, prepare_rby1_spec
+from .panda_omron.planning import PlanningModel as PandaPlanningModel
+from .rby1.planning import PlanningModel as RBY1PlanningModel
 
 
 RBY1_PLANNING_ADAPTER = "joint_waypoints_v1"

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from ...runtime.construction.session import OBSTACLE_PREFIX, matched_control, obstacle_name
-from ..geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
+from .session import OBSTACLE_PREFIX, matched_control, obstacle_name
+from lastmile_dataflow.sim.model.geometry import body_points, collision_geoms, extract_regions, support_rays, quat_angle
 from .placement import ground_coverage
 
 UP = np.array([0.0, 0.0, 1.0])

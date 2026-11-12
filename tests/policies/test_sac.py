@@ -7,8 +7,8 @@ from pathlib import Path
 
 import torch
 
-from lastmile_dataflow.scenes.rl_observation import GraphObservation, graph_edges
-from lastmile_dataflow.policies.sac.replay import Replay, Transition
+from lastmile_dataflow.station_map.rl.env.observation import GraphObservation, graph_edges
+from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition
 
 
 def observation(batch=2):
@@ -64,7 +64,7 @@ class SACTests(unittest.TestCase):
         torch.set_num_threads(cls.previous_threads)
 
     def test_finite_horizon_and_external_truncation_target(self):
-        from lastmile_dataflow.policies.sac.agent import bellman_target
+        from lastmile_dataflow.station_map.rl.sac.agent import bellman_target
 
         target = bellman_target(
             torch.ones(2), torch.tensor([True, False]), torch.full((2,), 3.0), torch.full((2,), -2.0), 0.1, 0.5
@@ -72,7 +72,7 @@ class SACTests(unittest.TestCase):
         torch.testing.assert_close(target, torch.tensor([1.0, 2.6]))
 
     def test_goal_embedding_is_invariant_to_padding_and_node_order(self):
-        from lastmile_dataflow.policies.sac.networks import GraphEncoder
+        from lastmile_dataflow.station_map.rl.sac.networks import GraphEncoder
 
         obs = observation()
         encoder = GraphEncoder().eval()
@@ -81,7 +81,7 @@ class SACTests(unittest.TestCase):
         torch.testing.assert_close(encoder(obs), encoder(changed))
 
     def test_update_independence_polyak_and_checkpoint(self):
-        from lastmile_dataflow.policies.sac.agent import SAC
+        from lastmile_dataflow.station_map.rl.sac.agent import SAC
 
         torch.manual_seed(3)
         obs = observation()
@@ -110,7 +110,7 @@ class SACTests(unittest.TestCase):
             self.assertEqual(restored.updates, 1)
 
     def test_saturated_tanh_log_probability_remains_finite(self):
-        from lastmile_dataflow.policies.sac.networks import Actor
+        from lastmile_dataflow.station_map.rl.sac.networks import Actor
 
         actor = Actor(9)
         with torch.no_grad():

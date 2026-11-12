@@ -7,12 +7,12 @@ import unittest
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.runtime.control.interface import RobotCommand
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.runtime.execution.context import clone_sim
-from lastmile_dataflow.scenes.loading.source import SceneSource
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.robots.interface import RobotCommand
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.operation.control.context import clone_sim
+from lastmile_dataflow.sim.source import SceneSource
 from tests.runtime.test_robot_interface import panda_adapter
 
 
@@ -54,7 +54,7 @@ class PandaRecordingTests(unittest.TestCase):
                 sim.close()
 
     def test_materialization_reads_panda_fields_without_rby_state(self):
-        from lastmile_dataflow.data.export.lastmile_dataset import finalize_dataset, load_training_batch
+        from lastmile_dataflow.lastmile_dataset.export import finalize_dataset, load_training_batch
         from lastmile_dataflow.utils.io import write_json, write_rows
 
         layout = panda_adapter().record_layout()

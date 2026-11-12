@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from lastmile_dataflow.utils.io import create_run, write_json
-from lastmile_dataflow.policies.molmobot import MolmoBotClient
+from lastmile_dataflow.policies.molmobot.client import MolmoBotClient
 
 
 def main():

@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 from PIL import Image
 
-from lastmile_dataflow.data.visualization import scene_preview as preview
-from lastmile_dataflow.runtime.simulation import Simulation
+from lastmile_dataflow.scenes import preview as preview
+from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.utils.io import append_row
 from tests.helpers import add_scene, fixtures
 

@@ -7,10 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from lastmile_dataflow.station_map.config import StationRun
-from lastmile_dataflow.workflows.station_map import trial_record
+from lastmile_dataflow.station_map.planner_trials.build import trial_record
 from lastmile_dataflow.scenes.edits.search import build_task
-from lastmile_dataflow.scenes.dataset import SceneRecipe
-from lastmile_dataflow.workflows import scene_datasets
+from lastmile_dataflow.scenes.library import SceneRecipe
+from lastmile_dataflow.scenes import build as scene_datasets
 
 
 class NoEditRecipeTests(unittest.TestCase):

@@ -10,10 +10,10 @@ from unittest.mock import patch
 import torch
 
 from tests.policies.test_sac import observation
-from lastmile_dataflow.policies.sac.replay import Transition
+from lastmile_dataflow.station_map.rl.sac.replay import Transition
 
 if importlib.util.find_spec("torch_geometric"):
-    from lastmile_dataflow.workflows.rl_training import Samplers, target_updates
+    from lastmile_dataflow.station_map.rl.training import Samplers, target_updates
 
 
 def producer(channel, queue, stop):
@@ -89,15 +89,15 @@ class SamplingTests(unittest.TestCase):
         queue.close()
 
     def test_periodic_scores_only_explicit_subset(self):
-        from lastmile_dataflow.workflows.rl_evaluation import station_scores
+        from lastmile_dataflow.station_map.rl.evaluation import station_scores
 
         env = SimpleNamespace(
             num_envs=2, task=SimpleNamespace(stations=[{"station_id": str(i), "valid": True} for i in range(10)])
         )
         with (
-            patch("lastmile_dataflow.workflows.rl_evaluation.reset_stations") as reset,
+            patch("lastmile_dataflow.station_map.rl.evaluation.reset_stations") as reset,
             patch(
-                "lastmile_dataflow.workflows.rl_evaluation.action_sampled_q",
+                "lastmile_dataflow.station_map.rl.evaluation.action_sampled_q",
                 return_value=(torch.ones(2), torch.zeros(2)),
             ),
         ):

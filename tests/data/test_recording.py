@@ -10,10 +10,10 @@ from unittest.mock import Mock, patch
 import numpy as np
 import mujoco
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.operation.control.context import ContinuousContext
+from lastmile_dataflow.operation.config import ExecutionConfig
 from tests.helpers import DatasetTestCase, make_sim
 
 
@@ -39,8 +39,8 @@ class RecordingTests(unittest.TestCase):
         sensors = {name: np.zeros((32, 32, 3), dtype=np.uint8) for name in self.sim.robot.camera_names}
         writers = [Mock() for _ in sensors]
         with (
-            patch("lastmile_dataflow.runtime.simulation.Simulation._render_cameras", return_value=sensors) as capture,
-            patch("lastmile_dataflow.data.recorder.imageio.get_writer", side_effect=writers),
+            patch("lastmile_dataflow.sim.simulation.Simulation._render_cameras", return_value=sensors) as capture,
+            patch("lastmile_dataflow.operation.recording.recorder.imageio.get_writer", side_effect=writers),
         ):
             for phase in ("navigation", "operation"):
                 context.phase = phase
@@ -90,7 +90,7 @@ class RecordingTests(unittest.TestCase):
         }
         writers = [Mock(), Mock()]
         with (
-            patch("lastmile_dataflow.data.recorder.imageio.get_writer", side_effect=writers) as create,
+            patch("lastmile_dataflow.operation.recording.recorder.imageio.get_writer", side_effect=writers) as create,
             patch.object(self.sim, "render", return_value=frames),
         ):
             self.sim.begin()

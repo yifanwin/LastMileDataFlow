@@ -12,8 +12,8 @@ from multiprocessing.connection import Client
 
 import numpy as np
 
-from ..runtime.control.action import InvalidAction
-from ..runtime.execution.lifecycle import classify_episode_exception
+from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.operation.episode import classify_episode_exception
 
 logger = logging.getLogger(__name__)
 SHARED_ERROR_TYPES = ("MemoryError", "OutOfMemoryError")

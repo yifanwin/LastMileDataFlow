@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 from lastmile_dataflow.station_map.config import StationRun
 from lastmile_dataflow.utils.io import append_row, read_json, rows, write_json
-from lastmile_dataflow.workflows import collect, station_map
-from lastmile_dataflow.workflows.collect import run_collection
-from lastmile_dataflow.workflows.station_map import prepare_run, run_station_map
+from lastmile_dataflow.lastmile_dataset import collect
+from lastmile_dataflow.station_map.planner_trials import build as station_map
+from lastmile_dataflow.lastmile_dataset.collect import run_collection
+from lastmile_dataflow.station_map.planner_trials.build import prepare_run, run_station_map
 from tests.helpers import DatasetTestCase, add_scene
 
 PATH = {"xy": [[0.0, 0.0], [1.0, 1.0], [3.0, 1.0]], "poses": [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [3.0, 1.0, 0.0]]}

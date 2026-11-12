@@ -8,18 +8,18 @@ import time
 
 import numpy as np
 
-from ...runtime.control.panda_robocasa import robocasa_camera_calibration
-from ...planning.navigation.astar import scene_occupancy
-from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
-from ...runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
-from ...runtime.construction.session import ObstacleEditSession
-from lastmile_dataflow.runtime.construction.preparation import clone_preparation
-from ...runtime.simulation import InitializationError
-from ..geometry import body_points, body_pose
-from ..loading.assets import AssetSelector, RuntimeGeometryCache
-from ..tasks.discovery import disk_samples
+from lastmile_dataflow.robots.panda_omron.robocasa import robocasa_camera_calibration
+from lastmile_dataflow.planning.navigation.astar import scene_occupancy
+from ..tasks import task_support_obstacles
+from lastmile_dataflow.sim.settle import SettleConfig, preparation_guard, settle_scene
+from .session import ObstacleEditSession
+from lastmile_dataflow.sim.settle import clone_preparation
+from lastmile_dataflow.sim.simulation import InitializationError
+from lastmile_dataflow.sim.model.geometry import body_points, body_pose
+from ..assets import AssetSelector, RuntimeGeometryCache
+from ..tasks import disk_samples
 from lastmile_dataflow.sim.placement import park_robot
-from ..tasks.discovery import grasp_candidates
+from ..tasks import grasp_candidates
 from lastmile_dataflow.sim.placement import robot_footprint
 from .checks import proposal_scene
 from .placement import BuildProposal, propose_obstacles, resolve_assets, support_regions

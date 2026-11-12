@@ -11,11 +11,7 @@ from unittest.mock import patch
 import imageio.v2 as imageio
 import numpy as np
 
-from lastmile_dataflow.data.export.lastmile_dataset import (
-    load_training_batch,
-    finalize_dataset,
-    training_record,
-)
+from lastmile_dataflow.lastmile_dataset.export import load_training_batch, finalize_dataset, training_record
 from lastmile_dataflow.utils.io import create_run, read_json, rows, write_json, write_rows
 
 

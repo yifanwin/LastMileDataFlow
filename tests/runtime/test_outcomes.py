@@ -8,16 +8,21 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution.checkpoint import (
+from lastmile_dataflow.operation.control.checkpoint import (
     PickEvidenceComplete,
     checkpoint_pick_success,
     hold_pick,
     resolve_timeout,
     timed,
 )
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.outcomes.task import attribute, evaluate_mobile_pick, evaluate_open, torso_tracking_error
-from lastmile_dataflow.runtime.outcomes.task import evaluate_pick
+from lastmile_dataflow.operation.config import ExecutionConfig
+from lastmile_dataflow.operation.outcomes.task import (
+    attribute,
+    evaluate_mobile_pick,
+    evaluate_open,
+    torso_tracking_error,
+)
+from lastmile_dataflow.operation.outcomes.task import evaluate_pick
 from tests.helpers import evidence, make_sim
 
 
@@ -84,7 +89,7 @@ class EvidenceTests(unittest.TestCase):
     def test_timers_account_exception(self):
         ctx = SimpleNamespace(timings={})
         with (
-            patch("lastmile_dataflow.runtime.execution.checkpoint.time.monotonic", side_effect=[1.0, 4.0]),
+            patch("lastmile_dataflow.operation.control.checkpoint.time.monotonic", side_effect=[1.0, 4.0]),
             self.assertRaises(ValueError),
         ):
             with timed(ctx, "planning"):
@@ -97,8 +102,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(ctx.arm_tick.call_count, 50)
 
     def test_timeout_runtime_finalizer_retains_task_success_and_control(self):
-        from lastmile_dataflow.runtime.execution_config import CollectionConfig
-        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
+        from lastmile_dataflow.operation.config import CollectionConfig
+        from lastmile_dataflow.operation.curobo import run_curobo_attempt
 
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -115,8 +120,8 @@ class EvidenceTests(unittest.TestCase):
                 raise TimeoutError("attempt_wall_clock_budget")
 
             with (
-                patch("lastmile_dataflow.runtime.execution.attempt.place_frozen_station"),
-                patch("lastmile_dataflow.runtime.execution.curobo.manipulate", side_effect=manipulation),
+                patch("lastmile_dataflow.operation.attempt.place_frozen_station"),
+                patch("lastmile_dataflow.operation.curobo.manipulate", side_effect=manipulation),
             ):
                 result = run_curobo_attempt(
                     baseline,
@@ -138,8 +143,8 @@ class EvidenceTests(unittest.TestCase):
             self.assertFalse(baseline.closed)
 
     def test_failed_navigation_counts_only_executed_navigation_intervals(self):
-        from lastmile_dataflow.runtime.execution_config import CollectionConfig
-        from lastmile_dataflow.runtime.simulation import OperationFailure
+        from lastmile_dataflow.operation.config import CollectionConfig
+        from lastmile_dataflow.sim.simulation import OperationFailure
         from lastmile_dataflow.lastmile_dataset.continuous import run_continuous_attempt
 
         with tempfile.TemporaryDirectory() as directory:
@@ -156,7 +161,7 @@ class EvidenceTests(unittest.TestCase):
                 raise OperationFailure("arrival_tracking_error")
 
             with (
-                patch("lastmile_dataflow.runtime.execution.attempt.place_frozen_station"),
+                patch("lastmile_dataflow.operation.attempt.place_frozen_station"),
                 patch("lastmile_dataflow.lastmile_dataset.continuous.navigate", side_effect=navigation),
             ):
                 result = run_continuous_attempt(

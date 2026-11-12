@@ -13,7 +13,7 @@ def main():
         "--output", type=Path, required=True, help="新输出目录；写 reference/（仅 --evaluations）和 lerobot/"
     )
     args = cli.parse_args()
-    from lastmile_dataflow.data.export.pi05_dataset import convert, prepare_reference
+    from lastmile_dataflow.lastmile_dataset.pi05_export import convert, prepare_reference
 
     args.output.mkdir(parents=True, exist_ok=False)
     dataset = args.dataset

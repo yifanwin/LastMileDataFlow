@@ -1,6 +1,6 @@
 """Real Panda station preparation; production CLI owns calibration and collection."""
 
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -14,9 +14,9 @@ def align_mobile(output, robot_config):
     from curobo.types import DeviceCfg, JointState
     from curobo._src.robot.kinematics.kinematics import Kinematics
     from curobo._src.types.robot import RobotCfg
-    from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.planning.robots.panda_omron import PlanningModel, TCP, configuration
-    from lastmile_dataflow.scenes.geometry import tcp_pose, geom_points, body_pose
+    from lastmile_dataflow.sim.simulation import Simulation
+    from lastmile_dataflow.robots.panda_omron.planning import PlanningModel, TCP, configuration
+    from lastmile_dataflow.sim.model.geometry import tcp_pose, geom_points, body_pose
     from lastmile_dataflow.utils.io import write_json
     from panda_omron import floor_source, pivot_check, pose_errors
 
@@ -108,16 +108,16 @@ def align_mobile(output, robot_config):
 def navigation(output, robot_config):
     from dataclasses import asdict
     import numpy as np
-    from lastmile_dataflow.runtime.execution_config import CollectionConfig
-    from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.scenes.loading.source import SceneSource
-    from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-    from lastmile_dataflow.data.recorder import AttemptRecorder
-    from lastmile_dataflow.runtime.execution.context import ContinuousContext
-    from lastmile_dataflow.runtime.execution.navigation import navigate
+    from lastmile_dataflow.operation.config import CollectionConfig
+    from lastmile_dataflow.sim.simulation import Simulation
+    from lastmile_dataflow.sim.source import SceneSource
+    from lastmile_dataflow.operation.config import ExecutionConfig
+    from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+    from lastmile_dataflow.operation.control.context import ContinuousContext
+    from lastmile_dataflow.planning.navigation.follow import navigate
     from lastmile_dataflow.sim.placement import robot_footprint
     from lastmile_dataflow.planning.navigation.astar import scene_grid, search_region
-    from lastmile_dataflow.planning.navigation.geometry import pose_path
+    from lastmile_dataflow.planning.navigation.routes import pose_path
     from lastmile_dataflow.utils.io import write_json
 
     output.mkdir(parents=True, exist_ok=False)
@@ -187,10 +187,10 @@ def navigation(output, robot_config):
 def static_stations(sim, task, geometry):
     """Initialize the robot at every disk lattice point in a fresh clone; geometry only, no rendering."""
     from contextlib import closing
-    from lastmile_dataflow.runtime.construction.preparation import clone_preparation
-    from lastmile_dataflow.scenes.geometry import room_triangles
-    from lastmile_dataflow.scenes.stations.sampling import initialize_station
-    from lastmile_dataflow.scenes.tasks.discovery import disk_samples
+    from lastmile_dataflow.sim.settle import clone_preparation
+    from lastmile_dataflow.sim.model.geometry import room_triangles
+    from lastmile_dataflow.station_map.sampling.sample import initialize_station
+    from lastmile_dataflow.scenes.tasks import disk_samples
 
     triangles = room_triangles(sim)
     rows = []
@@ -219,11 +219,11 @@ def main():
     select_devices([args.gpu])
     from lastmile_dataflow.utils.io import read_config
     from lastmile_dataflow.robots.registry import load_robot_config
-    from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.scenes.loading.source import SceneSource
-    from lastmile_dataflow.scenes.tasks.discovery import discover_tasks
-    from lastmile_dataflow.scenes.stations.sampling import coverage_select
-    from lastmile_dataflow.scenes.dataset import SceneStationConfig
+    from lastmile_dataflow.sim.simulation import Simulation
+    from lastmile_dataflow.sim.source import SceneSource
+    from lastmile_dataflow.scenes.tasks import discover_tasks
+    from lastmile_dataflow.station_map.sampling.sample import coverage_select
+    from lastmile_dataflow.scenes.library import SceneStationConfig
     from lastmile_dataflow.utils.io import write_json, write_rows
 
     if args.stage == "align-mobile":

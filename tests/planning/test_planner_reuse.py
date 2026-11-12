@@ -17,7 +17,7 @@ from lastmile_dataflow.planning.curobo.context import PlannerContext
 
 class PlannerReuseTests(unittest.TestCase):
     def test_missing_cuda_is_shared_failure_before_loading_native_solvers(self):
-        from lastmile_dataflow.runtime.execution.lifecycle import classify_episode_exception
+        from lastmile_dataflow.operation.episode import classify_episode_exception
 
         with patch("torch.cuda.is_available", return_value=False):
             with self.assertRaisesRegex(RuntimeError, "V2 requires CUDA") as caught:

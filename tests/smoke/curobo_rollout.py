@@ -1,18 +1,18 @@
 """Explicit V2 rollout on a scene-dataset; excluded from unittest discovery."""
 
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 import argparse
 from dataclasses import asdict
 from pathlib import Path
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
 from lastmile_dataflow.robots.registry import robot_config
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
-from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
-from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.dataset import load_scenes
-from lastmile_dataflow.scenes.tasks.discovery import grasp_candidates
+from lastmile_dataflow.operation.curobo import run_curobo_attempt
+from lastmile_dataflow.operation.config import load_execution_config
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.scenes.library import load_scenes
+from lastmile_dataflow.scenes.tasks import grasp_candidates
 
 
 def main():

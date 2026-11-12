@@ -9,11 +9,11 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.policies.molmobot import load_molmobot_config as load_policy_config
-from lastmile_dataflow.runtime.control.action import InvalidAction
-from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.runtime.outcomes.task import constraint
-from lastmile_dataflow.runtime.simulation import Simulation
+from lastmile_dataflow.policies.molmobot.client import load_molmobot_config as load_policy_config
+from lastmile_dataflow.robots.action import InvalidAction
+from lastmile_dataflow.operation.config import load_execution_config
+from lastmile_dataflow.operation.outcomes.task import constraint
+from lastmile_dataflow.sim.simulation import Simulation
 from tests.helpers import ROOT, fixtures
 
 ROOT = ROOT

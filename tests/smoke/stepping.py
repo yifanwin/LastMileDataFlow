@@ -4,8 +4,8 @@ from functools import partial
 
 import mujoco
 
-from lastmile_dataflow.runtime.simulation import OperationFailure
-from lastmile_dataflow.runtime.outcomes.contacts import simulation_failure
+from lastmile_dataflow.sim.simulation import OperationFailure
+from lastmile_dataflow.sim.contacts import simulation_failure
 
 
 def _check(sim, sample):

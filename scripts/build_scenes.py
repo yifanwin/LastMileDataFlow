@@ -11,11 +11,11 @@ def main():
     cli.add_argument("--gpu", type=int, nargs="+", required=True)
     cli.add_argument("--egl-devices", type=int, nargs="+", help="与 --gpu 对应的 EGL 设备号，默认自动查询")
     args = cli.parse_args()
-    from lastmile_dataflow.gpu import select_devices
+    from lastmile_dataflow.utils.gpu import select_devices
 
     select_devices(args.gpu, args.egl_devices)
     from lastmile_dataflow.utils.logging_config import setup_logging
-    from lastmile_dataflow.workflows.scene_datasets import build_scenes
+    from lastmile_dataflow.scenes.build import build_scenes
 
     setup_logging()
     print(build_scenes(args.config, args.output, gpu_ids=args.gpu))

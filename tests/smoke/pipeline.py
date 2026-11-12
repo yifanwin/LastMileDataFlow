@@ -11,11 +11,11 @@ import yaml
 
 from lastmile_dataflow.utils.io import read_config
 from lastmile_dataflow.station_map.config import StationRun
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 from lastmile_dataflow.utils.io import create_run, rows, write_json
-from lastmile_dataflow.workflows.collect import run_collection
-from lastmile_dataflow.workflows.station_map import run_station_map
-from lastmile_dataflow.workflows.lastmilebench import build
+from lastmile_dataflow.lastmile_dataset.collect import run_collection
+from lastmile_dataflow.station_map.planner_trials.build import run_station_map
+from lastmile_dataflow.lastmile_benchmark.build import build
 from lastmile_dataflow.lastmile_benchmark.evaluate import evaluate
 
 

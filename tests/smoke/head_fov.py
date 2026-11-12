@@ -1,6 +1,6 @@
 """Explicit CUDA FK/gradient/manager isolation test on the real RBY-1 model."""
 
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 import argparse
 from pathlib import Path
 
@@ -13,10 +13,10 @@ from lastmile_dataflow.robots.registry import robot_config
 from lastmile_dataflow.utils.io import read_json, write_json
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 from lastmile_dataflow.planning.curobo.head_fov import target_camera_torch
-from lastmile_dataflow.runtime.execution.context import planner_options
-from lastmile_dataflow.runtime.execution_config import load_execution_config
-from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.dataset import load_scenes
+from lastmile_dataflow.operation.control.context import planner_options
+from lastmile_dataflow.operation.config import load_execution_config
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.scenes.library import load_scenes
 from lastmile_dataflow.sim.placement import place_frozen_station
 
 

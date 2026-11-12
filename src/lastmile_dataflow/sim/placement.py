@@ -1,11 +1,11 @@
 import copy
 import mujoco
 import numpy as np
-from lastmile_dataflow.runtime.control.action import torso_joints
-from lastmile_dataflow.runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler, simulation_failure
-from lastmile_dataflow.scenes.geometry import floor_support, inside_triangles, room_triangles
-from lastmile_dataflow.runtime.construction.preparation import preparation_guard
-from lastmile_dataflow.scenes.geometry import body_pose, geom_points
+from lastmile_dataflow.robots.action import torso_joints
+from .contacts import FLOOR_PENETRATION_M, ContactSampler, simulation_failure
+from .model.geometry import floor_support, inside_triangles, room_triangles
+from .settle import preparation_guard
+from .model.geometry import body_pose, geom_points
 
 
 def initialize_robot(sim, collection, *, base=None):

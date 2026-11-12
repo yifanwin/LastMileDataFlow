@@ -8,13 +8,13 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.planning.remote import PlanningClient
-from lastmile_dataflow.runtime.execution.checkpoint import timed
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution.protocol import PlanningResponse, TrialBudget, TrialIdentity, PlanningInputs
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.operation.control.remote_planner import PlanningClient
+from lastmile_dataflow.operation.control.checkpoint import timed
+from lastmile_dataflow.operation.control.context import ContinuousContext
+from lastmile_dataflow.operation.protocol import PlanningResponse, TrialBudget, TrialIdentity, PlanningInputs
+from lastmile_dataflow.operation.config import ExecutionConfig
 from tests.helpers import DatasetTestCase
 
 

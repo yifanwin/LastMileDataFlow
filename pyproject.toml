@@ -59,7 +59,7 @@ pi05 = [
 [tool.ruff]
 line-length = 120
 # Ported upstream inference code keeps its original layout.
-extend-exclude = ["src/lastmile_dataflow/policies/multitask", "src/lastmile_dataflow/policies/pi05/core"]
+extend-exclude = ["src/lastmile_dataflow/policies/molmobot/multitask", "src/lastmile_dataflow/policies/pi05/core"]
 
 [tool.ruff.lint]
 select = ["E702", "E703"]
@@ -68,7 +68,6 @@ select = ["E702", "E703"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"lastmile_dataflow.planning.robots" = ["assets/panda_omron/*"]
-"lastmile_dataflow.policies.multitask" = ["LICENSE", "NOTICE"]
+"lastmile_dataflow.robots.panda_omron" = ["assets/*", "ROBOSUITE_LICENSE"]
+"lastmile_dataflow.policies.molmobot.multitask" = ["LICENSE", "NOTICE"]
 "lastmile_dataflow.policies.pi05.core" = ["LICENSE", "NOTICE"]
-"lastmile_dataflow.runtime.control" = ["ROBOSUITE_LICENSE"]

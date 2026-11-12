@@ -8,9 +8,9 @@ import mujoco
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
-from ...scenes.geometry import geom_points
-from lastmile_dataflow.scenes.geometry import room_triangles
-from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
+from lastmile_dataflow.sim.model.geometry import geom_points
+from lastmile_dataflow.sim.model.geometry import room_triangles
+from lastmile_dataflow.scenes.tasks import task_support_obstacles
 
 # Height cleared by chassis-only navigation (the arm is held above it).
 CHASSIS_HEIGHT_M = 0.40

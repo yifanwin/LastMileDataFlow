@@ -1,9 +1,9 @@
 """S0 → navigation → S1 → operation: one continuous cuRobo attempt of the last-mile dataset."""
 
-from lastmile_dataflow.runtime.execution.attempt import finish_navigation
-from lastmile_dataflow.runtime.execution.curobo import CuroboAttempt
-from lastmile_dataflow.runtime.execution.lifecycle import isolated_episode
-from lastmile_dataflow.runtime.execution.navigation import navigate
+from lastmile_dataflow.operation.attempt import finish_navigation
+from lastmile_dataflow.operation.curobo import CuroboAttempt
+from lastmile_dataflow.operation.episode import isolated_episode
+from lastmile_dataflow.planning.navigation.follow import navigate
 
 
 class ContinuousAttempt(CuroboAttempt):

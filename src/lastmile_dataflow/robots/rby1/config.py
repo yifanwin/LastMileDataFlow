@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import math
-from lastmile_dataflow.runtime.control.interface import ROBOT_NAMESPACE
+from ..interface import ROBOT_NAMESPACE
 
 
 @dataclass(frozen=True)

@@ -10,16 +10,16 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from lastmile_dataflow.planning.robots.rby1m_mobile_torso import derive_urdf, joint_names
-from lastmile_dataflow.planning.robots.common import (
+from lastmile_dataflow.robots.rby1.planning import derive_urdf, joint_names
+from lastmile_dataflow.robots.planning_common import (
     chain_state,
     minimum_mesh_query_dimension,
     ordered_points,
     retime_points,
     static_ik_state,
 )
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.control.context import ContinuousContext
+from lastmile_dataflow.operation.config import ExecutionConfig
 
 
 class V2ModelTests(unittest.TestCase):
@@ -131,7 +131,7 @@ class V2ModelTests(unittest.TestCase):
             ),
         )
         ctx = ContinuousContext.__new__(ContinuousContext)
-        from lastmile_dataflow.runtime.control.robot import RBY1Adapter
+        from lastmile_dataflow.robots.rby1.adapter import RBY1Adapter
 
         robot.arms = ("left", "right")
         groups["right_arm"] = np.zeros(7)

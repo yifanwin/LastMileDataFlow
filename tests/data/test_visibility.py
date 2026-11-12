@@ -7,12 +7,8 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.data.rendering.head_views import (
-    TaskVisibility,
-    aggregate_visibility,
-    roi_geoms,
-)
-from lastmile_dataflow.scenes.dataset import SceneStationConfig
+from lastmile_dataflow.station_map.sampling.visibility import TaskVisibility, aggregate_visibility, roi_geoms
+from lastmile_dataflow.scenes.library import SceneStationConfig
 
 
 def scene(blocked=True):
@@ -102,7 +98,7 @@ class VisibilityTests(unittest.TestCase):
         position = sim.data.qpos.copy()
         original_samples = sim.model.vis.quality.offsamples
         cfg = SceneStationConfig(width=8, height=8, min_reference_pixels=8)
-        with patch("lastmile_dataflow.data.rendering.head_views.mujoco.Renderer", FixtureRenderer):
+        with patch("lastmile_dataflow.station_map.sampling.visibility.mujoco.Renderer", FixtureRenderer):
             with TaskVisibility(sim, {"operation": "pick", "target_body": "target"}, cfg) as visibility:
                 self.assertIsNot(visibility.render_model, sim.model)
                 self.assertEqual(visibility.render_model.vis.quality.offsamples, 0)
@@ -126,7 +122,7 @@ class VisibilityTests(unittest.TestCase):
     def test_small_reference_is_unknown_and_proven_out_of_view_is_zero(self):
         sim = scene()
         cfg = SceneStationConfig(width=8, height=8, min_reference_pixels=32)
-        with patch("lastmile_dataflow.data.rendering.head_views.mujoco.Renderer", FixtureRenderer):
+        with patch("lastmile_dataflow.station_map.sampling.visibility.mujoco.Renderer", FixtureRenderer):
             with TaskVisibility(sim, {"operation": "pick", "target_body": "target"}, cfg) as visibility:
                 result = visibility.measure()
                 self.assertIsNone(result["value"])

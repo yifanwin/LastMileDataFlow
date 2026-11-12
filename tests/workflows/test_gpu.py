@@ -2,13 +2,15 @@ import os
 import unittest
 from unittest import mock
 
-from lastmile_dataflow.gpu import select_devices, bind_device, bind_cpu_renderer, egl_device_map
+from lastmile_dataflow.utils.gpu import select_devices, bind_device, bind_cpu_renderer, egl_device_map
 from lastmile_dataflow.station_map.rl.devices import isolate_from_argv
 
 
 class IsolateGpuTest(unittest.TestCase):
     def setUp(self):
-        query = mock.patch("lastmile_dataflow.gpu.egl_device_map", return_value={gpu: 7 - gpu for gpu in range(8)})
+        query = mock.patch(
+            "lastmile_dataflow.utils.gpu.egl_device_map", return_value={gpu: 7 - gpu for gpu in range(8)}
+        )
         query.start()
         self.addCleanup(query.stop)
 
@@ -46,7 +48,7 @@ class RenderDeviceTests(unittest.TestCase):
     def test_discovery_ignores_inherited_cuda_visibility(self):
         with (
             mock.patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": ""}),
-            mock.patch("lastmile_dataflow.gpu.subprocess.run") as run,
+            mock.patch("lastmile_dataflow.utils.gpu.subprocess.run") as run,
         ):
             run.return_value.stdout = '{"0": 7, "1": 6}'
             self.assertEqual(egl_device_map(), {0: 7, 1: 6})
@@ -56,7 +58,7 @@ class RenderDeviceTests(unittest.TestCase):
     def test_disabled_rendering_does_not_require_egl(self):
         with (
             mock.patch.dict(os.environ, {"MUJOCO_GL": "disable"}, clear=True),
-            mock.patch("lastmile_dataflow.gpu.egl_device_map") as query,
+            mock.patch("lastmile_dataflow.utils.gpu.egl_device_map") as query,
         ):
             select_devices([0])
             bind_device(0)

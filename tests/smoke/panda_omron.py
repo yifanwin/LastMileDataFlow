@@ -1,6 +1,6 @@
 """Explicit factory/control/alignment validation; no station sampling."""
 
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 import argparse
 from dataclasses import asdict, replace
 import json
@@ -21,7 +21,7 @@ def arguments():
 
 
 def floor_source(output):
-    from lastmile_dataflow.scenes.loading.source import SceneSource
+    from lastmile_dataflow.sim.source import SceneSource
 
     path = output / "floor.xml"
     path.write_text(
@@ -33,7 +33,7 @@ def floor_source(output):
 
 def pose_errors(a, b):
     import numpy as np
-    from lastmile_dataflow.runtime.outcomes.task import rotation_error
+    from lastmile_dataflow.operation.outcomes.task import rotation_error
 
     return {
         "position_m": float(np.linalg.norm(a[:3, 3] - b[:3, 3])),
@@ -44,8 +44,8 @@ def pose_errors(a, b):
 def pivot_check(sim):
     import mujoco
     import numpy as np
-    from lastmile_dataflow.scenes.loading.panda_factory import PIVOT
-    from lastmile_dataflow.scenes.geometry import tcp_pose
+    from panda_factory import PIVOT
+    from lastmile_dataflow.sim.model.geometry import tcp_pose
 
     scratch = mujoco.MjData(sim.model)
     scratch.qpos[:] = sim.data.qpos
@@ -94,7 +94,7 @@ def kinematics(robot, fixed=False):
     from curobo._src.robot.kinematics.kinematics import Kinematics
     from curobo._src.types.robot import RobotCfg
     from curobo.types import DeviceCfg
-    from lastmile_dataflow.planning.robots.panda_omron import configuration
+    from lastmile_dataflow.robots.panda_omron.planning import configuration
 
     device = DeviceCfg()
     cfg = configuration(robot, fixed=fixed)
@@ -104,7 +104,7 @@ def kinematics(robot, fixed=False):
 
 def kinematic_state(kin, device, robot, fixed=False):
     from curobo.types import JointState
-    from lastmile_dataflow.planning.robots.panda_omron import ARM_NAMES, FULL_NAMES
+    from lastmile_dataflow.robots.panda_omron.planning import ARM_NAMES, FULL_NAMES
 
     values = robot.arm_positions("right").tolist()
     if not fixed:
@@ -142,8 +142,8 @@ def alignment(sim, output, seed):
     import mujoco
     import numpy as np
     from types import SimpleNamespace
-    from lastmile_dataflow.planning.robots.panda_omron import TCP
-    from lastmile_dataflow.scenes.geometry import tcp_pose
+    from lastmile_dataflow.robots.panda_omron.planning import TCP
+    from lastmile_dataflow.sim.model.geometry import tcp_pose
 
     pivot = pivot_check(sim)
     kin, device = kinematics(sim.robot)
@@ -174,7 +174,7 @@ def alignment(sim, output, seed):
         mujoco.mj_forward(sim.model, data)
         state = kinematic_state(kin, device, robot)
         spheres = state.robot_spheres.detach().cpu().numpy().reshape(-1, 4)
-        from lastmile_dataflow.scenes.geometry import body_pose
+        from lastmile_dataflow.sim.model.geometry import body_pose
 
         finger_errors = []
         for i, side in ((1, "left"), (2, "right")):
@@ -228,8 +228,8 @@ def collision_probes(sim, kin, device, output):
     from curobo._src.geom.types import SceneCfg, Cuboid
     from curobo._src.geom.collision.collision_scene import SceneCollision, SceneCollisionCfg
     from curobo._src.geom.collision.buffer_collision import CollisionBuffer
-    from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.scenes.loading.source import SceneSource
+    from lastmile_dataflow.sim.simulation import Simulation
+    from lastmile_dataflow.sim.source import SceneSource
 
     path = output / "collision-probe.xml"
     path.write_text(
@@ -282,7 +282,7 @@ def collision_probes(sim, kin, device, output):
 def control(sim, output):
     import imageio.v2 as imageio
     import numpy as np
-    from lastmile_dataflow.runtime.control.interface import RobotCommand
+    from lastmile_dataflow.robots.interface import RobotCommand
     from stepping import semantic_tick
 
     initial = sim.robot.arm_positions("right")
@@ -351,8 +351,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ.setdefault("WARP_CACHE_PATH", str(Path("outputs/dependencies/panda-omron-warp").resolve()))
     from lastmile_dataflow.robots.registry import load_robot_config
-    from lastmile_dataflow.runtime.simulation import Simulation
-    from lastmile_dataflow.scenes.loading.panda_factory import export_factory
+    from lastmile_dataflow.sim.simulation import Simulation
+    from panda_factory import export_factory
 
     config = load_robot_config(args.robot)
     sim = None
@@ -369,7 +369,7 @@ def main():
         elif args.stage == "align":
             result.update(alignment(sim, args.output, args.seed))
         else:
-            from lastmile_dataflow.runtime.control.interface import RobotCommand
+            from lastmile_dataflow.robots.interface import RobotCommand
             from stepping import semantic_tick
 
             for _ in range(100):

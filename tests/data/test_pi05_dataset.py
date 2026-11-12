@@ -8,7 +8,7 @@ import unittest
 import imageio.v2 as imageio
 import numpy as np
 
-from lastmile_dataflow.data.export.pi05_dataset import CAMERAS, convert
+from lastmile_dataflow.lastmile_dataset.pi05_export import CAMERAS, convert
 from lastmile_dataflow.policies.pi05.data_config import Rby1DataConfig
 from lastmile_dataflow.utils.io import write_json, write_rows, read_json
 

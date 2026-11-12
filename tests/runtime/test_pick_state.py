@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import torch
 
-from lastmile_dataflow.runtime.outcomes.pick_state import update_hold_window
+from lastmile_dataflow.operation.outcomes.pick_state import update_hold_window
 
 
 class WindowTests(unittest.TestCase):

@@ -12,7 +12,7 @@ def main():
     cli.add_argument("--output", type=Path, required=True, help="新 benchmark 目录")
     args = cli.parse_args()
     from lastmile_dataflow.utils.logging_config import setup_logging
-    from lastmile_dataflow.workflows.lastmilebench import build
+    from lastmile_dataflow.lastmile_benchmark.build import build
 
     setup_logging()
     print(build(args.dataset, args.output, calibration_dir=args.calibration, config_path=args.config))

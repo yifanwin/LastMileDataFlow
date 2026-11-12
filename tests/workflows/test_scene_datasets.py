@@ -4,8 +4,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from lastmile_dataflow.utils.io import read_json, rows
-from lastmile_dataflow.scenes.dataset import SceneRecipe
-from lastmile_dataflow.workflows import scene_datasets as workflow
+from lastmile_dataflow.scenes.library import SceneRecipe
+from lastmile_dataflow.scenes import build as workflow
 from tests.helpers import DatasetTestCase
 
 

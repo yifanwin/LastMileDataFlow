@@ -10,7 +10,7 @@ def main():
     cli.add_argument("--gpu", type=int, required=True, help="渲染目标可见性用的 GPU")
     cli.add_argument("--egl-devices", type=int, nargs="+", help="与 --gpu 对应的 EGL 设备号，默认自动查询")
     args = cli.parse_args()
-    from lastmile_dataflow.gpu import select_devices
+    from lastmile_dataflow.utils.gpu import select_devices
 
     select_devices([args.gpu], args.egl_devices)
     from lastmile_dataflow.station_map.sampling.build import sample_stations

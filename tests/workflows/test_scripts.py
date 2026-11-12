@@ -12,7 +12,7 @@ from pathlib import Path
 
 from lastmile_dataflow.utils.io import REPO_ROOT
 from lastmile_dataflow.station_map.config import StationRun, add_station_run_arguments, station_run
-from lastmile_dataflow.gpu import select_devices
+from lastmile_dataflow.utils.gpu import select_devices
 
 SCRIPTS = ("build_scenes", "sample_stations", "station_map", "collect", "bench_build", "bench_evaluate")
 
@@ -28,12 +28,12 @@ class StageScriptTests(unittest.TestCase):
                 check=True,
                 env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
             )
-            self.assertIn("--output", result.stdout, name)
+            self.assertIn("--scenes" if name == "sample_stations" else "--output", result.stdout, name)
 
     def test_select_devices_binds_cuda_and_egl_to_the_first_card(self):
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("lastmile_dataflow.gpu.egl_device_map", return_value={3: 4, 5: 2}),
+            patch("lastmile_dataflow.utils.gpu.egl_device_map", return_value={3: 4, 5: 2}),
         ):
             select_devices([3, 5])
             self.assertEqual((os.environ["CUDA_VISIBLE_DEVICES"], os.environ["MUJOCO_EGL_DEVICE_ID"]), ("3", "4"))

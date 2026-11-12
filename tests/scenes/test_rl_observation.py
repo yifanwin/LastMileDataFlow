@@ -7,8 +7,8 @@ import mujoco
 import numpy as np
 import torch
 
-from lastmile_dataflow.scenes.rl_observation import GeometryObservation
-from lastmile_dataflow.scenes.geometry import geom_points
+from lastmile_dataflow.station_map.rl.env.observation import GeometryObservation
+from lastmile_dataflow.sim.model.geometry import geom_points
 
 
 class GeometryTests(unittest.TestCase):

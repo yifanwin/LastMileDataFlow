@@ -9,11 +9,11 @@ import logging
 from pathlib import Path
 
 from lastmile_dataflow.robots.registry import robot_config
-from lastmile_dataflow.scenes.dataset import STATIONS, SceneRecipe
-from lastmile_dataflow.data.visualization.scene_preview import export_scene_previews
+from lastmile_dataflow.scenes.library import STATIONS, SceneRecipe
+from lastmile_dataflow.scenes.preview import export_scene_previews
 from lastmile_dataflow.utils.io import append_row, read_json, rows, write_json
 from lastmile_dataflow.utils.logging_config import Progress
-from lastmile_dataflow.scenes.stations.sampling import sample_scene
+from .sample import sample_scene
 
 logger = logging.getLogger(__name__)
 

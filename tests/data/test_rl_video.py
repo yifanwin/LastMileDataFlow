@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.data.rendering.rl_capture import RolloutCapture
+from lastmile_dataflow.station_map.rl.capture import RolloutCapture
 
 
 class VideoSelectionTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class VideoSelectionTests(unittest.TestCase):
             capture.states, capture.metrics = [[np.zeros(2)]], [["measured facts"]]
             row = {"success": True, "collision_free": False, "infrastructure_failure": False, "failed": False}
             with patch(
-                "lastmile_dataflow.data.rendering.rl_capture.render_rollout", return_value={"path": "video.mp4"}
+                "lastmile_dataflow.station_map.rl.capture.render_rollout", return_value={"path": "video.mp4"}
             ) as render:
                 capture.finish(env, [row])
                 capture.finish(env, [row])

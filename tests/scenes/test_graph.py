@@ -8,8 +8,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
-from lastmile_dataflow.runtime.simulation import Simulation
+from lastmile_dataflow.sim.settle import SettleConfig, preparation_guard, settle_scene
+from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.scenes.graph import build_scene_graph
 from tests.helpers import settled_scene, table_scene
 

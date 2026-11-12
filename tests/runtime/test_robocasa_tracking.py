@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.control.interface import RobotCommand
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
+from lastmile_dataflow.robots.interface import RobotCommand
+from lastmile_dataflow.operation.control.context import ContinuousContext
 
 
 class RobocasaTrackingTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class RobocasaTrackingTests(unittest.TestCase):
             base_target_world=lambda point: point.copy(), model=SimpleNamespace(arm_target=lambda point: np.zeros(7))
         )
         points = [np.array([0.1, 0.05, 0.1]), np.array([0.3, 0.15, 0.4])]
-        with patch("lastmile_dataflow.runtime.execution.context.tcp_pose", side_effect=measured):
+        with patch("lastmile_dataflow.operation.control.context.tcp_pose", side_effect=measured):
             ContinuousContext._follow_robocasa(ctx, planner, points, "right", 0.08)
         reached = measured(ctx.sim, "right")
         ContinuousContext.arm_tick(ctx, "right", np.zeros(7), 0.0, 0.0)

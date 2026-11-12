@@ -19,12 +19,12 @@ import numpy as np
 import torch
 
 from lastmile_dataflow.utils.io import REPO_ROOT, read_config
-from lastmile_dataflow.runtime.rl.environment import StationEnv
-from lastmile_dataflow.workflows.rl_evaluation import reset_stations
-from lastmile_dataflow.policies.sac.agent import seed_all
-from lastmile_dataflow.scenes.rl_observation import graph_observation
-from lastmile_dataflow.policies.sac.agent import SAC, SACConfig
-from lastmile_dataflow.policies.sac.replay import Replay, Transition
+from lastmile_dataflow.station_map.rl.env.environment import StationEnv
+from lastmile_dataflow.station_map.rl.evaluation import reset_stations
+from lastmile_dataflow.station_map.rl.sac.agent import seed_all
+from lastmile_dataflow.station_map.rl.env.observation import graph_observation
+from lastmile_dataflow.station_map.rl.sac.agent import SAC, SACConfig
+from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition
 
 
 def upstream_smoke(args):
@@ -493,8 +493,8 @@ def main():
             summary["partial_reset_preserved_other_qpos"] = True
             summary["partial_reset_ongoing_envs_checked"] = int(ongoing.sum())
         if args.monitor:
-            from lastmile_dataflow.workflows.rl_evaluation import monitor_validation
-            from lastmile_dataflow.data.visualization.sac_monitor import training_curves
+            from lastmile_dataflow.station_map.rl.evaluation import monitor_validation
+            from lastmile_dataflow.station_map.rl.monitor import training_curves
 
             output_dir = Path(args.output).parent
             event = monitor_validation(agent, env, config, completed, output_dir)

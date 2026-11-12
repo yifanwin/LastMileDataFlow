@@ -4,9 +4,9 @@ import unittest
 import torch
 
 from lastmile_dataflow.utils.io import read_config
-from lastmile_dataflow.runtime.rl.terms import grasp_events, reward
-from lastmile_dataflow.scenes.rl_observation import REWARD_COMPONENTS
-from lastmile_dataflow.runtime.outcomes.pick_state import update_hold_window, RL_PICK_THRESHOLDS
+from lastmile_dataflow.station_map.rl.env.terms import grasp_events, reward
+from lastmile_dataflow.station_map.rl.env.observation import REWARD_COMPONENTS
+from lastmile_dataflow.operation.outcomes.pick_state import update_hold_window, RL_PICK_THRESHOLDS
 
 
 class RewardTests(unittest.TestCase):

@@ -3,7 +3,7 @@
 import argparse
 import json
 
-from lastmile_dataflow.scenes.loading.assets import build_asset_index
+from lastmile_dataflow.scenes.assets import build_asset_index
 
 
 def main():

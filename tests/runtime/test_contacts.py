@@ -11,12 +11,12 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.evaluation.calibration import aggregate
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.runtime.outcomes.contacts import (
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.station_map.aggregate import aggregate
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.operation.control.context import ContinuousContext
+from lastmile_dataflow.operation.config import ExecutionConfig
+from lastmile_dataflow.sim.contacts import (
     ContactPair,
     ContactSample,
     ContactSampler,
@@ -24,9 +24,9 @@ from lastmile_dataflow.runtime.outcomes.contacts import (
     NavigationContacts,
     simulation_failure,
 )
-from lastmile_dataflow.runtime.outcomes.task import attribute
+from lastmile_dataflow.operation.outcomes.task import attribute
 from lastmile_dataflow.sim.placement import inspect_state
-from lastmile_dataflow.runtime.outcomes.task import constraint_failure, evaluate_pick
+from lastmile_dataflow.operation.outcomes.task import constraint_failure, evaluate_pick
 from lastmile_dataflow.sim.placement import robot_contacts
 from tests.helpers import fixtures, make_sim
 
@@ -64,7 +64,7 @@ class ContactPolicyTests(unittest.TestCase):
         self.assertGreater(stats.max_penetration_m, 0.005)
 
     def pick_sim(self, directory):
-        from lastmile_dataflow.runtime.simulation import Simulation
+        from lastmile_dataflow.sim.simulation import Simulation
 
         source, robot = fixtures(directory)
         tree = ET.parse(robot.model_path)
@@ -141,7 +141,7 @@ class ContactPolicyTests(unittest.TestCase):
         self.assertEqual(evaluate_pick(rows, initial)["status"], "simulation_failure")
 
     def test_open_contact_flags_do_not_fail_and_health_does(self):
-        from lastmile_dataflow.runtime.outcomes.task import evaluate_open
+        from lastmile_dataflow.operation.outcomes.task import evaluate_open
 
         task = {"joint_goal": 1.0, "joint_initial": 0.0}
         rows = [
@@ -181,7 +181,7 @@ class ContactPolicyTests(unittest.TestCase):
             ):
                 # Supply a forbidden pair while keeping the numerical contact
                 # frame separate from its optional detailed example dictionary.
-                from lastmile_dataflow.runtime.outcomes.contacts import ContactPair
+                from lastmile_dataflow.sim.contacts import ContactPair
 
                 pair = ContactPair(
                     (0, 1),
@@ -203,7 +203,7 @@ class ContactPolicyTests(unittest.TestCase):
             sim.close()
 
     def test_shared_contact_frame_preserves_pick_facts_and_counts_without_second_force_read(self):
-        from lastmile_dataflow.runtime.outcomes.task import PickMonitor
+        from lastmile_dataflow.operation.outcomes.task import PickMonitor
 
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
@@ -231,7 +231,7 @@ class ContactPolicyTests(unittest.TestCase):
             self.assertEqual(stats.examples, details[:32])
 
     def test_no_trace_skips_serialization_but_keeps_physics_samples(self):
-        from lastmile_dataflow.runtime.outcomes.task import PickMonitor
+        from lastmile_dataflow.operation.outcomes.task import PickMonitor
 
         with tempfile.TemporaryDirectory() as directory:
             sim = self.pick_sim(directory)
@@ -245,7 +245,7 @@ class ContactPolicyTests(unittest.TestCase):
             ctx.monitor = PickMonitor(sim, "left")
             ctx.monitor.initial.update(workspace_center_xy=[0.0, 0.0], workspace_radius_m=2.0)
             with patch(
-                "lastmile_dataflow.runtime.execution.context.canonical", side_effect=AssertionError("trace disabled")
+                "lastmile_dataflow.operation.control.context.canonical", side_effect=AssertionError("trace disabled")
             ):
                 ctx.tick(sim.robot.neutral_action())
             self.assertEqual(len(ctx.samples), 12)

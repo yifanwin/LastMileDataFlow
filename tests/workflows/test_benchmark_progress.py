@@ -4,12 +4,12 @@ from dataclasses import asdict
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from lastmile_dataflow.data.evaluation.benchmark import BenchmarkConfig
-from lastmile_dataflow.policies.molmobot import MolmoBotConfig
-from lastmile_dataflow.runtime.construction.preparation import clone_preparation
+from lastmile_dataflow.lastmile_benchmark.summary import BenchmarkConfig
+from lastmile_dataflow.policies.molmobot.client import MolmoBotConfig
+from lastmile_dataflow.sim.settle import clone_preparation
 from lastmile_dataflow.utils.io import read_json, rows, create_run, write_rows, write_json
 from lastmile_dataflow.lastmile_benchmark import evaluate as evaluation
-from lastmile_dataflow.workflows import lastmilebench as workflow
+from lastmile_dataflow.lastmile_benchmark import build as workflow
 from tests.helpers import DatasetTestCase
 
 

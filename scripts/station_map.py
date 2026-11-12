@@ -15,11 +15,11 @@ def main():
     cli.add_argument("--egl-devices", type=int, nargs="+", help="与 --gpu 一一对应的 EGL 设备号")
     add_station_run_arguments(cli)
     args = cli.parse_args()
-    from lastmile_dataflow.gpu import select_devices
+    from lastmile_dataflow.utils.gpu import select_devices
 
     select_devices(args.gpu, args.egl_devices)
     from lastmile_dataflow.utils.logging_config import setup_logging
-    from lastmile_dataflow.workflows.station_map import run_station_map
+    from lastmile_dataflow.station_map.planner_trials.build import run_station_map
 
     setup_logging()
     print(run_station_map(args.dataset, station_run(args), args.output, gpu_ids=args.gpu, samples=args.samples))

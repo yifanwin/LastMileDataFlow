@@ -9,8 +9,8 @@ import math
 import mujoco
 import numpy as np
 
-from ...runtime.control.action import torso_joints
-from ...scenes.geometry import body_pose, pose7
+from lastmile_dataflow.robots.action import torso_joints
+from lastmile_dataflow.sim.model.geometry import body_pose, pose7
 
 
 class HeadFOVCost:

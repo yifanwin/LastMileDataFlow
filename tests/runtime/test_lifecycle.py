@@ -10,22 +10,18 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.runtime.execution_config import CollectionConfig
-from lastmile_dataflow.data.recorder import AttemptRecorder
-from lastmile_dataflow.policies.process import (
-    PolicyProcess,
-    PolicyEpisodeError,
-    PolicyInfrastructureError,
-)
-from lastmile_dataflow.runtime.simulation import OperationFailure
-from lastmile_dataflow.runtime.execution.lifecycle import (
+from lastmile_dataflow.operation.config import CollectionConfig
+from lastmile_dataflow.operation.recording.recorder import AttemptRecorder
+from lastmile_dataflow.policies.process import PolicyProcess, PolicyEpisodeError, PolicyInfrastructureError
+from lastmile_dataflow.sim.simulation import OperationFailure
+from lastmile_dataflow.operation.episode import (
     classify_episode_exception,
     execute_isolated_episode,
     mark_episode_phase,
     track_resource,
 )
-from lastmile_dataflow.runtime.execution.manipulation import manipulate
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
+from lastmile_dataflow.operation.control.manipulation import manipulate
+from lastmile_dataflow.operation.config import ExecutionConfig
 
 
 class LifecycleIsolationTests(unittest.TestCase):
@@ -101,9 +97,9 @@ class LifecycleIsolationTests(unittest.TestCase):
         self.assertTrue(resource.closed)
 
     def test_real_synthetic_mjdata_initialization_failure_closes_clone_not_baseline(self):
-        from lastmile_dataflow.runtime.execution.context import clone_sim
-        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
-        from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
+        from lastmile_dataflow.operation.control.context import clone_sim
+        from lastmile_dataflow.operation.curobo import run_curobo_attempt
+        from lastmile_dataflow.lastmile_benchmark.policy_rollout import run_vla_attempt
         from tests.helpers import make_sim
 
         baseline, robot = make_sim(self.root)
@@ -118,7 +114,7 @@ class LifecycleIsolationTests(unittest.TestCase):
 
         task = {**self.task, "target_body": "target"}
         for backend in ("curobo", "molmobot"):
-            module = "lastmile_dataflow.runtime.execution.attempt"
+            module = "lastmile_dataflow.operation.attempt"
             with (
                 patch(module + ".clone_sim", side_effect=clone),
                 patch(module + ".place_frozen_station", side_effect=ValueError("bad initial pose")),
@@ -217,11 +213,11 @@ class RetryDirectoryTests(unittest.TestCase):
             candidate = {"body": "target", "pose_local": np.eye(4), "row": 0, "source": "fixture"}
             with (
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.candidate_pool",
+                    "lastmile_dataflow.operation.control.manipulation.candidate_pool",
                     return_value=[candidate],
                 ),
-                patch("lastmile_dataflow.runtime.execution.manipulation.body_pose", return_value=np.eye(4)),
-                patch("lastmile_dataflow.runtime.execution.manipulation.V2Planner", return_value=planner),
+                patch("lastmile_dataflow.operation.control.manipulation.body_pose", return_value=np.eye(4)),
+                patch("lastmile_dataflow.operation.control.manipulation.V2Planner", return_value=planner),
             ):
                 for _ in range(2):
                     ctx.plan_count = 0
@@ -253,13 +249,13 @@ class RetryDirectoryTests(unittest.TestCase):
             monitor = SimpleNamespace(fingers=[], allowed_target_fingers=set(), initial={})
             with (
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.candidate_pool",
+                    "lastmile_dataflow.operation.control.manipulation.candidate_pool",
                     return_value=[candidate],
                 ),
-                patch("lastmile_dataflow.runtime.execution.manipulation.body_pose", return_value=np.eye(4)),
-                patch("lastmile_dataflow.runtime.execution.manipulation.PickMonitor", return_value=monitor),
+                patch("lastmile_dataflow.operation.control.manipulation.body_pose", return_value=np.eye(4)),
+                patch("lastmile_dataflow.operation.control.manipulation.PickMonitor", return_value=monitor),
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.V2Planner",
+                    "lastmile_dataflow.operation.control.manipulation.V2Planner",
                     side_effect=[planner, RuntimeError("reached closed planner")],
                 ) as factory,
             ):
@@ -318,18 +314,18 @@ class RetryDirectoryTests(unittest.TestCase):
             }
             with (
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.candidate_pool",
+                    "lastmile_dataflow.operation.control.manipulation.candidate_pool",
                     return_value=[candidate],
                 ),
-                patch("lastmile_dataflow.runtime.execution.manipulation.body_pose", return_value=np.eye(4)),
-                patch("lastmile_dataflow.runtime.execution.manipulation.PickMonitor", return_value=monitor),
-                patch("lastmile_dataflow.runtime.execution.manipulation.tcp_pose", return_value=np.eye(4)),
+                patch("lastmile_dataflow.operation.control.manipulation.body_pose", return_value=np.eye(4)),
+                patch("lastmile_dataflow.operation.control.manipulation.PickMonitor", return_value=monitor),
+                patch("lastmile_dataflow.operation.control.manipulation.tcp_pose", return_value=np.eye(4)),
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.evaluate_open",
+                    "lastmile_dataflow.operation.control.manipulation.evaluate_open",
                     return_value={"status": "success", "reason": "open"},
                 ),
                 patch(
-                    "lastmile_dataflow.runtime.execution.manipulation.V2Planner",
+                    "lastmile_dataflow.operation.control.manipulation.V2Planner",
                     side_effect=[planner, Mock()],
                 ),
             ):

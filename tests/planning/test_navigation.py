@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from lastmile_dataflow.planning.navigation.astar import Grid, scene_grid, search_region
-from lastmile_dataflow.planning.waypoints import PlanResult
+from lastmile_dataflow.planning.result import PlanResult
 
 
 def search(grid, start_xy, goal_xy):
@@ -17,7 +17,7 @@ class NavigationTests(unittest.TestCase):
     def test_room_navigation_can_detour_outside_sampling_circle(self):
         import xml.etree.ElementTree as ET
         from tests.helpers import fixtures
-        from lastmile_dataflow.runtime.simulation import Simulation
+        from lastmile_dataflow.sim.simulation import Simulation
 
         with tempfile.TemporaryDirectory() as directory:
             source, robot = fixtures(directory)
