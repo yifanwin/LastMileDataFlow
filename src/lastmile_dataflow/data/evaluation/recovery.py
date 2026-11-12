@@ -1,4 +1,5 @@
 """Recovery regions and diagnostics derived from measured starting stations."""
+from dataclasses import dataclass, field
 from pathlib import Path
 import math
 
@@ -11,6 +12,73 @@ def yaw_gap(a, b):
     return (np.asarray(a) - b + math.pi) % (2 * math.pi) - math.pi
 
 
+@dataclass
+class BoxPatch:
+    """Geometry-navigation patch: checked (x, y, yaw offset) boxes around a high anchor."""
+    anchor: dict
+    boxes: list
+
+    def contains(self, grid, radius_m, xy, yaw):
+        query = np.r_[xy, yaw_gap(yaw, self.anchor['yaw'])]
+        if np.linalg.norm(np.asarray(xy) - self.anchor['xy']) <= 1e-9 and abs(query[2]) <= 1e-9:
+            return True
+        return any(np.all(query >= np.asarray(box[:3]) - 1e-9)
+                   and np.all(query <= np.asarray(box[3:]) + 1e-9) for box in self.boxes)
+
+    def poses(self, grid):
+        return [[*self.anchor['xy'], self.anchor['yaw']], *[
+            [*(np.mean([box[:3], box[3:]], axis=0)[:2]), self.anchor['yaw'] + (box[2] + box[5]) / 2]
+            for box in self.boxes]]
+
+    def to_dict(self):
+        return {'anchor': self.anchor, 'cells': [], 'boxes': self.boxes}
+
+
+@dataclass
+class CellPatch:
+    """Raster patch: free cells within a geodesic radius of a high anchor."""
+    anchor: dict
+    cells: list
+    distances: dict = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.distances = {(y, x): d for y, x, d in self.cells}
+
+    @classmethod
+    def build(cls, grid, station, radius_m):
+        xy = station['xy']
+        cell = grid.cell(xy)
+        if cell is None or not segment_free(grid, xy, grid.xy(cell)):
+            return None
+        distances = distance_field(grid, xy, radius_m)
+        distances += np.linalg.norm(np.asarray(xy) - grid.xy(cell))
+        cells = [[int(y), int(x), float(distances[y, x])]
+                 for y, x in np.argwhere(distances <= radius_m + 1e-9)]
+        return cls(station, cells)
+
+    def contains(self, grid, radius_m, xy, yaw):
+        cell = grid.cell(xy)
+        if cell is None or not grid.free[cell]:
+            return False
+        anchor = self.anchor
+        if cell == grid.cell(anchor['xy']) and segment_free(grid, anchor['xy'], xy):
+            local_length = float(np.linalg.norm(np.asarray(xy) - anchor['xy']))
+        else:
+            local_length = self.distances.get(cell, float('inf')) + float(np.linalg.norm(np.asarray(xy) - grid.xy(cell)))
+        return local_length <= radius_m + 1e-9 and segment_free(grid, grid.xy(cell), xy)
+
+    def poses(self, grid):
+        return [[*xy, self.anchor['yaw']]
+                for xy in [self.anchor['xy'], *(grid.xy((y, x)).tolist() for y, x, _ in self.cells)]]
+
+    def to_dict(self):
+        return {'anchor': self.anchor, 'cells': self.cells}
+
+
+def _patch(value):
+    return BoxPatch(value['anchor'], value['boxes']) if 'boxes' in value else CellPatch(value['anchor'], value['cells'])
+
+
 class RecoveryRegion:
     def __init__(self, grid, measured, patches, radius_m, yaw_tolerance_rad):
         self.grid = grid
@@ -18,7 +86,6 @@ class RecoveryRegion:
         self.patches = patches
         self.radius_m = radius_m
         self.yaw_tolerance_rad = yaw_tolerance_rad
-        self.distances = [{(y, x): d for y, x, d in patch['cells']} for patch in patches]
 
     @classmethod
     def build(cls, grid, measured, config, navigation=None):
@@ -28,18 +95,11 @@ class RecoveryRegion:
                 continue
             if navigation is not None:
                 patch = navigation.recovery_patch(station, config.region_radius_m, config.region_yaw_tolerance_rad)
-                if patch is not None:
-                    patches.append(patch)
-                continue
-            xy = station['xy']
-            cell = grid.cell(xy)
-            if cell is None or not segment_free(grid, xy, grid.xy(cell)):
-                continue
-            distances = distance_field(grid, xy, config.region_radius_m)
-            distances += np.linalg.norm(np.asarray(xy) - grid.xy(cell))
-            cells = [[int(y), int(x), float(distances[y, x])]
-                     for y, x in np.argwhere(distances <= config.region_radius_m + 1e-9)]
-            patches.append({'anchor': station, 'cells': cells})
+                patch = None if patch is None else _patch(patch)
+            else:
+                patch = CellPatch.build(grid, station, config.region_radius_m)
+            if patch is not None:
+                patches.append(patch)
         return cls(grid, measured, patches, config.region_radius_m, config.region_yaw_tolerance_rad)
 
     def contains(self, xy, yaw):
@@ -49,65 +109,33 @@ class RecoveryRegion:
                      for s in self.measured if abs(yaw_gap(yaw, s['yaw'])) <= self.yaw_tolerance_rad + 1e-9]
         if not neighbors or not min(neighbors, key=lambda item: (round(item[0], 9), item[1]))[1]:
             return False
-        for patch, distances in zip(self.patches, self.distances):
-            anchor = patch['anchor']
-            if abs(yaw_gap(yaw, anchor['yaw'])) > self.yaw_tolerance_rad + 1e-9:
-                continue
-            if 'boxes' in patch:
-                query = np.r_[xy, yaw_gap(yaw, anchor['yaw'])]
-                if (np.linalg.norm(np.asarray(xy) - anchor['xy']) <= 1e-9
-                        and abs(query[2]) <= 1e-9):
-                    return True
-                if any(np.all(query >= np.asarray(box[:3]) - 1e-9)
-                       and np.all(query <= np.asarray(box[3:]) + 1e-9) for box in patch['boxes']):
-                    return True
-                continue
-            cell = self.grid.cell(xy)
-            if cell is None or not self.grid.free[cell]:
-                continue
-            anchor_cell = self.grid.cell(anchor['xy'])
-            if cell == anchor_cell and segment_free(self.grid, anchor['xy'], xy):
-                local_length = float(np.linalg.norm(np.asarray(xy) - anchor['xy']))
-            else:
-                local_length = distances.get(cell, float('inf')) + float(np.linalg.norm(np.asarray(xy) - self.grid.xy(cell)))
-            if local_length <= self.radius_m + 1e-9 and segment_free(self.grid, self.grid.xy(cell), xy):
-                return True
-        return False
+        return any(abs(yaw_gap(yaw, patch.anchor['yaw'])) <= self.yaw_tolerance_rad + 1e-9
+                   and patch.contains(self.grid, self.radius_m, xy, yaw) for patch in self.patches)
 
     def goals(self):
         goals = []
         seen = set()
         for patch in self.patches:
-            anchor = patch['anchor']
-            if 'boxes' in patch:
-                poses = [[*anchor['xy'], anchor['yaw']], *[
-                    [*(np.mean([box[:3], box[3:]], axis=0)[:2]),
-                     anchor['yaw'] + (box[2] + box[5]) / 2] for box in patch['boxes']]]
-                for x, y, yaw in poses:
-                    key = (x, y, yaw)
-                    if key not in seen and self.contains([x, y], yaw):
-                        goals.append({'xy': [x, y], 'yaw': yaw, 'anchor_station_id': anchor['station_id']})
-                        seen.add(key)
-                continue
-            points = [anchor['xy'], *(self.grid.xy((y, x)).tolist() for y, x, _ in patch['cells'])]
-            for xy in points:
-                key = (*xy, anchor['yaw'])
-                if key not in seen and self.contains(xy, anchor['yaw']):
-                    goals.append({'xy': xy, 'yaw': anchor['yaw'], 'anchor_station_id': anchor['station_id']})
-                    seen.add(key)
+            for x, y, yaw in patch.poses(self.grid):
+                if (x, y, yaw) not in seen and self.contains([x, y], yaw):
+                    goals.append({'xy': [x, y], 'yaw': yaw, 'anchor_station_id': patch.anchor['station_id']})
+                    seen.add((x, y, yaw))
         return goals
 
     def to_dict(self):
         return {'method': ('geometry_sampled_pose_boxes_nearest_measurement_clip'
-                           if any('boxes' in p for p in self.patches) else 'geodesic_patches_nearest_measurement_clip'),
+                           if any(isinstance(p, BoxPatch) for p in self.patches)
+                           else 'geodesic_patches_nearest_measurement_clip'),
                 'origin': self.grid.origin.tolist(), 'resolution_m': self.grid.resolution,
-                'free': self.grid.free.tolist(), 'measured': self.measured, 'patches': self.patches,
+                'free': self.grid.free.tolist(), 'measured': self.measured,
+                'patches': [p.to_dict() for p in self.patches],
                 'radius_m': self.radius_m, 'yaw_tolerance_rad': self.yaw_tolerance_rad}
 
     @classmethod
     def from_dict(cls, value):
         grid = Grid(np.asarray(value['origin']), value['resolution_m'], np.asarray(value['free'], dtype=bool))
-        return cls(grid, value['measured'], value['patches'], value['radius_m'], value['yaw_tolerance_rad'])
+        return cls(grid, value['measured'], [_patch(p) for p in value['patches']], value['radius_m'],
+                   value['yaw_tolerance_rad'])
 
 
 def difficulty(region, start, candidates, local_radius_m=None, *, reference_path=None):

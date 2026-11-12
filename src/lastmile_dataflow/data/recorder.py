@@ -8,7 +8,11 @@ import mujoco
 import numpy as np
 
 from ..utils.io import append_row, write_json
-from ..runtime.execution.lifecycle import recording_operation, track_recorder
+from ..runtime.execution.lifecycle import (
+    classify_episode_exception,
+    recording_operation,
+    track_recorder,
+)
 
 
 def video_writer(path, fps):
@@ -124,6 +128,7 @@ class AttemptRecorder:
 
     @recording_operation
     def finish(self, status, reason):
+        """Write trajectory and recording.json; only valid after bind_simulation."""
         if self.finished:
             raise RuntimeError("rollout already finished")
         self.abort_close()
@@ -151,7 +156,6 @@ class AttemptRecorder:
         observation_complete = (
             complete
             and self.collection["record_images"]
-            and self.sim is not None
             and all(
                 self.image_counts.get(camera, 0) == self.steps + 1
                 for camera in self.sim.robot.camera_names
@@ -181,16 +185,14 @@ class AttemptRecorder:
                 "replay_complete": replay_complete,
                 "observation_complete": observation_complete,
                 "errors": self.errors,
-                "controller_profile": self.sim.robot.config.control_profile
-                if self.sim
-                else None,
-                "layout": self.sim.robot.record_layout() if self.sim else None,
+                "controller_profile": self.sim.robot.config.control_profile,
+                "layout": self.sim.robot.record_layout(),
                 "mujoco_version": mujoco.__version__,
                 "model_dir": self.sim.frozen_dir,
-                "state_spec": int(self.sim.state_spec) if self.sim else None,
-                "cameras": dict(self.sim.robot.camera_names) if self.sim else {},
-                "resolution": [self.width, self.height] if self.sim else None,
-                "control_hz": self.sim.robot.config.control_hz if self.sim else None,
+                "state_spec": int(self.sim.state_spec),
+                "cameras": dict(self.sim.robot.camera_names),
+                "resolution": [self.width, self.height],
+                "control_hz": self.sim.robot.config.control_hz,
                 "task": self.config.get("task"),
                 "seed": self.config.get("seed"),
                 "preparation": self.config.get("preparation"),
@@ -217,8 +219,6 @@ class AttemptRecorder:
             try:
                 writer.close()
             except Exception as exc:
-                from ..runtime.execution.lifecycle import classify_episode_exception
-
                 self.errors.append(
                     {"camera": camera, **classify_episode_exception(exc, "recording")}
                 )

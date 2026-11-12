@@ -166,7 +166,7 @@ def build(dataset, output, *, calibration_dir, config_path=None, gpu_ids=None):
                     measured = [{**r, 'high': r['high'] and r['station_id'] not in incompatible} for r in measured]
                     episode_region = RecoveryRegion.build(region.grid, measured, settings, navigation=navigation)
                     diagnostic['incompatible_recovery_stations'] = incompatible
-                    diagnostic['recovery_anchors'] = [p['anchor']['station_id'] for p in episode_region.patches]
+                    diagnostic['recovery_anchors'] = [p.anchor['station_id'] for p in episode_region.patches]
                     planned = navigation.plan(base, episode_region.goals())
                     diagnostic.update({k: v for k, v in planned.items() if k != 'path'})
                     if planned['path'] is None:
