@@ -75,7 +75,7 @@
 - 真实 RL（actor-critic 环境，先查 nvidia-smi，只用空闲的 GPU 2、3）：
   - `tests/smoke/rl.py --gpu 2 --num-envs 1 --steps 2`：修第 5 节的命名空间之前在构建环境时失败，修后通过（909 个合法站位，2 步采样）。
   - `scripts/station_map/rl/train.py --gpu 2 3 --num-envs 4 --max-transitions 512`（`MUJOCO_GL=disable`）：两张卡各起一个 Sampler、Learner 正常，checkpoint 元数据为 `sampler_gpus ['2','3']`、`learner_gpu '2'`、`physical_gpu 2`；跑到第一次验证录像时因为关了渲染而停下，属预期。临时产物已删。
-  - `MUJOCO_GL=egl` 跑不起来：pro5000 上现在没有 `libEGL.so.1`（只有 `libEGL_nvidia.so.0`，没装 libglvnd），`select_devices` 查询 EGL 设备的子进程直接失败，主环境和 RL 环境都一样。这是机器环境问题，与本次改动无关；docs/setup.md 已把 `ldconfig -p | grep libEGL` 列为前提。需要渲染的验证（场景预览、录像、标定的 visual 模式）在补装之前都跑不了。
+  - `MUJOCO_GL=egl` 跑不起来：pro5000 上现在没有 `libEGL.so.1`（只有 `libEGL_nvidia.so.0`，没装 libglvnd），`select_devices` 查询 EGL 设备的子进程直接失败，主环境和 RL 环境都一样。原因见第 6 节补记：系统一直没有这个库，以前靠 `simplify-baseline/env.sh` 里的 `LD_LIBRARY_PATH` 接上，这次的运行没有加载它。
 
 ## 5. 修掉的遗留问题
 
@@ -85,4 +85,12 @@
 
 
 - `policies/serving.py` 里还有一个 argparse（`--config --socket`）：这是 PolicyProcess 拉起策略服务子进程时的进程间协议（还要在 `.venv-pi05` 里跑），不是用户命令入口；挪到 scripts 会让 src 依赖 scripts 的路径，所以没有动，是否在 AGENTS.md 里列为第二个例外请用户定。
-- pro5000 缺 `libEGL.so.1`，见“验证”。
+
+## 6. 补记：EGL 运行库（2026-11-12 12:52）
+
+pro5000 系统一直没装 libglvnd，只有 `libEGL_nvidia.so.0`。以前能渲染，是因为运行前 source 了 `outputs/experiments/simplify-baseline/env.sh`，把 `/data1/wenyifan/opt/lib` 加进了 `LD_LIBRARY_PATH`；actor-critic 环境另有一份 `.venv/lib/native`。仓库本身没处理这个依赖。
+
+- 新增 `scripts/install/egl.sh <venv>`：环境里加载不到 `libEGL.so.1` 时，用 `apt-get download` 下载 Ubuntu 的 libglvnd 六个包（不需要 sudo），解压到 `<venv>/lib/native`，并在 `<venv>/bin/activate` 末尾加一行 `LD_LIBRARY_PATH`；重复运行不重复下载、不重复写入。`main.sh`、`rl.sh` 安装完都会调用它。
+- 没有设 `__EGL_VENDOR_LIBRARY_FILENAMES`：Ubuntu 编译的 libglvnd 默认就在 `/usr/share/glvnd/egl_vendor.d` 里找到 `10_nvidia.json`，实测不设也能渲染。
+- docs/setup.md 的前提改成“激活环境后能加载 `libEGL.so.1`”，加了一行自检；setup.md、runbook.md 和 RL 运行说明里都写了先 `source .venv/bin/activate`。不激活、直接调用 `.venv/bin/python` 的话仍然找不到这个库。
+- 验证：先在临时环境里跑了安装脚本，再对主仓库 `.venv`（simplify worktree 用的就是它）跑了一次。激活后自检输出 `EGL ok`；经 `utils.gpu.bind_device(0)` 在 GPU 0 上用 MuJoCo 离屏渲染了一帧，nvidia-smi 只在 GPU 0 上看到这个进程的 EGL 上下文（109 MiB）。不激活时，`_query_egl_devices` 子进程照旧失败。

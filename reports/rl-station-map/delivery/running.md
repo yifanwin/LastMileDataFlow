@@ -18,10 +18,10 @@ scripts/install/rl.sh /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_re
 
 研究环境使用 Python 3.11、本地 editable mjlab 和源码 `.pth`。直接使用 `.venv/bin/python`；如使用 uv，传 `uv run --no-sync`。不要对研究环境执行根项目默认依赖同步。
 
-镜像源可通过 `RL_INDEX_URL` 指定，已下载的 wheel 目录可通过 `RL_WHEEL_DIR` 指定。本次主机缺少 GLVND 用户态库，已将 Ubuntu 包中的库解压至 `.venv/lib/native`，没有改系统驱动；需要 EGL 时运行：
+镜像源可通过 `RL_INDEX_URL` 指定，已下载的 wheel 目录可通过 `RL_WHEEL_DIR` 指定。主机缺少 GLVND 用户态库时，`rl.sh` 调用 `scripts/install/egl.sh` 把 Ubuntu 包中的库解压至 `.venv/lib/native`，并在 `.venv/bin/activate` 里接上 `LD_LIBRARY_PATH`，不改系统驱动；需要 EGL 时先运行：
 
 ```bash
-export LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+source .venv/bin/activate
 ```
 
 不渲染的 smoke / 训练可设置 `MUJOCO_GL=disable`。缓存目录可设置在 `/tmp`：

@@ -7,3 +7,4 @@ if [[ ! -x .venv/bin/python ]]; then
   .venv/bin/python -m ensurepip
 fi
 .venv/bin/python -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
+scripts/install/egl.sh .venv

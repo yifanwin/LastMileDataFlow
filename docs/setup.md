@@ -27,7 +27,7 @@ $DATA_ROOT/
 
 - NVIDIA GPU，驱动支持 CUDA 12（验证版本 580.178.04）
 - CUDA toolkit 12.x（cuRobo 编译）、`gcc`/`g++`/`make`
-- EGL/OpenGL 运行库（`ldconfig -p | grep libEGL` 非空）
+- NVIDIA 驱动自带的 EGL（`libEGL_nvidia.so.0`）；系统没有 GLVND 加载器 `libEGL.so.1` 时，安装脚本会把它解压进 `.venv/lib/native`（需要 `apt-get download`，不需要 sudo）
 - Python 3.11、[uv](https://docs.astral.sh/uv/)、git
 - 磁盘：环境约 7 GB；MolmoBot 19 GB；π0.5 约 54 GB；场景与资产按需
 
@@ -37,6 +37,8 @@ $DATA_ROOT/
 git clone https://github.com/yifanwin/LastMileDataFlow.git "$REPO"
 cd "$REPO"
 scripts/install/main.sh
+source .venv/bin/activate      # 每个新 shell 都要先激活，否则 MUJOCO_GL=egl 找不到 libEGL.so.1
+python -c 'import ctypes; ctypes.CDLL("libEGL.so.1"); print("EGL ok")'
 .venv/bin/python scripts/scenes/build.py --help
 
 scripts/install/pi05.sh        # 需要 π0.5 时
@@ -193,6 +195,7 @@ grep -rl '^data_root:' configs tests/smoke
 ## 5. 验证
 
 ```bash
+source .venv/bin/activate
 MUJOCO_GL=egl MPLCONFIGDIR=/tmp/lastmile-mpl \
   .venv/bin/python -m unittest discover -s tests -t . -v
 

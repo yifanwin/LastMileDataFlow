@@ -8,11 +8,12 @@
 从仓库根目录执行。先按 setup.md 安装依赖并准备资产。下列 GPU 编号仅示范，运行前用 nvidia-smi 选择空闲卡；每次使用新输出目录。
 
 ```bash
+source .venv/bin/activate   # 渲染需要的 libEGL.so.1 在激活时接上
 PY=.venv/bin/python
 nvidia-smi
 ```
 
-simplify worktree 没有独立环境时，使用主仓库已有解释器并设置 PYTHONPATH=src；不要重复安装到其他 worktree 的环境。
+simplify worktree 没有独立环境时，激活主仓库的环境，使用主仓库已有解释器并设置 PYTHONPATH=src；不要重复安装到其他 worktree 的环境。
 
 ## 1. 场景构建
 

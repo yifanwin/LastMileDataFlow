@@ -26,6 +26,7 @@ site_dir=$("$repo_root/.venv/bin/python" -c 'import sysconfig; print(sysconfig.g
 printf '%s\n' "$repo_root/src" > "$site_dir/lastmile-research.pth"
 "$repo_root/.venv/bin/python" -c \
     'import importlib.metadata as m, torch; print({p:m.version(p) for p in ("mjlab","mujoco","mujoco-warp","warp-lang","torch","torch-geometric")}); print("CUDA:", torch.cuda.is_available())'
+"$repo_root/scripts/install/egl.sh" "$repo_root/.venv"
 if [[ -n ${3:-} ]]; then
     "$repo_root/.venv/bin/python" "$repo_root/tests/smoke/rl.py" --gpu "$3" --steps 2
 fi
