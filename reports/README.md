@@ -2,7 +2,7 @@
 
 ## 当前简化分支收束（2026-11-12）
 
-2026-11-12T00:14:45+08:00：simplify分支已按用户要求停止全部实验/对比/验证。主要精简及真实最小运行结果见[最终总结](simplify-refactor/delivery/10-final-summary.md)。最后回归并非全绿，RGB严格一致性未通过，不宣称全部计划验收完成。
+2026-11-12T00:14:45+08:00：simplify分支已按用户要求停止全部实验/对比/验证。主要精简及真实最小运行结果见[最终总结](simplify-refactor/delivery/10-final-summary.md)。最后回归并非全绿，RGB严格一致性未通过，不宣称全部计划验收完成。2026-11-12 第二轮精简（含按 pipeline 的目录分层）见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)：迁移后只做了最小规模的可运行验证。
 
 ## 历史版本记录（保留原文）
 

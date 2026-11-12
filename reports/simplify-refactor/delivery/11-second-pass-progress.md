@@ -34,6 +34,8 @@
 
 22. G 批第四步：文档同步（本提交）。`docs/architecture.md` 重写为新目录、分层顺序、各阶段调用链和关键约定（6 份已删子目录 README 里仍适用的内容并入这里：cuRobo 固定版本、求解器缓存、按 geom 导出碰撞、规划无解与执行失败分开、策略边界）；`AGENTS.md` 目录职责表改成分层表，阶段脚本变成六个，测试分组与示例命令同步；`docs/运行手册.md` 新增“站位采样”一节（后续章节顺延）；`docs/data-format.md` 写明场景库由两步写成、`scenes.jsonl` 不再含站位、`stations.jsonl` 的字段和淘汰规则，`EVALUABLE` 的位置改为 `station_map/aggregate.py`；README 阶段表加 `sample_stations.py`；`tests/README.md`、`configs/README.md` 路径同步。逐个 grep 过，当前说明里已没有旧模块路径（`docs/archives/`、`reports/` 历史文本不改）。验证：只改文档，未运行测试。
 
+23. G 批端到端回归（不改代码）：在 c515ca1 上只用 GPU 0（运行中核对进程落在 0 号卡，4–7 未碰），实验单元 `outputs/experiments/simplify-g-regression/`，规模同原 scene-check（house 103 的 Cup_30，只做 pick，最多 5 个站位，编辑 1 个桌面障碍）。场景构建 2/2 接受，编辑摆放和任务字段与 scene-check 相同；站位采样 2/2 场景各 5 个站位，站位 id、底座位姿、净空、可见性结论与 scene-check 构建时采的逐个相同；标定 30 trial，28 成功、2 失败，完整，213 秒；采集（只原场景，S0 阈值在单元内的配置副本里改成 0.7）4 个配对全部执行，3 成功、1 失败，导出 3 条连续示教；benchmark 构建 2 个 episode。用户 11-12 说明只验证能跑通，标定规则之后还会改，非核心功能不再完整验证，所以策略评测（bench_evaluate）没有跑。产物约 1.3 GB（bench 312 MB、collect 534 MB、scenes 313 MB、stations 79 MB），未删除。
+
 ## 默认决定与用户补充决定（逐条记录，最终总结列出）
 
 - 11-12 用户：『按默认决定一直完成，最后再总结，不要停止直到完成全部』。要拍板的事按方案和审查报告的建议默认决定；GPU 对照不一致时自己查清修好再继续。
@@ -64,11 +66,17 @@
 - 默认：场景预览挪到站位采样这一步导出（预览要画站位）；只跑 build_scenes 不再有预览。
 - 默认：mjlab（`StationEnv`）与 cuRobo 一样属可选重依赖，仍在用到处 import，主环境不装 mjlab 也能导入 RL 编排模块；RL 进程的 GPU 绑定入口（`sampler_entry`）也保留函数内 import，保证先绑卡再加载 CUDA 相关代码。
 - 默认：`PICK_THRESHOLDS` 仍是 dict：它整份写进结果的 `protocol`，RL 环境按键核对配置覆盖值，改 dataclass 会改输出、收益小。
+- 11-12 用户：『只要验证可跑就行，不用完整验证，特别是旧 curobo 标定，之后规则之类的都会修改；其它非核心功能也不用再完整验证』。G 批回归只确认各阶段能跑通，不跑策略评测。
+- 默认：回归时只在实验单元里的配置副本把 S0 阈值改成 0.7（选点参数，复用标定时允许改），让这批成功率 2/3 的站位能当 S0，采集和 benchmark 才有配对可跑；仓库配置不变。
+- 默认：测试里仍有 patch 私有函数的写法（如场景构建测试的 `_build_house`），这一轮没有逐个改成注入。
 - 默认：原生控制的越界报错文字从 “safety bound” 统一成 “configured bound”。
 
-## 剩余（按方案第六节）
+## 剩余
 
-- data：recorder 的 `video_cameras` 保留 None/dict 两种语义（None 表示由执行钩子提交全部相机，dict 表示录制时自己选相机渲染，是两种真实用法，不规整）；`recorder.result` 仍是 dict（下游三处用 `**` 展开）。
-- RL 解禁后回补：此前因 RL 限制没做的精简（`gpu.sampler_entry` 挪进 rl、Simulation 可写 `local_model` 等）。
-- 目录分层迁移（G）：暂缓，等父会话转达最终结构；RL 解禁后的回补（`gpu.sampler_entry/isolate_*` 挪进 rl、`dls.py` 等）随 G 一起做。
-- 第二轮总结（H）：G 完成后写。
+第二轮 A–H 全部完成，总结见 `12-second-pass-summary.md`。没有做、留给以后的：
+
+- data：recorder 的 `video_cameras` 保留 None/dict 两种语义；`recorder.result` 仍是 dict（下游三处用 `**` 展开）。
+- `PICK_THRESHOLDS` 仍是 dict（整份写进结果的 protocol，RL 按键核对）；`Simulation` 的 `local_model` 仍是声明字段（快照和 A* 读它）。
+- 部分测试仍 patch 模块私有函数。
+- 站位采样单 GPU 顺序执行；场景库大时可再加进程池。
+- 策略评测（bench_evaluate）和 RL 训练没有在迁移后的代码上跑过真实 GPU。
