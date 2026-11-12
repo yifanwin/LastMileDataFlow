@@ -4,7 +4,7 @@ from contextlib import closing
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PIL import Image
@@ -35,14 +35,18 @@ class ScenePreviewTests(unittest.TestCase):
             'proposal_intent': 'reachability',
             'task': {'target_body': 'target', 'anchor_world': [2, 0, .15],
                      'category': 'Cup', 'operation': 'pick', 'instruction': '拿起杯子'},
-            'placements': [], 'stations': [{'station_id': 'S0001', 'xy': [1, 0], 'base': [1, 0, 0]}],
+            'edits': {'placements': []}, 'stations': [{'station_id': 'S0001', 'xy': [1, 0], 'base': [1, 0, 0]}],
         }
         self.calibration = {
             'T_world_camera_optical': np.eye(4).tolist(), 'near_m': .01,
             'projection_type': 'pinhole',
-            'intrinsics': {'K': [[10, 0, 320], [0, 10, 240], [0, 0, 1]]},
+            'K': [[10, 0, 320], [0, 10, 240], [0, 0, 1]],
             'target_visible_pixels': 100,
         }
+
+        renderer = patch.object(preview.mujoco, 'Renderer', side_effect=lambda *a, **k: MagicMock())
+        renderer.start()
+        self.addCleanup(renderer.stop)
 
     def observer(self, *args):
         return Image.new('RGB', (preview.WIDTH, preview.HEIGHT), '#888888'), self.calibration
@@ -51,26 +55,13 @@ class ScenePreviewTests(unittest.TestCase):
         projected = preview.project([[2, 0, 2], [0, 0, -1]], self.calibration)
         np.testing.assert_allclose(projected, [[330, 240]])
 
-    def test_v2_edits_pair_against_task_baseline(self):
-        record = {
-            'scene': 'scene-files/val0-task-arm_path_collision-v000',
-            'proposal_intent': 'arm_path_collision',
-            'edits': {'placements': [{}], 'target_moves': []},
-        }
-        self.assertEqual(preview.edit_summary(record), ([{}], []))
-        self.assertEqual(preview.before_scene_location(record),
-                         'scene-files/val0-task/baseline')
-        self.assertIsNone(preview.before_scene_location(
-            {**record, 'edits': {}, 'scene': 'scene-files/val0-task/baseline'}))
-        moves = {**record, 'edits': {'placements': [], 'target_moves': [{}]}}
-        self.assertEqual(preview.edit_summary(moves), ([], [{}]))
-
     def test_single_row_and_paired_rows_reuse_camera_rigs(self):
         for edited in (False, True):
             with self.subTest(edited=edited):
                 row = {**self.record}
                 if edited:
-                    row.update(placements=[{}], before_scene='before', before_stations=self.record['stations'])
+                    row.update(edits={'placements': [{}]}, before_scene='before',
+                               before_stations=self.record['stations'])
                 path = self.root / f'{edited}.png'
                 with patch.object(preview, 'observer', side_effect=self.observer) as render:
                     preview.render_scene_preview(self.root, row, path)
@@ -78,12 +69,12 @@ class ScenePreviewTests(unittest.TestCase):
                     self.assertEqual(image.size, (1280, 1228 if edited else 706))
                 if edited:
                     calls = render.call_args_list[-4:]
-                    self.assertEqual(calls[0].args[1], calls[2].args[1])
-                    self.assertEqual(calls[1].args[1], calls[3].args[1])
+                    self.assertEqual(calls[0].args[2], calls[2].args[2])
+                    self.assertEqual(calls[1].args[2], calls[3].args[2])
                     self.assertNotEqual(calls[0].args[0], calls[2].args[0])
 
     def test_existing_missing_baseline_is_not_reconstructed(self):
-        row = {**self.record, 'placements': [{}]}
+        row = {**self.record, 'edits': {'placements': [{}]}, 'before_scene': None}
         with patch.object(preview, 'observer', side_effect=self.observer), \
              patch.object(preview.Simulation, 'from_snapshot', wraps=Simulation.from_snapshot) as load:
             preview.render_scene_preview(self.root, row, self.root / 'legacy.png')

@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from ...data.rendering.head_views import robocasa_camera_calibration
+from ...runtime.control.panda_robocasa import robocasa_camera_calibration
 from ...planning.navigation.astar import scene_occupancy, task_support_obstacles
 from ...runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
 from ...runtime.construction.session import ObstacleEditSession, clone_preparation
@@ -209,7 +209,8 @@ def _freeze_candidate(ctx, sim, geometry, proposal, stations, sampling, checks, 
     for station in stations:
         cell = geometry.navigation.cell(station['xy'])
         station['clearance_base_m'] = float(geometry.clearance_base[cell]) if cell is not None else None
-    return {'scene': str(location), 'task': geometry.task, 'stations': stations,
+    before = None if ctx.baseline_snapshot is None else str(ctx.baseline_snapshot)
+    return {'scene': str(location), 'before_scene': before, 'task': geometry.task, 'stations': stations,
             'station_hints': [], 'edits': proposal.runtime_changes(),
             'proposal_metadata': {}, 'construction_checks': checks,
             'station_sampling': sampling, 'task_completion': 'unknown'}

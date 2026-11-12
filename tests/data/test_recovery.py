@@ -82,7 +82,7 @@ class RecoveryTests(unittest.TestCase):
         trials.append({**binding, 'station_id': 'missing', 'trial': 0, 'status': 'infrastructure_error'})
         cal = reference_calibration(stations, trials, 2, binding, 'curobo')
         self.assertFalse(cal['complete'])
-        starts = select_starts(stations, cal, binding)
+        starts = select_starts(stations, cal, binding, low=.2, high=.6)
         self.assertEqual([s['station_id'] for s, _ in starts], ['s0'])
         self.assertEqual(starts[0][1]['trials'], 2)
         self.assertEqual(starts[0][1]['high_station_ids'], ['h'])

@@ -12,12 +12,12 @@ from pathlib import Path
 from queue import Empty
 
 from ..config import CollectionConfig
-from ..data.evaluation.selection import (
+from ..data.evaluation.calibration import (
+    EVALUABLE,
+    aggregate,
     eligible_stations,
-    evaluable,
     station_calibration,
 )
-from ..data.evaluation.statistics import aggregate
 from ..data.visualization.heatmap import export_heatmap
 from ..gpu import bind_device
 from ..planning.navigation.astar import scene_grid, task_support_obstacles
@@ -490,7 +490,7 @@ def _station_trials(
             append_row(root / "trials.jsonl", record)
             trials.append(record)
             outcomes[record["status"]] += 1
-            if evaluable(record):
+            if record.get("status") in EVALUABLE:
                 valid_points[record["station_id"]] += 1
             if record["status"] != "success":
                 reasons[record["reason"]] += 1
@@ -541,7 +541,7 @@ def _station_summary(sim, scene, trials, config, root):
     """汇总原始标定结果、导出展示热图，并筛选合格的 S0/S1 配对。"""
     binding = {"scene_id": scene["scene_id"], "task_id": scene["task"]["task_id"]}
     rates = station_calibration(
-        scene["stations"], trials, config.trials_per_station, binding, config
+        scene["stations"], trials, config.trials_per_station, binding, config.operation_backend
     )
     if not rates["complete"]:
         logger.warning("scene=%s 标定不完整，不能用于正式困难配对", scene["scene_id"])
@@ -565,7 +565,9 @@ def _station_summary(sim, scene, trials, config, root):
             config.smoothing_sigma_m or config.spacing_m or 0.1,
             title=scene["scene_id"],
         )
-    starts, goals = eligible_stations(scene["stations"], rates, config)
+    starts, goals = eligible_stations(
+        scene["stations"], rates, config.lastmile_low, config.lastmile_high
+    )
     pair_count = len(starts) * len(goals)
     logger.info(
         "scene=%s 标定 trial=%s complete=%s 合格配对=%s 热图=%s",

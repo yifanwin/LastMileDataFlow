@@ -7,7 +7,7 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.data.rendering.head_views import (
-    TaskVisibility, aggregate_visibility, ray_visibility, roi_geoms,
+    TaskVisibility, aggregate_visibility, roi_geoms,
 )
 from lastmile_dataflow.scenes.dataset import SceneStationConfig
 
@@ -131,11 +131,3 @@ class VisibilityTests(unittest.TestCase):
                 result = visibility.measure()
                 self.assertEqual(result['value'], 0.)
                 self.assertTrue(all(row['status'] == 'out_of_view' for row in result['cameras'].values()))
-
-    def test_ray_proxy_observes_blocker_without_rendering(self):
-        cfg = SceneStationConfig(width=256, height=256)
-        task = {'operation': 'pick', 'target_body': 'target'}
-        clear = ray_visibility(scene(False), task, cfg)
-        blocked = ray_visibility(scene(True), task, cfg)
-        self.assertGreater(clear['value'], blocked['value'])
-        self.assertEqual(blocked['value'], 0.)

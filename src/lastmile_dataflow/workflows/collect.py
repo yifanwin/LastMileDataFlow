@@ -4,7 +4,7 @@ import logging
 from collections import Counter
 from dataclasses import asdict, replace
 import os
-from itertools import count
+from itertools import count, product
 from pathlib import Path
 import time
 
@@ -15,10 +15,9 @@ from ..utils.io import append_row, create_run, rows, write_json, write_rows
 from ..utils.logging_config import Progress, trial_logging
 from ..runtime.simulation import Simulation
 from ..scenes.dataset import load_scenes
-from ..data.evaluation.selection import (
+from ..data.evaluation.calibration import (
     station_calibration,
     eligible_stations,
-    generate_pairs,
 )
 from ..data.export.lastmile_dataset import successful, training_record, finalize_dataset
 from ..scenes.tasks.discovery import robot_footprint
@@ -65,7 +64,7 @@ def _plan_collection(scenes, trials, config, root, source):
         if any(row["task_id"] != binding["task_id"] for row in current):
             raise ValueError("calibration task mismatch")
         rates = station_calibration(
-            scene["stations"], current, config.trials_per_station, binding, config
+            scene["stations"], current, config.trials_per_station, binding, config.operation_backend
         )
         candidates = [
             {
@@ -74,8 +73,10 @@ def _plan_collection(scenes, trials, config, root, source):
                 "s0_success_rate": start["success_rate"],
                 "s1_success_rate": goal["success_rate"],
             }
-            for start, goal in generate_pairs(
-                *eligible_stations(scene["stations"], rates, config)
+            for start, goal in product(
+                *eligible_stations(
+                    scene["stations"], rates, config.lastmile_low, config.lastmile_high
+                )
             )
         ]
         points = {r["station_id"]: r for r in scene["stations"]}

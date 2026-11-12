@@ -72,7 +72,7 @@ class PathTests(unittest.TestCase):
 class ConfigurationTests(unittest.TestCase):
     def test_panda_three_trial_configs_match_collection_and_rate_groups(self):
         from lastmile_dataflow.runtime.execution_config import load_execution_config
-        from lastmile_dataflow.data.evaluation.selection import eligible_stations
+        from lastmile_dataflow.data.evaluation.calibration import eligible_stations
 
         for name in ('panda_omron_curobo', 'panda_omron_robocasa_curobo'):
             config = load_execution_config(f'configs/execution/{name}.json')
@@ -80,11 +80,12 @@ class ConfigurationTests(unittest.TestCase):
             stations = [{'station_id': str(i), 'geometry': 'valid'} for i in range(4)]
             calibration = {'complete': True, 'stations': [
                 {'station_id': str(i), 'trials': 3, 'successes': i} for i in range(4)]}
-            low, high = eligible_stations(stations, calibration, config)
+            low, high = eligible_stations(stations, calibration, config.lastmile_low, config.lastmile_high)
             self.assertEqual([s['station_id'] for s in low], ['0', '1'])
             self.assertEqual([s['station_id'] for s in high], ['3'])
             calibration['complete'] = False
-            self.assertEqual(eligible_stations(stations, calibration, config), ([], []))
+            self.assertEqual(eligible_stations(stations, calibration, config.lastmile_low,
+                                               config.lastmile_high), ([], []))
 
     def test_reject_unknown_and_invalid_config(self):
         for args in ({"typo": 1}, {"max_steps": 0}, {"width": 321}, {"penetration_ratio": float("nan")}):

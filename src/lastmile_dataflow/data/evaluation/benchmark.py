@@ -3,11 +3,15 @@ from dataclasses import dataclass
 import math
 from ...config import read_config
 from collections import Counter
-from types import SimpleNamespace
 
 import numpy as np
 
-from .selection import station_calibration
+from .calibration import station_calibration
+
+
+_POSITIVE = ('region_radius_m', 'region_yaw_tolerance_rad', 'map_resolution_m',
+             'effective_translation_m', 'effective_yaw_rad', 'wall_timeout_s')
+_NONNEGATIVE = ('navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m')
 
 
 @dataclass(frozen=True)
@@ -32,15 +36,12 @@ class BenchmarkConfig:
     def __post_init__(self):
         if not 0 <= self.low < self.high <= 1:
             raise ValueError('benchmark requires 0 <= low < high <= 1')
-        for key in ('region_radius_m', 'region_yaw_tolerance_rad', 'map_resolution_m',
-                    'effective_translation_m', 'effective_yaw_rad', 'wall_timeout_s'):
-            if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
+        for key in _POSITIVE + _NONNEGATIVE:
+            value = getattr(self, key)
+            if not math.isfinite(value) or value < 0 or value == 0 and key in _POSITIVE:
                 raise ValueError('invalid benchmark parameter: ' + key)
-        if not 0 < self.region_yaw_tolerance_rad <= math.pi or self.navigation_margin_m < 0:
-            raise ValueError('invalid region yaw tolerance or navigation margin')
-        for key in ('navigation_margin_m', 'navigation_clearance_weight', 'navigation_max_penetration_m'):
-            if not math.isfinite(getattr(self, key)) or getattr(self, key) < 0:
-                raise ValueError('invalid ' + key)
+        if self.region_yaw_tolerance_rad > math.pi:
+            raise ValueError('invalid benchmark parameter: region_yaw_tolerance_rad')
         if self.local_candidate_radius_m is not None and self.local_candidate_radius_m <= 0:
             raise ValueError('local candidate radius must be positive or null')
         if self.max_episodes_per_scene < 0 or self.seed < 0 or self.horizon <= 0:
@@ -55,14 +56,13 @@ def reference_calibration(stations, trials, expected, binding, backend):
     for row in trials:
         if any(row.get(key) != value for key, value in binding.items()):
             raise ValueError('calibration trial binding mismatch')
-    value = station_calibration(stations, trials, expected, binding,
-                                SimpleNamespace(operation_backend=backend))
+    value = station_calibration(stations, trials, expected, binding, backend)
     for row in value['stations']:
         row['complete'] = row['trials'] == expected
     return value
 
 
-def select_starts(stations, calibration, binding, *, low=.2, high=.6):
+def select_starts(stations, calibration, binding, *, low, high):
     if calibration is None:
         raise ValueError('benchmark requires measured calibration')
     for key, value in binding.items():
@@ -105,32 +105,39 @@ def failure_family(trials):
     return {'failure_family': family, 'failure_reasons': dict(reasons)}
 
 
-def _counts(episodes, results, *, strict=False):
+def _counts(episodes, results):
     expected = {e['episode_id'] for e in episodes}
     relevant = [r for r in results if r['episode_id'] in expected]
     counts = Counter(r['status'] for r in relevant)
-    if strict:
-        from .selection import mode_trial_evaluable
-        valid_counts = Counter(r['status'] for r in relevant if mode_trial_evaluable(r))
-    else:
-        valid_counts = counts
-    valid = sum(valid_counts[s] for s in ('success', 'failure', 'timeout'))
+    valid = sum(counts[s] for s in ('success', 'failure', 'timeout'))
     unknown = len(episodes) - valid
-    result = {'scheduled': len(episodes), 'reported': len(relevant), 'valid_task_outcomes': valid,
-            'successes': valid_counts['success'], 'failures': valid_counts['failure'], 'timeouts': valid_counts['timeout'],
+    return {'scheduled': len(episodes), 'reported': len(relevant), 'valid_task_outcomes': valid,
+            'successes': counts['success'], 'failures': counts['failure'], 'timeouts': counts['timeout'],
             'unknown_or_infra': unknown, 'not_executed': len(episodes) - len(relevant) + counts['unsupported_policy'],
             'status_counts': dict(counts),
             'coverage': valid / len(episodes) if episodes else 0.,
-            'task_success_rate': valid_counts['success'] / len(episodes) if episodes and not unknown else None,
-            'observed_task_success_rate': valid_counts['success'] / valid if valid else None,
+            'task_success_rate': counts['success'] / len(episodes) if episodes and not unknown else None,
+            'observed_task_success_rate': counts['success'] / valid if valid else None,
             'complete': bool(episodes) and not unknown}
-    if strict:
-        result.update(recording_complete=sum(r.get('recording_complete') is True for r in relevant),
-            execution_termination_counts=dict(Counter((r.get('execution_termination') or {}).get('status', 'unknown')
-                                                     for r in relevant)),
-            execution_phase_counts=dict(Counter((r.get('execution_termination') or {}).get('phase', 'unknown')
-                                               for r in relevant)))
-    return result
+
+
+def _by_group(episodes, results, groups, field):
+    labels = {}
+    for episode in episodes:
+        label = groups.get(episode['episode_id'], {}).get(field)
+        if label is None:
+            label = episode.get('task', {}).get('operation', 'unknown') if field == 'task' else 'unknown'
+        labels.setdefault(label, []).append(episode)
+    return {label: _counts(subset, results) for label, subset in sorted(labels.items())}
+
+
+def _base_motion(selected):
+    metrics = {}
+    for key in ('base_path_length_m', 'final_displacement_m', 'max_displacement_m', 'base_yaw_travel_rad'):
+        values = [r[key] for r in selected if r.get(key) is not None]
+        metrics[key] = {'n': len(values), 'mean': float(np.mean(values)) if values else None,
+                        'min': min(values) if values else None, 'max': max(values) if values else None}
+    return metrics
 
 
 def summarize(episodes, results, groups=None):
@@ -139,20 +146,10 @@ def summarize(episodes, results, groups=None):
     if len(expected) != len(episodes) or len(ids) != len(set(ids)) or set(ids) - expected:
         raise ValueError('duplicate or foreign benchmark episode/result')
     groups = groups or {}
-    mode_run = any('labels' in groups.get(e['episode_id'], {}) for e in episodes)
-    summary = _counts(episodes, results, strict=mode_run)
-    summary['denominator_rule'] = ('full scheduled set; unknown/infra suppress official TSR; timeout requires a known failure verdict'
-                                 if mode_run else 'full scheduled set; infra/unknown suppress official TSR; timeout is task failure')
-    for field in (('label', 'proposal_intent', 'task', 'failure_family') if mode_run else ('case', 'task', 'failure_family')):
-        labels = {}
-        for episode in episodes:
-            label = groups.get(episode['episode_id'], {}).get(field)
-            if label is None:
-                label = episode.get('task', {}).get('operation', 'unknown') if field == 'task' else 'unknown'
-            values = groups.get(episode['episode_id'], {}).get('labels', []) if field == 'label' else [label]
-            for value in sorted(set(values)):
-                labels.setdefault(value, []).append(episode)
-        table = {label: _counts(subset, results, strict=mode_run) for label, subset in sorted(labels.items())}
+    summary = _counts(episodes, results)
+    summary['denominator_rule'] = 'full scheduled set; infra/unknown suppress official TSR; timeout is task failure'
+    for field in ('case', 'task', 'failure_family'):
+        table = _by_group(episodes, results, groups, field)
         summary['by_' + field] = table
         values = [row['task_success_rate'] for row in table.values()]
         summary['macro_by_' + field] = float(np.mean(values)) if values and all(v is not None for v in values) else None
@@ -161,14 +158,7 @@ def summarize(episodes, results, groups=None):
                            'coverage': len(recovery) / len(episodes) if episodes else 0.,
                            'success_rate': sum(recovery) / len(episodes) if episodes and len(recovery) == len(episodes) else None,
                            'observed_success_rate': sum(recovery) / len(recovery) if recovery else None}
-    summary['primary_macro'] = 'macro_by_label' if mode_run else 'macro_by_case'
-    if mode_run:
-        summary['label_denominator_rule'] = 'unique episodes overall; label groups overlap and must not be summed'
-    for subset, selected in [('all', results), ('task_success', [r for r in results if r['status'] == 'success'])]:
-        metrics = {}
-        for key in ('base_path_length_m', 'final_displacement_m', 'max_displacement_m', 'base_yaw_travel_rad'):
-            values = [r[key] for r in selected if r.get(key) is not None]
-            metrics[key] = {'n': len(values), 'mean': float(np.mean(values)) if values else None,
-                            'min': min(values) if values else None, 'max': max(values) if values else None}
-        summary['base_motion_' + subset] = metrics
+    summary['primary_macro'] = 'macro_by_case'
+    summary['base_motion_all'] = _base_motion(results)
+    summary['base_motion_task_success'] = _base_motion([r for r in results if r['status'] == 'success'])
     return summary

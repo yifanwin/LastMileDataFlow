@@ -1,5 +1,6 @@
 """场景往返、标定分母与按需模型数据导出。"""
 
+import itertools
 import unittest
 from dataclasses import asdict
 from pathlib import Path
@@ -7,13 +8,11 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.data.evaluation.selection import (
+from lastmile_dataflow.data.evaluation.calibration import (
+    aggregate,
     eligible_stations,
-    generate_pairs,
     station_calibration,
 )
-from lastmile_dataflow.data.evaluation.statistics import aggregate
-from lastmile_dataflow.data.export.molmobot_dataset import export_molmobot
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.simulation import Simulation
@@ -69,9 +68,9 @@ class DatasetTests(DatasetTestCase):
             for i in range(2)
         ]
         binding = {"scene_id": "one", "task_id": "pick-target"}
-        rates = station_calibration(self.points, trials, 2, binding, config)
+        rates = station_calibration(self.points, trials, 2, binding, "curobo")
         self.assertEqual(
-            len(generate_pairs(*eligible_stations(self.points, rates, config))), 1
+            len(list(itertools.product(*eligible_stations(self.points, rates, config.lastmile_low, config.lastmile_high)))), 1
         )
         incomplete = station_calibration(
             self.points,
@@ -79,32 +78,12 @@ class DatasetTests(DatasetTestCase):
             + [{"station_id": "s1", "trial": 1, "status": "simulation_failure"}],
             2,
             binding,
-            config,
+            "curobo",
         )
         self.assertFalse(incomplete["complete"])
         self.assertEqual(
-            generate_pairs(*eligible_stations(self.points, incomplete, config)), []
+            eligible_stations(self.points, incomplete, config.lastmile_low, config.lastmile_high), ([], [])
         )
-
-    def test_model_export_keeps_source_and_requires_motor_calibration(self):
-        recorder = AttemptRecorder(
-            self.root,
-            {"collection": asdict(self.collection), "task": self.task},
-            attempt_id="r0",
-        )
-        recorder.bind_simulation(self.sim)
-        self.sim.begin()
-        self.sim.step(self.sim.robot.neutral_action())
-        recorder.finish("failure", "fixture")
-        with self.assertRaisesRegex(ValueError, "motor map"):
-            export_molmobot(recorder.path, self.root / "bad")
-        output = export_molmobot(
-            recorder.path, self.root / "state", state_images_only=True
-        )
-        with np.load(output / "data.npz") as data:
-            self.assertNotIn("actions", data.files)
-            self.assertEqual(data["state"].shape, (2, 22))
-        self.assertTrue((recorder.path / "trajectory.npz").is_file())
 
 
 def station(name, xy, geometry="valid"):

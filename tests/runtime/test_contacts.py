@@ -12,7 +12,7 @@ import mujoco
 import numpy as np
 
 from lastmile_dataflow.config import CollectionConfig
-from lastmile_dataflow.data.evaluation.statistics import aggregate
+from lastmile_dataflow.data.evaluation.calibration import aggregate
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig

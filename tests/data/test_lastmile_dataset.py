@@ -16,6 +16,10 @@ from lastmile_dataflow.data.export.lastmile_dataset import (
 from lastmile_dataflow.utils.io import create_run, read_json, rows, write_json, write_rows
 
 
+LAYOUT = {'state_key': 'state22', 'state_layout': 'state22', 'action_layout': 'rby1-20d',
+          'action_size': 20, 'state_size': 22}
+
+
 def export_fixture(reference, output):
     shutil.copytree(reference, output)
     return finalize_dataset(output)
@@ -27,7 +31,7 @@ class MaterializationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.config = {'config': {'operation_backend': 'curobo'},
-                       'collection': {'record_images': True, 'record_depth': True},
+                       'collection': {'record_images': True},
                        'profiles': {'one': {'robot': {'cameras': ['head_camera']}}}}
         self.calibration = create_run(self.root / 'calibration', self.config)
         self.reference = create_run(self.root / 'reference', self.config)
@@ -50,12 +54,12 @@ class MaterializationTests(unittest.TestCase):
         np.savez_compressed(path / 'trajectory.npz', actions=actions, state22=np.zeros((n + 1, 22)),
                             time_s=np.arange(n + 1) * .1,
                             phases=np.array(['navigation', 'arrival', 'operation'] if continuous else ['operation'] * n))
-        write_json(path / 'recording.json', {'complete': True, 'steps': n, 'task': {'instruction': 'fixture only'}})
+        write_json(path / 'recording.json', {'complete': True, 'steps': n, 'task': {'instruction': 'fixture only'},
+                                             'layout': LAYOUT})
         directory = path / 'images' / 'head_camera'
         directory.mkdir(parents=True)
         for step in range(n + 1):
             imageio.imwrite(directory / f'{step:06d}.png', np.full((8, 8, 3), step, dtype=np.uint8))
-            np.save(directory / f'{step:06d}-depth.npy', np.ones((8, 8), dtype=np.float32))
         record = {'scene_id': 'one', 'task_id': 'pick', 'station_id': 'high', 'trial': 0, 'seed': 42,
                   'status': 'success', 'task_outcome': {'status': 'success'}, 'recording_complete': True,
                   'executed_steps': n, 'rollout_id': 'r0'}
@@ -63,25 +67,6 @@ class MaterializationTests(unittest.TestCase):
             record.update(pair_id='p0', s0='low', s1='high', navigation={'status': 'success', 'steps': 1},
                           navigation_steps=1, euclidean_distance_m=1.42, astar_path_length_m=2.31)
         return record
-
-    def test_materialization_uses_derived_observations_for_numeric_source(self):
-        observation = self.reference / 'observations/r0'
-        observation.mkdir(parents=True)
-        shutil.move(self.calibration/'rollouts/r0/images', observation/'images')
-        write_json(observation/'observations.json', {'complete': True, 'frames': 4,
-                   'cameras': ['head_camera'], 'record_depth': True})
-        numeric = {**self.config, 'collection': {'record_images': False, 'record_depth': False}}
-        write_json(self.calibration/'config.json', numeric)
-        direct = rows(self.reference/'train_index.jsonl')[0]
-        direct.update(observations_ref=str(observation), observation_source='measured_state_replay', observation_complete=True)
-        write_rows(self.reference/'train_index.jsonl', [direct])
-        output = export_fixture(self.reference, self.root/'numeric-materialized')
-        shutil.rmtree(self.calibration)
-        shutil.rmtree(self.reference)
-        batch = load_training_batch(output, [0], steps=2)
-        self.assertEqual(batch['images']['head_camera'].shape, (1, 2, 8, 8, 3))
-        self.assertEqual(batch['depth']['head_camera'].shape, (1, 2, 8, 8))
-        self.assertEqual(rows(output/'train_index.jsonl')[0]['observation_source'], 'measured_state_replay')
 
     def test_copy_deduplicate_and_load_batch_after_relocation_without_sources(self):
         output = export_fixture(self.reference, self.root / 'materialized')
@@ -122,7 +107,6 @@ class MaterializationTests(unittest.TestCase):
         self.assertEqual(batch['state22'].shape, (2, 2, 22))
         self.assertEqual(batch['actions'].shape, (2, 2, 20))
         self.assertEqual(batch['images']['head_camera'].shape, (2, 2, 8, 8, 3))
-        self.assertEqual(batch['depth']['head_camera'].shape, (2, 2, 8, 8))
         np.testing.assert_array_equal(batch['actions'][:, 0, 0], [1, 2])
         self.assertEqual(batch['source_types'], ['s1_direct_operation', 's0_to_s1_continuous'])
         self.assertTrue((self.calibration / 'rollouts/r0/trajectory.npz').exists())
@@ -135,7 +119,7 @@ class MaterializationTests(unittest.TestCase):
         output = self.root / 'incomplete'
         with self.assertRaises(FileNotFoundError):
             export_fixture(self.reference, output)
-        self.assertEqual(read_json(output / 'summary.json')['status'], 'incomplete')
-        with self.assertRaisesRegex(ValueError, 'incomplete'):
+        self.assertFalse((output / 'summary.json').exists())
+        with self.assertRaises(FileNotFoundError):
             load_training_batch(output, [0], steps=1)
 

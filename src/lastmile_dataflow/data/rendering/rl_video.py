@@ -3,7 +3,7 @@ from pathlib import Path
 import time
 from types import SimpleNamespace
 
-from .third_person import ThirdPersonCamera, ThirdPersonConfig
+from .cameras import ThirdPersonCamera, ThirdPersonConfig
 
 from ..recorder import video_writer
 import mujoco

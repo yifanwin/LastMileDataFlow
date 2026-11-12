@@ -4,6 +4,7 @@ import numpy as np
 
 from ...utils.io import write_json
 from ...planning.navigation.astar import distance_field
+from .plot import grid_extent, plt, save_figure
 
 
 def gaussian_map(grid, rows, sigma, *, max_support_distance_m=.35):
@@ -25,17 +26,12 @@ def gaussian_map(grid, rows, sigma, *, max_support_distance_m=.35):
 
 
 def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='', max_support_distance_m=.35):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
     path = Path(path); path.mkdir(parents=True,exist_ok=True)
     values,evidence = gaussian_map(grid,rows,sigma,max_support_distance_m=max_support_distance_m)
     np.savez_compressed(path/'success_heatmap.npz',origin=grid.origin,resolution_m=grid.resolution,
                         free=grid.free,success_rate=values,weighted_trials=evidence,
                         sigma_m=sigma,max_support_distance_m=min(3*sigma,max_support_distance_m))
-    height,width = grid.free.shape
-    extent = [grid.origin[0]-.5*grid.resolution,grid.origin[0]+(width-.5)*grid.resolution,
-              grid.origin[1]-.5*grid.resolution,grid.origin[1]+(height-.5)*grid.resolution]
+    extent = grid_extent(grid)
     fig,ax = plt.subplots(figsize=(8,7),layout='constrained')
     ax.imshow(np.where(grid.free,np.nan,0.),origin='lower',extent=extent,cmap='Greys_r',vmin=0,vmax=1)
     im = ax.imshow(values,origin='lower',extent=extent,cmap='viridis',vmin=0,vmax=1)
@@ -70,14 +66,10 @@ def export_heatmap(path, grid, rows, anchor, sigma, *, selection=None, title='',
         if 'station_id' not in row: continue
         ax.annotate(row['station_id'], row['xy'], xytext=(3,4), textcoords='offset points',
                     fontsize=6, zorder=8, bbox={'facecolor':'white','alpha':.7,'edgecolor':'none','pad':.4})
-    fig.savefig(path/'success_heatmap_stations.svg')
-    plt.close(fig)
+    save_figure(fig, path/'success_heatmap_stations.svg')
+    # Field semantics are documented in docs/data-format.md.
     write_json(path/'heatmap.json',{'sigma_m':sigma,'configured_support_distance_m':max_support_distance_m,
                'max_support_distance_m':min(3*sigma,max_support_distance_m),
-               'support_obstacles':list(grid.support_obstacles),'kernel':'Gaussian of obstacle-aware grid shortest-path distance',
-               'overlap':'sum all sample weights, then normalize; no overwrite',
-               'obstacle_mask':'mask blocked cells after interpolation; not navigation reachability',
-               'rate':'weighted successes / weighted terminal trials','observation_unit':'station trial',
-               'unknown_is_not_zero':True,'physical_navigation_validation':'separate from conservative raster',
+               'support_obstacles':list(grid.support_obstacles),
                'map':'success_heatmap.npz','svg':'success_heatmap_stations.svg'})
     return path/'success_heatmap_stations.svg'

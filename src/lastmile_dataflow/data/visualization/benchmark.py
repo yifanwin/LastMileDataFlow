@@ -3,24 +3,17 @@ from pathlib import Path
 import textwrap
 
 import imageio.v2 as imageio
+from matplotlib.colors import ListedColormap
+from matplotlib.patches import Patch, Rectangle
 import numpy as np
 
 from ..evaluation.recovery import RecoveryRegion
 from ...utils.io import read_json, rows
-
-
-def _plotting():
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    return plt
+from .plot import grid_extent, plt, save_figure
 
 
 def _save(fig, target):
-    target.parent.mkdir(exist_ok=True)
-    fig.savefig(target, dpi=170, facecolor='white', bbox_inches='tight')
-    _plotting().close(fig)
-    return target
+    return save_figure(fig, target, dpi=170, facecolor='white', bbox_inches='tight')
 
 
 def _number(value, unit=''):
@@ -28,14 +21,9 @@ def _number(value, unit=''):
 
 
 def _map(ax, episode, evidence, region, trace=None):
-    from matplotlib.colors import ListedColormap
-    from matplotlib.patches import Patch, Rectangle
-
     grid = region.grid
-    h, w = grid.free.shape
     r = grid.resolution
-    extent = [grid.origin[0] - r / 2, grid.origin[0] + (w - .5) * r,
-              grid.origin[1] - r / 2, grid.origin[1] + (h - .5) * r]
+    extent = grid_extent(grid)
     ax.imshow(grid.free, origin='lower', extent=extent,
               cmap=ListedColormap(['#d9dfe3', '#ffffff']), vmin=0, vmax=1)
     # XY projection of valid goal samples; heading tolerance still applies.
@@ -94,8 +82,7 @@ def _facts(episode, evidence):
     d = evidence['difficulty']
     return [f"Episode: {episode['episode_id']} / {episode['station']['station_id']}",
             f"Task: {episode['task']['operation']} / {episode['task'].get('category', '')}",
-            (f"Modes: {', '.join(evidence['labels'])}" if 'labels' in evidence else f"Case: {evidence['case']}")
-            + f" / Family: {evidence['failure_family']}",
+            f"Case: {evidence['case']} / Family: {evidence['failure_family']}",
             f"S0 reference success: {evidence['start_successes']}/{evidence['start_trials']}",
             f"Reference recovery route: {_number(d['path_length_m'], ' m')}",
             f"Recovery ratio: {_number(d['recovery_ratio'])}",
@@ -108,33 +95,37 @@ def _text(ax, lines, size=11):
             linespacing=1.65, transform=ax.transAxes)
 
 
-def _summary(root, episodes, summary, results=None):
-    plt = _plotting()
+def _summary_page(root, episodes, kind, lines):
     fig, ax = plt.subplots(figsize=(12, max(4, 2 + len(episodes) * .4)), layout='constrained')
-    fig.suptitle(('Benchmark' if results is None else 'Evaluation') + ' summary: ' + root.name, fontsize=16)
-    if results is None:
-        lines = [f"Episodes: {len(episodes)}", f"Build status: {summary['status']}",
-                 f"New calibration rollouts: {summary.get('new_calibration_rollouts', 0)}", '']
-        for scene in summary.get('scenes', []):
-            lines += [scene['scene_id'], f"  low / high stations: {scene['low_stations']} / {scene['high_stations']}",
-                      f"  exclusions: {scene['exclusions']}"]
-    else:
-        lines = [f"Task success rate: {_number(summary.get('task_success_rate'))}",
-                 f"Coverage: {_number(summary.get('coverage'))}", '']
-        lookup = {r['episode_id']: r for r in results}
-        for e in episodes:
-            result = lookup.get(e['episode_id'], {})
-            lines += [f"{e['episode_id']}: {result.get('status', 'not_executed')}",
-                      '  ' + result.get('reason', 'no result')]
+    fig.suptitle(f'{kind} summary: {root.name}', fontsize=16)
     _text(ax, lines)
     return _save(fig, root / 'visualization' / 'summary.png')
+
+
+def _benchmark_summary(root, episodes, summary):
+    lines = [f"Episodes: {len(episodes)}", f"Build status: {summary['status']}",
+             f"New calibration rollouts: {summary.get('new_calibration_rollouts', 0)}", '']
+    for scene in summary.get('scenes', []):
+        lines += [scene['scene_id'], f"  low / high stations: {scene['low_stations']} / {scene['high_stations']}",
+                  f"  exclusions: {scene['exclusions']}"]
+    return _summary_page(root, episodes, 'Benchmark', lines)
+
+
+def _evaluation_summary(root, episodes, summary, results):
+    lines = [f"Task success rate: {_number(summary.get('task_success_rate'))}",
+             f"Coverage: {_number(summary.get('coverage'))}", '']
+    lookup = {r['episode_id']: r for r in results}
+    for e in episodes:
+        result = lookup.get(e['episode_id'], {})
+        lines += [f"{e['episode_id']}: {result.get('status', 'not_executed')}",
+                  '  ' + result.get('reason', 'no result')]
+    return _summary_page(root, episodes, 'Evaluation', lines)
 
 
 def benchmark_view(root):
     root = Path(root)
     oracle = read_json(root / 'oracle.json')
     episodes = rows(root / 'episodes.jsonl')
-    plt = _plotting()
     for episode in episodes:
         evidence = oracle['episodes'][episode['episode_id']]
         region = RecoveryRegion.from_dict(oracle['regions'][evidence['region_id']])
@@ -149,7 +140,7 @@ def benchmark_view(root):
             'Green: XY projection across calibrated headings.',
             'Recovery requires both XY and valid heading.'], size=10)
         _save(fig, root / 'visualization' / f"{episode['episode_id']}.png")
-    return _summary(root, episodes, read_json(root / 'summary.json'))
+    return _benchmark_summary(root, episodes, read_json(root / 'summary.json'))
 
 
 def _video_still(ax, rollout, video, index, time_s, name):
@@ -173,7 +164,6 @@ def evaluation_view(root):
     episodes = rows(benchmark / 'episodes.jsonl')
     results = rows(root / 'results.jsonl')
     lookup = {r['episode_id']: r for r in results}
-    plt = _plotting()
     for episode in episodes:
         eid = episode['episode_id']
         evidence = oracle['episodes'][eid]
@@ -208,15 +198,5 @@ def evaluation_view(root):
         fig.supxlabel('Static contact sheet. Full observation / third-person MP4 videos remain in rollouts/<episode>/videos/.\n'
                       'Benchmark oracle layers are read only. Recovery region is an XY approximation with heading constraints.', fontsize=9)
         _save(fig, root / 'visualization' / f'{eid}.png')
-    return _summary(root, episodes, read_json(root / 'summary.json'), results)
+    return _evaluation_summary(root, episodes, read_json(root / 'summary.json'), results)
 
-
-if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--benchmark', type=Path)
-    source.add_argument('--evaluation', type=Path)
-    args = parser.parse_args()
-    print(benchmark_view(args.benchmark) if args.benchmark else evaluation_view(args.evaluation))

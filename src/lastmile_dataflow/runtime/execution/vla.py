@@ -9,7 +9,7 @@ import numpy as np
 
 from ...data.recorder import AttemptRecorder
 from ...data.rendering.analysis_video import AnalysisVideo
-from ...data.rendering.edit_views import ViewConfig
+from ...data.rendering.cameras import ViewConfig
 from ...data.rendering.head_views import head_frame
 from ...policies.pi05.actions import execution_action as pi05_execution_action
 from ...policies.pi05.observation import observation as pi05_observation

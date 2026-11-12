@@ -11,7 +11,7 @@ import numpy as np
 
 from .action import InvalidAction, vector
 from .interface import RobotCommand
-from .panda_omron import PandaBody
+from .panda_omron import SCALE, PandaBody
 
 
 # RoboCasa CAM_CONFIGS['DEFAULT']; wrist optics come from the Panda factory XML.
@@ -280,3 +280,25 @@ class PandaRoboCasaAdapter(PandaBody):
     @staticmethod
     def record_action(command):
         return np.asarray(command,float)
+
+
+def robocasa_camera_calibration(sim):
+    """Compare compiled bindings/local optics; record actual world extrinsics."""
+    records = {}
+    for name, (parent, position, quaternion, fovy) in ROBOCASA_CAMERAS.items():
+        camera = sim.model.camera(sim.robot.camera_names[name]).id
+        actual_parent = sim.model.body(int(sim.model.cam_bodyid[camera])).name
+        expected_quat = np.asarray(quaternion) / np.linalg.norm(quaternion)
+        # Geometry scaling moves the factory camera mounts with the robot.
+        valid = (actual_parent == sim.robot.config.namespace + parent
+                 and np.allclose(sim.model.cam_pos[camera], np.asarray(position) * SCALE, atol=1e-6, rtol=0)
+                 and abs(np.dot(sim.model.cam_quat[camera], expected_quat)) > 1 - 1e-6
+                 and abs(sim.model.cam_fovy[camera] - fovy) < 1e-6)
+        records[name] = {'valid': bool(valid), 'parent': actual_parent,
+                         'position_local': sim.model.cam_pos[camera].tolist(),
+                         'quaternion_local_wxyz': sim.model.cam_quat[camera].tolist(),
+                         'fovy_deg': float(sim.model.cam_fovy[camera]),
+                         'position_world': sim.data.cam_xpos[camera].tolist(),
+                         'rotation_world': sim.data.cam_xmat[camera].reshape(3, 3).tolist()}
+    return {'valid': all(c['valid'] for c in records.values()), 'cameras': records,
+            'reference': 'RoboCasa CAM_CONFIGS DEFAULT; Panda factory wrist fovy=75; no randomization'}

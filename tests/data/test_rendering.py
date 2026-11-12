@@ -6,8 +6,7 @@ import unittest
 import numpy as np
 
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
-from lastmile_dataflow.data.rendering.edit_views import CameraRig, ViewConfig
-from lastmile_dataflow.data.rendering.third_person import ThirdPersonCamera
+from lastmile_dataflow.data.rendering.cameras import CameraRig, ThirdPersonCamera, ViewConfig
 from tests.helpers import make_sim
 
 

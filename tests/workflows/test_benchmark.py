@@ -33,27 +33,27 @@ class BenchmarkTests(unittest.TestCase):
         }
 
     def test_low_high_selection_uses_all_reference_stations(self):
-        pairs = select_starts(self.stations, self.calibration, self.binding)
+        pairs = select_starts(self.stations, self.calibration, self.binding, low=.2, high=.6)
         self.assertEqual([s["station_id"] for s, _ in pairs], ["low"])
         self.assertEqual(pairs[0][1]["high_station_ids"], ["far", "high"])
 
     def test_wrong_scene_or_profile_rejected(self):
         for k in self.binding:
             with self.subTest(key=k), self.assertRaisesRegex(ValueError, "binding mismatch"):
-                select_starts(self.stations, {**self.calibration, k: "foreign"}, self.binding)
+                select_starts(self.stations, {**self.calibration, k: "foreign"}, self.binding, low=.2, high=.6)
 
     def test_invalid_or_duplicate_counts_rejected(self):
         for rows in ([{"station_id": "low", "trials": 1, "successes": 2}], self.calibration["stations"] * 2):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
-                select_starts(self.stations, {**self.calibration, "stations": rows}, self.binding)
+                select_starts(self.stations, {**self.calibration, "stations": rows}, self.binding, low=.2, high=.6)
 
     def test_far_high_station_is_kept_for_navigation_screening(self):
         self.calibration["stations"] = [self.calibration["stations"][0], self.calibration["stations"][2]]
-        self.assertEqual(select_starts(self.stations, self.calibration, self.binding)[0][1]["high_station_ids"], ["far"])
+        self.assertEqual(select_starts(self.stations, self.calibration, self.binding, low=.2, high=.6)[0][1]["high_station_ids"], ["far"])
 
     def test_smoke_is_explicitly_uncalibrated(self):
         with self.assertRaisesRegex(ValueError, "measured calibration"):
-            select_starts(self.stations, None, self.binding)
+            select_starts(self.stations, None, self.binding, low=.2, high=.6)
 
     def test_summary_full_denominator_timeout_and_unknown(self):
         episodes = [{"episode_id": str(i)} for i in range(3)]

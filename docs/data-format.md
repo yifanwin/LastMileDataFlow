@@ -13,7 +13,7 @@
 
 scene 是相对场景库根目录的快照目录；内有 model.mjb、model.xml、initial.npz 和 config.json。MJB 为实际载入来源，要求匹配生成时的 MuJoCo 版本。XML 可能引用外部资产；场景快照不承诺独立搬迁。
 
-每个任务生成原场景和一个编辑场景（edits.enabled=false 时只有原场景）。edits.placements 记录资产ID、姿态、support_geom/support_instance、measured_size_m 和 world_bounds；kind=surface/ground。target_moves 为空，当前编辑不移动目标。
+每个任务生成原场景和一个编辑场景（edits.enabled=false 时只有原场景）。edits.placements 记录资产ID、姿态、support_geom/support_instance、measured_size_m 和 world_bounds；kind=surface/ground。编辑不移动目标。编辑场景记录另有 before_scene，指向同任务原场景快照（原场景未接受时为 null），预览按它配对。
 
 站位保留 station_id、xy_id、xy、base、initial、geometry、碰撞/地面与可见性事实。默认采样半径1m、间距0.25m，最多20个合法初始姿态；可见性是否作为筛选由配置决定。操作工作区 radius_m 与采样圆分开；导航使用完整房间地面。
 
@@ -23,7 +23,9 @@ scene 是相对场景库根目录的快照目录；内有 model.mjb、model.xml�
 
 trials.jsonl 每行一个真实 trial，绑定 scene_id、task_id、station_id、trial、seed、rollout_id。planning_ref 是相对本 run 的规划记录路径。失败、超时与基础设施未知必须保留，不把缺测当成失败或成功。
 
-完整站位需达到 trials_per_station 的有效次数。eligible_stations 按含等号的 lastmile_low/high 划分 S0、S1，配对为所有合格起终点的全组合，不再提供模式分类、标签配对或诊断IK补测。
+完整站位需达到 trials_per_station 的有效次数；有效状态为 success、failure、planning_no_solution、timeout（data/evaluation/calibration.py 的 EVALUABLE）。eligible_stations 按含等号的 lastmile_low/high 划分 S0、S1，配对为所有合格起终点的全组合，不再提供模式分类、标签配对或诊断IK补测。
+
+标定热图写在 figures/<scene_id>/：success_heatmap.npz（origin、resolution_m、free、success_rate、weighted_trials、sigma_m、max_support_distance_m）、success_heatmap_stations.svg 和 heatmap.json（sigma_m、configured_support_distance_m、max_support_distance_m、support_obstacles 及两个文件名）。热图是对每个站位实测 trial 按障碍感知的栅格最短路距离做高斯加权：先累加全部样本的权重再归一化，比率为加权成功数除以加权终止 trial 数；障碍格在插值后遮掉，不代表导航可达；未观测处为空而不是 0。热图只用于展示，配对只看原始标定。
 
 pair_index.jsonl 保存计划全集，包括未执行、无路径、执行失败与成功；成功不代表目录里每个 attempt 都是训练示教。导航终止和操作结果单独判断。
 
@@ -43,9 +45,9 @@ recording.json 的 layout 给出 state_key、state_size/action_size 或明确字
 
 导出轨迹包含 trajectory.npz、recording.json、metadata.json 和必要 RGB。metadata 保存布局、相机及有效配置；配置中的历史外部资产引用仅供解释，训练读取不加载资产。
 
-load_training_batch(dataset, indices, start=0, steps=16) 按真实窗口读取数组与图像，不补帧、不转换动作。步数、动作维度和边界帧数量必须一致。读取器仍能读取既有数据中的深度附件，新的 recorder 不再生成深度。
+load_training_batch(dataset, indices, start=0, steps=16) 按真实窗口读取数组与图像，不补帧、不转换动作。步数、动作维度和边界帧数量必须一致。不读取深度。
 
-summary.status=completed/incomplete 描述处理是否完成，不能替代 task_outcome。训练副本可搬迁读取，场景MJB仍有版本和外部资产约束。
+summary.json 只在导出全部完成后写出，status=completed；中途出错不写 summary.json，读取方据此拒绝读取。它不能替代 task_outcome。训练副本可搬迁读取，场景MJB仍有版本和外部资产约束。
 
 ## Benchmark
 
@@ -55,4 +57,4 @@ episodes.jsonl 保存任务与困难S0；oracle.json 保存恢复区域、实测
 
 execution_termination 表示完成/超时/异常等执行终止，task_outcome 表示物理任务成功/失败/未知。抓取 strict-pick-v3 的双指力、抬升、无支撑保持和滑移阈值仍固定；逐物理步事实继续用于 monitor，只删除冗余日志输出。
 
-离线回放与补预览保留为 Python 函数：data.rendering.replay.render_run、data.visualization.scene_preview.export_scene_previews，不额外增加公开脚本。回放使用实际状态边界，不新执行动作；本轮不扩展新的回放入口。
+离线回放入口为 scripts/replay.py（参数：rollout 目录、输出目录、相机、fps），按记录的状态边界重新渲染，不新执行动作。补预览保留为 Python 函数 data.visualization.scene_preview.export_scene_previews。

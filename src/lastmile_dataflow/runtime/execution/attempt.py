@@ -6,7 +6,7 @@ way and return the same result fields; only planning versus policy differs.
 from dataclasses import asdict
 import traceback
 
-from ...data.rendering.third_person import ThirdPersonCamera
+from ...data.rendering.cameras import ThirdPersonCamera
 from ...scenes.stations.sampling import place_frozen_station
 from ..outcomes.contacts import SIMULATION_FAILURES
 from .context import clone_sim

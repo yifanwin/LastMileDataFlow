@@ -8,9 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lastmile_dataflow.data.evaluation.selection import (
+from lastmile_dataflow.data.evaluation.calibration import (
     eligible_stations,
-    generate_pairs,
     station_calibration,
 )
 from lastmile_dataflow.utils.io import read_json, rows, write_json
@@ -297,7 +296,7 @@ class CollectionTests(DatasetTestCase):
             {"station_id": "s1", "trial": 0, "status": "success"},
         ]
         binding = {"scene_id": "one", "task_id": "pick-target"}
-        rates = station_calibration(self.points, trials, 1, binding, config)
+        rates = station_calibration(self.points, trials, 1, binding, config.operation_backend)
         records = [
             {**trial, "scene_id": "one", "task_id": "pick-target"} for trial in trials
         ]
