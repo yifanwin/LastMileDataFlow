@@ -54,7 +54,7 @@ RBY 两轮的站位、头部姿态和 FOV 配置等有差异，**不能把成功
 
 原 P6 的“端到端下降 2%–4%”也不成立：若用批次构建 3,886 s、降至 1,000–1,500 s，再配标定 1–2.3 h，算术降幅约 **20%–39%**；这仍是跨样本估算，不是验证过的收益。
 
-源码依据：[执行与计时](../../../../../src/lastmile_dataflow/runtime/execution/context.py)、[实际步进](../../../../../src/lastmile_dataflow/runtime/simulation.py)、[记录器](../../../../../src/lastmile_dataflow/data/recorder.py)、[任务证据约束](../../../../../src/lastmile_dataflow/runtime/outcomes/pick.py)、[规划器](../../../../../src/lastmile_dataflow/planning/curobo_v2.py)、[模型绑定](../../../../../src/lastmile_dataflow/planning/rby1m_mobile_torso.py)。
+源码依据：[执行与计时](../../../../../src/lastmile_dataflow/operation/control/context.py)、[实际步进](../../../../../src/lastmile_dataflow/sim/simulation.py)、[记录器](../../../../../src/lastmile_dataflow/operation/recording/recorder.py)、任务证据约束（`src/lastmile_dataflow/runtime/outcomes/pick.py`）、[规划器](../../../../../src/lastmile_dataflow/planning/curobo/planner.py)、[模型绑定](../../../../../src/lastmile_dataflow/robots/rby1/planning.py)。
 
 ## 3. 30 分钟需要同时考虑延迟和资源
 

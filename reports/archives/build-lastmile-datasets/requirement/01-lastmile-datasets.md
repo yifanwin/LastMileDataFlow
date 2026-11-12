@@ -144,7 +144,7 @@ Pair Generation
 
 ## 8. 实现前核对与验证边界
 
-实现前核对了 [selection.py](../../../../src/lastmile_dataflow/data/evaluation/selection.py)、[collection.py](../../../../src/lastmile_dataflow/workflows/collection.py)、[标定与采集测试](../../../../tests/workflows/test_collection.py) 和 [配置说明](../../../../configs/lastmile_datasets/README.md)：当时选点受 `start_count` 与附近距离限制，连续采集截断 S1 候选，并写入 `episodes.jsonl`。这些是本次替换的行为，不是新实现的能力说明。
+实现前核对了 selection.py（`src/lastmile_dataflow/data/evaluation/selection.py`）、collection.py（`src/lastmile_dataflow/workflows/collection.py`）、[标定与采集测试](../../../../tests/lastmile_dataset/test_collect.py) 和 配置说明（`configs/lastmile_datasets/README.md`）：当时选点受 `start_count` 与附近距离限制，连续采集截断 S1 候选，并写入 `episodes.jsonl`。这些是本次替换的行为，不是新实现的能力说明。
 
 实现前的非归档跟踪文件未找到 `collect_views()`、`all_attempts_index`、`train_index` 或 `pair_index`。本次新增所需配对与训练索引，不恢复旧模块或额外的全 attempt 事实库。
 

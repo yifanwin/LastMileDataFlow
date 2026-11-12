@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-25
 - 替代：无
-- 关联：[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、[运行目录](../../../../curobo-time-optimization/outputs/panda-time-val100-calibration-20261024-r01/)、[执行配置](../../../configs/execution/panda_omron_all_cases_curobo.json)、[Case3 假失败核查](2026-10-25-case3-false-collision-check.md)
+- 关联：[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、运行目录（`../../../../curobo-time-optimization/outputs/panda-time-val100-calibration-20261024-r01/`）、执行配置（`configs/execution/panda_omron_all_cases_curobo.json`）、[Case3 假失败核查](2026-10-25-case3-false-collision-check.md)
 
 数据来源：`trials.jsonl`（8463 条 trial）、`planning/*-batch/batch_grasp_result.json` 与 `solver_trace.json`（2821 个 station 批次）、`scenes.jsonl`（Case / operation / category 映射）。每个 station 批次含 3 条 trial（3 个 seed），本文全部按单条 trial 统计，不按批次。
 

@@ -22,9 +22,9 @@
 
 | 验证 | 真实结果 | 证据 |
 |---|---|---|
-| factory 整机 | 完整组合、重载、连续 stepping 5 s，通过；物理 qpos/执行器数均为 13，不代表训练动作维度 | [factory-001](../../../../outputs/diagnostics/panda-omron/factory-001/result.json) |
-| 控制与相机 | 平移、偏航、臂、夹爪开闭/中间开度均通过；逐物理步 lift 最大误差 1.1635 mm，低于 2 mm | [control-003](../../../../outputs/diagnostics/panda-omron/control-003/result.json) |
-| pivot | 原点及非零平移，yaw=0/90/180°；位置数值残差低于 1e-12 m，旋转最大约 9.9e-8 rad | [align-002](../../../../outputs/diagnostics/panda-omron/align-002/result.json) |
+| factory 整机 | 完整组合、重载、连续 stepping 5 s，通过；物理 qpos/执行器数均为 13，不代表训练动作维度 | factory-001（`outputs/diagnostics/panda-omron/factory-001/result.json`） |
+| 控制与相机 | 平移、偏航、臂、夹爪开闭/中间开度均通过；逐物理步 lift 最大误差 1.1635 mm，低于 2 mm | control-003（`outputs/diagnostics/panda-omron/control-003/result.json`） |
+| pivot | 原点及非零平移，yaw=0/90/180°；位置数值残差低于 1e-12 m，旋转最大约 9.9e-8 rad | align-002（`outputs/diagnostics/panda-omron/align-002/result.json`） |
 | 随机 TCP/FK | seed=42，20 姿态；位置最大 0.000247 mm，旋转最大 0.001021 rad，全部达到用户确认的目标 | 同上 |
 | 手指与碰撞 | 开/闭爪分支坐标误差低于 0.02 mm；MuJoCo 与 V2 的分离/底盘重叠查询一致，开/闭爪碰撞球叠加图已实际查看 | 同上 |
 
@@ -45,15 +45,15 @@ FK 目标为位置 ≤2 mm、旋转 ≤0.005 rad，最大允许值为 ≤5 mm、
 
 pick-003 实测：目标最大抬升 **99.65 mm**，尾部持续满足严格抓取条件 **3.504 s**；底盘最大平移漂移 **0.0651 mm**、偏航 **0.0000903 rad**，lift 漂移 **0.0471 mm**。MuJoCo 中目标没有 weld；附着仅用于 V2 携物规划。执行开始后没有恢复快照、重置或改写 qpos。
 
-最终复验证据：[pick-004 主结果](../../../../outputs/diagnostics/panda-omron/pick-004/result.json)、[最终复验物理事实](../../../../outputs/diagnostics/panda-omron/pick-004/physics.jsonl)。
+最终复验证据：pick-004 主结果（`outputs/diagnostics/panda-omron/pick-004/result.json`）、最终复验物理事实（`outputs/diagnostics/panda-omron/pick-004/physics.jsonl`）。
 
-首个成功的证据：[主结果](../../../../outputs/diagnostics/panda-omron/pick-003/result.json)、[物理事实](../../../../outputs/diagnostics/panda-omron/pick-003/physics.jsonl)、[整机视频](../../../../outputs/diagnostics/panda-omron/pick-003/third_person_camera.mp4)、[腕相机视频](../../../../outputs/diagnostics/panda-omron/pick-003/robot0_eye_in_hand.mp4)。已查看视频末帧；物理判定读取完整逐步事实，画面不替代数值判定。
+首个成功的证据：主结果（`outputs/diagnostics/panda-omron/pick-003/result.json`）、物理事实（`outputs/diagnostics/panda-omron/pick-003/physics.jsonl`）、整机视频（`outputs/diagnostics/panda-omron/pick-003/third_person_camera.mp4`）、腕相机视频（`outputs/diagnostics/panda-omron/pick-003/robot0_eye_in_hand.mp4`）。已查看视频末帧；物理判定读取完整逐步事实，画面不替代数值判定。
 
-![成功 pick 的腕相机末帧](../../../../outputs/diagnostics/panda-omron/pick-003/robot0_eye_in_hand-success.png)
+成功 pick 的腕相机末帧（`outputs/diagnostics/panda-omron/pick-003/robot0_eye_in_hand-success.png`）
 
 ## 软件验证与边界
 
-离线回归 **222 项，跳过 1 项**，其余通过；最终 FK 门槛与 native hold 检查更新后，相关 21 项再次通过，真实 pick-004 也通过。跳过的是显式启用的 OpenGL 构建渲染测试。真实相机渲染已通过上述 GPU smoke 独立执行。[回归日志](../../../../outputs/diagnostics/panda-omron/regression-final.log)。
+离线回归 **222 项，跳过 1 项**，其余通过；最终 FK 门槛与 native hold 检查更新后，相关 21 项再次通过，真实 pick-004 也通过。跳过的是显式启用的 OpenGL 构建渲染测试。真实相机渲染已通过上述 GPU smoke 独立执行。回归日志（`outputs/diagnostics/panda-omron/regression-final.log`）。
 
 本结果证明该固定 Cup_30 设置下的 PandaOmron 控制、规划和抓取闭环可用；不证明跨场景成功率。接近偏置与径向夹持参数是该案例的有效配置，不作为所有目标的通用修正。尚未接入 station sampling、S0/S1、A*、连续采集、生产 recorder/dataset、MolmoBot、open 或 benchmark，也未验证 Panda 快照生产链。
 

@@ -43,15 +43,15 @@
 
 | 站位 | seed | 结果 / 停止阶段 | 实际控制步数 | 视频 |
 |---|---:|---|---:|---|
-| S0022 | 66 | 跟踪超时 / pregrasp | 157 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000000/grid.mp4) |
-| S0022 | 67 | 跟踪超时 / pregrasp | 157 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000001/grid.mp4) |
-| S0022 | 68 | 跟踪超时 / pregrasp | 157 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000002/grid.mp4) |
-| S0030 | 81 | 跟踪超时 / approach | 258 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0030/r000000/grid.mp4) |
+| S0022 | 66 | 跟踪超时 / pregrasp | 157 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000000/grid.mp4`） |
+| S0022 | 67 | 跟踪超时 / pregrasp | 157 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000001/grid.mp4`） |
+| S0022 | 68 | 跟踪超时 / pregrasp | 157 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0022/r000002/grid.mp4`） |
+| S0030 | 81 | 跟踪超时 / approach | 258 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0030/r000000/grid.mp4`） |
 | S0030 | 82 | grasp 规划无解，未执行 | 0 | 无动作轨迹 |
-| S0030 | 83 | 跟踪超时 / approach | 349 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0030/r000002/grid.mp4) |
-| S0038 | 87 | 跟踪超时 / pregrasp | 145 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000000/grid.mp4) |
-| S0038 | 88 | **成功 / hold** | 301 | [成功回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000001/grid.mp4) |
-| S0038 | 89 | 跟踪超时 / pregrasp | 143 | [回放](../../../outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000002/grid.mp4) |
+| S0030 | 83 | 跟踪超时 / approach | 349 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0030/r000002/grid.mp4`） |
+| S0038 | 87 | 跟踪超时 / pregrasp | 145 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000000/grid.mp4`） |
+| S0038 | 88 | **成功 / hold** | 301 | 成功回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000001/grid.mp4`） |
+| S0038 | 89 | 跟踪超时 / pregrasp | 143 | 回放（`outputs/experiments/cup30-no-planning-collision-20261104/replays/s0038/r000002/grid.mp4`） |
 
 ## 验证与限制
 

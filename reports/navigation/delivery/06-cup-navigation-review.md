@@ -17,10 +17,10 @@
 
 调用链为 `_navigation_region → scene_grid → RecoveryRegion → difficulty → search_region`。
 
-1. [`_navigation_region`](../../../src/lastmile_dataflow/workflows/lastmilebench.py) 测量所有合法站位的整机外接圆，取最大半径 **0.480969839 m**、最大高度 **1.569045406 m**，加导航 margin **0.02 m**。因此，栅格要求障碍距离至少 **0.500969839 m**。
-2. [`scene_occupancy`](../../../src/lastmile_dataflow/planning/astar.py) 把与机器人高度区间相交的碰撞 geom 的世界坐标 AABB 投影到 XY；桌面高度为约 **0.673–0.750 m**，因此整个桌面投影成为障碍。`task_support_obstacles` 又把桌子的整体包围盒作为支撑障碍，桌下空间同样被预留。
+1. [`_navigation_region`](../../../src/lastmile_dataflow/lastmile_benchmark/build.py) 测量所有合法站位的整机外接圆，取最大半径 **0.480969839 m**、最大高度 **1.569045406 m**，加导航 margin **0.02 m**。因此，栅格要求障碍距离至少 **0.500969839 m**。
+2. [`scene_occupancy`](../../../src/lastmile_dataflow/planning/navigation/astar.py) 把与机器人高度区间相交的碰撞 geom 的世界坐标 AABB 投影到 XY；桌面高度为约 **0.673–0.750 m**，因此整个桌面投影成为障碍。`task_support_obstacles` 又把桌子的整体包围盒作为支撑障碍，桌下空间同样被预留。
 3. 这个模型相当于用一个覆盖整机高度、与朝向无关的圆柱绕行。实际机器人在各高度的截面不同，底盘也有朝向；站位初始化用真实几何判断合法，导航圆柱却可能判非法。两种判定的保守程度不一致。
-4. `search_region` 首先调用 `segment_free` 检查起点连接；起点所在格不自由便立即返回 `None`。[`build`](../../../src/lastmile_dataflow/workflows/lastmilebench.py) 将 `difficulty=None` 统一记录为 `no_navigation_path`，未区分“起点被近似模型屏蔽”和“自由区域不连通”。
+4. `search_region` 首先调用 `segment_free` 检查起点连接；起点所在格不自由便立即返回 `None`。[`build`](../../../src/lastmile_dataflow/lastmile_benchmark/build.py) 将 `difficulty=None` 统一记录为 `no_navigation_path`，未区分“起点被近似模型屏蔽”和“自由区域不连通”。
 
 | S0 | 原栅格障碍距离 m | 要求距离 m | 起点格 | 本次候选路线 | 平移长度 m | 检查位姿数 |
 |---|---:|---:|---|---|---:|---:|
@@ -36,7 +36,7 @@
 
 例如 `S0022` 与 `S0021` 的 XY 分别约为 `[6.813457, 2.098837]` 和 `[6.563457, 2.098837]`。桌面左缘为 `x=7.193399`；S0022 的中心距桌面投影约 0.380 m，外接圆模型会拦截它，但实际机器人可向左平移 0.25 m 并小幅调整朝向到达 S0021。
 
-![物理投影与原膨胀栅格对比](../../../outputs/diagnostics/navigation/cup-navigation-20261026-r01/result/navigation-comparison.png)
+物理投影与原膨胀栅格对比（`outputs/diagnostics/navigation/cup-navigation-20261026-r01/result/navigation-comparison.png`）
 
 橙色为低率 S0，绿色为高率站，蓝线为本次采样路线；右图黑色包含膨胀排除区域，不能当成真实物体轮廓。
 
@@ -51,7 +51,7 @@
 
 ## 4. 执行产物与复现
 
-产物位于 [cup-navigation-20261026-r01](../../../outputs/diagnostics/navigation/cup-navigation-20261026-r01)：`probe.py`、`result/summary.json`、`result/navigation-comparison.png`。这是诊断附件，不计入原清单的 60 个数据 run。
+产物位于 cup-navigation-20261026-r01（`outputs/diagnostics/navigation/cup-navigation-20261026-r01`）：`probe.py`、`result/summary.json`、`result/navigation-comparison.png`。这是诊断附件，不计入原清单的 60 个数据 run。
 
 在仓库根目录执行，输出使用新的目录：
 

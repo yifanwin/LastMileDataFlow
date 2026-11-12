@@ -3,7 +3,7 @@
 - 状态：archived
 - 日期：2026-10-24
 - 替代：[当前文档](../../../../curobo-time-optimization/analyze/01-current-status.md)
-- 关联：[运行手册](../../../../../docs/runbook.md)、[场景配方](../../../../../configs/scene_datasets/README.md)、[执行配置](../../../../../configs/execution/README.md)、[复核报告](../delivery/2026-10-22-calibration-time-review.md)
+- 关联：[运行手册](../../../../../docs/runbook.md)、场景配方（`configs/scene_datasets/README.md`）、执行配置（`configs/execution/README.md`）、[复核报告](../delivery/2026-10-22-calibration-time-review.md)
 
 **2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 

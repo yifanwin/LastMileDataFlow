@@ -39,7 +39,7 @@
 | worker 按 GPU 列表轮转分配 | 支持多个 worker 共卡，但不管理每卡的规划队列、模型生命周期或 GPU 查询排队 |
 | trial 创建 `ContinuousContext`、recorder 和 planner | 需要把独立状态与可共享资源拆清，增加进程数量本身不会消除重复 setup |
 
-源码入口：[标定编排](../../../src/lastmile_dataflow/workflows/collection.py)、[实际操作](../../../src/lastmile_dataflow/runtime/execution/manipulation.py)、[执行上下文](../../../src/lastmile_dataflow/runtime/execution/context.py)、[规划适配](../../../src/lastmile_dataflow/planning/curobo_v2.py)。现有 spawn 与共享故障停批逻辑保留，不重建另一套结果或执行链路。
+源码入口：标定编排（`src/lastmile_dataflow/workflows/collection.py`）、[实际操作](../../../src/lastmile_dataflow/operation/control/manipulation.py)、[执行上下文](../../../src/lastmile_dataflow/operation/control/context.py)、[规划适配](../../../src/lastmile_dataflow/planning/curobo/planner.py)。现有 spawn 与共享故障停批逻辑保留，不重建另一套结果或执行链路。
 
 ## 3. 三种并行方案的取舍
 

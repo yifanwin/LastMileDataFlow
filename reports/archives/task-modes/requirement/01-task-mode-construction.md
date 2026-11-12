@@ -304,7 +304,7 @@ split 在构造与标定前按来源房屋固定，同一房屋所有 target/int
 | Open 执行 | 有把手接近、关节 waypoint、接触丢失和 open verdict 路径 | 验证完整关节交互成功正例，不能仅由 discovery 支持推断 Articulated 已可用 |
 | 最终模式 | 本轮检查未见八类统一后标定分类、构造命中率或独立 Visibility S0 选择链 | 新增必要分类与下游筛选，复用现有标定/配对/记录链 |
 
-相关实现入口：[场景工作流](../../../src/lastmile_dataflow/workflows/scene_datasets.py)、[增强检查](../../../src/lastmile_dataflow/scenes/augmentation/checks.py)、[模式构造器](../../../src/lastmile_dataflow/scenes/modes/base.py)、[构建编排](../../../src/lastmile_dataflow/scenes/build/builder.py)、[构建会话](../../../src/lastmile_dataflow/runtime/construction/session.py)、[站位采样](../../../src/lastmile_dataflow/scenes/stations/sampling.py)、[A*](../../../src/lastmile_dataflow/planning/astar.py)、[标定选择](../../../src/lastmile_dataflow/data/evaluation/selection.py)、[cuRobo](../../../src/lastmile_dataflow/planning/curobo_v2.py)。
+相关实现入口：[场景工作流](../../../../src/lastmile_dataflow/scenes/build.py)、[增强检查](../../../../src/lastmile_dataflow/scenes/edits/checks.py)、模式构造器（`src/lastmile_dataflow/scenes/modes/base.py`）、构建编排（`src/lastmile_dataflow/scenes/build/builder.py`）、[构建会话](../../../../src/lastmile_dataflow/scenes/edits/session.py)、[站位采样](../../../../src/lastmile_dataflow/station_map/sampling/sample.py)、[A*](../../../../src/lastmile_dataflow/planning/navigation/astar.py)、标定选择（`src/lastmile_dataflow/data/evaluation/selection.py`）、[cuRobo](../../../../src/lastmile_dataflow/planning/curobo/planner.py)。
 
 ### 8.1 PandaOmron 相机核对
 

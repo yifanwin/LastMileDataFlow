@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：无（首次按当前源码统计）
-- 关联：[build-scenes 构造说明](../info/01-build-scenes-modes.md)、[任务模式需求](../requirement/01-task-mode-construction.md)、[主配置](../../../configs/task_modes/panda_omron_task_modes.json)
+- 关联：[build-scenes 构造说明](../info/01-build-scenes-modes.md)、[任务模式需求](../requirement/01-task-mode-construction.md)、主配置（`configs/task_modes/panda_omron_task_modes.json`）
 
 ## 1. 结论摘要
 

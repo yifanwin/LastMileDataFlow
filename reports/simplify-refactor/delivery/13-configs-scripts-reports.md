@@ -65,6 +65,8 @@
 
 之后按用户 11-12 的答复，`no-edit-calibration/`、`build-lastmile-datasets/` 也移入 `reports/archives/`（前者是旧版本链路上的标定实验与归因，后者描述的独立物化入口已删除）；当前文档里指向它们的链接已改，断链检查前后都是 290 处、没有新增（剩下的都是原有的、指向已删源码、外部仓库或其他 worktree 的链接）。仍保留、但实验数字属于旧版本的：`curobo-time-optimization/`、`panda-omron/` 的 10 月记录。
 
+随后按用户要求清理全仓库 Markdown 里原有的坏链接：清理前 290 个失效目标（434 处链接），清理后 0 处。28 处按 Git 改名记录找到了新位置，改成新路径（如 `runtime/simulation.py` → `sim/simulation.py`、`workflows/lastmilebench.py` → `lastmile_benchmark/build.py`、`tests/workflows/test_collection.py` → `tests/lastmile_dataset/test_collect.py`）。其余改成纯文本，保留原名和原路径：364 处指向 `outputs/` 下的运行产物（本仓库不跟踪），25 处指向已删除的源码、配置或文档，17 处指向其他 worktree 或外部仓库。任务 3 时被移动过的文件，坏链接按移动前的位置解析原来要指的目标。正文结论没有改。
+
 ## 验证
 
 - 每个提交前跑全量单元测试：最终 324 项（删掉 3 项 isolate 测试，新增 2 项命名空间测试），只有 `test_rl_rewards` 因主环境没装 mjlab 导入失败，属已知。

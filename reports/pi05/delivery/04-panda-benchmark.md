@@ -63,12 +63,12 @@ MUJOCO_GL=egl CUDA_VISIBLE_DEVICES=5 MUJOCO_EGL_DEVICE_ID=5 \
 
 原 position 标定中的成功站位不能作为新 RoboCasa controller 下的成功证据。本轮是控制 profile 更换后的参考标定负结果，无法据此评价 π0.5 在困难 S0 上的任务能力。后续应先定位参考抓取的接触/末端跟踪误差，并取得新 profile 下实测成功的恢复站位，再构建和运行 benchmark；保持原筛选标准。
 
-- [原始标定 trials](../../../outputs/station_evaluations/panda-robocasa-bench-01/trials.jsonl)
-- [标定 summary](../../../outputs/station_evaluations/panda-robocasa-bench-01/summary.json)
-- [benchmark summary](../../../outputs/benchmarks/panda-robocasa-01/summary.json)
-- [评测入口日志](../../../outputs/logs/pi05-bench-evaluate-01.log)
+- 原始标定 trials（`outputs/station_evaluations/panda-robocasa-bench-01/trials.jsonl`）
+- 标定 summary（`outputs/station_evaluations/panda-robocasa-bench-01/summary.json`）
+- benchmark summary（`outputs/benchmarks/panda-robocasa-01/summary.json`）
+- 评测入口日志（`outputs/logs/pi05-bench-evaluate-01.log`）
 
-![本轮 benchmark 构建结果：1 个源场景，0 个合格 episode](../../../outputs/benchmarks/panda-robocasa-01/visualization/summary.png)
+本轮 benchmark 构建结果：1 个源场景，0 个合格 episode（`outputs/benchmarks/panda-robocasa-01/visualization/summary.png`）
 
 图为本轮实际构建结果，已打开检查；没有策略执行数据。此处用原始计数表和构建汇总图表达结果，不绘制成功率或策略轨迹。
 

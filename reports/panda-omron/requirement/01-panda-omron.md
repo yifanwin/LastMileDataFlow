@@ -27,11 +27,11 @@
 
 不应把缺失的左臂或头部补成虚构关节，以便硬套 RBY-1 的 20D 动作和 state22。
 
-源码入口：[组合机器人](../../../../../../robosuite/robosuite/models/robots/compositional.py)、[底盘 XML](../../../../../../robosuite/robosuite/models/assets/bases/omron_mobile_base.xml)、[夹爪 XML](../../../../../../robosuite/robosuite/models/assets/grippers/panda_gripper.xml)、[Panda XML](../../../../../../robosuite/robosuite/models/assets/robots/panda/robot.xml)。
+源码入口：组合机器人（`../../../../../../robosuite/robosuite/models/robots/compositional.py`）、底盘 XML（`../../../../../../robosuite/robosuite/models/assets/bases/omron_mobile_base.xml`）、夹爪 XML（`../../../../../../robosuite/robosuite/models/assets/grippers/panda_gripper.xml`）、Panda XML（`../../../../../../robosuite/robosuite/models/assets/robots/panda/robot.xml`）。
 
 ## 3. 已有实现能复用到哪里
 
-相邻 molmospaces 已有 [PandaOmronRobot](../../../../../../molmospaces/molmo_spaces/robots/panda_omron.py)、[关节与夹爪映射](../../../../../../molmospaces/molmo_spaces/robots/robot_views/panda_omron_view.py) 和 [规划资产](../../../../../../molmospaces/molmo_spaces/robots/curobo/panda_omron/panda_omron.yml)。可参考：
+相邻 molmospaces 已有 PandaOmronRobot（`../../../../../../molmospaces/molmo_spaces/robots/panda_omron.py`）、关节与夹爪映射（`../../../../../../molmospaces/molmo_spaces/robots/robot_views/panda_omron_view.py`） 和 规划资产（`../../../../../../molmospaces/molmo_spaces/robots/curobo/panda_omron/panda_omron.yml`）。可参考：
 
 - 使用 robosuite 工厂组合 Panda、Omron 与夹爪的方式。
 - 底盘、升降和机械臂转成位置伺服的参数，以及与伺服配套的关节摩擦处理。
@@ -58,7 +58,7 @@
 | 记录与数据集 | recorder 固定 reshape 为 20D；state22、物化、batch 读取绑定 RBY-1 | 保存本体标识、真实动作/状态布局及单位，贯通记录、物化与读取 |
 | MolmoBot | 当前配置和输入输出对应 RBY1Multitask 权重、双臂与三相机 | 需要另行确定 Panda 策略权重、输入输出与训练/迁移路线 |
 
-主要代码证据：[配置](../../../src/lastmile_dataflow/config.py)、[Simulation](../../../src/lastmile_dataflow/runtime/simulation.py)、[控制适配器](../../../src/lastmile_dataflow/runtime/control/robot.py)、[站位初始化](../../../src/lastmile_dataflow/scenes/stations/sampling.py)、[V2 规划](../../../src/lastmile_dataflow/planning/curobo_v2.py)、[视野模型](../../../src/lastmile_dataflow/planning/head_fov.py)、[抓取判定](../../../src/lastmile_dataflow/runtime/outcomes/pick.py)、[记录器](../../../src/lastmile_dataflow/data/recorder.py)、[训练数据](../../../src/lastmile_dataflow/data/export/lastmile_dataset.py)。
+主要代码证据：配置（`src/lastmile_dataflow/config.py`）、[Simulation](../../../src/lastmile_dataflow/sim/simulation.py)、[控制适配器](../../../src/lastmile_dataflow/robots/rby1/adapter.py)、[站位初始化](../../../src/lastmile_dataflow/station_map/sampling/sample.py)、[V2 规划](../../../src/lastmile_dataflow/planning/curobo/planner.py)、[视野模型](../../../src/lastmile_dataflow/planning/curobo/head_fov.py)、抓取判定（`src/lastmile_dataflow/runtime/outcomes/pick.py`）、[记录器](../../../src/lastmile_dataflow/operation/recording/recorder.py)、[训练数据](../../../src/lastmile_dataflow/lastmile_dataset/export.py)。
 
 ## 5. 语义动作与薄机器人接口
 

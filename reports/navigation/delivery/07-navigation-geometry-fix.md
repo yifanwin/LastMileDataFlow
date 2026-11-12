@@ -9,7 +9,7 @@
 
 完成“真实几何局部连接 + 保守 A* 全房间绕行”的共用实现，保持原 0.02 m 导航余量，未重新标定或重做模式分类。
 
-1. 新增 [`planning/navigation.py`](../../../src/lastmile_dataflow/planning/navigation.py)。在独立准备态中保持源手臂、升降和夹爪，按 ≤1 cm / ≤1° 采样检查实际整机碰撞、地面支撑和机器人—环境净空。MuJoCo 距离查询保留碰撞掩码，允许的底盘/轮—地面接触除外；不修改共享模型或执行中的状态。
+1. 新增 [`planning/navigation.py`](../../../src/lastmile_dataflow/planning/navigation/routes.py)。在独立准备态中保持源手臂、升降和夹爪，按 ≤1 cm / ≤1° 采样检查实际整机碰撞、地面支撑和机器人—环境净空。MuJoCo 距离查询保留碰撞掩码，允许的底盘/轮—地面接触除外；不修改共享模型或执行中的状态。
 2. 用合法站位的实际 XY/yaw 建候选图，按实际几何检查边后搜索。局部图没有路线时，通过检查过的短连接接入原房间 A*；连接候选范围为 1 m、每端最多 8 个。每个源站位查询预算不超过 120 s，且受来源 attempt/benchmark 预算限制。输出有限搜索耗尽或预算耗尽，不声称连续空间无路。
 3. train 与 benchmark 都消费相同路线结构。`poses` 是明确的 `[x,y,yaw]`，`xy` 从同一路线投影。执行器直接跟踪规划朝向，删除按路径点序号重新生成 yaw 的逻辑；导航/到达阶段通过已有物理子步回调识别实际碰撞并终止当前导航。
 4. RecoveryRegion 保留合法实测 S1 锚点，局部位姿 box 的角点和锚点到中心连接经过几何采样检查。保持恢复半径、yaw 容差、最近实测站位裁剪及合格 S1 集合；`goals/contains`、保存/重载和实际轨迹统计共用同一表示。
@@ -27,9 +27,9 @@
 
 产物入口：
 
-- [Cup benchmark](../../../outputs/diagnostics/navigation/navigation-geometry-fix-cup-bench-20261026-r01/summary.json)：candidate → eligible → written = **7 → 2 → 2**。
-- [Open benchmark](../../../outputs/diagnostics/navigation/navigation-geometry-fix-open-bench-20261026-r01/summary.json)：**7 → 7 → 7**。
-- [Train 规划复核](../../../outputs/diagnostics/navigation/navigation-geometry-fix-train-plan-20261026-r01/summary.json)：13 对计划全部保留，仅做规划，`new_physical_steps=0`；具体路径在同目录 `planning.jsonl`。
+- Cup benchmark（`outputs/diagnostics/navigation/navigation-geometry-fix-cup-bench-20261026-r01/summary.json`）：candidate → eligible → written = **7 → 2 → 2**。
+- Open benchmark（`outputs/diagnostics/navigation/navigation-geometry-fix-open-bench-20261026-r01/summary.json`）：**7 → 7 → 7**。
+- Train 规划复核（`outputs/diagnostics/navigation/navigation-geometry-fix-train-plan-20261026-r01/summary.json`）：13 对计划全部保留，仅做规划，`new_physical_steps=0`；具体路径在同目录 `planning.jsonl`。
 
 Cup 四个被排除的 S0 实际净空：S0022 **1.38 mm**、S0030 **19.07 mm**、S0038 **16.18 mm**、S0041 **12.79 mm**。这些站位在原初始化碰撞阈值下合法，但不满足导航 20 mm 余量；上轮“没有接触”的静态检查不能替代此项。S0042 未找到满足当前余量的候选路线，保留负结果。
 
@@ -48,8 +48,8 @@ Train 的 S0042→S0047/S0048 因端点净空不足被排除；S0000→S0047/S00
 
 正式验证 **4/4 导航成功**，共 388 个实际控制间隔，记录全部完整，`forbidden_contact_count=0`。控制间隔数不是底层 MuJoCo 物理子步数；本次不声称测量了动态全过程的 2 cm 净空。
 
-- [Cup 导航主结果](../../../outputs/diagnostics/navigation/navigation-geometry-fix-cup-navigation-20261026-r02/summary.json)，两条轨迹在同目录 `rollouts/`。
-- [Open/Train 导航主结果](../../../outputs/diagnostics/navigation/navigation-geometry-fix-extended-navigation-20261026-r01/summary.json)，两条轨迹在同目录 `rollouts/`。
+- Cup 导航主结果（`outputs/diagnostics/navigation/navigation-geometry-fix-cup-navigation-20261026-r02/summary.json`），两条轨迹在同目录 `rollouts/`。
+- Open/Train 导航主结果（`outputs/diagnostics/navigation/navigation-geometry-fix-extended-navigation-20261026-r01/summary.json`），两条轨迹在同目录 `rollouts/`。
 
 另保留 `navigation-geometry-fix-cup-navigation-20261026-r01`：首次诊断脚本完成首条导航并保存 46 个控制间隔后，在离线统计时误用了 ExecutionConfig，缺少恢复诊断阈值而退出。该次不计入上述正式四条汇总；修正统计调用后使用新的 r02 完整验证，没有覆盖记录。
 
@@ -57,8 +57,8 @@ Train 的 S0042→S0047/S0048 因端点净空不足被排除；S0000→S0047/S00
 
 - 新增 8 项真实 MuJoCo 简化几何测试：圆柱栅格误拒绝、站位绕障、旋转中碰撞、正净空但低于 margin、房间 A* 接入、恢复区域重载、预算耗尽、跨 ±π 的短角插值。
 - 新增执行器中间 yaw 跟踪测试；更新采集测试和已有 Panda smoke 路径输入，检查新 `poses` 协议。
-- 全套离线回归 **367 项：365 通过，2 个显式渲染检查跳过**。日志：[navigation-geometry-regression-r03.log](../../../outputs/logs/navigation-geometry-regression-r03.log)。
-- 最后对相关领域与 benchmark 构建/绘图再检查 **61 项全部通过**。日志：[navigation-geometry-local-final-r02.log](../../../outputs/logs/navigation-geometry-local-final-r02.log)。
+- 全套离线回归 **367 项：365 通过，2 个显式渲染检查跳过**。日志：navigation-geometry-regression-r03.log（`outputs/logs/navigation-geometry-regression-r03.log`）。
+- 最后对相关领域与 benchmark 构建/绘图再检查 **61 项全部通过**。日志：navigation-geometry-local-final-r02.log（`outputs/logs/navigation-geometry-local-final-r02.log`）。
 
 首轮全套回归因默认动态库路径无法导入 EGL，导致 9 个多进程检查失败；临时 EGL/OpenGL 库仅解压在 `/tmp/lmdf-egl-libs`，补充 `LD_LIBRARY_PATH` 后同套检查通过，未修改系统或替换测试。当前 NVIDIA 驱动不可访问，本轮不报告 GPU、权重推理或策略任务验证。
 

@@ -55,8 +55,8 @@ outputs/
 
 ## 3. 已有可视化与结果
 
-真实 RBY-1 评测已保存三个相机的逐帧 PNG：第一个 episode 每个相机 401 帧，第二个每个相机 15 帧。可以直接查看[实际头部相机模型输入](../../../outputs/benchmark_evaluations/rby1-full-v0.1/rollouts/e000000/model_input_1.png)。
+真实 RBY-1 评测已保存三个相机的逐帧 PNG：第一个 episode 每个相机 401 帧，第二个每个相机 15 帧。可以直接查看实际头部相机模型输入（`outputs/benchmark_evaluations/rby1-full-v0.1/rollouts/e000000/model_input_1.png`）。
 
-当前按最新要求输出 PNG，不生成 HTML。每个 benchmark / 评测目录下的 `visualization/<episode_id>.png` 是单条图片，`summary.png` 是汇总。可查看 [benchmark 静态图片](../../../outputs/benchmarks/all-existing-v0.1/rby1-current/visualization/e000000.png)和[评测组合图片](../../../outputs/benchmark_evaluations/rby1-full-v0.1/visualization/e000000.png)。前者不含实际执行信息；后者展示实际轨迹、结果和同一最终时刻的 head / 第三人称截图。完整双视角 MP4 单独保存在 rollout 中，已有两条 RBY-1 rollout 共四个视频保持不变。
+当前按最新要求输出 PNG，不生成 HTML。每个 benchmark / 评测目录下的 `visualization/<episode_id>.png` 是单条图片，`summary.png` 是汇总。可查看 benchmark 静态图片（`outputs/benchmarks/all-existing-v0.1/rby1-current/visualization/e000000.png`）和评测组合图片（`outputs/benchmark_evaluations/rby1-full-v0.1/visualization/e000000.png`）。前者不含实际执行信息；后者展示实际轨迹、结果和同一最终时刻的 head / 第三人称截图。完整双视角 MP4 单独保存在 rollout 中，已有两条 RBY-1 rollout 共四个视频保持不变。
 
 当前版本共有 RBY-1 2 条、Panda 1 条 episode；历史来源单独保存，不视为新增独立样本。RBY-1 实际策略评测覆盖率 100%，Task Success 与 Recovery Success 均为 0/2。当前没有可复用的 Open 标定，Panda 的 VLA 策略尚未接入。

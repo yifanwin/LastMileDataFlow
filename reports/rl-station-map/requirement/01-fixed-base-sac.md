@@ -167,9 +167,9 @@ RL 使用显式新协议 `rl-pick-1cm-1s-v1`：双指持续有效承力、物体
 
 ## 9. 本地核对入口
 
-- [Grand_RM 项目说明](../../../reference_repos/Grand_RM/README.md)；论文文件位于同目录，名称为 `Jiang 等 - 2026 - Graph Reinforcement Learning-Based Reachabil.pdf`。
-- [参考图编码](../../../reference_repos/Grand_RM/learned_robot_placement/utils/scene_graph.py)、[参考 Actor/Critic](../../../reference_repos/Grand_RM/learned_robot_placement/scripts/train_task_fetch.py)、[参考训练配置](../../../reference_repos/Grand_RM/learned_robot_placement/cfg/train/FetchMultiObjFetchingGAT.yaml)。
-- [Panda 位置控制](../../../src/lastmile_dataflow/runtime/control/panda_omron.py)、[RoboCasa 控制](../../../src/lastmile_dataflow/runtime/control/panda_robocasa.py)、[当前抓取判定](../../../src/lastmile_dataflow/runtime/outcomes/pick.py)。
+- Grand_RM 项目说明（`reference_repos/Grand_RM/README.md`）；论文文件位于同目录，名称为 `Jiang 等 - 2026 - Graph Reinforcement Learning-Based Reachabil.pdf`。
+- 参考图编码（`reference_repos/Grand_RM/learned_robot_placement/utils/scene_graph.py`）、参考 Actor/Critic（`reference_repos/Grand_RM/learned_robot_placement/scripts/train_task_fetch.py`）、参考训练配置（`reference_repos/Grand_RM/learned_robot_placement/cfg/train/FetchMultiObjFetchingGAT.yaml`）。
+- [Panda 位置控制](../../../src/lastmile_dataflow/robots/panda_omron/adapter.py)、[RoboCasa 控制](../../../src/lastmile_dataflow/robots/panda_omron/robocasa.py)、当前抓取判定（`src/lastmile_dataflow/runtime/outcomes/pick.py`）。
 
 ## 10. 训练监控补充（2026-11-09、2026-11-11 用户确认）
 

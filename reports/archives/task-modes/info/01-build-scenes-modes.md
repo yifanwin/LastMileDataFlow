@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：无（首次按当前源码整理）
-- 关联：[需求](../requirement/01-task-mode-construction.md)、[实施方案](../plan/01-task-mode-implementation.md)、[构建交付](../delivery/01-build-delivery.md)、[运行清单](../delivery/05-run-inventory.md)、[任务模式配置](../../../configs/task_modes/README.md)
+- 关联：[需求](../requirement/01-task-mode-construction.md)、[实施方案](../plan/01-task-mode-implementation.md)、[构建交付](../delivery/01-build-delivery.md)、[运行清单](../delivery/05-run-inventory.md)、任务模式配置（`configs/task_modes/README.md`）
 
 本文说明 `build-scenes` 在当前实现中**具体怎么为八类模式制造候选困难**，以源码为准，不重复需求文档的验收口径。文中阈值来自 `configs/task_modes/mode_defaults.json`，可整体替换但不在单次运行中逐样本调整。
 

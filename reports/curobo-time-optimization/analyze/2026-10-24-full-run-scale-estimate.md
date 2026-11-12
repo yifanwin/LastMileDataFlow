@@ -9,7 +9,7 @@
 
 ## 1. 当前配置下一个场景选几个目标物体
 
-依据 [panda_omron_val103.json](../../../configs/scene_datasets/panda_omron_val103.json) 与 [dataset_config.py](../../../src/lastmile_dataflow/scenes/dataset_config.py)：
+依据 panda_omron_val103.json（`configs/scene_datasets/panda_omron_val103.json`） 与 dataset_config.py（`src/lastmile_dataflow/scenes/dataset_config.py`）：
 
 | 字段 | 当前值 | 效果 |
 |---|---|---|

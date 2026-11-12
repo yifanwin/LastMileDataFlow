@@ -28,7 +28,7 @@ nvidia-smi --query-gpu=index,utilization.gpu,memory.free --format=csv,noheader
   --gpu 2 --output outputs/diagnostics/panda-omron/factory-new
 ```
 
-机器人配置为 [panda_omron.json](../../../configs/robots/panda_omron.json)。生成阶段读取本地 robosuite factory；后续运行只加载生成的 XML/网格，不依赖 molmospaces Python 包。
+机器人配置为 panda_omron.json（`configs/robots/panda_omron.json`）。生成阶段读取本地 robosuite factory；后续运行只加载生成的 XML/网格，不依赖 molmospaces Python 包。
 
 ## 3. 控制与对齐
 
@@ -43,7 +43,7 @@ nvidia-smi --query-gpu=index,utilization.gpu,memory.free --format=csv,noheader
 
 ## 4. 固定场景 pick
 
-编辑 [固定任务配置](../../../configs/execution/panda_omron_fixed_pick.json) 的 `data_root`，确认场景、metadata 和 `assets/grasps/droid/Cup_30/` 存在。其底盘、升降高度和目标均显式指定，不读取站位标定。
+编辑 固定任务配置（`configs/execution/panda_omron_fixed_pick.json`） 的 `data_root`，确认场景、metadata 和 `assets/grasps/droid/Cup_30/` 存在。其底盘、升降高度和目标均显式指定，不读取站位标定。
 
 ```bash
 .venv/bin/python tests/smoke/panda_omron.py --stage pick \
@@ -66,7 +66,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/panda-omron-mpl \
 
 ## 6. 移动与全流程
 
-移动配置：[panda_omron_mobile.json](../../../configs/robots/panda_omron_mobile.json)；执行配置：[panda_omron_curobo.json](../../../configs/execution/panda_omron_curobo.json)。其中前向相机与腕相机是机器人实际安装相机；不使用 RBY-1 头部。`head_fov_enabled=false` 表示不启用 RBY 头部 FOV 优化约束，站位仍执行真实相机可见性筛选。
+移动配置：panda_omron_mobile.json（`configs/robots/panda_omron_mobile.json`）；执行配置：panda_omron_curobo.json（`configs/execution/panda_omron_curobo.json`）。其中前向相机与腕相机是机器人实际安装相机；不使用 RBY-1 头部。`head_fov_enabled=false` 表示不启用 RBY 头部 FOV 优化约束，站位仍执行真实相机可见性筛选。
 
 先将以下命令中的 GPU 0 改为当前选中的设备，并给每次运行使用新名称：
 
@@ -102,7 +102,7 @@ MUJOCO_GL=egl MPLCONFIGDIR=/tmp/panda-omron-mpl \
   --run-id materialized-new --output-dir outputs/diagnostics/panda-omron
 ```
 
-需要原有 Case 场景增强时，使用 [Panda 场景配方](../../../configs/scene_datasets/panda_omron_val103.json)：
+需要原有 Case 场景增强时，使用 Panda 场景配方（`configs/scene_datasets/panda_omron_val103.json`）：
 
 ```bash
 .venv/bin/lastmile-dataflow build-scenes \

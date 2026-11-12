@@ -21,10 +21,10 @@
 
 当前六组构建来源均已生成静态页面，其中空 benchmark 显示筛选汇总；两组已有评测均有组合入口。Panda 未支持的策略显示未知、无轨迹、无视频。
 
-- [RBY-1 benchmark 页面](../../../../outputs/benchmarks/all-existing-v0.1/rby1-current/visualization/index.html)
-- [Panda benchmark 页面](../../../../outputs/benchmarks/all-existing-v0.1/panda-current/visualization/index.html)
-- [RBY-1 评测页面](../../../../outputs/benchmark_evaluations/rby1-full-v0.1/visualization/index.html)
-- [Panda 未执行页面](../../../../outputs/benchmark_evaluations/panda-interface-v0.1/visualization/index.html)
+- RBY-1 benchmark 页面（`outputs/benchmarks/all-existing-v0.1/rby1-current/visualization/index.html`）
+- Panda benchmark 页面（`outputs/benchmarks/all-existing-v0.1/panda-current/visualization/index.html`）
+- RBY-1 评测页面（`outputs/benchmark_evaluations/rby1-full-v0.1/visualization/index.html`）
+- Panda 未执行页面（`outputs/benchmark_evaluations/panda-interface-v0.1/visualization/index.html`）
 
 已有 RBY-1 `e000000` 每视角 401 帧，`e000001` 每视角 15 帧。视频编码帧率为 10 Hz，对应播放器时长 40.1 / 1.5 秒（含末帧显示周期）；真实执行时间为 40.000 / 1.352 秒。页面按记录帧映射真实时间，不将视频编码时长当作任务执行时间。第三人称使用实际场景遮挡，不隐藏墙体或物件。
 
@@ -40,9 +40,9 @@
 
 浏览器检查记录和截图位于 `outputs/diagnostics/benchmark-viewer/`；实时录制检查位于 `outputs/diagnostics/benchmark-video-live/`。以下是浏览器实际截图，类别为实现证据：
 
-![Benchmark 静态构建视图](../../../../outputs/diagnostics/benchmark-viewer/benchmark.png)
+Benchmark 静态构建视图（`outputs/diagnostics/benchmark-viewer/benchmark.png`）
 
-![评测轨迹与两个视频组合视图](../../../../outputs/diagnostics/benchmark-viewer/evaluation.png)
+评测轨迹与两个视频组合视图（`outputs/diagnostics/benchmark-viewer/evaluation.png`）
 
 ## 文件与边界
 

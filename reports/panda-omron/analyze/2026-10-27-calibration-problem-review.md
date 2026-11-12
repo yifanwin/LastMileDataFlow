@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-27
 - 替代：无；本报告补充既有统计，不改写历史实验
-- 关联：[本体需求](../requirement/01-panda-omron.md)、[初步归因](../../../.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/01-low-success-analysis.md)、[全量统计](../../../.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/02-all-runs-trial-statistics.md)、[复用缺陷](../../../.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/03-planner-reuse-target-binding.md)、[顺序对照](../../../.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md)
+- 关联：[本体需求](../requirement/01-panda-omron.md)、初步归因（`.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/01-low-success-analysis.md`）、全量统计（`.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/02-all-runs-trial-statistics.md`）、复用缺陷（`.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/03-planner-reuse-target-binding.md`）、顺序对照（`.worktrees/no-edit-calibration-val0-99/reports/no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md`）
 
 ## 1. 本轮结论
 

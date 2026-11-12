@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-25
 - 替代：无
-- 关联：[规划失败原因分布](2026-10-25-planning-failure-analysis.md)、[修复方案](../plan/04-case3-contact-and-grasp-fix.md)、[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、[运行目录](../../../../curobo-time-optimization/outputs/panda-time-val100-calibration-20261024-r01/)
+- 关联：[规划失败原因分布](2026-10-25-planning-failure-analysis.md)、[修复方案](../plan/04-case3-contact-and-grasp-fix.md)、[val100 正式实验交付](../delivery/2026-10-24-val100-experiment.md)、运行目录（`../../../../curobo-time-optimization/outputs/panda-time-val100-calibration-20261024-r01/`）
 
 针对"Case3 的 `IK 收敛但约束不可行`（1,453 trial）是不是 `gripper` 与把手接触被误算成碰撞"的核查。核查对象是 Fridge/Safe/SideTable/Microwave 四类共 639 个 Case3 站位的真实场景几何、规划器自己的碰撞球体，以及全部 `solver_trace.json`。
 

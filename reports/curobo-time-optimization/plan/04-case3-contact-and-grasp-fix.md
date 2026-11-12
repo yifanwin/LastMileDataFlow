@@ -3,7 +3,7 @@
 - 状态：active（S1–S3 已实现，G1 通过；G2/G3 待有可用 GPU 时执行）
 - 日期：2026-10-25
 - 替代：无
-- 关联：[假失败核查](../analyze/2026-10-25-case3-false-collision-check.md)、[规划失败原因分布](../analyze/2026-10-25-planning-failure-analysis.md)、[执行配置](../../../configs/execution/panda_omron_all_cases_curobo.json)
+- 关联：[假失败核查](../analyze/2026-10-25-case3-false-collision-check.md)、[规划失败原因分布](../analyze/2026-10-25-planning-failure-analysis.md)、执行配置（`configs/execution/panda_omron_all_cases_curobo.json`）
 
 针对核查结论的两处缺陷：**掌部 `panda_gripper` 与把手重叠被计为硬碰撞**，以及**抓取点落在把手 bbox 中心、且 `approach_offset_m` 朝里推**。目标是把 Case3（Fridge/Safe/SideTable/Microwave）从"规划必然无解"恢复到"规划可行"，再由真实 rollout 判定任务成功率。
 

@@ -70,7 +70,7 @@
 
 初次准备发现模型有 mocap，补读初始化快照；原始状态文件未修改。默认 EGL 混入 Mesa，且 NVIDIA EGL 只枚举 7 个设备，直接用设备编号 7 无效。最终显式选择 NVIDIA vendor 和 EGL 索引 6 完成测量；未证明 EGL 索引与物理 GPU 编号相同。不修改服务器设备权限或系统配置。
 
-脚本：[curobo_visual_probe.py](../../../../../scripts/experiments/curobo_visual_probe.py)。紧凑结果保留于本工作区 outputs/diagnostics/curobo-time/E01/result.json；运行产物不提交，不复制源图像。当前环境只完成渲染依赖安装，完整 cuRobo Git 依赖离线缓存缺失，不构成 cuRobo 规划运行环境验收。
+脚本：curobo_visual_probe.py（`scripts/experiments/curobo_visual_probe.py`）。紧凑结果保留于本工作区 outputs/diagnostics/curobo-time/E01/result.json；运行产物不提交，不复制源图像。当前环境只完成渲染依赖安装，完整 cuRobo Git 依赖离线缓存缺失，不构成 cuRobo 规划运行环境验收。
 
 从本工作区运行：
 
