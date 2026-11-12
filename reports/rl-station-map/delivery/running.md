@@ -1,7 +1,7 @@
 # 固定底盘 mjlab / SAC 研究入口
 
 - 状态：active
-- 日期：2026-11-10
+- 日期：2026-11-12
 - 替代：无
 - 关联：../plan/01-implementation.md、../delivery/04-implementation.md
 
@@ -71,7 +71,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-输出 `initial.pt`、`latest.pt`、`best.pt` 和 `metrics.jsonl`。初始 checkpoint 用作未训练 Actor 基线；`best.pt` 按独立 validation 成功率、同率时按平均 episode return 选择。checkpoint 包含有效配置、字段、运行版本、两个源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 或周期评估前没有权重文件。`best.pt` 从首次周期或末次验证开始选择：优先 validation 成功率，同率比较平均 episode return。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -79,7 +79,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
 
 `metrics.jsonl` 保存 `learner`、`episode`、`evaluation` 三类记录：Actor Loss / Critic Loss / Entropy 为日志间隔内更新均值；Episode Return 是实际回合奖励和；独立评估记录成功数、健康 trial 数、总 trial 数、基础设施失败及 Value-Success Spearman。
 
-默认每 100,000 条有效 transition 做一次独立评估，开始和结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停全部 Sampler 后只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
+从头训练及恢复训练均跳过启动评估。默认每 100,000 条有效 transition 做一次独立评估，结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停全部 Sampler 后只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
 
 训练目录的 `views/` 持续更新四组 PNG：
 
@@ -115,7 +115,7 @@ MUJOCO_GL=disable .venv/bin/python scripts/station_map/rl/evaluate.py \
 
 评分使用在线 Q1/Q2，K=16 是动作采样数。输出原始 Q、动作评分标准差、站位 split 和 invalid mask；图不代表成功概率。
 
-评估先保存 `selection.json`，再保存 trial JSONL、状态 / 动作 NPZ 和统计。训练 Actor 与初始化基线共用评分选点、rollout seeds 和 stochastic Actor 口径。抓取成功、无非法碰撞抓取成功、Q 排序分别判定；不能仅凭图有颜色或 Q 增长通过验收。
+评估先保存 `selection.json`，再保存 trial JSONL、状态 / 动作 NPZ 和统计。独立基线对照仍可使用已有的历史初始化 checkpoint；本训练入口不再自动生成初始化基线。抓取成功、无非法碰撞抓取成功、Q 排序分别判定；不能仅凭图有颜色或 Q 增长通过验收。
 
 ## 软件检查
 
@@ -134,7 +134,7 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 `reward_component_names` 对应 13 项实际奖励；新增 `views/reward-breakdown.png` 绘制指定 7 项已完成健康回合均值，日志保留接触事件次数。无已完成回合的区间不补零。
 
-视频需启用 EGL 并设置上文 native 库路径。`video.every` 默认 100000；初始、周期及最终评估保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
+视频需启用 EGL 并设置上文 native 库路径。`video.every` 默认 100000；周期及最终评估保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹；启动时没有评估、视频或视频专用 rollout。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
 
 
 ## 分布式采样与集中学习
@@ -148,4 +148,4 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 `--num-envs` 是每个 Sampler 的环境数。配置 `transitions_per_update=128`，全局健康经验前 20000 条预热，此后每 128 条更新一次；默认 batch=256、CPU Replay=100000。每 16 次更新向各 Sampler 发布最新完整 Actor。恢复 checkpoint 时保留历史 transition 横轴，重建 Replay 并重新全局预热。
 
-初始、每 100000 条经验和末次验证均只评分固定 validation 子集。结束后加载 validation 选出的 `best.pt`，计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。
+每 100000 条经验和末次验证均只评分固定 validation 子集；启动时不评估。结束后加载 validation 选出的 `best.pt`，计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。

@@ -235,10 +235,11 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             previous_best = Path(resume).parent / "best.pt"
             if previous_best.exists() and previous_best.resolve() != (output / "best.pt").resolve():
                 shutil.copyfile(previous_best, output / "best.pt")
+            if not (output / "best.pt").exists():
+                best_score = None
         else:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
             transitions, best_score = 0, None
-            agent.save(output / "initial.pt", metadata=metadata, transitions=0)
         metadata["best_validation_score"] = best_score
         replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()))
         collected, updates = 0, 0
@@ -249,8 +250,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         pending = []
         discarded = 0
         with (output / "metrics.jsonl").open("a") as log:
-            best_score = validation_checkpoint(agent, env, config, transitions, output, log, metadata, best_score)
-            last_evaluation = transitions
+            last_evaluation = None
             workers = Samplers(config, devices, seed, num_envs)
             workers.publish(agent, True)
             while transitions < limit:

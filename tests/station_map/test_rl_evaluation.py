@@ -1,4 +1,8 @@
 import importlib.util
+from contextlib import ExitStack
+from pathlib import Path
+import tempfile
+from unittest.mock import Mock, patch
 from types import SimpleNamespace
 import unittest
 
@@ -89,3 +93,53 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(float(env.actions[1][1, 0]), 3.0)
         self.assertFalse(rows[0]["both_fingers"])
         self.assertAlmostEqual(rows[0]["best_position_error_m"], 3**0.5, places=6)
+
+    def test_training_starts_without_validation_or_initial_checkpoint_and_evaluates_at_end(self):
+        from lastmile_dataflow.station_map.rl.training import train
+        from tests.station_map.test_rl_sac import observation
+
+        config = {
+            "training": {"validation_stations": 1, "replay_capacity": 10, "warmup_min": 20,
+                         "eval_every": 100, "log_every": 10, "max_transitions": 101, "transitions_per_update": 128},
+            "environment": {"num_envs": 1}, "evaluation": {"seed": 42, "action_samples": 1, "q_color_limits": [-1, 1]},
+            "sac": {}, "success": {},
+        }
+        prefix = "lastmile_dataflow.station_map.rl.training."
+        cases = ((False, False, False), (True, True, True), (True, False, True), (True, True, False))
+        for resume, has_best, has_score in cases:
+            with self.subTest(resume=resume, has_best=has_best, has_score=has_score), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                parent = Path(directory)
+                source = parent / "previous"
+                source.mkdir()
+                if has_best:
+                    (source / "best.pt").touch()
+                agent = Mock(updates=0)
+                saved = {"transitions": 100, "metadata": {"config": config, "best_validation_score": [0, 5] if has_score else None}}
+                sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
+                sac.load.return_value = agent, saved
+                stack.enter_context(patch(prefix + "seed_all"))
+                stack.enter_context(patch(prefix + "runtime_metadata", return_value={}))
+                stack.enter_context(patch(prefix + "graph_observation", return_value=observation(1)))
+                stack.enter_context(patch(prefix + "Replay"))
+                env = Mock(device="cpu")
+                env.reset.return_value = ({}, {})
+                stack.enter_context(patch("lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env))
+                workers = stack.enter_context(patch(prefix + "Samplers")).return_value
+                workers.receive.return_value = (0, 0, True, SimpleNamespace(reward=torch.zeros(1)), "", 0.0)
+                workers.pause.return_value = []
+                monitor = stack.enter_context(patch(prefix + "monitor_validation", return_value={
+                    "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0,
+                }))
+                stack.enter_context(patch(prefix + "training_curves"))
+                stack.enter_context(patch(prefix + "station_scores", return_value=[]))
+                stack.enter_context(patch(prefix + "plot_scores"))
+                result = train(config, gpus=[0], output=parent / "new", seed=42,
+                               resume=source / "latest.pt" if resume else None,
+                               max_transitions=101 if resume else 1)
+                self.assertEqual(monitor.call_count, 1)
+                self.assertEqual(monitor.call_args.args[3], result["transitions"])
+                self.assertNotIn("initial.pt", [call.args[0].name for call in agent.save.call_args_list])
+                self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
+                self.assertEqual(result["transitions"], 101 if resume else 1)
+                workers.close.assert_called_once()
+                env.close.assert_called_once()
