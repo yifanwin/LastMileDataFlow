@@ -14,3 +14,5 @@ reports/logs/
 .worktrees/
 reports/scene_datasets/2026-10-12-val103-plus-one
 MUJOCO_LOG.TXT
+*__pycache__*
+*.py[cod]
