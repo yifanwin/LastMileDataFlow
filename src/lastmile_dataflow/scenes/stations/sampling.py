@@ -2,57 +2,16 @@
 
 import copy
 from contextlib import closing, nullcontext
-import math
 import mujoco
 import numpy as np
 
+from lastmile_dataflow.scenes.dataset import open_scene
+from lastmile_dataflow.scenes.edits.search import task_geometry
+
 from ...data.rendering.head_views import TaskVisibility
-from .initialization import floor_support, room_triangles
-from ...runtime.construction.preparation import preparation_guard
-from ...runtime.construction.session import clone_preparation
-from ...runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler
-
-
-def disk_samples(anchor, radius, spacing):
-    if not np.isfinite([*anchor[:2], radius, spacing]).all() or radius <= 0 or spacing <= 0:
-        raise ValueError("invalid disk lattice")
-    result = []
-    extent = math.floor(radius / spacing)
-    for iy in range(-extent, extent + 1):
-        for ix in range(-extent, extent + 1):
-            delta = spacing * np.array([ix, iy], float)
-            if np.dot(delta, delta) > radius**2 + 1e-9:
-                continue
-            xy = np.asarray(anchor[:2]) + delta
-            identity = f"S{len(result):04d}"
-            result.append(
-                {
-                    "station_id": identity,
-                    "xy_id": identity,
-                    "xy": xy.tolist(),
-                    "grid_index": [ix, iy],
-                    "yaw_source": "target_facing",
-                }
-            )
-    return result
-
-
-def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
-    """Initialization overlap filter OR runtime record-only robot contacts.
-
-    Never use the initialization filter to stop an already-running simulation.
-    """
-    frame = ContactSampler(sim).capture(target_bodies=target_bodies, fingers=fingers)
-    contacts = [c for c in frame.observations() if c["robot_contact"]]
-    if not initialization:
-        return contacts
-    return [
-        c
-        for c in contacts
-        if not (c["allowed_floor_base"] and c["distance_m"] >= -FLOOR_PENETRATION_M)
-        and not c["intended_target_contact"]
-        and c["distance_m"] < (-0.002 if c["kind"] == "self_collision" else -0.001)
-    ]
+from lastmile_dataflow.scenes.geometry import floor_support, room_triangles
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
+from lastmile_dataflow.sim.placement import _restore_object_velocity, robot_contacts
 
 
 def initialize_station(sim, station, anchor, *, floor_triangles=None):
@@ -94,66 +53,8 @@ def initialize_station(sim, station, anchor, *, floor_triangles=None):
     return row
 
 
-def _restore_object_velocity(sim, original_velocity):
-    velocity_mask = np.ones(sim.model.nv, bool)
-    robot_dofs = list(sim.robot.joints.dofs.values())
-    velocity_mask[robot_dofs] = False
-    sim.data.qvel[velocity_mask] = original_velocity[velocity_mask]
-
-
-def place_frozen_station(sim, station):
-    if sim.started or sim.closed:
-        raise RuntimeError("post-begin station placement prohibited")
-    old = sim.data.qpos.copy()
-    old_velocity = sim.data.qvel.copy()
-    sim.robot.initialize(copy.deepcopy(station["initial"]))
-    # initialize() resets all qvel. A frozen station may change only the robot:
-    # keep object velocities, including nonzero residual frozen motion.
-    _restore_object_velocity(sim, old_velocity)
-    mujoco.mj_forward(sim.model, sim.data)
-    mask = np.ones(sim.model.nq, bool)
-    mask[list(sim.robot.joints.addresses.values())] = False
-    if not np.array_equal(old[mask], sim.data.qpos[mask]):
-        raise RuntimeError("station placement changed object poses")
-
-
-def park_robot(sim, anchor, config):
-    """Initialize once, outside the augmentation disk. Do not alter source objects."""
-    preparation_guard(sim)
-    triangles = room_triangles(sim)
-    if not len(triangles):
-        raise ValueError("bounded room floor required for robot parking")
-    points = triangles.reshape(-1, 2)
-    lo, hi = points.min(axis=0), points.max(axis=0)
-    rng = np.random.default_rng(config.seed)
-    trials = []
-    source = sim.data.qpos.copy()
-    source_mask = np.ones(sim.model.nq, bool)
-    source_mask[list(sim.robot.joints.addresses.values())] = False
-    for i in range(256):
-        xy = rng.uniform(lo, hi)
-        if np.linalg.norm(xy - anchor[:2]) < config.radius_m + 1.25:
-            continue
-        initial = copy.deepcopy(sim.robot.config.initial)
-        initial[sim.robot.initial_base_field] = [*xy, float(rng.uniform(-3.0, 3.0))]
-        sim.robot.initialize(initial)
-        valid = bool(floor_support(sim, xy) and not robot_contacts(sim))
-        trials.append({"base": initial[sim.robot.initial_base_field], "valid": valid})
-        if valid:
-            if not np.array_equal(source[source_mask], sim.data.qpos[source_mask]):
-                raise RuntimeError("parking changed source object state")
-            return {
-                "status": "valid",
-                "trials": trials,
-                "initial": initial,
-                "source_qpos_unchanged": True,
-                "scope": "pre_begin_parking_not_navigation",
-            }
-    raise ValueError("no_legal_robot_parking_pose")
-
-
-def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
-    """Hints/explicit yaw first, then coverage; only valid initial poses consume slots."""
+def select_task_stations(sim, geometry, config, limit, *, measure_visibility=True):
+    """Coverage order over the free lattice; only valid initial poses consume the ``limit`` slots."""
     free_lattice = [
         row
         for row in geometry.lattice
@@ -162,14 +63,13 @@ def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
     covered, _ = coverage_select(
         [{**row, "geometry": "valid"} for row in free_lattice],
         geometry.task["anchor_world"],
-        ctx.recipe.max_final_stations,
+        limit,
     )
     order = covered + free_lattice
     seen, selected, checked = set(), [], []
     initializations = 0
     floor_triangles = room_triangles(sim)
-    cfg = ctx.station_config
-    visibility_context = TaskVisibility(sim, geometry.task, cfg) if measure_visibility else nullcontext(None)
+    visibility_context = TaskVisibility(sim, geometry.task, config) if measure_visibility else nullcontext(None)
     with visibility_context as visibility:
         for candidate in order:
             identity = candidate["station_id"]
@@ -203,14 +103,14 @@ def select_task_stations(ctx, sim, geometry, *, measure_visibility=True):
             checked.append(row)
             if row["geometry"] == "valid":
                 selected.append(row)
-            if len(selected) == ctx.recipe.max_final_stations:
+            if len(selected) == limit:
                 break
     return selected, {
         "candidates_checked": len(checked),
         "selected_count": len(selected),
         "new_initializations": initializations,
         "reused_initializations": len(checked) - initializations,
-        "pose_budget_fraction": len(selected) / ctx.recipe.max_final_stations,
+        "pose_budget_fraction": len(selected) / limit,
         "lattice_count": len(geometry.lattice),
         "free_lattice_count": len(free_lattice),
         "visibility_measured": measure_visibility,
@@ -272,3 +172,22 @@ def coverage_select(stations, anchor, limit=20):
         "radial_bins": 2,
         "features": "normalized_xy, cos_bearing, sin_bearing, 2*normalized_range",
     }
+
+
+def sample_scene(scene, station_config, limit):
+    """Candidate stations of one library scene (edited scenes also measure target visibility)."""
+    with open_scene(scene) as sim:
+        try:
+            geometry = task_geometry(sim, scene["task"], station_config)
+        except ValueError as exc:
+            return {"scene_id": scene["scene_id"], "status": "rejected", "reason": str(exc)}
+        stations, sampling = select_task_stations(
+            sim, geometry, station_config, limit, measure_visibility=scene["proposal_intent"] == "edit"
+        )
+    for station in stations:
+        cell = geometry.navigation.cell(station["xy"])
+        station["clearance_base_m"] = float(geometry.clearance_base[cell]) if cell is not None else None
+    row = {"scene_id": scene["scene_id"], "status": "accepted" if stations else "rejected"}
+    if not stations:
+        row["reason"] = "no_valid_initial_stations"
+    return {**row, "stations": stations, "station_sampling": sampling}

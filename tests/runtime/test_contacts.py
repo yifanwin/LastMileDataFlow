@@ -11,7 +11,7 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
 from lastmile_dataflow.data.evaluation.calibration import aggregate
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
@@ -25,9 +25,9 @@ from lastmile_dataflow.runtime.outcomes.contacts import (
     simulation_failure,
 )
 from lastmile_dataflow.runtime.outcomes.task import attribute
-from lastmile_dataflow.scenes.stations.initialization import inspect_state
+from lastmile_dataflow.sim.placement import inspect_state
 from lastmile_dataflow.runtime.outcomes.task import constraint_failure, evaluate_pick
-from lastmile_dataflow.scenes.stations.sampling import robot_contacts
+from lastmile_dataflow.sim.placement import robot_contacts
 from tests.helpers import fixtures, make_sim
 
 CONTACT = {
@@ -121,7 +121,7 @@ class ContactPolicyTests(unittest.TestCase):
         shallow = dict(CONTACT, distance_m=-0.0001)
         frame = SimpleNamespace(observations=lambda: [shallow])
         with patch(
-            "lastmile_dataflow.scenes.stations.sampling.ContactSampler",
+            "lastmile_dataflow.sim.placement.ContactSampler",
             return_value=SimpleNamespace(capture=lambda **_: frame),
         ):
             self.assertEqual(robot_contacts(None), [])

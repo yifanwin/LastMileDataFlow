@@ -1,11 +1,13 @@
 """小型 JSON/JSONL 读写；数组单独存 NPZ。"""
 
 from dataclasses import asdict, is_dataclass
-from dataclasses import asdict, is_dataclass
 import json
 from pathlib import Path
 
 import numpy as np
+from dataclasses import dataclass
+import os
+import yaml
 
 
 def jsonable(value):
@@ -69,3 +71,50 @@ def create_run(path, config, *, prepared=False):
     path.mkdir(parents=True, exist_ok=prepared)
     write_json(path / "config.json", config)
     return path
+
+
+REPO_ROOT = Path(__file__).absolute().parents[3]
+
+
+def repo_path(value):
+    # Do not dereference the virtual-environment Python symlink.
+    return os.path.abspath(REPO_ROOT / Path(value).expanduser())
+
+
+@dataclass(frozen=True)
+class LocalConfig:
+    assets_dir: Path | None = None
+
+
+def load_local_config():
+    """Optional machine defaults (configs/local.yaml); paths are relative to the repository."""
+    path = REPO_ROOT / "configs/local.yaml"
+    if not path.exists():
+        return LocalConfig()
+    return LocalConfig(**{key: Path(value) for key, value in read_config(path, repo_fields=("assets_dir",)).items()})
+
+
+def read_config(path, *, data_fields=(), repo_fields=()):
+    """Read one YAML input config; resolve only the fields explicitly named by the owning loader.
+
+    Run outputs (config.json, summary.json …) are JSON and are read with ``utils.io.read_json``.
+    """
+    path = Path(repo_path(path))
+    if path.suffix not in (".yaml", ".yml"):
+        raise ValueError(f"input configs are YAML: {path}")
+    value = yaml.safe_load(path.read_text()) or {}
+    root = value.pop("data_root", None)
+    if data_fields:
+        if not root:
+            raise ValueError("data_root must be configured explicitly")
+        root = Path(repo_path(root))
+        for key in data_fields:
+            item = value.get(key)
+            if isinstance(item, dict):
+                value[key] = {name: os.path.abspath(root / Path(p).expanduser()) for name, p in item.items()}
+            elif item:
+                value[key] = os.path.abspath(root / Path(item).expanduser())
+    for key in repo_fields:
+        if value.get(key):
+            value[key] = repo_path(value[key])
+    return value

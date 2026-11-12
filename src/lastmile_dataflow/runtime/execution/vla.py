@@ -37,7 +37,7 @@ from .attempt import (
 )
 from .lifecycle import isolated_episode, mark_episode_phase
 from .navigation import navigate
-from .protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 
 MOLMOBOT_RESOLUTION = (1024, 576)
 MOLMOBOT_CAMERAS = ("wrist_camera_r", "head_camera", "wrist_camera_l")

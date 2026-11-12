@@ -4,7 +4,7 @@ This is separate from unittest. Scripted actions pass through the identical
 7D/DLS/servo/physics path as the Actor, without planner prechecks.
 """
 
-from lastmile_dataflow.gpu import isolate_from_argv
+from lastmile_dataflow.station_map.rl.devices import isolate_from_argv
 
 isolate_from_argv()  # before any CUDA library loads
 
@@ -18,10 +18,11 @@ import time
 import numpy as np
 import torch
 
-from lastmile_dataflow.config import REPO_ROOT, read_config
+from lastmile_dataflow.utils.io import REPO_ROOT, read_config
 from lastmile_dataflow.runtime.rl.environment import StationEnv
 from lastmile_dataflow.workflows.rl_evaluation import reset_stations
-from lastmile_dataflow.workflows.rl_training import graph_observation, seed_all
+from lastmile_dataflow.policies.sac.agent import seed_all
+from lastmile_dataflow.scenes.rl_observation import graph_observation
 from lastmile_dataflow.policies.sac.agent import SAC, SACConfig
 from lastmile_dataflow.policies.sac.replay import Replay, Transition
 

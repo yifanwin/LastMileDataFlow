@@ -13,7 +13,7 @@ from PIL import Image
 from lastmile_dataflow.data.visualization import scene_preview as preview
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.utils.io import append_row
-from tests.helpers import fixtures
+from tests.helpers import add_scene, fixtures
 
 
 class ScenePreviewTests(unittest.TestCase):
@@ -95,7 +95,7 @@ class ScenePreviewTests(unittest.TestCase):
 
     def test_index_links_image_reports_rejection_and_keeps_records_untouched(self):
         record_file = self.root / "scenes.jsonl"
-        append_row(record_file, self.record)
+        add_scene(self.root, self.record)
         append_row(record_file, {"scene_id": "rejected", "status": "rejected", "reason": "budget < limit"})
         append_row(
             record_file,
@@ -118,8 +118,19 @@ class ScenePreviewTests(unittest.TestCase):
         self.assertIn("skipped-task · skipped · 意图 articulated_interaction", page)
         self.assertEqual(record_file.read_bytes(), original)
 
+    def test_station_rejection_is_reported(self):
+        append_row(self.root / "scenes.jsonl", {k: v for k, v in self.record.items() if k != "stations"})
+        append_row(
+            self.root / "stations.jsonl",
+            {"scene_id": self.record["scene_id"], "status": "rejected", "reason": "no_valid_initial_stations"},
+        )
+        with patch.object(preview, "render_scene_preview") as render:
+            index = preview.export_scene_previews(self.root)
+        render.assert_not_called()
+        self.assertIn("no_valid_initial_stations", index.read_text())
+
     def test_render_failure_does_not_change_build_status(self):
-        append_row(self.root / "scenes.jsonl", self.record)
+        add_scene(self.root, self.record)
         with (
             patch.object(preview, "render_scene_preview", side_effect=RuntimeError("GL unavailable")),
             self.assertLogs(preview.logger, level="ERROR"),

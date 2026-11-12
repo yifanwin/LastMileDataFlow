@@ -8,7 +8,8 @@ import xml.etree.ElementTree as ET
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.config import PandaOmronConfig, robot_config
+from lastmile_dataflow.robots.registry import robot_config
+from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.runtime.control.interface import RobotCommand
 from lastmile_dataflow.runtime.control.panda_omron import PandaOmronAdapter
 from lastmile_dataflow.runtime.control.action import InvalidAction
@@ -70,7 +71,7 @@ class RobotInterfaceTests(unittest.TestCase):
                 sim.close()
 
     def test_scaled_factory_preserves_frames_limits_and_xml_roundtrip(self):
-        from lastmile_dataflow.runtime.control.robot import load_robot_spec
+        from lastmile_dataflow.robots.registry import load_robot_spec
 
         xml = """<mujoco><worldbody><frame pos=".2 0 0">
           <body pos="0 0 .3"><joint type="slide" range="0 .04"/>
@@ -78,8 +79,8 @@ class RobotInterfaceTests(unittest.TestCase):
           </frame></worldbody></mujoco>"""
         for scale in (0.9, 0.8):
             with (
-                patch("lastmile_dataflow.runtime.control.robot.load_spec", return_value=mujoco.MjSpec.from_string(xml)),
-                patch("lastmile_dataflow.runtime.control.robot.prepare_robot_spec"),
+                patch("lastmile_dataflow.robots.registry.load_spec", return_value=mujoco.MjSpec.from_string(xml)),
+                patch("lastmile_dataflow.robots.registry.prepare_robot_spec"),
             ):
                 spec = load_robot_spec(PandaOmronConfig("unused"), scale)
             model = spec.compile()

@@ -10,10 +10,10 @@ import time
 import mujoco
 import numpy as np
 
-from ...runtime.construction.session import clone_preparation
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
 from ...runtime.outcomes.contacts import ContactSampler, NavigationContacts
-from ...scenes.stations.initialization import floor_support, room_triangles
-from ...scenes.stations.sampling import place_frozen_station
+from lastmile_dataflow.scenes.geometry import floor_support, room_triangles
+from lastmile_dataflow.sim.placement import place_frozen_station
 
 
 NAVIGATION_PROTOCOL = "soft_clearance_v1"

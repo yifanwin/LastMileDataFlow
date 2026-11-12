@@ -6,8 +6,9 @@ from unittest.mock import Mock, patch
 
 from lastmile_dataflow.data.evaluation.benchmark import BenchmarkConfig
 from lastmile_dataflow.policies.molmobot import MolmoBotConfig
-from lastmile_dataflow.runtime.construction.session import clone_preparation
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
 from lastmile_dataflow.utils.io import read_json, rows, create_run, write_rows, write_json
+from lastmile_dataflow.lastmile_benchmark import evaluate as evaluation
 from lastmile_dataflow.workflows import lastmilebench as workflow
 from tests.helpers import DatasetTestCase
 
@@ -56,10 +57,7 @@ class BenchmarkProgressTests(DatasetTestCase):
         )
         config_path = self.root / "benchmark.yaml"
         write_json(config_path, asdict(BenchmarkConfig(navigation_whole_body=False)))
-        with patch.object(workflow, "native_scene") as convert:
-            root = workflow.build(dataset, self.root / "bench", calibration_dir=calibration, config_path=config_path)
-        convert.assert_not_called()
-        return root
+        return workflow.build(dataset, self.root / "bench", calibration_dir=calibration, config_path=config_path)
 
     def test_build_keeps_all_calibrated_starts_and_private_oracle(self):
         with self.assertLogs(workflow.logger, level="INFO") as logs:
@@ -82,12 +80,12 @@ class BenchmarkProgressTests(DatasetTestCase):
         policy = Mock(config=self.policy_config)
         output = self.root / "evaluation"
         with (
-            patch.object(workflow, "load_policy_config", return_value=self.policy_config),
-            patch.object(workflow, "native_scene", side_effect=clone_preparation),
-            patch.object(workflow, "backend", return_value="molmobot"),
-            patch.object(workflow, "create_policy", return_value=policy),
+            patch.object(evaluation, "load_policy_config", return_value=self.policy_config),
+            patch.object(evaluation, "native_scene", side_effect=clone_preparation),
+            patch.object(evaluation, "backend", return_value="molmobot"),
+            patch.object(evaluation, "create_policy", return_value=policy),
             patch.object(
-                workflow,
+                evaluation,
                 "run_vla_attempt",
                 side_effect=[
                     {"status": "success", "reason": "fixture", "executed_steps": 1, "recording_complete": True},
@@ -96,7 +94,7 @@ class BenchmarkProgressTests(DatasetTestCase):
             ),
             self.assertRaisesRegex(OSError, "fixture write error"),
         ):
-            workflow.evaluate(bench, output, "unused-policy.json")
+            evaluation.evaluate(bench, output, "unused-policy.json")
         policy.close.assert_called_once()
         self.assertEqual(len(rows(output / "results.jsonl")), 1)
         summary = read_json(output / "summary.json")
@@ -110,12 +108,12 @@ class BenchmarkProgressTests(DatasetTestCase):
         bench = self.make_benchmark()
         output = self.root / "unsupported-evaluation"
         with (
-            patch.object(workflow, "load_policy_config", return_value=self.policy_config),
-            patch.object(workflow, "robot_config", return_value=SimpleNamespace(name="panda_omron")),
-            patch.object(workflow, "backend", return_value="molmobot"),
-            patch.object(workflow, "create_policy") as client,
+            patch.object(evaluation, "load_policy_config", return_value=self.policy_config),
+            patch.object(evaluation, "robot_config", return_value=SimpleNamespace(name="panda_omron")),
+            patch.object(evaluation, "backend", return_value="molmobot"),
+            patch.object(evaluation, "create_policy") as client,
         ):
-            workflow.evaluate(bench, output, "unused-policy.json")
+            evaluation.evaluate(bench, output, "unused-policy.json")
         client.assert_not_called()
         summary = read_json(output / "summary.json")
         self.assertEqual(summary["not_executed"], 2)

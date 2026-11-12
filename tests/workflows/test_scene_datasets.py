@@ -60,7 +60,6 @@ class SceneDatasetTests(DatasetTestCase):
             patch.object(workflow, "load_scene_recipe", return_value=self.recipe),
             patch.object(workflow, "load_robot_config", return_value=self.robot),
             patch.object(workflow, "_build_house", side_effect=worker),
-            patch.object(workflow, "export_scene_previews"),
         ):
             return workflow.build_scenes("unused", self.root / name, gpu_ids=[6])
 

@@ -6,17 +6,19 @@ import logging
 from pathlib import Path
 
 import mujoco
+
+from lastmile_dataflow.scenes.dataset import scene_records
 import numpy as np
 from PIL import Image, ImageDraw
 
-from ...config import robot_config
+from lastmile_dataflow.robots.registry import robot_config
 from ...runtime.construction.session import obstacle_name
 from ...runtime.simulation import Simulation
 from ...scenes.geometry import geom_points
 from ...utils.logging_config import Progress
-from ...utils.io import read_json, rows
+from ...utils.io import read_json
 from ..rendering.cameras import CameraRig, ViewConfig, body_geoms, geom_mask, rendered_camera
-from .fonts import cjk_available, font, label
+from lastmile_dataflow.utils.figures import cjk_available, font, label
 
 logger = logging.getLogger(__name__)
 WIDTH, HEIGHT = 640, 480
@@ -290,7 +292,7 @@ def export_scene_previews(dataset):
     """Append human-readable assets only; never rewrite scene records or snapshots."""
     root = Path(dataset)
     cards = []
-    records = rows(root / "scenes.jsonl")
+    records = scene_records(root)
     progress = Progress(logger)
     rendered = failed = 0
     logger.info("开始导出场景预览 记录数=%s 输出=%s", len(records), root / "index.html", extra={"progress": True})

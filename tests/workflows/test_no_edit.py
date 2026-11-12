@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lastmile_dataflow.config import StationRun
+from lastmile_dataflow.station_map.config import StationRun
 from lastmile_dataflow.workflows.station_map import trial_record
 from lastmile_dataflow.scenes.edits.search import build_task
 from lastmile_dataflow.scenes.dataset import SceneRecipe

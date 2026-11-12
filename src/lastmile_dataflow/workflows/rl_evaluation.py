@@ -6,10 +6,14 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from lastmile_dataflow.utils.figures import plt
 from ..data.evaluation.station_q import action_sampled_q, select_acceptance_stations, summarize_trials
 from ..policies.sac.agent import SAC
 from ..scenes.rl_observation import REWARD_COMPONENTS
-from .rl_training import graph_observation, seed_all
+from lastmile_dataflow.policies.sac.agent import seed_all
+from lastmile_dataflow.scenes.rl_observation import graph_observation
+from lastmile_dataflow.data.visualization.sac_monitor import station_evaluation
+from lastmile_dataflow.data.rendering.rl_capture import RolloutCapture
 
 
 def reset_stations(env, station_ids, env_ids=None):
@@ -157,7 +161,6 @@ def stage_summary(rows):
 
 def monitor_validation(agent, env, config, transitions, output, force_video=False):
     """Fixed validation points/seeds and frozen online Q throughout evaluation."""
-    from ..data.visualization.sac_monitor import station_evaluation
 
     output = Path(output)
     analysis, views = output / "analysis", output / "views"
@@ -192,16 +195,12 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
         for repeat in range(settings["validation_rollouts_per_station"]):
             capture = None
             if record_video:
-                from ..data.rendering.rl_capture import RolloutCapture
-
                 capture = RolloutCapture(output, transitions, config, representatives=True)
                 captures.append(capture)
             trials.extend(
                 validation_rollout(agent, env, station_ids, seed + repeat, config["sac"]["gamma"], capture=capture)
             )
         if record_video:
-            from ..data.rendering.rl_capture import RolloutCapture
-
             training_id = int(env.task.pool[0])
             fixed = [training_id, station_ids[0]]
             for deterministic in (False, True):
@@ -286,11 +285,6 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
 
 
 def plot_scores(rows, path, q_limits):
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
     legal = [r for r in rows if r["valid"]]
     if not legal:
         return
@@ -408,7 +402,6 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         summary["policy"] = "initialization_baseline" if baseline else "trained_stochastic_actor"
         summary["checkpoint"] = str(Path(checkpoint).absolute())
         (output / "summary.json").write_text(json.dumps(summary, indent=2))
-        from ..data.visualization.sac_monitor import station_evaluation
 
         station_evaluation(
             scored["stations"],

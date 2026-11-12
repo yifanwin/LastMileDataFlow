@@ -10,13 +10,13 @@ import numpy as np
 import yaml
 
 from ...utils.io import write_json
-from ...runtime.execution_config import NATIVE_MAX_ATTEMPTS
+from lastmile_dataflow.planning.curobo.tracing import NATIVE_MAX_ATTEMPTS
 from ...utils.logging_config import trial_progress
 
 from ..waypoints import PlanResult, GRASP_APPROACH_DISTANCE_M
-from ..evidence import phase_evidence
+from lastmile_dataflow.planning.curobo.tracing import phase_evidence
 from ...scenes.geometry import body_pose, tcp_pose, pose7, descendants
-from ..robots import planning_model
+from lastmile_dataflow.robots.registry import planning_model
 from ..robots.common import (
     ordered_points,
     retime_points,

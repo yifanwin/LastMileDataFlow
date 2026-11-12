@@ -11,11 +11,12 @@ from ...planning.curobo.planner import V2Planner
 from ...planning.waypoints import GRASP_APPROACH_DISTANCE_M
 from ...scenes.geometry import body_pose, tcp_pose
 from ...utils.io import write_json
-from ..execution_config import NATIVE_MAX_ATTEMPTS, PLANNER_BACKEND
+from ..execution_config import PLANNER_BACKEND
+from lastmile_dataflow.planning.curobo.tracing import NATIVE_MAX_ATTEMPTS
 from ..outcomes.task import PickMonitor, evaluate_open
 from .checkpoint import hold_pick, timed
 from .context import planner_options
-from .protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 
 
 def _candidate_score(sim, reference, method, candidate):

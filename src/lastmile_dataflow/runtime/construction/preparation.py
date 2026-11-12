@@ -1,19 +1,16 @@
 """Unbound construction preparation and bounded, real physical settling."""
 
 from collections import deque
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 import time
 
 import mujoco
 import numpy as np
 
-from ...config import CollectionConfig
-from ...utils.io import write_json
 from ...scenes.geometry import quat_angle
-from ...scenes.graph import build_scene_graph, GraphConfig
-from ...scenes.stations.initialization import initialize_robot
-from ..simulation import InitializationError, Simulation, closed_on_error
+from ...scenes.graph import GraphConfig
+from ..simulation import closed_on_error
+from lastmile_dataflow.runtime.construction.state import migrate_state
 
 
 @dataclass(frozen=True)
@@ -194,81 +191,8 @@ def settle_scene(sim, config=None, *, deadline=None, require_stability=True, sta
     )
 
 
-class PreparedScene:
-    def __init__(self, sim, initialization, settling, *, graph_config=None):
-        self.sim, self.initialization, self.settling = sim, initialization, settling
-        self.graph_config = graph_config or GraphConfig()
-        self.graph = build_scene_graph(
-            sim, stage="settled" if settling.stable else "observed", config=self.graph_config
-        )
-        self.station = self.graph.nodes["station_start"]["pose"]
-        self.revision = 0
-
-    def refresh(self):
-        preparation_guard(self.sim)
-        self.revision += 1
-        self.graph = build_scene_graph(self.sim, revision=self.revision, station=self.station, config=self.graph_config)
-        return self.graph
-
-    def save(self, path):
-        preparation_guard(self.sim)
-        path = Path(path)
-        path.mkdir(parents=True, exist_ok=False)
-        self.sim.freeze(path / "scene")
-        write_json(path / "graph.json", self.graph.to_dict())
-        write_json(
-            path / "preparation.json",
-            {
-                "initialization": self.initialization,
-                "settling": self.settling,
-                "graph_config": asdict(self.graph_config),
-            },
-        )
-
-    def close(self):
-        self.sim.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.close()
-
-
-def prepare_scene(
-    source,
-    robot_config,
-    collection=None,
-    *,
-    base=None,
-    settle_config=None,
-    path=None,
-    deadline=None,
-    initial_snapshot=None,
-):
-    if deadline is not None and time.monotonic() >= deadline:
-        raise TimeoutError("construction wall-clock budget exhausted")
-    if initial_snapshot is not None:
-        sim = Simulation.from_snapshot(initial_snapshot, robot_config, target=None)
-        sim.spec = None  # Source spec is materialized only for structural edits.
-    else:
-        sim = Simulation.from_source(source, robot_config, target=None)
-    with closed_on_error(sim):
-        if initial_snapshot is not None and (
-            sim.source.scene_id != source.scene_id
-            or Path(sim.source.xml_path).resolve() != Path(source.xml_path).resolve()
-        ):
-            raise ValueError("snapshot source does not match requested scene")
-        initialization = initialize_robot(sim, collection or CollectionConfig(), base=base)
-        if initialization["status"] != "valid":
-            raise InitializationError("robot initialization failed: " + initialization["reason"])
-        config = settle_config or SettleConfig()
-        settling = settle_scene(sim, config, deadline=deadline, require_stability=config.require_source_stability)
-        if not settling.valid:
-            raise InitializationError(
-                "baseline is unstable or physically invalid", {"stage": "settling", "settling": settling}
-            )
-        prepared = PreparedScene(sim, initialization, settling, graph_config=config.graph_config())
-        if path is not None:
-            prepared.save(path)
-    return prepared
+def clone_preparation(sim):
+    preparation_guard(sim)
+    with closed_on_error(sim.derive()) as new:
+        migrate_state(sim, new)
+    return new

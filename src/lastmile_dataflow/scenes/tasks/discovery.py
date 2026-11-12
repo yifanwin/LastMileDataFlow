@@ -6,6 +6,8 @@ import mujoco
 import numpy as np
 
 from ..geometry import body_points, body_pose, descendants, geom_points
+import math
+from ..geometry import collision_geoms
 
 
 LABELS = {
@@ -46,38 +48,6 @@ def local_bounds(sim, body):
     transform = body_pose(sim, body)
     local = (points - transform[:3, 3]) @ transform[:3, :3]
     return local.min(axis=0), local.max(axis=0)
-
-
-def robot_footprint(sim, *, whole_body=False):
-    """Actual base and wheel geometry projected into the base frame."""
-    base = body_pose(sim, sim.model.body(sim.robot.config.namespace + sim.robot.base_body).id)
-    base[:2, 3] = sim.robot.base_pose()[:2]
-    points = []
-    for g in range(sim.model.ngeom):
-        name = sim.model.body(int(sim.model.geom_bodyid[g])).name
-        if (
-            whole_body
-            and name.startswith(sim.robot.config.namespace)
-            and (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g])
-            or not whole_body
-            and (
-                name == sim.robot.config.namespace + sim.robot.base_body
-                or name.startswith(sim.robot.config.namespace)
-                and "wheel" in name.lower()
-            )
-        ):
-            points.append((geom_points(sim, g) - base[:3, 3]) @ base[:3, :3])
-    if not points:
-        raise ValueError("missing chassis geometry")
-    points = np.concatenate(points)
-    return {
-        "radius_m": float(np.linalg.norm(points[:, :2], axis=1).max()),
-        "min": points.min(axis=0).tolist(),
-        "max": points.max(axis=0).tolist(),
-        "method": "held_whole_body_enclosing_circle"
-        if whole_body
-        else "base_origin_enclosing_circle_of_base_and_wheel_geoms",
-    }
 
 
 def _is_free(model, body):
@@ -298,3 +268,73 @@ def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020, *, al
         if not allow_fallback or task.get("require_data_grasps"):
             return []
     return _pinch_grasps(task, pinch_inset_m, empty_sources)
+
+
+def disk_samples(anchor, radius, spacing):
+    if not np.isfinite([*anchor[:2], radius, spacing]).all() or radius <= 0 or spacing <= 0:
+        raise ValueError("invalid disk lattice")
+    result = []
+    extent = math.floor(radius / spacing)
+    for iy in range(-extent, extent + 1):
+        for ix in range(-extent, extent + 1):
+            delta = spacing * np.array([ix, iy], float)
+            if np.dot(delta, delta) > radius**2 + 1e-9:
+                continue
+            xy = np.asarray(anchor[:2]) + delta
+            identity = f"S{len(result):04d}"
+            result.append(
+                {
+                    "station_id": identity,
+                    "xy_id": identity,
+                    "xy": xy.tolist(),
+                    "grid_index": [ix, iy],
+                    "yaw_source": "target_facing",
+                }
+            )
+    return result
+
+
+def task_support_obstacles(sim, task):
+    """Conservative support envelopes from actual geometry, not success labels.
+
+    Parent metadata is a hint only: require an overlapping surface immediately
+    below the target. Without a hint, search collision surfaces under the target.
+    Open tasks reserve their articulated furniture instance instead.
+    """
+    target = sim.model.body(task["target_body"]).id
+    target_bodies = descendants(sim.model, target)
+    target_lo = body_points(sim, target).min(axis=0)
+    anchor = np.asarray(task["anchor_world"])
+    hint = next((e.get("parent_instance_id") for e in sim.catalog if e["instance_id"] == task["instance_id"]), None)
+    candidates = []
+    for entry in sim.catalog:
+        is_open = task["operation"] == "open" and entry["instance_id"] == task["instance_id"]
+        if (entry["body_id"] in target_bodies and not is_open) or entry["mjcf_body"].startswith("robot_0/"):
+            continue
+        points = [
+            geom_points(sim, g)
+            for g in collision_geoms(sim, entry["body_id"])
+            if is_open or int(sim.model.geom_bodyid[g]) not in target_bodies
+        ]
+        if not points:
+            continue
+        tops = []
+        for pts in points:
+            lo, hi = pts.min(axis=0), pts.max(axis=0)
+            if np.all(anchor[:2] >= lo[:2]) and np.all(anchor[:2] <= hi[:2]) and abs(hi[2] - target_lo[2]) <= 0.05:
+                tops.append(hi[2])
+        if not tops and not is_open:
+            continue
+        pts = np.concatenate(points)
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        obstacle = {
+            "body": entry["mjcf_body"],
+            "min": lo.tolist(),
+            "max": hi.tolist(),
+            "kind": "support",
+            "evidence": "open_task_furniture" if is_open else "surface_below_target_AABB",
+        }
+        candidates.append((is_open or entry["instance_id"] == hint, max(tops, default=hi[2]), obstacle))
+    if not candidates:
+        return []
+    return [max(candidates, key=lambda item: item[:2])[2]]

@@ -10,7 +10,8 @@ import numpy as np
 
 from ..evaluation.recovery import RecoveryRegion
 from ...utils.io import read_json, rows
-from .plot import grid_extent, plt, save_figure
+from lastmile_dataflow.utils.figures import plt
+from lastmile_dataflow.utils.figures import grid_extent, save_figure
 
 
 def _save(fig, target):

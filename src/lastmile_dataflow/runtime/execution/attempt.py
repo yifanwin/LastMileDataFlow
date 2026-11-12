@@ -8,7 +8,7 @@ from dataclasses import asdict
 import traceback
 
 from ...data.rendering.cameras import ThirdPersonCamera
-from ...scenes.stations.sampling import place_frozen_station
+from lastmile_dataflow.sim.placement import place_frozen_station
 from ..outcomes.contacts import SIMULATION_FAILURES
 from .context import clone_sim
 from .lifecycle import classify_episode_exception, episode_phase

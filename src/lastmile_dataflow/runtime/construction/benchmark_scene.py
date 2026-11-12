@@ -7,7 +7,7 @@ import mujoco
 import numpy as np
 
 from ...scenes.loading.mjcf import load_spec
-from ..control.robot import prepare_robot_spec
+from lastmile_dataflow.robots.registry import prepare_robot_spec
 from ..control.robot import NATIVE_CAMERA_FOVY
 from ..simulation import NATIVE_PROFILE, closed_on_error
 

@@ -13,8 +13,8 @@ from .protocol import SimulationState
 from ..control.interface import RobotCommand
 from ..outcomes.contacts import simulation_failure
 from ..simulation import InitializationError
-from ...scenes.stations.initialization import floor_support
-from ...scenes.stations.sampling import place_frozen_station, robot_contacts
+from lastmile_dataflow.scenes.geometry import floor_support
+from lastmile_dataflow.sim.placement import place_frozen_station, robot_contacts
 from ...utils.io import write_json
 
 

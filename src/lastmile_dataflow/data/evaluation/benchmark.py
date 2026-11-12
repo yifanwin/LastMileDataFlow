@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import math
-from ...config import read_config
+from lastmile_dataflow.utils.io import read_config
 from collections import Counter
 
 import numpy as np

@@ -9,14 +9,18 @@ import time
 import numpy as np
 
 from ...runtime.control.panda_robocasa import robocasa_camera_calibration
-from ...planning.navigation.astar import scene_occupancy, task_support_obstacles
+from ...planning.navigation.astar import scene_occupancy
+from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
 from ...runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
-from ...runtime.construction.session import ObstacleEditSession, clone_preparation
+from ...runtime.construction.session import ObstacleEditSession
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
 from ...runtime.simulation import InitializationError
 from ..geometry import body_points, body_pose
 from ..loading.assets import AssetSelector, RuntimeGeometryCache
-from ..stations.sampling import disk_samples, park_robot, select_task_stations
-from ..tasks.discovery import grasp_candidates, robot_footprint
+from ..tasks.discovery import disk_samples
+from lastmile_dataflow.sim.placement import park_robot
+from ..tasks.discovery import grasp_candidates
+from lastmile_dataflow.sim.placement import robot_footprint
 from .checks import proposal_scene
 from .placement import BuildProposal, propose_obstacles, resolve_assets, support_regions
 
@@ -195,11 +199,9 @@ def _freeze_natural_baseline(ctx, root, prefix, baseline_cache):
 
 
 def build_natural_task(ctx, root, *, house, seed, baseline_cache=None):
-    """Freeze the unedited task baseline and its valid stations; no difficulty construction."""
+    """Freeze the unedited task baseline; stations are sampled in a later, separate step."""
     prefix = f"{ctx.baseline.source.split}{house}-{ctx.task['task_id']}"
-    scene_id = f"{prefix}-no_edit-v000"
     proposal = BuildProposal("no_edit-000", "no_edit")
-    stations, sampling = select_task_stations(ctx, ctx.baseline, ctx.geometry, measure_visibility=False)
     metrics = {
         "proposals": 1,
         "cheap_rejected": 0,
@@ -207,12 +209,11 @@ def build_natural_task(ctx, root, *, house, seed, baseline_cache=None):
         "physical_trials": 0,
         "repairs": 0,
         "asset_compiles": 0,
-        "station_initializations": sampling["new_initializations"],
-        "proxy_initializations": 0,
-        "final_station_initializations": sampling["new_initializations"],
     }
-    record = {
-        "scene_id": scene_id,
+    _freeze_natural_baseline(ctx, root, prefix, baseline_cache)
+    reused = baseline_cache is not None and baseline_cache.get("baseline", {}).get("path") == ctx.baseline_snapshot
+    return {
+        "scene_id": f"{prefix}-no_edit-v000",
         "proposal_intent": "no_edit",
         "build_metrics": metrics,
         "house": house,
@@ -220,51 +221,27 @@ def build_natural_task(ctx, root, *, house, seed, baseline_cache=None):
         "seed": seed,
         "source_split": ctx.baseline.source.split,
         "dataset_split": ctx.recipe.house_splits[str(house)],
-    }
-    if not stations:
-        return {
-            **record,
-            "status": "rejected",
-            "reason": "no_valid_initial_stations",
-            "last_checks": {"station_evidence": sampling["rejected_stations"]},
-        }
-    _freeze_natural_baseline(ctx, root, prefix, baseline_cache)
-    reused = baseline_cache is not None and baseline_cache.get("baseline", {}).get("path") == ctx.baseline_snapshot
-    for station in stations:
-        cell = ctx.geometry.navigation.cell(station["xy"])
-        station["clearance_base_m"] = float(ctx.geometry.clearance_base[cell]) if cell is not None else None
-    return {
-        **record,
         "status": "accepted",
         "scene": str(ctx.baseline_snapshot),
         "task": ctx.geometry.task,
-        "stations": stations,
-        "station_hints": [],
         "edits": proposal.runtime_changes(),
         "proposal_metadata": {"construction": "no_edit", "baseline_reused": reused},
         "construction_checks": {"valid": True, "path": "no_edit"},
-        "station_sampling": sampling,
         "task_completion": "unknown",
     }
 
 
-def _freeze_candidate(ctx, sim, geometry, proposal, stations, sampling, checks, root, scene_id):
+def _freeze_candidate(ctx, sim, geometry, proposal, checks, root, scene_id):
     location = Path("scene-files") / scene_id
     sim.freeze(Path(root) / location)
-    for station in stations:
-        cell = geometry.navigation.cell(station["xy"])
-        station["clearance_base_m"] = float(geometry.clearance_base[cell]) if cell is not None else None
     before = None if ctx.baseline_snapshot is None else str(ctx.baseline_snapshot)
     return {
         "scene": str(location),
         "before_scene": before,
         "task": geometry.task,
-        "stations": stations,
-        "station_hints": [],
         "edits": proposal.runtime_changes(),
         "proposal_metadata": {},
         "construction_checks": checks,
-        "station_sampling": sampling,
         "task_completion": "unknown",
     }
 
@@ -272,7 +249,7 @@ def _freeze_candidate(ctx, sim, geometry, proposal, stations, sampling, checks, 
 def search_edit(ctx, root, scene_id, rng):
     deadline = time.monotonic() + ctx.settings.variant_timeout_s
     rejected = {}
-    metrics = {"proposals": 0, "physical_trials": 0, "station_initializations": 0}
+    metrics = {"proposals": 0, "physical_trials": 0}
     result = {
         "scene_id": scene_id,
         "proposal_intent": "edit",
@@ -292,19 +269,12 @@ def search_edit(ctx, root, scene_id, rng):
                 metrics["physical_trials"] += 1
                 with proposal_scene(ctx, proposal, deadline=deadline) as (sim, geometry, checks):
                     if checks["valid"]:
-                        stations, sampling = select_task_stations(ctx, sim, geometry)
-                        metrics["station_initializations"] += sampling["new_initializations"]
-                        if stations:
-                            return {
-                                **result,
-                                **_freeze_candidate(
-                                    ctx, sim, geometry, proposal, stations, sampling, checks, root, scene_id
-                                ),
-                                "status": "accepted",
-                            }
-                        reason = "no_valid_initial_stations"
-                    else:
-                        reason = checks.get("reason", "physical_validation_failed")
+                        return {
+                            **result,
+                            **_freeze_candidate(ctx, sim, geometry, proposal, checks, root, scene_id),
+                            "status": "accepted",
+                        }
+                    reason = checks.get("reason", "physical_validation_failed")
             except TimeoutError:
                 return {**result, "reason": "variant_timeout"}
             except ValueError as exc:

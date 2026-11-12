@@ -11,8 +11,8 @@ from lastmile_dataflow.planning.robots.panda_omron import (
     ASSETS,
     ARM_NAMES,
     FULL_NAMES,
-    SCALE,
 )
+from lastmile_dataflow.runtime.control.panda_omron import SCALE
 from tests.runtime.test_robot_interface import panda_adapter
 
 

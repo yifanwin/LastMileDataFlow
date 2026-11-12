@@ -1,5 +1,6 @@
 """构建事务、静置、源场景影响与回滚。"""
 
+from contextlib import closing
 import copy
 import tempfile
 import unittest
@@ -9,18 +10,13 @@ from unittest.mock import patch
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.utils.io import write_json
 from lastmile_dataflow.runtime.construction.preparation import (
     SettleConfig,
-    prepare_scene,
     settle_scene,
 )
-from lastmile_dataflow.runtime.construction.session import (
-    ObstacleEditSession,
-    clone_preparation,
-    matched_control,
-)
-from lastmile_dataflow.runtime.simulation import InitializationError, Simulation
+from lastmile_dataflow.runtime.construction.session import ObstacleEditSession, matched_control
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
+from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.edits.checks import (
     collision_pairs,
     load_support,
@@ -28,7 +24,7 @@ from lastmile_dataflow.scenes.edits.checks import (
 )
 from lastmile_dataflow.scenes.edits.checks import PhysicalLimits
 from lastmile_dataflow.scenes.loading.assets import RuntimeGeometryCache
-from tests.helpers import fixtures, table_scene
+from tests.helpers import fixtures, settled_scene, table_scene
 
 
 def config():
@@ -189,19 +185,19 @@ class SettlingTests(unittest.TestCase):
                 velocity[3] = 100.0
 
         with patch("mujoco.mj_objectVelocity", side_effect=unstable_neighbor):
-            with self.assertRaises(InitializationError):
-                prepare_scene(self.source, self.robot, base=[0, 0, 0])
+            sim, settling = settled_scene(self.source, self.robot)
+            sim.close()
+            self.assertFalse(settling.valid)
             config = SettleConfig(require_source_stability=False, support_tolerance_m=0.02)
-            with prepare_scene(self.source, self.robot, base=[0, 0, 0], settle_config=config) as p:
-                self.assertTrue(p.settling.valid)
-                self.assertFalse(p.settling.stable)
-                self.assertEqual(p.graph.stage, "observed")
-                self.assertEqual(p.graph_config.support_tolerance_m, 0.02)
-                self.assertAlmostEqual(p.settling.simulated_s, config.settle_s)
-                target_only = settle_scene(p.sim, config, stability_instances={"target"})
+            sim, settling = settled_scene(self.source, self.robot, config)
+            with closing(sim):
+                self.assertTrue(settling.valid)
+                self.assertFalse(settling.stable)
+                self.assertAlmostEqual(settling.simulated_s, config.settle_s)
+                target_only = settle_scene(sim, config, stability_instances={"target"})
                 self.assertTrue(target_only.stable)
                 self.assertFalse(target_only.observed_scene_stable)
-                neighbour = settle_scene(p.sim, config, stability_instances={"neighbor"})
+                neighbour = settle_scene(sim, config, stability_instances={"neighbor"})
                 self.assertFalse(neighbour.valid)
         with self.assertRaises(ValueError):
             SettleConfig(require_source_stability="false")

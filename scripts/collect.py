@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from lastmile_dataflow.config import add_station_run_arguments, station_run
+from lastmile_dataflow.station_map.config import add_station_run_arguments, station_run
 
 
 def main():

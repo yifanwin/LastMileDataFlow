@@ -1,4 +1,4 @@
-"""(a)(b) 场景构建：按配方找目标、准备原场景和编辑后场景、采站位，保存场景库。"""
+"""(a)(b) 场景构建：按配方找目标、准备原场景和编辑后场景，保存场景库（站位由 sample_stations.py 另采）。"""
 
 import argparse
 from pathlib import Path

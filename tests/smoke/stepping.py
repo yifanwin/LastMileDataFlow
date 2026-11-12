@@ -4,7 +4,7 @@ from functools import partial
 
 import mujoco
 
-from lastmile_dataflow.runtime.execution.protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 from lastmile_dataflow.runtime.outcomes.contacts import simulation_failure
 
 

@@ -8,12 +8,10 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.runtime.construction.preparation import (
-    prepare_scene,
-    settle_scene,
-)
+from lastmile_dataflow.runtime.construction.preparation import SettleConfig, preparation_guard, settle_scene
 from lastmile_dataflow.runtime.simulation import Simulation
-from tests.helpers import table_scene
+from lastmile_dataflow.scenes.graph import build_scene_graph
+from tests.helpers import settled_scene, table_scene
 
 
 class GraphTests(unittest.TestCase):
@@ -22,21 +20,24 @@ class GraphTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.source, self.robot = table_scene(self.root)
         self.original = Path(self.source.xml_path).read_bytes()
-        self.prepared = prepare_scene(self.source, self.robot, base=[0, 0, 0])
+        self.sim, self.settling = settled_scene(self.source, self.robot)
+        self.config = SettleConfig().graph_config()
+        self.graph = build_scene_graph(self.sim, stage="settled", config=self.config)
 
     def tearDown(self):
-        self.prepared.close()
+        self.sim.close()
         self.tmp.cleanup()
 
     def test_unbound_real_settling_and_baseline(self):
-        self.assertIsNone(self.prepared.sim.target_id)
-        self.assertFalse(self.prepared.sim.started)
-        self.assertGreater(self.prepared.sim.data.time, 0.9)
-        self.assertGreater(self.prepared.settling.steps, 100)
-        self.prepared.save(self.root / "baseline")
+        self.assertTrue(self.settling.stable)
+        self.assertIsNone(self.sim.target_id)
+        self.assertFalse(self.sim.started)
+        self.assertGreater(self.sim.data.time, 0.9)
+        self.assertGreater(self.settling.steps, 100)
+        self.sim.freeze(self.root / "baseline/scene")
         sim = Simulation.from_snapshot(self.root / "baseline/scene", self.robot)
         try:
-            np.testing.assert_array_equal(sim.data.qpos, self.prepared.sim.data.qpos)
+            np.testing.assert_array_equal(sim.data.qpos, self.sim.data.qpos)
             self.assertIsNone(sim.target_id)
         finally:
             sim.close()
@@ -44,34 +45,31 @@ class GraphTests(unittest.TestCase):
 
     def test_actual_support_and_surface(self):
         self.assertTrue(
-            any(
-                e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.prepared.graph.edges
-            )
+            any(e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.graph.edges)
         )
-        regions = [n for n in self.prepared.graph.nodes.values() if n["kind"] == "region"]
+        regions = [n for n in self.graph.nodes.values() if n["kind"] == "region"]
         self.assertAlmostEqual(regions[0]["height"], 0.44)
-        self.assertEqual(self.prepared.graph.nodes["target"]["category_status"], "unknown")
+        self.assertEqual(self.graph.nodes["target"]["category_status"], "unknown")
         # Parent metadata is not a contact or a support proof.
-        for item in self.prepared.sim.catalog:
+        for item in self.sim.catalog:
             if item["instance_id"] == "target":
                 item["parent_instance_id"] = "table"
                 item["body_id"] = 9999
-        j = self.prepared.sim.model.joint("target_free").qposadr[0]
-        self.prepared.sim.data.qpos[j + 2] = 2
-        mujoco.mj_forward(self.prepared.sim.model, self.prepared.sim.data)
-        self.prepared.refresh()
+        j = self.sim.model.joint("target_free").qposadr[0]
+        self.sim.data.qpos[j + 2] = 2
+        mujoco.mj_forward(self.sim.model, self.sim.data)
+        station = self.graph.nodes["station_start"]["pose"]
+        self.graph = build_scene_graph(self.sim, revision=1, station=station, config=self.config)
         self.assertFalse(
-            any(
-                e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.prepared.graph.edges
-            )
+            any(e["predicate"] == "supported_by" and e["args"] == ["target", "table"] for e in self.graph.edges)
         )
-        self.assertEqual(self.prepared.graph.nodes["target"]["parent_hint"], "table")
+        self.assertEqual(self.graph.nodes["target"]["parent_hint"], "table")
 
     def test_guards_and_deadline(self):
         with self.assertRaises(TimeoutError):
-            settle_scene(self.prepared.sim, deadline=time.monotonic() - 1)
-        self.prepared.sim.begin()
+            settle_scene(self.sim, deadline=time.monotonic() - 1)
+        self.sim.begin()
         with self.assertRaises(RuntimeError):
-            self.prepared.refresh()
+            preparation_guard(self.sim)
         with self.assertRaises(RuntimeError):
-            settle_scene(self.prepared.sim)
+            settle_scene(self.sim)

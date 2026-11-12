@@ -11,13 +11,8 @@ import numpy as np
 
 from lastmile_dataflow.data.rendering.analysis_video import AnalysisVideo
 from lastmile_dataflow.data.visualization.heatmap import export_heatmap, gaussian_map
-from lastmile_dataflow.planning.navigation.astar import (
-    Grid,
-    distance_field,
-    scene_grid,
-    search_region,
-    task_support_obstacles,
-)
+from lastmile_dataflow.planning.navigation.astar import Grid, distance_field, scene_grid, search_region
+from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
 from lastmile_dataflow.utils.io import read_json
 
 
@@ -86,7 +81,7 @@ class SupportMapTests(unittest.TestCase):
         task = {"instance_id": "cup", "target_body": "cup", "operation": "pick", "anchor_world": [0, 0, 0.9]}
         obstacles = task_support_obstacles(sim, task)
         self.assertEqual(obstacles[0]["body"], "table")
-        with patch("lastmile_dataflow.scenes.stations.initialization.room_triangles", return_value=[]):
+        with patch("lastmile_dataflow.planning.navigation.astar.room_triangles", return_value=[]):
             heat = scene_grid(sim, [0, 0], 2.0, 0.05, 0.0, 0.0, support_obstacles=obstacles)
             nav = scene_grid(sim, [0, 0], 2.0, 0.05, 0.2, 0.02, support_obstacles=obstacles)
         self.assertFalse(heat.free[heat.cell([0, 0])])

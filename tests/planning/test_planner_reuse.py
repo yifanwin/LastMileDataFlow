@@ -1,8 +1,6 @@
 """Station resource ownership, new-trial seeds and simulation rebinding."""
 
-import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 

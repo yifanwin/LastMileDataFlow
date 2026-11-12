@@ -134,3 +134,10 @@ class SAC:
             if rng["cuda"] is not None and agent.device.type == "cuda":
                 torch.cuda.set_rng_state(rng["cuda"].cpu(), agent.device)
         return agent, saved
+
+
+def seed_all(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)

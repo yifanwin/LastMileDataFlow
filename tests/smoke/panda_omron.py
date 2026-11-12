@@ -45,7 +45,7 @@ def pivot_check(sim):
     import mujoco
     import numpy as np
     from lastmile_dataflow.scenes.loading.panda_factory import PIVOT
-    from lastmile_dataflow.scenes.geometry import body_pose, tcp_pose
+    from lastmile_dataflow.scenes.geometry import tcp_pose
 
     scratch = mujoco.MjData(sim.model)
     scratch.qpos[:] = sim.data.qpos
@@ -350,7 +350,7 @@ def main():
     os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/panda-omron-numba")
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ.setdefault("WARP_CACHE_PATH", str(Path("outputs/dependencies/panda-omron-warp").resolve()))
-    from lastmile_dataflow.config import load_robot_config
+    from lastmile_dataflow.robots.registry import load_robot_config
     from lastmile_dataflow.runtime.simulation import Simulation
     from lastmile_dataflow.scenes.loading.panda_factory import export_factory
 

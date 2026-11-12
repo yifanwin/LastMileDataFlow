@@ -205,3 +205,71 @@ def pose7(matrix):
     q = np.zeros(4)
     mujoco.mju_mat2Quat(q, np.ascontiguousarray(matrix[:3, :3]).reshape(-1))
     return np.r_[matrix[:3, 3], q].tolist()
+
+
+def room_triangles(sim):
+    """使用已编译的 room floor mesh，坐标自动随 MJCF 变换；不假设 THOR 轴。"""
+    m, d = sim.model, sim.data
+    result = []
+    for g in range(m.ngeom):
+        name = m.geom(g).name.lower()
+        if not name.startswith("room_") or m.geom_type[g] != mujoco.mjtGeom.mjGEOM_MESH:
+            continue
+        mesh = int(m.geom_dataid[g])
+        va, vn = int(m.mesh_vertadr[mesh]), int(m.mesh_vertnum[mesh])
+        fa, fn = int(m.mesh_faceadr[mesh]), int(m.mesh_facenum[mesh])
+        verts = m.mesh_vert[va : va + vn] @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
+        faces = m.mesh_face[fa : fa + fn]
+        triangles = verts[faces][:, :, :2]
+        a, b = triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+        area = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+        result.extend(triangles[np.abs(area) > 1e-8])
+    return np.asarray(result)
+
+
+def inside_triangles(xy, triangles):
+    if len(triangles) == 0:
+        return True
+    u, v = triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    p = xy - triangles[:, 0]
+    det = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+    a = (p[:, 0] * v[:, 1] - p[:, 1] * v[:, 0]) / det
+    b = (u[:, 0] * p[:, 1] - u[:, 1] * p[:, 0]) / det
+    return bool(np.any((a >= 0) & (b >= 0) & (a + b <= 1)))
+
+
+def floor_height(sim, xy, *, triangles=None):
+    """Ray against named collision floor, not robot or room visual occluders.
+
+    The room-triangle mask supplies bounded coverage for infinite floor planes.
+    """
+    start = np.r_[xy, 0.20]
+    direction = np.array([0.0, 0.0, -1.0])
+    distances = []
+    for g in range(sim.model.ngeom):
+        if "floor" not in sim.model.geom(g).name.lower():
+            continue
+        if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]):
+            continue
+        if sim.model.body(int(sim.model.geom_bodyid[g])).name.startswith("robot_0/"):
+            continue
+        if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+            distance = mujoco.mj_rayMesh(sim.model, sim.data, g, start, direction)
+        else:
+            distance = mujoco.mju_rayGeom(
+                sim.data.geom_xpos[g],
+                sim.data.geom_xmat[g],
+                sim.model.geom_size[g],
+                start,
+                direction,
+                sim.model.geom_type[g],
+            )
+        if 0 <= distance <= 0.30:
+            distances.append(float(distance))
+    if distances and inside_triangles(np.asarray(xy), room_triangles(sim) if triangles is None else triangles):
+        return 0.20 - min(distances)
+    return None
+
+
+def floor_support(sim, xy, *, triangles=None):
+    return floor_height(sim, xy, triangles=triangles) is not None

@@ -6,7 +6,7 @@ import time
 from ..runtime.execution.protocol import PlanningRequest, SimulationState
 from ..utils.io import write_json
 from .curobo.planner import PlannerUnavailable
-from .robots import planning_model
+from lastmile_dataflow.robots.registry import planning_model
 from .waypoints import PlanResult
 
 

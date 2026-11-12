@@ -1,6 +1,5 @@
 """躯干命令边界、反馈与导航保持。"""
 
-import io
 import json
 import tempfile
 import unittest
@@ -18,7 +17,7 @@ from lastmile_dataflow.runtime.control.action import (
     torso_feedback_margin,
 )
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
-from lastmile_dataflow.runtime.execution.protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 from lastmile_dataflow.runtime.execution.navigation import navigate
 from lastmile_dataflow.runtime.outcomes.contacts import NavigationContacts
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig

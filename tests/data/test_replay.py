@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.data.rendering.replay import render_rollout
 from lastmile_dataflow.runtime.simulation import Simulation

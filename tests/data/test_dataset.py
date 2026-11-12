@@ -2,7 +2,6 @@
 
 import itertools
 import unittest
-from dataclasses import asdict
 from pathlib import Path
 
 import mujoco
@@ -13,7 +12,6 @@ from lastmile_dataflow.data.evaluation.calibration import (
     eligible_stations,
     station_calibration,
 )
-from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.dataset import load_scenes
@@ -34,6 +32,23 @@ class DatasetTests(DatasetTestCase):
             {"status": "rejected", "reason": "task_preparation_failed"},
         )
         self.assertEqual(load_scenes(dataset, [accepted["scene_id"]]), [accepted])
+
+    def test_stations_are_merged_and_scenes_without_stations_drop_out(self):
+        dataset = self.dataset()
+        (dataset / "stations.jsonl").unlink()
+        with self.assertRaises(FileNotFoundError):
+            load_scenes(dataset)
+        append_row(
+            dataset / "stations.jsonl",
+            {"scene_id": self.scene["scene_id"], "status": "rejected", "reason": "no_valid_initial_stations"},
+        )
+        self.assertEqual(load_scenes(dataset), [])
+        (dataset / "stations.jsonl").unlink()
+        append_row(
+            dataset / "stations.jsonl",
+            {"scene_id": self.scene["scene_id"], "status": "accepted", "stations": self.points},
+        )
+        self.assertEqual(load_scenes(dataset)[0]["stations"], self.points)
 
     def test_scene_roundtrip_and_xml_payload(self):
         dataset = self.dataset()

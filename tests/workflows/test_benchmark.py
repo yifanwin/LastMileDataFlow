@@ -85,7 +85,7 @@ class BenchmarkTests(unittest.TestCase):
     def test_frozen_station_preserves_nonrobot_velocity(self):
         from dataclasses import asdict
 
-        from lastmile_dataflow.scenes.stations.sampling import place_frozen_station
+        from lastmile_dataflow.sim.placement import place_frozen_station
 
         with tempfile.TemporaryDirectory() as directory:
             sim, robot = make_sim(directory)

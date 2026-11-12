@@ -30,7 +30,8 @@ from ..outcomes.contacts import (
     simulation_failure,
 )
 from .navigation import base_step_limits
-from .protocol import OperationFailure, SimulationState
+from .protocol import SimulationState
+from lastmile_dataflow.runtime.simulation import OperationFailure
 from .checkpoint import checkpoint_pick_success, timed
 
 

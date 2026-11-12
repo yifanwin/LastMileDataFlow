@@ -7,7 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig, RobotConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.utils.io import append_row, create_run
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.loading.source import SceneSource
@@ -197,5 +198,29 @@ class DatasetTestCase(unittest.TestCase):
     def dataset(self):
         dataset = create_run(self.root / "dataset", {"geometry": {}, "seed": 3})
         self.sim.freeze(dataset / self.scene["scene"])
-        append_row(dataset / "scenes.jsonl", self.scene)
+        add_scene(dataset, self.scene)
         return dataset
+
+
+def settled_scene(source, robot, settle_config=None, *, base=(0, 0, 0)):
+    """Fresh source scene with the robot at ``base`` after one real settling run: (sim, settling)."""
+    from lastmile_dataflow.runtime.execution_config import CollectionConfig
+    from lastmile_dataflow.runtime.construction.preparation import SettleConfig, settle_scene
+    from lastmile_dataflow.runtime.simulation import Simulation
+    from lastmile_dataflow.sim.placement import initialize_robot
+
+    sim = Simulation.from_source(source, robot, target=None)
+    if initialize_robot(sim, CollectionConfig(), base=list(base))["status"] != "valid":
+        sim.close()
+        raise RuntimeError("robot initialization failed")
+    config = settle_config or SettleConfig()
+    return sim, settle_scene(sim, config, require_stability=config.require_source_stability)
+
+
+def add_scene(dataset, scene):
+    """Append one accepted library scene: the build record plus its sampled stations (stations.jsonl)."""
+    append_row(Path(dataset) / "scenes.jsonl", {k: v for k, v in scene.items() if k != "stations"})
+    append_row(
+        Path(dataset) / "stations.jsonl",
+        {"scene_id": scene["scene_id"], "status": "accepted", "stations": scene["stations"]},
+    )

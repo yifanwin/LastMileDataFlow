@@ -7,6 +7,7 @@ from mjlab.utils.lab_api.math import compute_pose_error, quat_from_matrix
 from ...scenes.rl_observation import GeometryObservation, REWARD_COMPONENTS
 from ...scenes.stations.rl import prepare_stations
 from ..outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
+from lastmile_dataflow.scenes.loading.rl_scene import RLSceneConfig
 
 
 def contact_addresses(model, prefixes, field, device):
@@ -126,7 +127,6 @@ class TaskState:
         self.needs_baseline = torch.ones(n, dtype=torch.bool, device=self.device)
         self.reward_components = torch.zeros(n, len(REWARD_COMPONENTS), device=self.device)
         # The fixed object-local TCP is an explicit input, shared with scoring.
-        from ...scenes.loading.rl_scene import RLSceneConfig
 
         scene_config = RLSceneConfig(**env.research_config["scene"])
         grasp = env.research_config["grasp"]

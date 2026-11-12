@@ -4,8 +4,7 @@ from types import SimpleNamespace
 import unittest
 import torch
 
-from lastmile_dataflow.planning.evidence import lane_success, solver_evidence, phase_evidence
-from lastmile_dataflow.planning.curobo.context import PlannerContext
+from lastmile_dataflow.planning.curobo.tracing import lane_success, solver_evidence, phase_evidence
 
 
 def query(index, phase, values, fov=None):

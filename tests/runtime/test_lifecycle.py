@@ -10,14 +10,14 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.policies.process import (
     PolicyProcess,
     PolicyEpisodeError,
     PolicyInfrastructureError,
 )
-from lastmile_dataflow.runtime.execution.protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 from lastmile_dataflow.runtime.execution.lifecycle import (
     classify_episode_exception,
     execute_isolated_episode,

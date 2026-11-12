@@ -14,7 +14,8 @@ from ..gpu import bind_device, resolve_egl_devices
 from ..runtime.execution.context import clone_sim, planner_options
 from ..runtime.execution.lifecycle import classify_episode_exception
 from ..runtime.execution.manipulation import candidate_pool, grasp_goals
-from ..runtime.execution.protocol import OperationFailure, PlanningResponse
+from ..runtime.execution.protocol import PlanningResponse
+from lastmile_dataflow.runtime.simulation import OperationFailure
 from ..runtime.simulation import SnapshotCache
 from ..utils.io import write_json
 from .curobo.planner import PlannerResources, bind_batch_seeds

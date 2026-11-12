@@ -19,17 +19,16 @@ import time
 import numpy as np
 
 from ..gpu import bind_device
-from ..config import load_robot_config
+from lastmile_dataflow.robots.registry import load_robot_config
 from ..runtime.simulation import Simulation
-from ..data.visualization.scene_preview import export_scene_previews
 from ..scenes.edits.search import BuildContext, build_task
 from ..scenes.edits.placement import support_regions
 from ..scenes.dataset import load_scene_recipe
 from ..scenes.loading.source import SceneSource
-from ..scenes.stations.initialization import inside_triangles, room_triangles
-from ..scenes.stations.sampling import disk_samples
+from lastmile_dataflow.scenes.geometry import inside_triangles, room_triangles
+from lastmile_dataflow.scenes.tasks.discovery import disk_samples
 from ..scenes.tasks.discovery import discover_tasks, grasp_candidates
-from ..planning.navigation.astar import task_support_obstacles
+from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
 from ..utils.io import append_row, create_run, read_json, rows, write_json
 from ..utils.logging_config import Progress
 
@@ -188,9 +187,6 @@ def _build_task(sim, task, task_index, recipe, house, root, baseline_cache):
                     "preparation_s": ctx.timings,
                     "grasp_evidence": ctx.grasp_evidence,
                     "asset_compiles": ctx.assets.compile_count,
-                    "station_initializations": sum(
-                        r.get("build_metrics", {}).get("station_initializations", 0) for r in records
-                    ),
                 }
     except _TaskTimeout as exc:
         return (
@@ -324,5 +320,4 @@ def build_scenes(config, output, *, gpu_ids):
         {"recipe": asdict(recipe), "robot": asdict(robot), "geometry": asdict(recipe.geometry), "seed": recipe.seed},
     )
     _build_into_root(recipe, robot, root, gpu_ids)
-    export_scene_previews(root)
     return root

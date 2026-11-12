@@ -12,9 +12,10 @@ from ..data.evaluation.calibration import eligible_stations, station_calibration
 from ..data.export.lastmile_dataset import finalize_dataset, successful, training_record
 from ..planning.navigation.astar import navigation_grid
 from ..planning.navigation.geometry import GeometryNavigation, NavigationSettings
-from ..runtime.execution.curobo import run_curobo_attempt
+from lastmile_dataflow.lastmile_dataset.continuous import run_continuous_attempt
 from ..scenes.dataset import open_scene
-from ..scenes.tasks.discovery import grasp_candidates, robot_footprint
+from ..scenes.tasks.discovery import grasp_candidates
+from lastmile_dataflow.sim.placement import robot_footprint
 from ..utils.io import append_row, rows, write_rows
 from ..utils.logging_config import Progress, trial_logging
 from .station_map import (
@@ -230,7 +231,7 @@ def _finish_pairs(root, pairs, stopped):
     }
 
 
-def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=None, execute=run_curobo_attempt):
+def run_collection(dataset, run, output, *, gpu_ids, calibration=None, samples=None, execute=run_continuous_attempt):
     """复用匹配的标定或先在本 run 内完成标定，再用 A* 导航与 cuRobo V2 连续采集。"""
     context = prepare_run(dataset, run, output, gpu_ids, collect=True, samples=samples, calibration=calibration)
     source = os.path.relpath(Path(calibration).resolve(), context.root.resolve()) if calibration else "."

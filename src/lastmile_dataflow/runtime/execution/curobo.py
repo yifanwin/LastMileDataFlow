@@ -1,4 +1,8 @@
-"""One cuRobo attempt: preparation, navigation, operation and result."""
+"""One cuRobo operation at a station: fresh simulation, recorder, planning, execution and result.
+
+The navigate-then-operate attempt of the last-mile dataset extends ``CuroboAttempt`` in
+``lastmile_dataset/continuous.py``.
+"""
 
 from dataclasses import asdict, dataclass, field
 import logging
@@ -10,7 +14,7 @@ import numpy as np
 
 from ...data.recorder import AttemptRecorder
 from ...data.rendering.analysis_video import AnalysisVideo
-from ...scenes.tasks.discovery import robot_footprint
+from lastmile_dataflow.sim.placement import robot_footprint
 from ...utils.io import write_json
 from ..control.action import InvalidAction
 from ..execution_config import PLANNER_BACKEND, TORSO_ERROR_POLICY
@@ -21,7 +25,6 @@ from .checkpoint import PickEvidenceComplete, resolve_timeout, timed
 from .attempt import (
     attempt_result,
     failure_status,
-    finish_navigation,
     open_attempt_sim,
     trajectory_metrics,
     unexpected_failure,
@@ -29,8 +32,7 @@ from .attempt import (
 from .context import ContinuousContext
 from .lifecycle import isolated_episode, mark_episode_phase
 from .manipulation import manipulate
-from .navigation import navigate
-from .protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 
 logger = logging.getLogger(__name__)
 
@@ -62,115 +64,157 @@ class CuroboOutcome:
             self.navigation = {"status": "failure", "reason": reason}
 
 
-@isolated_episode
-def run_curobo_attempt(
-    baseline,
-    task,
-    station,
-    candidates,
-    assets_dir,
-    config,
-    collection,
-    *,
-    root,
-    attempt_id,
-    seed,
-    path=None,
-    goal=None,
-    winning_control=None,
-    prepared=None,
-    planning_client=None,
-):
-    sim = open_attempt_sim(baseline, task, station, config, prepared)
-    semantics = EXECUTION_SEMANTICS if planning_client is None else SPLIT_EXECUTION_SEMANTICS
-    packet = {
-        "execution_semantics_version": semantics,
-        "robot": asdict(sim.robot.config),
-        "collection": asdict(collection),
-        "task": task,
-        "station": station,
-        "protocol": asdict(config),
-        "contact_policy": CONTACT_POLICY,
-        "seed": seed,
-        "path": path,
-        "goal": goal,
-        "scene": baseline.scene_id,
-    }
-    if prepared is not None:
-        packet["preparation"] = {
-            "path": prepared.path,
-            "actual_base": prepared.actual_base,
-            "requested_station": station,
-            "elapsed_s": prepared.elapsed_s,
-        }
-    recorder = AttemptRecorder(root, packet, attempt_id=attempt_id)
-    recorder.bind_simulation(sim, width=config.width, height=config.height)
-    max_plans = config.max_open_plans if task["operation"] == "open" else config.max_operation_plans
-    ctx = ContinuousContext(
-        sim,
-        recorder,
-        config,
-        budget=None if planning_client is None else planning_client.budget,
-        max_plans=max_plans,
-        prepared_state=None if planning_client is None else Path(prepared.path) / "state.npz",
-    )
-    if planning_client is not None:
-        planning_client.bind(ctx)
-    if config.third_person_enabled:
-        ctx.analysis = _analysis_video(sim, task, station, config, path, goal, recorder.path)
-    write_json(recorder.path / "initial_state.json", sim.observe_state())
-    initial_target = sim.data.xpos[sim.target_id].copy()
-    mark_episode_phase("execution")
-    outcome = CuroboOutcome(navigation={"status": "running" if path else "not_requested"})
-    try:
-        if path:
-            outcome.navigation = navigate(ctx, path, goal)
-        elif config.initial_settle_s and prepared is None:
-            _settle(ctx, config.initial_settle_s)
-        if ctx.budget is None:
-            ctx.plan_count = 0
-        retries = config.operation_retries if path else 0
-        _manipulate_with_retries(
-            ctx, outcome, task, candidates, assets_dir, seed, winning_control, retries, initial_target
-        )
-    except OperationFailure as exc:
-        outcome.fail(ctx, exc.reason, diagnostic=exc.diagnostic, executed=bool(recorder.steps))
-    except InvalidAction as exc:
-        # An illegal command is an isolated trial failure. Do not continue this
-        # simulation, retry an unsafe command, or abort other independent points.
-        outcome.fail(ctx, "control_limit:" + str(exc))
-        recorder.event("control_limit_warning", phase=ctx.phase, error_type="InvalidAction", message=str(exc))
-        logger.warning("%s: %s；跳过当前试验，继续采样", attempt_id, outcome.reason)
-    except PickEvidenceComplete as exc:
-        outcome.task_outcome = exc.verdict
-        outcome.status, outcome.reason, outcome.control = "success", exc.verdict["reason"], ctx.active_control
-        recorder.event("physical_pick_success", phase=ctx.phase, task_outcome=exc.verdict)
-    except TimeoutError as exc:
-        outcome.execution_termination, outcome.task_outcome = resolve_timeout(ctx, task, str(exc))
-        task_status = outcome.task_outcome["status"]
-        outcome.status = (
-            task_status if task_status in ("success", "infrastructure_error", "simulation_failure") else "timeout"
-        )
-        outcome.reason = outcome.task_outcome["reason"] if outcome.status == "success" else str(exc)
-        outcome.control = ctx.active_control or outcome.control
-        recorder.event("episode_timeout", message=str(exc), task_outcome=outcome.task_outcome)
-    except Exception as exc:
-        outcome.status, outcome.reason, outcome.exception_detail = unexpected_failure(exc, recorder, ctx.phase)
-    finally:
-        mark_episode_phase("finalize")
-        result = _finalize(ctx, outcome, task, config, semantics, path, planning_client)
-    return attempt_result(
-        result,
-        recorder,
+class CuroboAttempt:
+    """Operate once at ``station``; subclasses may run a phase before the operation (``before_operation``)."""
+
+    path = None
+    goal = None
+    navigation_status = "not_requested"
+
+    def __init__(
+        self,
+        baseline,
+        task,
         station,
-        seed=seed,
-        planning_ref=(
-            str(recorder.path.relative_to(recorder.output_root) / "planning.json")
-            if (recorder.path / "planning.json").is_file()
-            else None
-        ),
-        replay_complete=recorder.result["replay_complete"],
-    )
+        candidates,
+        assets_dir,
+        config,
+        collection,
+        *,
+        root,
+        attempt_id,
+        seed,
+        winning_control=None,
+        prepared=None,
+        planning_client=None,
+    ):
+        self.baseline, self.task, self.station = baseline, task, station
+        self.candidates, self.assets_dir = candidates, assets_dir
+        self.config, self.collection = config, collection
+        self.root, self.attempt_id, self.seed = root, attempt_id, seed
+        self.winning_control, self.prepared, self.planning_client = winning_control, prepared, planning_client
+        self.semantics = EXECUTION_SEMANTICS if planning_client is None else SPLIT_EXECUTION_SEMANTICS
+
+    @property
+    def retries(self):
+        return 0
+
+    def before_operation(self, ctx, outcome):
+        if self.config.initial_settle_s and self.prepared is None:
+            _settle(ctx, self.config.initial_settle_s)
+
+    def finish_before_operation(self, ctx, outcome):
+        """Complete the record of the phase run by ``before_operation`` once the attempt ended."""
+
+    def _packet(self, sim):
+        packet = {
+            "execution_semantics_version": self.semantics,
+            "robot": asdict(sim.robot.config),
+            "collection": asdict(self.collection),
+            "task": self.task,
+            "station": self.station,
+            "protocol": asdict(self.config),
+            "contact_policy": CONTACT_POLICY,
+            "seed": self.seed,
+            "path": self.path,
+            "goal": self.goal,
+            "scene": self.baseline.scene_id,
+        }
+        if self.prepared is not None:
+            packet["preparation"] = {
+                "path": self.prepared.path,
+                "actual_base": self.prepared.actual_base,
+                "requested_station": self.station,
+                "elapsed_s": self.prepared.elapsed_s,
+            }
+        return packet
+
+    def _context(self, sim):
+        config, task, client = self.config, self.task, self.planning_client
+        recorder = AttemptRecorder(self.root, self._packet(sim), attempt_id=self.attempt_id)
+        recorder.bind_simulation(sim, width=config.width, height=config.height)
+        max_plans = config.max_open_plans if task["operation"] == "open" else config.max_operation_plans
+        ctx = ContinuousContext(
+            sim,
+            recorder,
+            config,
+            budget=None if client is None else client.budget,
+            max_plans=max_plans,
+            prepared_state=None if client is None else Path(self.prepared.path) / "state.npz",
+        )
+        if client is not None:
+            client.bind(ctx)
+        if config.third_person_enabled:
+            ctx.analysis = _analysis_video(sim, task, self.station, config, self.path, self.goal, recorder.path)
+        return ctx
+
+    def run(self):
+        sim = open_attempt_sim(self.baseline, self.task, self.station, self.config, self.prepared)
+        ctx = self._context(sim)
+        recorder = ctx.recorder
+        write_json(recorder.path / "initial_state.json", sim.observe_state())
+        initial_target = sim.data.xpos[sim.target_id].copy()
+        mark_episode_phase("execution")
+        outcome = CuroboOutcome(navigation={"status": self.navigation_status})
+        try:
+            self.before_operation(ctx, outcome)
+            if ctx.budget is None:
+                ctx.plan_count = 0
+            _manipulate_with_retries(
+                ctx,
+                outcome,
+                self.task,
+                self.candidates,
+                self.assets_dir,
+                self.seed,
+                self.winning_control,
+                self.retries,
+                initial_target,
+            )
+        except OperationFailure as exc:
+            outcome.fail(ctx, exc.reason, diagnostic=exc.diagnostic, executed=bool(recorder.steps))
+        except InvalidAction as exc:
+            # An illegal command is an isolated trial failure. Do not continue this
+            # simulation, retry an unsafe command, or abort other independent points.
+            outcome.fail(ctx, "control_limit:" + str(exc))
+            recorder.event("control_limit_warning", phase=ctx.phase, error_type="InvalidAction", message=str(exc))
+            logger.warning("%s: %s；跳过当前试验，继续采样", self.attempt_id, outcome.reason)
+        except PickEvidenceComplete as exc:
+            outcome.task_outcome = exc.verdict
+            outcome.status, outcome.reason, outcome.control = "success", exc.verdict["reason"], ctx.active_control
+            recorder.event("physical_pick_success", phase=ctx.phase, task_outcome=exc.verdict)
+        except TimeoutError as exc:
+            outcome.execution_termination, outcome.task_outcome = resolve_timeout(ctx, self.task, str(exc))
+            task_status = outcome.task_outcome["status"]
+            outcome.status = (
+                task_status if task_status in ("success", "infrastructure_error", "simulation_failure") else "timeout"
+            )
+            outcome.reason = outcome.task_outcome["reason"] if outcome.status == "success" else str(exc)
+            outcome.control = ctx.active_control or outcome.control
+            recorder.event("episode_timeout", message=str(exc), task_outcome=outcome.task_outcome)
+        except Exception as exc:
+            outcome.status, outcome.reason, outcome.exception_detail = unexpected_failure(exc, recorder, ctx.phase)
+        finally:
+            mark_episode_phase("finalize")
+            self.finish_before_operation(ctx, outcome)
+            result = _finalize(ctx, outcome, self.task, self.config, self.semantics, self.planning_client)
+        return attempt_result(
+            result,
+            recorder,
+            self.station,
+            seed=self.seed,
+            planning_ref=(
+                str(recorder.path.relative_to(recorder.output_root) / "planning.json")
+                if (recorder.path / "planning.json").is_file()
+                else None
+            ),
+            replay_complete=recorder.result["replay_complete"],
+        )
+
+
+@isolated_episode
+def run_curobo_attempt(baseline, task, station, *args, **kwargs):
+    return CuroboAttempt(baseline, task, station, *args, **kwargs).run()
 
 
 def _analysis_video(sim, task, station, config, path, goal, attempt_dir):
@@ -231,16 +275,9 @@ def _release_for_retry(ctx):
     ctx.plan_count = 0
 
 
-def _finalize(ctx, outcome, task, config, semantics, path, planning_client):
+def _finalize(ctx, outcome, task, config, semantics, planning_client):
     """Close the context, write diagnostics and finish the recorder; returns the outcome fields."""
     sim, recorder = ctx.sim, ctx.recorder
-    if path:
-        outcome.navigation = finish_navigation(
-            outcome.navigation,
-            ctx.navigation_contacts,
-            outcome.reason,
-            steps=sum(phase == "navigation" for phase in recorder.phases),
-        )
     with timed(ctx, "context_finalize"):
         ctx.finish()
     status, reason = outcome.status, outcome.reason

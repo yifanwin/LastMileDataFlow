@@ -3,11 +3,10 @@
 from dataclasses import dataclass
 import math
 
-from ..config import read_config
+from lastmile_dataflow.utils.io import read_config
 
 # Fixed execution contract; written into results, not configurable.
 PLANNER_BACKEND = "curobo_v2_v080"
-NATIVE_MAX_ATTEMPTS = 5  # cuRobo V2 native plan_pose default; not a trial count
 TORSO_ERROR_POLICY = "record_only"
 MAX_OPERATION_RETRIES = 1  # S1 permits at most one outer retry after navigation
 
@@ -155,3 +154,35 @@ def _check(key, ok):
 
 def load_execution_config(path):
     return ExecutionConfig(**read_config(path, repo_fields=("policy_config",)))
+
+
+@dataclass(frozen=True)
+class CollectionConfig:
+    output_dir: str = "outputs"
+    seed: int = 42
+    max_steps: int = 10
+    max_initialization_trials: int = 80
+    width: int = 320
+    height: int = 240
+    record_video: bool = True
+    video_cameras: dict[str, str] | None = None
+    record_images: bool = True
+    penetration_ratio: float = 0.10
+    penetration_floor_m: float = 0.010
+    penetration_ceiling_m: float = 0.030
+    feedback_warning_rad: float = 0.05
+
+    def __post_init__(self):
+        for key in ("max_steps", "max_initialization_trials", "width", "height"):
+            v = getattr(self, key)
+            if not isinstance(v, int) or v <= 0:
+                raise ValueError(f"{key} must be positive integer")
+        if self.seed < 0:
+            raise ValueError("seed must be nonnegative")
+        if self.width % 2 or self.height % 2:
+            raise ValueError("video dimensions must be even")
+        for key in ("penetration_ratio", "penetration_floor_m", "penetration_ceiling_m", "feedback_warning_rad"):
+            if not math.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
+                raise ValueError(f"invalid {key}")
+        if self.penetration_floor_m > self.penetration_ceiling_m:
+            raise ValueError("invalid penetration interval")

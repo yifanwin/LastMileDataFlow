@@ -97,7 +97,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(ctx.arm_tick.call_count, 50)
 
     def test_timeout_runtime_finalizer_retains_task_success_and_control(self):
-        from lastmile_dataflow.config import CollectionConfig
+        from lastmile_dataflow.runtime.execution_config import CollectionConfig
         from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 
         with tempfile.TemporaryDirectory() as d:
@@ -138,9 +138,9 @@ class EvidenceTests(unittest.TestCase):
             self.assertFalse(baseline.closed)
 
     def test_failed_navigation_counts_only_executed_navigation_intervals(self):
-        from lastmile_dataflow.config import CollectionConfig
-        from lastmile_dataflow.runtime.execution.protocol import OperationFailure
-        from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
+        from lastmile_dataflow.runtime.execution_config import CollectionConfig
+        from lastmile_dataflow.runtime.simulation import OperationFailure
+        from lastmile_dataflow.lastmile_dataset.continuous import run_continuous_attempt
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -157,9 +157,9 @@ class EvidenceTests(unittest.TestCase):
 
             with (
                 patch("lastmile_dataflow.runtime.execution.attempt.place_frozen_station"),
-                patch("lastmile_dataflow.runtime.execution.curobo.navigate", side_effect=navigation),
+                patch("lastmile_dataflow.lastmile_dataset.continuous.navigate", side_effect=navigation),
             ):
-                result = run_curobo_attempt(
+                result = run_continuous_attempt(
                     baseline,
                     {"target_body": "target", "operation": "pick"},
                     {"station_id": "s", "base": [0.0, 0.0, 0.0]},

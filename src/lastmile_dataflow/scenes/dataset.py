@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 import numpy as np
 
-from ..config import load_robot_config, read_config
+from lastmile_dataflow.utils.io import read_config
+from lastmile_dataflow.robots.registry import load_robot_config
 from ..utils.io import rows
 from ..runtime.control.panda_robocasa import ROBOCASA_CAMERAS
 from ..runtime.simulation import Simulation
@@ -208,9 +209,28 @@ def load_scene_recipe(path):
     return recipe
 
 
+STATIONS = "stations.jsonl"
+
+
+def scene_records(dataset):
+    """Every scenes.jsonl row with its sampled stations merged; a scene without legal stations is rejected."""
+    root = Path(dataset).resolve()
+    path = root / STATIONS
+    if not path.exists():
+        raise FileNotFoundError(f"{path} missing: run scripts/sample_stations.py on this scene library first")
+    stations = {row["scene_id"]: row for row in rows(path)}
+    records = []
+    for record in rows(root / "scenes.jsonl"):
+        sampled = stations.get(record.get("scene_id"))
+        if record["status"] == "accepted" and sampled is not None:
+            record = {**record, **sampled}
+        records.append(record)
+    return records
+
+
 def load_scenes(dataset, samples=None):
     root = Path(dataset).resolve()
-    records = [r for r in rows(root / "scenes.jsonl") if r["status"] == "accepted"]
+    records = [r for r in scene_records(root) if r["status"] == "accepted"]
     if samples and set(samples) - {r["scene_id"] for r in records}:
         raise ValueError("requested scene not found")
     return [{**r, "scene_path": str(root / r["scene"])} for r in records if not samples or r["scene_id"] in samples]

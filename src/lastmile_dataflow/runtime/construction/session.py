@@ -10,6 +10,7 @@ import mujoco
 from .preparation import preparation_guard, settle_scene
 from .state import migrate_state
 from ..simulation import closed_on_error
+from lastmile_dataflow.runtime.construction.preparation import clone_preparation
 
 MODEL_CACHE_SIZE = 4
 
@@ -20,13 +21,6 @@ OBSTACLE_PREFIX = "procedural_obstacle_"
 def obstacle_name(index):
     """Body name of the index-th added obstacle."""
     return f"{OBSTACLE_PREFIX}{index}"
-
-
-def clone_preparation(sim):
-    preparation_guard(sim)
-    with closed_on_error(sim.derive()) as new:
-        migrate_state(sim, new)
-    return new
 
 
 def _set_free_pose(model, data, body_name, pose):

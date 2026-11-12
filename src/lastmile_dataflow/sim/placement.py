@@ -1,79 +1,11 @@
-"""有限预算的机器人初态选择；只在连续执行前设置 qpos。不是导航。"""
-
 import copy
 import mujoco
 import numpy as np
-
-from ...runtime.control.action import torso_joints
-from ...runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler, simulation_failure
-
-
-def room_triangles(sim):
-    """使用已编译的 room floor mesh，坐标自动随 MJCF 变换；不假设 THOR 轴。"""
-    m, d = sim.model, sim.data
-    result = []
-    for g in range(m.ngeom):
-        name = m.geom(g).name.lower()
-        if not name.startswith("room_") or m.geom_type[g] != mujoco.mjtGeom.mjGEOM_MESH:
-            continue
-        mesh = int(m.geom_dataid[g])
-        va, vn = int(m.mesh_vertadr[mesh]), int(m.mesh_vertnum[mesh])
-        fa, fn = int(m.mesh_faceadr[mesh]), int(m.mesh_facenum[mesh])
-        verts = m.mesh_vert[va : va + vn] @ d.geom_xmat[g].reshape(3, 3).T + d.geom_xpos[g]
-        faces = m.mesh_face[fa : fa + fn]
-        triangles = verts[faces][:, :, :2]
-        a, b = triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
-        area = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
-        result.extend(triangles[np.abs(area) > 1e-8])
-    return np.asarray(result)
-
-
-def inside_triangles(xy, triangles):
-    if len(triangles) == 0:
-        return True
-    u, v = triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
-    p = xy - triangles[:, 0]
-    det = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
-    a = (p[:, 0] * v[:, 1] - p[:, 1] * v[:, 0]) / det
-    b = (u[:, 0] * p[:, 1] - u[:, 1] * p[:, 0]) / det
-    return bool(np.any((a >= 0) & (b >= 0) & (a + b <= 1)))
-
-
-def floor_height(sim, xy, *, triangles=None):
-    """Ray against named collision floor, not robot or room visual occluders.
-
-    The room-triangle mask supplies bounded coverage for infinite floor planes.
-    """
-    start = np.r_[xy, 0.20]
-    direction = np.array([0.0, 0.0, -1.0])
-    distances = []
-    for g in range(sim.model.ngeom):
-        if "floor" not in sim.model.geom(g).name.lower():
-            continue
-        if not (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g]):
-            continue
-        if sim.model.body(int(sim.model.geom_bodyid[g])).name.startswith("robot_0/"):
-            continue
-        if sim.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
-            distance = mujoco.mj_rayMesh(sim.model, sim.data, g, start, direction)
-        else:
-            distance = mujoco.mju_rayGeom(
-                sim.data.geom_xpos[g],
-                sim.data.geom_xmat[g],
-                sim.model.geom_size[g],
-                start,
-                direction,
-                sim.model.geom_type[g],
-            )
-        if 0 <= distance <= 0.30:
-            distances.append(float(distance))
-    if distances and inside_triangles(np.asarray(xy), room_triangles(sim) if triangles is None else triangles):
-        return 0.20 - min(distances)
-    return None
-
-
-def floor_support(sim, xy, *, triangles=None):
-    return floor_height(sim, xy, triangles=triangles) is not None
+from lastmile_dataflow.runtime.control.action import torso_joints
+from lastmile_dataflow.runtime.outcomes.contacts import FLOOR_PENETRATION_M, ContactSampler, simulation_failure
+from lastmile_dataflow.scenes.geometry import floor_support, inside_triangles, room_triangles
+from lastmile_dataflow.runtime.construction.preparation import preparation_guard
+from lastmile_dataflow.scenes.geometry import body_pose, geom_points
 
 
 def initialize_robot(sim, collection, *, base=None):
@@ -186,3 +118,111 @@ def inspect_state(sim, config, *, initialization=False):
         if np.max(np.abs(robot.group("head") - robot.fixed_head)) > config.feedback_warning_rad:
             issues.append({"severity": "warning", "code": "head_feedback_drift"})
     return {"valid": not any(i["severity"] == "error" for i in issues), "issues": issues, "contacts": contacts}
+
+
+def robot_contacts(sim, *, target_bodies=(), fingers=(), initialization=True):
+    """Initialization overlap filter OR runtime record-only robot contacts.
+
+    Never use the initialization filter to stop an already-running simulation.
+    """
+    frame = ContactSampler(sim).capture(target_bodies=target_bodies, fingers=fingers)
+    contacts = [c for c in frame.observations() if c["robot_contact"]]
+    if not initialization:
+        return contacts
+    return [
+        c
+        for c in contacts
+        if not (c["allowed_floor_base"] and c["distance_m"] >= -FLOOR_PENETRATION_M)
+        and not c["intended_target_contact"]
+        and c["distance_m"] < (-0.002 if c["kind"] == "self_collision" else -0.001)
+    ]
+
+
+def _restore_object_velocity(sim, original_velocity):
+    velocity_mask = np.ones(sim.model.nv, bool)
+    robot_dofs = list(sim.robot.joints.dofs.values())
+    velocity_mask[robot_dofs] = False
+    sim.data.qvel[velocity_mask] = original_velocity[velocity_mask]
+
+
+def place_frozen_station(sim, station):
+    if sim.started or sim.closed:
+        raise RuntimeError("post-begin station placement prohibited")
+    old = sim.data.qpos.copy()
+    old_velocity = sim.data.qvel.copy()
+    sim.robot.initialize(copy.deepcopy(station["initial"]))
+    # initialize() resets all qvel. A frozen station may change only the robot:
+    # keep object velocities, including nonzero residual frozen motion.
+    _restore_object_velocity(sim, old_velocity)
+    mujoco.mj_forward(sim.model, sim.data)
+    mask = np.ones(sim.model.nq, bool)
+    mask[list(sim.robot.joints.addresses.values())] = False
+    if not np.array_equal(old[mask], sim.data.qpos[mask]):
+        raise RuntimeError("station placement changed object poses")
+
+
+def park_robot(sim, anchor, config):
+    """Initialize once, outside the augmentation disk. Do not alter source objects."""
+    preparation_guard(sim)
+    triangles = room_triangles(sim)
+    if not len(triangles):
+        raise ValueError("bounded room floor required for robot parking")
+    points = triangles.reshape(-1, 2)
+    lo, hi = points.min(axis=0), points.max(axis=0)
+    rng = np.random.default_rng(config.seed)
+    trials = []
+    source = sim.data.qpos.copy()
+    source_mask = np.ones(sim.model.nq, bool)
+    source_mask[list(sim.robot.joints.addresses.values())] = False
+    for i in range(256):
+        xy = rng.uniform(lo, hi)
+        if np.linalg.norm(xy - anchor[:2]) < config.radius_m + 1.25:
+            continue
+        initial = copy.deepcopy(sim.robot.config.initial)
+        initial[sim.robot.initial_base_field] = [*xy, float(rng.uniform(-3.0, 3.0))]
+        sim.robot.initialize(initial)
+        valid = bool(floor_support(sim, xy) and not robot_contacts(sim))
+        trials.append({"base": initial[sim.robot.initial_base_field], "valid": valid})
+        if valid:
+            if not np.array_equal(source[source_mask], sim.data.qpos[source_mask]):
+                raise RuntimeError("parking changed source object state")
+            return {
+                "status": "valid",
+                "trials": trials,
+                "initial": initial,
+                "source_qpos_unchanged": True,
+                "scope": "pre_begin_parking_not_navigation",
+            }
+    raise ValueError("no_legal_robot_parking_pose")
+
+
+def robot_footprint(sim, *, whole_body=False):
+    """Actual base and wheel geometry projected into the base frame."""
+    base = body_pose(sim, sim.model.body(sim.robot.config.namespace + sim.robot.base_body).id)
+    base[:2, 3] = sim.robot.base_pose()[:2]
+    points = []
+    for g in range(sim.model.ngeom):
+        name = sim.model.body(int(sim.model.geom_bodyid[g])).name
+        if (
+            whole_body
+            and name.startswith(sim.robot.config.namespace)
+            and (sim.model.geom_contype[g] or sim.model.geom_conaffinity[g])
+            or not whole_body
+            and (
+                name == sim.robot.config.namespace + sim.robot.base_body
+                or name.startswith(sim.robot.config.namespace)
+                and "wheel" in name.lower()
+            )
+        ):
+            points.append((geom_points(sim, g) - base[:3, 3]) @ base[:3, :3])
+    if not points:
+        raise ValueError("missing chassis geometry")
+    points = np.concatenate(points)
+    return {
+        "radius_m": float(np.linalg.norm(points[:, :2], axis=1).max()),
+        "min": points.min(axis=0).tolist(),
+        "max": points.max(axis=0).tolist(),
+        "method": "held_whole_body_enclosing_circle"
+        if whole_body
+        else "base_origin_enclosing_circle_of_base_and_wheel_geoms",
+    }

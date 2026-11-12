@@ -6,12 +6,15 @@ import math
 import mujoco
 import numpy as np
 
-from ...config import PandaOmronConfig
+from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from ...runtime.simulation import Simulation
-from .initialization import floor_support, room_triangles
+from lastmile_dataflow.scenes.geometry import floor_support, room_triangles
 from ..geometry import body_pose
 from ..tasks.discovery import local_bounds
-from .sampling import disk_samples, robot_contacts
+from lastmile_dataflow.scenes.tasks.discovery import disk_samples
+from lastmile_dataflow.sim.placement import robot_contacts
+from lastmile_dataflow.scenes.loading.rl_scene import RLSceneConfig
+from lastmile_dataflow.scenes.geometry import descendants, geom_points
 
 
 def spatial_split(points, block_m, fractions, seed):
@@ -28,7 +31,6 @@ def spatial_split(points, block_m, fractions, seed):
 
 def prepare_stations(model, prepared, config):
     """CPU preparation only, before GPU episodes; no IK, FOV or reach filter."""
-    from ..loading.rl_scene import RLSceneConfig
 
     scene = RLSceneConfig(**config["scene"])
     robot_config = PandaOmronConfig(
@@ -60,7 +62,6 @@ def prepare_stations(model, prepared, config):
     points = disk_samples(center, setting["radius_m"], setting["spacing_m"])
     splits = spatial_split(points, setting["block_m"], setting["split"], setting["seed"])
     triangles = room_triangles(sim)
-    from ..geometry import descendants, geom_points
 
     base = model.body(robot_config.namespace + "mobilebase0_base").id
     support = model.body(robot_config.namespace + "mobilebase0_support").id

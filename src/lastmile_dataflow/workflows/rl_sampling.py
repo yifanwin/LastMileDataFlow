@@ -9,7 +9,9 @@ import torch
 
 from ..policies.sac.networks import Actor
 from ..policies.sac.replay import Transition
-from .rl_training import graph_observation, seed_all, record_episodes
+from .rl_training import record_episodes
+from lastmile_dataflow.policies.sac.agent import seed_all
+from lastmile_dataflow.scenes.rl_observation import graph_observation
 from ..scenes.rl_observation import REWARD_COMPONENTS
 
 

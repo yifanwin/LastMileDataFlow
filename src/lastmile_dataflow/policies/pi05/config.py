@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from ...config import read_config
+from lastmile_dataflow.utils.io import read_config
 
 
 # π0.5 image slots → recorded camera names, per embodiment.

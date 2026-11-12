@@ -10,10 +10,11 @@ from unittest.mock import patch
 import argparse
 from pathlib import Path
 
-from lastmile_dataflow.config import REPO_ROOT, StationRun, add_station_run_arguments, station_run
+from lastmile_dataflow.utils.io import REPO_ROOT
+from lastmile_dataflow.station_map.config import StationRun, add_station_run_arguments, station_run
 from lastmile_dataflow.gpu import select_devices
 
-SCRIPTS = ("build_scenes", "station_map", "collect", "bench_build", "bench_evaluate")
+SCRIPTS = ("build_scenes", "sample_stations", "station_map", "collect", "bench_build", "bench_evaluate")
 
 
 class StageScriptTests(unittest.TestCase):

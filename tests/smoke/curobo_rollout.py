@@ -2,11 +2,11 @@
 
 from lastmile_dataflow.gpu import select_devices
 import argparse
-import os
 from dataclasses import asdict
 from pathlib import Path
 
-from lastmile_dataflow.config import CollectionConfig, robot_config
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.robots.registry import robot_config
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.runtime.execution.curobo import run_curobo_attempt
 from lastmile_dataflow.runtime.execution_config import load_execution_config

@@ -2,7 +2,6 @@
 
 from lastmile_dataflow.gpu import select_devices
 import argparse
-import os
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +9,7 @@ import torch
 from curobo._src.robot.kinematics.kinematics import Kinematics
 from curobo.types import JointState
 
-from lastmile_dataflow.config import robot_config
+from lastmile_dataflow.robots.registry import robot_config
 from lastmile_dataflow.utils.io import read_json, write_json
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 from lastmile_dataflow.planning.curobo.head_fov import target_camera_torch
@@ -18,7 +17,7 @@ from lastmile_dataflow.runtime.execution.context import planner_options
 from lastmile_dataflow.runtime.execution_config import load_execution_config
 from lastmile_dataflow.runtime.simulation import Simulation
 from lastmile_dataflow.scenes.dataset import load_scenes
-from lastmile_dataflow.scenes.stations.sampling import place_frozen_station
+from lastmile_dataflow.sim.placement import place_frozen_station
 
 
 def main():

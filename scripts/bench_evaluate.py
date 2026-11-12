@@ -16,7 +16,7 @@ def main():
 
     select_devices([args.gpu], args.egl_devices)
     from lastmile_dataflow.utils.logging_config import setup_logging
-    from lastmile_dataflow.workflows.lastmilebench import evaluate
+    from lastmile_dataflow.lastmile_benchmark.evaluate import evaluate
 
     setup_logging()
     print(evaluate(args.benchmark, args.output, args.config))

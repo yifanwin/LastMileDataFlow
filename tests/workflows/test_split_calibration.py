@@ -14,7 +14,7 @@ from lastmile_dataflow.runtime.execution.lifecycle import isolated_episode
 from lastmile_dataflow.runtime.execution.protocol import PlanningResponse
 from lastmile_dataflow.runtime.execution.workers import execution_worker
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
-from lastmile_dataflow.config import StationRun
+from lastmile_dataflow.station_map.config import StationRun
 from lastmile_dataflow.utils.io import read_json, rows
 from lastmile_dataflow.workflows.station_map import StationRunContext, calibrate_stations
 from tests.helpers import DatasetTestCase

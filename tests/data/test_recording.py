@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import mujoco
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.execution.context import ContinuousContext
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig

@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 from lastmile_dataflow.runtime.simulation import Simulation
-from lastmile_dataflow.scenes.loading.local import task_local_model
+from lastmile_dataflow.scenes.loading.rl_scene import task_local_model
 from tests.helpers import table_scene
 
 

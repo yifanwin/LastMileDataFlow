@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from lastmile_dataflow.config import RobotConfig
+from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.runtime.control.action import (
     InvalidAction,
     torso_joints,
@@ -17,7 +17,6 @@ from lastmile_dataflow.runtime.control.action import (
 )
 from lastmile_dataflow.runtime.control.joints import JointMap
 from lastmile_dataflow.runtime.execution.context import joint_base_error
-from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 
 
 def robot_fixture():

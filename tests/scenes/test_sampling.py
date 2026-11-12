@@ -8,7 +8,7 @@ import numpy as np
 from lastmile_dataflow.runtime.control.joints import JointMap
 from lastmile_dataflow.runtime.execution_config import ExecutionConfig
 from lastmile_dataflow.scenes.stations.sampling import coverage_select
-from lastmile_dataflow.scenes.stations.sampling import disk_samples
+from lastmile_dataflow.scenes.tasks.discovery import disk_samples
 from lastmile_dataflow.scenes.dataset import load_scene_recipe
 
 

@@ -7,7 +7,7 @@ import unittest
 
 import numpy as np
 
-from lastmile_dataflow.config import CollectionConfig
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
 from lastmile_dataflow.data.recorder import AttemptRecorder
 from lastmile_dataflow.runtime.control.interface import RobotCommand
 from lastmile_dataflow.runtime.simulation import Simulation

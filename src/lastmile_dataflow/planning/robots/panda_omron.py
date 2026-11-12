@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import yaml
 
-from ...runtime.control.panda_omron import SCALE
 from ...scenes.geometry import body_pose
 
 

@@ -7,12 +7,12 @@
 from collections import Counter
 from unittest.mock import patch
 
-from lastmile_dataflow.config import StationRun
+from lastmile_dataflow.station_map.config import StationRun
 from lastmile_dataflow.utils.io import append_row, read_json, rows, write_json
 from lastmile_dataflow.workflows import collect, station_map
 from lastmile_dataflow.workflows.collect import run_collection
 from lastmile_dataflow.workflows.station_map import prepare_run, run_station_map
-from tests.helpers import DatasetTestCase
+from tests.helpers import DatasetTestCase, add_scene
 
 PATH = {"xy": [[0.0, 0.0], [1.0, 1.0], [3.0, 1.0]], "poses": [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [3.0, 1.0, 0.0]]}
 SUCCESS = {
@@ -56,7 +56,7 @@ def trial_rows(scene_id, task_id, counts, trials_per_station):
 
 
 class Executor:
-    """Stands in for run_curobo_attempt and records the attempt ids it was given."""
+    """Stands in for run_continuous_attempt and records the attempt ids it was given."""
 
     def __init__(self, *results):
         self.results = list(results)
@@ -94,7 +94,7 @@ class CollectionTests(DatasetTestCase):
         ]
         dataset = self.dataset()
         for scene_id in scene_ids[1:]:
-            append_row(dataset / "scenes.jsonl", {**self.scene, "scene_id": scene_id})
+            add_scene(dataset, {**self.scene, "scene_id": scene_id})
         return dataset
 
     def calibrate(self, dataset, trials, config, name="calibration"):

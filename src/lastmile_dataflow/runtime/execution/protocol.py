@@ -6,15 +6,6 @@ import time
 import numpy as np
 
 
-class OperationFailure(RuntimeError):
-    """An attempt-level physical or planning failure with an outcome reason."""
-
-    def __init__(self, reason, diagnostic=None):
-        super().__init__(reason)
-        self.reason = reason
-        self.diagnostic = diagnostic
-
-
 @dataclass
 class SimulationState:
     integration: np.ndarray

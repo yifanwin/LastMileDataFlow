@@ -5,17 +5,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lastmile_dataflow.config import CollectionConfig, LocalConfig, RobotConfig, load_local_config, read_config
+from lastmile_dataflow.utils.io import LocalConfig, load_local_config, read_config
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.robots.rby1.config import RobotConfig
 from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.policies.molmobot import load_molmobot_config as load_policy_config
-from lastmile_dataflow.config import load_robot_config
+from lastmile_dataflow.robots.registry import load_robot_config
 
 
 class PathTests(unittest.TestCase):
     def test_local_config_is_optional_and_paths_use_repository_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch("lastmile_dataflow.config.REPO_ROOT", root):
+            with patch("lastmile_dataflow.utils.io.REPO_ROOT", root):
                 self.assertEqual(load_local_config(), LocalConfig())
                 write_json(root / "configs/local.yaml", {"assets_dir": "/shared/assets"})
                 self.assertEqual(load_local_config(), LocalConfig(Path("/shared/assets")))
@@ -54,7 +56,7 @@ class PathTests(unittest.TestCase):
             interpreter.symlink_to(base)
             path = root / "configs/nested/policy.yaml"
             write_json(path, {"data_root": "data", "checkpoint": "models/multitask", "python": ".venv/bin/python"})
-            with patch("lastmile_dataflow.config.REPO_ROOT", root):
+            with patch("lastmile_dataflow.utils.io.REPO_ROOT", root):
                 config = load_policy_config(path)
             self.assertEqual(config.python, str(interpreter))
             self.assertEqual(config.checkpoint, str(root / "data/models/multitask"))

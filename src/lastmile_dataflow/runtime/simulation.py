@@ -16,12 +16,12 @@ import json
 import mujoco
 import numpy as np
 
-from ..config import robot_config as parse_robot_config
+from lastmile_dataflow.robots.registry import robot_config as parse_robot_config
 from ..scenes.loading.mjcf import load_spec, save_spec
 from ..scenes.loading.source import SceneSource, instance_catalog, resolve_target
 from ..utils.io import canonical, read_json, write_json
 from .control.interface import RobotCommand
-from .control.robot import load_robot_spec, make_robot_adapter
+from lastmile_dataflow.robots.registry import load_robot_spec, make_robot_adapter
 
 NATIVE_PROFILE = "molmobot-native-v1"
 _KEEP = object()
@@ -388,3 +388,12 @@ def _null_nonfinite(value, path, found):
 def _normalized(value):
     """Normalize tuple/list differences before comparing saved robot configs."""
     return json.loads(canonical(value))
+
+
+class OperationFailure(RuntimeError):
+    """An attempt-level physical or planning failure with an outcome reason."""
+
+    def __init__(self, reason, diagnostic=None):
+        super().__init__(reason)
+        self.reason = reason
+        self.diagnostic = diagnostic

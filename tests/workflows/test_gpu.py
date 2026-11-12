@@ -2,7 +2,8 @@ import os
 import unittest
 from unittest import mock
 
-from lastmile_dataflow.gpu import isolate_from_argv, select_devices, bind_device, bind_cpu_renderer, egl_device_map
+from lastmile_dataflow.gpu import select_devices, bind_device, bind_cpu_renderer, egl_device_map
+from lastmile_dataflow.station_map.rl.devices import isolate_from_argv
 
 
 class IsolateGpuTest(unittest.TestCase):

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 
-from ..visualization.fonts import font
+from lastmile_dataflow.utils.figures import font
 
 PHASE_LABELS = {
     "navigation": "A* 路线 · 底盘闭环",

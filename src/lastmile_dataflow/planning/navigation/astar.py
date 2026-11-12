@@ -8,8 +8,9 @@ import mujoco
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
-from ...scenes.geometry import body_points, collision_geoms, descendants, geom_points
-from ...scenes.stations.initialization import room_triangles
+from ...scenes.geometry import geom_points
+from lastmile_dataflow.scenes.geometry import room_triangles
+from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
 
 # Height cleared by chassis-only navigation (the arm is held above it).
 CHASSIS_HEIGHT_M = 0.40
@@ -224,49 +225,3 @@ def scene_grid(
         sim, anchor, radius, resolution, support_obstacles=support_obstacles, robot_height=robot_height
     )
     return occupancy.navigation(footprint_radius, margin)
-
-
-def task_support_obstacles(sim, task):
-    """Conservative support envelopes from actual geometry, not success labels.
-
-    Parent metadata is a hint only: require an overlapping surface immediately
-    below the target. Without a hint, search collision surfaces under the target.
-    Open tasks reserve their articulated furniture instance instead.
-    """
-    target = sim.model.body(task["target_body"]).id
-    target_bodies = descendants(sim.model, target)
-    target_lo = body_points(sim, target).min(axis=0)
-    anchor = np.asarray(task["anchor_world"])
-    hint = next((e.get("parent_instance_id") for e in sim.catalog if e["instance_id"] == task["instance_id"]), None)
-    candidates = []
-    for entry in sim.catalog:
-        is_open = task["operation"] == "open" and entry["instance_id"] == task["instance_id"]
-        if (entry["body_id"] in target_bodies and not is_open) or entry["mjcf_body"].startswith("robot_0/"):
-            continue
-        points = [
-            geom_points(sim, g)
-            for g in collision_geoms(sim, entry["body_id"])
-            if is_open or int(sim.model.geom_bodyid[g]) not in target_bodies
-        ]
-        if not points:
-            continue
-        tops = []
-        for pts in points:
-            lo, hi = pts.min(axis=0), pts.max(axis=0)
-            if np.all(anchor[:2] >= lo[:2]) and np.all(anchor[:2] <= hi[:2]) and abs(hi[2] - target_lo[2]) <= 0.05:
-                tops.append(hi[2])
-        if not tops and not is_open:
-            continue
-        pts = np.concatenate(points)
-        lo, hi = pts.min(axis=0), pts.max(axis=0)
-        obstacle = {
-            "body": entry["mjcf_body"],
-            "min": lo.tolist(),
-            "max": hi.tolist(),
-            "kind": "support",
-            "evidence": "open_task_furniture" if is_open else "surface_below_target_AABB",
-        }
-        candidates.append((is_open or entry["instance_id"] == hint, max(tops, default=hi[2]), obstacle))
-    if not candidates:
-        return []
-    return [max(candidates, key=lambda item: item[:2])[2]]

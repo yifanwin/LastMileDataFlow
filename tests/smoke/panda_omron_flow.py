@@ -4,12 +4,10 @@ from lastmile_dataflow.gpu import select_devices
 import argparse
 from dataclasses import asdict, replace
 import json
-import os
 from pathlib import Path
 
 
 def align_mobile(output, robot_config):
-    import mujoco
     import numpy as np
     from copy import deepcopy
     from types import SimpleNamespace
@@ -110,14 +108,14 @@ def align_mobile(output, robot_config):
 def navigation(output, robot_config):
     from dataclasses import asdict
     import numpy as np
-    from lastmile_dataflow.config import CollectionConfig
+    from lastmile_dataflow.runtime.execution_config import CollectionConfig
     from lastmile_dataflow.runtime.simulation import Simulation
     from lastmile_dataflow.scenes.loading.source import SceneSource
     from lastmile_dataflow.runtime.execution_config import ExecutionConfig
     from lastmile_dataflow.data.recorder import AttemptRecorder
     from lastmile_dataflow.runtime.execution.context import ContinuousContext
     from lastmile_dataflow.runtime.execution.navigation import navigate
-    from lastmile_dataflow.scenes.tasks.discovery import robot_footprint
+    from lastmile_dataflow.sim.placement import robot_footprint
     from lastmile_dataflow.planning.navigation.astar import scene_grid, search_region
     from lastmile_dataflow.planning.navigation.geometry import pose_path
     from lastmile_dataflow.utils.io import write_json
@@ -189,9 +187,10 @@ def navigation(output, robot_config):
 def static_stations(sim, task, geometry):
     """Initialize the robot at every disk lattice point in a fresh clone; geometry only, no rendering."""
     from contextlib import closing
-    from lastmile_dataflow.runtime.construction.session import clone_preparation
-    from lastmile_dataflow.scenes.stations.initialization import room_triangles
-    from lastmile_dataflow.scenes.stations.sampling import disk_samples, initialize_station
+    from lastmile_dataflow.runtime.construction.preparation import clone_preparation
+    from lastmile_dataflow.scenes.geometry import room_triangles
+    from lastmile_dataflow.scenes.stations.sampling import initialize_station
+    from lastmile_dataflow.scenes.tasks.discovery import disk_samples
 
     triangles = room_triangles(sim)
     rows = []
@@ -218,7 +217,8 @@ def main():
     parser.add_argument("--radius", type=float)
     args = parser.parse_args()
     select_devices([args.gpu])
-    from lastmile_dataflow.config import load_robot_config, read_config
+    from lastmile_dataflow.utils.io import read_config
+    from lastmile_dataflow.robots.registry import load_robot_config
     from lastmile_dataflow.runtime.simulation import Simulation
     from lastmile_dataflow.scenes.loading.source import SceneSource
     from lastmile_dataflow.scenes.tasks.discovery import discover_tasks

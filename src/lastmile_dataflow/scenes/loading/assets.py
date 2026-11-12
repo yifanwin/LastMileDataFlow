@@ -1,7 +1,7 @@
 """Rigid asset adaptation and bounded, shared runtime collision geometry."""
 
 from collections import OrderedDict, Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 import time
 import copy
 from pathlib import Path

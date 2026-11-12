@@ -5,7 +5,8 @@ import numpy as np
 
 from ...utils.io import write_json
 from ...planning.navigation.astar import distance_field
-from .plot import grid_extent, plt, save_figure
+from lastmile_dataflow.utils.figures import plt
+from lastmile_dataflow.utils.figures import grid_extent, save_figure
 
 
 def gaussian_map(grid, rows, sigma, *, max_support_distance_m=0.35):

@@ -19,6 +19,8 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from ...scenes.loading.rl_scene import RLSceneConfig, prepare_rl_scene
 from ..control.dls import BaseFrameDLSCfg
 from . import terms
+from lastmile_dataflow.runtime.outcomes.pick_state import RL_PICK_THRESHOLDS
+from lastmile_dataflow.runtime.rl.terms import TaskState
 
 
 ROBOT_PREFIX = "robot/robot_0/"
@@ -114,7 +116,6 @@ def build_sensors(prepared):
 
 class StationEnv(ManagerBasedRlEnv):
     def __init__(self, config, *, gpu, seed, num_envs=None):
-        from ..outcomes.pick_state import RL_PICK_THRESHOLDS
 
         for key, value in config["success"].items():
             if RL_PICK_THRESHOLDS[key] != value:
@@ -196,7 +197,6 @@ class StationEnv(ManagerBasedRlEnv):
         super().__init__(cfg, device=f"cuda:{gpu}")
 
     def load_managers(self):
-        from .terms import TaskState
 
         self.task = TaskState(self)
         super().load_managers()

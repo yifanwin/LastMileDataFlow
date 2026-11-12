@@ -72,7 +72,9 @@ def main():
     elif args.stage == "rollout":
         from copy import deepcopy
         from dataclasses import replace
-        from lastmile_dataflow.config import load_robot_config, read_config, CollectionConfig
+        from lastmile_dataflow.utils.io import read_config
+        from lastmile_dataflow.runtime.execution_config import CollectionConfig
+        from lastmile_dataflow.robots.registry import load_robot_config
         from lastmile_dataflow.runtime.simulation import Simulation
         from lastmile_dataflow.runtime.execution_config import ExecutionConfig
         from lastmile_dataflow.runtime.execution.vla import run_vla_attempt
@@ -131,7 +133,7 @@ def main():
                 policy.close()
             sim.close()
     else:
-        from lastmile_dataflow.config import load_robot_config
+        from lastmile_dataflow.robots.registry import load_robot_config
         from lastmile_dataflow.runtime.simulation import Simulation
         from lastmile_dataflow.scenes.loading.source import SceneSource
 

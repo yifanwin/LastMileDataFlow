@@ -4,7 +4,6 @@ import copy
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np

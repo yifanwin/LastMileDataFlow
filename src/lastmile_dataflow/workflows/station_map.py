@@ -12,11 +12,15 @@ from itertools import count
 from pathlib import Path
 from queue import Empty
 
-from ..config import CollectionConfig, StationRun, load_local_config, robot_config
+from lastmile_dataflow.utils.io import load_local_config
+from lastmile_dataflow.station_map.config import StationRun
+from lastmile_dataflow.runtime.execution_config import CollectionConfig
+from lastmile_dataflow.robots.registry import robot_config
 from ..data.evaluation.calibration import aggregate, eligible_stations, station_calibration
 from ..data.visualization.heatmap import export_heatmap
 from ..gpu import resolve_egl_devices
-from ..planning.navigation.astar import scene_grid, task_support_obstacles
+from ..planning.navigation.astar import scene_grid
+from lastmile_dataflow.scenes.tasks.discovery import task_support_obstacles
 from ..planning.navigation.geometry import NAVIGATION_PROTOCOL, NavigationSettings
 from ..planning.pool import PlanningPool, PlanningService, per_gpu_workers
 from ..policies.config import check_profile, load_policy_config

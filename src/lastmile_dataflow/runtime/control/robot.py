@@ -10,8 +10,6 @@ import mujoco
 import numpy as np
 
 from ...scenes.geometry import descendants
-from ...scenes.loading.mjcf import load_spec
-from . import panda_omron, panda_robocasa
 from .action import (
     ANGULAR_TOLERANCE_RAD,
     ARM_SLICE,
@@ -29,8 +27,6 @@ from .action import (
 from .interface import RobotCommand
 from .joints import JointMap, check_cameras
 from .native_actions import NativeControl
-from .panda_omron import SCALE as PANDA_SCALE, PandaOmronAdapter
-from .panda_robocasa import PandaRoboCasaAdapter
 
 NATIVE_PROFILE = "molmobot-native-v1"
 
@@ -376,41 +372,3 @@ class RBY1Adapter:
                 raise InvalidAction("native motor command requires its original units")
             action[GRIPPER_INDEX[arm]] = -float(width) / 2
         return action
-
-
-# (robot name, control profile or None for the default) -> (adapter, spec preparation)
-ROBOTS = {
-    ("rby1m", None): (RBY1Adapter, prepare_rby1_spec),
-    ("panda_omron", None): (PandaOmronAdapter, panda_omron.prepare_spec),
-    ("panda_omron", "robocasa-v1"): (PandaRoboCasaAdapter, panda_robocasa.prepare_spec),
-}
-
-
-def _robot(config):
-    return ROBOTS.get((config.name, config.control_profile)) or ROBOTS[(config.name, None)]
-
-
-def make_robot_adapter(model, data, config):
-    return _robot(config)[0](model, data, config)
-
-
-def prepare_robot_spec(spec, config):
-    _robot(config)[1](spec, config)
-
-
-def load_robot_spec(config, scale=None):
-    """Prepare and scale factory geometry once for both simulation backends."""
-    source = load_spec(config.model_path)
-    prepare_robot_spec(source, config)
-    if scale is None:
-        scale = PANDA_SCALE if config.name == "panda_omron" else 1.0
-    if scale == 1.0:
-        return source
-    frames = [frame for frame in source.worldbody.frames if frame.frame is None]
-    bodies = [body for body in source.worldbody.bodies if body.frame is None]
-    scaled = source.worldbody.add_frame(scale=scale, scaling=mujoco.mjtScaling.mjSCALING_GEOMETRY)
-    for frame in frames:
-        frame.set_frame(scaled)
-    for body in bodies:
-        body.set_frame(scaled)
-    return source

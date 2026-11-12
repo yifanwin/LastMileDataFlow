@@ -7,7 +7,7 @@ import numpy as np
 
 from ..control.interface import RobotCommand
 from ...planning.navigation.geometry import yaw_gap
-from .protocol import OperationFailure
+from lastmile_dataflow.runtime.simulation import OperationFailure
 
 ARRIVAL_TICKS = 10
 

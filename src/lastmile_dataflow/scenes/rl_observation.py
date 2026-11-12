@@ -3,6 +3,7 @@
 from dataclasses import dataclass, fields
 
 import torch
+import numpy as np
 
 
 REWARD_COMPONENTS = (
@@ -103,7 +104,6 @@ class GeometryObservation:
 
     def __init__(self, model, target_id, anchor, radius, device):
         import mujoco
-        import numpy as np
 
         reference = mujoco.MjData(model)
         mujoco.mj_forward(model, reference)
@@ -182,3 +182,7 @@ class GeometryObservation:
             ),
             -1,
         )
+
+
+def graph_observation(observations):
+    return GraphObservation(**observations["policy"])
