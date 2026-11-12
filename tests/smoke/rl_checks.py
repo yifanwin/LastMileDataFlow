@@ -294,10 +294,7 @@ def run(args):
         upstream_smoke(args)
         return
     config = resolve_config(read_config(args.config))
-    if args.approach_offset is not None:
-        config["grasp"]["approach_offset_m"] = args.approach_offset
-    if args.grasp_row is not None:
-        config["grasp"]["row"] = args.grasp_row
+
     seed_all(42)
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=42, num_envs=args.num_envs)
     try:
@@ -317,6 +314,7 @@ def run(args):
             obs = graph_observation(observations)
         station_ids = env.task.station_ids.clone()
         obs = warmup(env, station_ids, args.warmup_steps)
+        fixed_grasps = env.task.grasp_ids.clone()
         initial_arm = env.task.robot.data.joint_pos[:, env.task.arm].clone()
         replay = Replay(max(args.steps * env.num_envs, 1), obs) if args.learner_updates else None
         torch.cuda.synchronize(env.device)
@@ -363,6 +361,7 @@ def run(args):
                     ("hold_s", env.task.hold),
                 ):
                     trace[name].append(value[0].detach().cpu().numpy().copy())
+            torch.testing.assert_close(fixed_grasps, env.task.grasp_ids)
             next_obs = graph_observation(observations)
             if replay is not None:
                 healthy = ~env.task.unhealthy
@@ -438,6 +437,9 @@ def run(args):
             caches = {
                 name: getattr(env.task, name).clone()
                 for name in (
+                    "grasp_ids",
+                    "grasp_position",
+                    "grasp_rotation",
                     "elapsed",
                     "window_start",
                     "last_action",

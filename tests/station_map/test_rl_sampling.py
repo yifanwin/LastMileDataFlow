@@ -92,15 +92,17 @@ class SamplingTests(unittest.TestCase):
         from lastmile_dataflow.station_map.rl.evaluation import station_scores
 
         env = SimpleNamespace(
-            num_envs=2, task=SimpleNamespace(stations=[{"station_id": str(i), "valid": True} for i in range(10)])
+            device="cpu", num_envs=2, task=SimpleNamespace(grasp_pools=[[0, 1]] * 10, grasps=[dict(source="fixture", row=i) for i in range(2)], stations=[{"station_id": str(i), "valid": True} for i in range(10)])
         )
         with (
             patch("lastmile_dataflow.station_map.rl.evaluation.reset_stations") as reset,
             patch(
                 "lastmile_dataflow.station_map.rl.evaluation.action_sampled_q",
-                return_value=(torch.ones(2), torch.zeros(2)),
+                return_value=(torch.tensor([1., 3.]), torch.zeros(2)),
             ),
         ):
             rows = station_scores(None, env, 16, [3, 8])
         self.assertEqual([r["station_id"] for r in rows], ["3", "8"])
-        reset.assert_called_once_with(env, [3, 8])
+        self.assertEqual([r["q_mean"] for r in rows], [2., 2.])
+        self.assertEqual([r["q_std"] for r in rows], [1., 1.])
+        self.assertEqual([c.args[1] for c in reset.call_args_list], [[3, 3], [8, 8]])

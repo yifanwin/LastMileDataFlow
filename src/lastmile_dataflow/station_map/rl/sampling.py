@@ -26,6 +26,7 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
         obs = graph_observation(observations)
         actor = Actor(obs.arm_task_state.shape[-1]).to(env.device)
         version, random_actions, paused = 0, True, False
+        random_episodes = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         returns = torch.zeros(env.num_envs, device=env.device)
         components = torch.zeros(env.num_envs, len(REWARD_COMPONENTS), device=env.device)
         steps = torch.zeros(env.num_envs, device=env.device)
@@ -66,15 +67,17 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     env.task.reward_components[healthy],
                     env.task.station_ids[healthy],
                 ).to("cpu")
+                random_episodes |= random_actions
                 returns += reward
                 components += env.task.reward_components
                 steps += 1
                 done = terminated | env.task.unhealthy
                 episodes = io.StringIO()
-                record_episodes(episodes, env, done, 0, returns, components, steps)
+                record_episodes(episodes, env, done, 0, returns, components, steps, random_episodes)
                 obs = nxt.clone()
                 if done.any():
                     ids = done.nonzero(as_tuple=True)[0]
+                    random_episodes[ids] = False
                     reset, _ = env.reset(env_ids=ids)
                     obs.replace(ids, graph_observation(reset))
             # Messages own their bytes: no producer tensor lifetime or CUDA IPC.

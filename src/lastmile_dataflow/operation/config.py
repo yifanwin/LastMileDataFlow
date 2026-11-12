@@ -24,6 +24,8 @@ _POSITIVE_INTS = (
 )
 _NONNEGATIVE_INTS = ("seed", "operation_retries")
 _POSITIVE = (
+    "grasp_fps_position_scale_m",
+    "grasp_fps_rotation_scale_rad",
     "local_base_radius_m",
     "head_fov_min_depth_m",
     "radius_m",
@@ -86,7 +88,9 @@ class ExecutionConfig:
     num_ik_seeds: int = 32
     num_trajopt_seeds: int = 4
     time_dilation: float = 0.5
-    approach_offset_m: float = 0.01
+    grasp_fps_position_scale_m: float = 0.1
+    grasp_fps_rotation_scale_rad: float = math.pi / 2
+    approach_offset_m: float = 0.0
     export_figures: bool = True
     seed: int = 42
     width: int = 320

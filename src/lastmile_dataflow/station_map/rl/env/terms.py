@@ -6,6 +6,10 @@ from mjlab.utils.lab_api.math import compute_pose_error, quat_from_matrix
 
 from .observation import GeometryObservation, REWARD_COMPONENTS
 from .stations import prepare_stations
+from lastmile_dataflow.operation.grasps import load_grasps, select_grasps
+from lastmile_dataflow.sim.simulation import Simulation
+from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
+from copy import deepcopy
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 
@@ -86,7 +90,7 @@ class TaskState:
             [
                 i
                 for i, s in enumerate(self.stations)
-                if s["valid"] and s["split"] == "train" and (not debug or s["station_id"] in debug)
+                if s["valid"] and (not debug or s["station_id"] in debug)
             ],
             device=self.device,
             dtype=torch.long,
@@ -126,22 +130,35 @@ class TaskState:
         self.held_time = torch.zeros(n, device=self.device)
         self.needs_baseline = torch.ones(n, dtype=torch.bool, device=self.device)
         self.reward_components = torch.zeros(n, len(REWARD_COMPONENTS), device=self.device)
-        # The fixed object-local TCP is an explicit input, shared with scoring.
-
         scene_config = RLSceneConfig(**env.research_config["scene"])
         grasp = env.research_config["grasp"]
-        with np.load(scene_config.asset(grasp["path"]), allow_pickle=False) as source:
-            pose = source["transforms"][grasp["row"]].astype(float)
-        # The corpus stores quantized rotations, as in the existing grasp loader.
-        u, _, v = np.linalg.svd(pose[:3, :3])
-        pose[:3, :3] = u @ v
-        pose[:3, 3] += pose[:3, 2] * grasp["approach_offset_m"]
+        self.grasps = load_grasps(scene_config.asset(grasp["path"]), env.prepared.target_body)
+        if not self.grasps:
+            raise ValueError("No valid corpus grasps")
         angle = grasp["roll_rad"]
-        pose[:3, :3] = pose[:3, :3] @ np.array(
-            [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
-        )
-        self.grasp_position = torch.tensor(pose[:3, 3], dtype=torch.float32, device=self.device)
-        self.grasp_rotation = torch.tensor(pose[:3, :3], dtype=torch.float32, device=self.device)
+        roll = np.array([[np.cos(angle), -np.sin(angle), 0], [np.sin(angle), np.cos(angle), 0], [0, 0, 1]])
+        self.grasp_positions = torch.tensor(np.array([c["pose_local"][:3, 3] for c in self.grasps]), device=self.device, dtype=torch.float32)
+        self.grasp_rotations = torch.tensor(np.array([c["pose_local"][:3, :3] @ roll for c in self.grasps]), device=self.device, dtype=torch.float32)
+        self.grasp_ids = torch.zeros(n, device=self.device, dtype=torch.long)
+        self.requested_grasp_ids = None
+        self.grasp_position = torch.zeros(n, 3, device=self.device)
+        self.grasp_rotation = torch.eye(3, device=self.device).repeat(n, 1, 1)
+        sim = Simulation(self.model, scene_config.robot_config(entity=True), env.prepared.catalog, env.prepared.target_body)
+        self.grasp_pools = []
+        identities = {id(c): i for i, c in enumerate(self.grasps)}
+        settled_qpos = self.initial_qpos.cpu().numpy()
+        local_poses = np.array([c["pose_local"] for c in self.grasps])
+        for station in self.stations:
+            initial = deepcopy(scene_config.robot_config(entity=True).initial)
+            initial["base_xyyaw"] = [station[k] for k in ("x", "y", "yaw")]
+            sim.data.qpos[:] = settled_qpos
+            sim.robot.initialize(initial)
+            world = body_pose(sim, self.target) @ local_poses
+            pool = select_grasps(self.grasps, world, tcp_pose(sim, sim.robot.arms[0])[:3, 3], 16, grasp.get("fps_position_scale_m", 0.1), grasp.get("fps_rotation_scale_rad", np.pi / 2))
+            self.grasp_pools.append([identities[id(c)] for c in pool])
+        sim.close()
+        self.grasp_pool_counts = torch.tensor([len(p) for p in self.grasp_pools], device=self.device)
+        self.grasp_pool_table = torch.tensor([p + [p[-1]] * (16 - len(p)) for p in self.grasp_pools], device=self.device)
 
     def poses(self):
         data = self.env.sim.data
@@ -155,7 +172,7 @@ class TaskState:
 
     def goal_error(self, approach_offset_m=0.0):
         tcp_p, tcp_r, _, base_r, target_p, target_r = self.poses()
-        goal_p = target_p + torch.einsum("bij,j->bi", target_r, self.grasp_position)
+        goal_p = target_p + torch.einsum("bij,bj->bi", target_r, self.grasp_position)
         goal_r = target_r @ self.grasp_rotation
         goal_p = goal_p + approach_offset_m * goal_r[:, :, 2]
         dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
@@ -328,6 +345,17 @@ def arm_state(env):
     return env.task.observation_state()
 
 
+def reset_grasp_targets(task, selected, ids):
+    if task.requested_grasp_ids is None:
+        offsets = (torch.rand(len(ids), device=task.device) * task.grasp_pool_counts[selected]).long()
+        task.grasp_ids[ids] = task.grasp_pool_table[selected, offsets]
+    else:
+        task.grasp_ids[ids] = task.requested_grasp_ids
+    task.requested_grasp_ids = None
+    task.grasp_position[ids] = task.grasp_positions[task.grasp_ids[ids]]
+    task.grasp_rotation[ids] = task.grasp_rotations[task.grasp_ids[ids]]
+
+
 def reset(env, env_ids):
     task = env.task
     ids = torch.arange(env.num_envs, device=env.device) if env_ids is None else env_ids.long()
@@ -338,6 +366,7 @@ def reset(env, env_ids):
     )
     task.requested_station_ids = None
     task.station_ids[ids] = selected
+    reset_grasp_targets(task, selected, ids)
     env.sim.data.qpos[ids] = task.initial_qpos
     env.sim.data.qvel[ids] = 0
     # Named robot indices select the four fixed-base/lift coordinates.

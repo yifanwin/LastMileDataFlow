@@ -13,9 +13,9 @@ scene:
 mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
 grasp:
   path: mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz
-  row: 0
   roll_rad: 1.5707963267948966
-  approach_offset_m: -0.01
+  fps_position_scale_m: 0.1
+  fps_rotation_scale_rad: 1.5707963267948966
 environment:
   num_envs: 128
   decimation: 25
@@ -59,6 +59,7 @@ sac:
   initial_alpha: 0.1
   target_entropy: -7.0
 training:
+  periodic_evaluation: false
   batch_size: 256
   replay_capacity: 100000
   warmup_min: 20000
@@ -71,8 +72,6 @@ training:
 stations:
   robot_config: configs/robots/panda_omron.yaml
   heading_offsets_deg: [-60, -45, -30, -15, 0, 15, 30, 45, 60]
-  block_m: 0.3
-  split: [0.7, 0.15, 0.15]
   seed: 42
 evaluation:
   action_samples: 16

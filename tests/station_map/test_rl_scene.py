@@ -12,7 +12,7 @@ from lastmile_dataflow.robots.interface import ROBOT_NAMESPACE
 from lastmile_dataflow.robots.panda_omron.config import PandaOmronConfig
 from lastmile_dataflow.station_map.rl.env.scene import ROBOT_ENTITY, ROBOT_PREFIX, EntityPandaConfig, RLSceneConfig
 from lastmile_dataflow.station_map.rl.config import resolve_config
-from lastmile_dataflow.station_map.rl.env.stations import spatial_split, station_candidates
+from lastmile_dataflow.station_map.rl.env.stations import station_candidates
 from lastmile_dataflow.scenes.tasks import disk_samples
 from lastmile_dataflow.utils.io import read_config
 
@@ -64,15 +64,13 @@ class StationGeometryTests(unittest.TestCase):
         settings = config["stations"]
         center = np.array([3.0, 2.0, 0.0])
         points = disk_samples(center, settings["radius_m"], settings["spacing_m"])
-        labels = spatial_split(points, settings["block_m"], settings["split"], settings["seed"])
-        splits = {p["xy_id"]: label for p, label in zip(points, labels)}
         rows = station_candidates(center, settings)
         self.assertEqual(len(rows), (len(points) - 1) * 9 + 1)
         self.assertEqual(sum(r["invalid_reason"] == "no_heading" for r in rows), 1)
         row = next(r for r in rows if r["station_id"] == "S0000-y04")
         self.assertAlmostEqual(row["yaw"], math.atan2(center[1] - row["y"], center[0] - row["x"]))
         self.assertEqual(row["yaw_offset_rad"], 0)
-        self.assertTrue(all(r["split"] == splits[r["xy_id"]] for r in rows))
+        self.assertTrue(all(r["split"] == "train" for r in rows))
 
 
 class RobotNamespaceTests(unittest.TestCase):

@@ -1,7 +1,6 @@
 import unittest
 
 from lastmile_dataflow.station_map.rl.station_q import select_acceptance_stations, summarize_trials
-from lastmile_dataflow.station_map.rl.env.stations import spatial_split
 
 
 class StationQTests(unittest.TestCase):
@@ -15,15 +14,9 @@ class StationQTests(unittest.TestCase):
         self.assertEqual(len(selection), 20)
         self.assertEqual(len({r["station_id"] for r in selection}), 20)
         self.assertEqual([r["station_id"] for r in selection[:4]], ["39", "38", "37", "36"])
-        self.assertTrue(all(r["valid"] and r["split"] == "acceptance" for r in selection))
+        self.assertTrue(all(r["valid"] for r in selection))
         self.assertEqual(selection, select_acceptance_stations(rows, config))
 
-    def test_spatial_block_split_never_splits_yaws_or_same_block(self):
-        points = [{"xy": [i * 0.1, j * 0.1]} for i in range(20) for j in range(20)]
-        labels = spatial_split(points, 0.3, [0.7, 0.15, 0.15], 42)
-        self.assertEqual(set(labels), {"train", "validation", "acceptance"})
-        self.assertEqual(labels[0], labels[1])
-        self.assertEqual(labels, spatial_split(points, 0.3, [0.7, 0.15, 0.15], 42))
 
     def test_infrastructure_failures_remain_in_total_denominator(self):
         selection = [{"station_id": "s1", "group": "top", "q_mean": 1.0}]

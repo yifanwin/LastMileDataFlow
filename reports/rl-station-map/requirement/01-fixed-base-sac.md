@@ -1,9 +1,20 @@
 # 固定底盘 SAC 站位质量图：核心需求
 
 - 状态：active
-- 日期：2026-11-11
+- 日期：2026-11-12
 - 替代：无
 - 关联：../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../plan/03-distributed-sampling-centralized-learner.md、../delivery/03-mjlab-build-plan.md
+
+## 2026-11-12 当前规则
+
+本节替代下文历史的站位留出划分、固定单 grasp 和 validation 选 best 规则。
+
+- cuRobo／RL 共用最多 1024 条加载、Home TCP 最近 64 条、位置／旋转联合 FPS 16 条。默认 10 cm 等价 90°，从最近点开始，候选不足不补选。
+- cuRobo 规划整个池；RL 每次 reset 均匀选一条，Episode 内固定物体局部目标。最终抓取位置零偏移，保留 roll 和 pregrasp。
+- 全部合法站位训练，无空间留出集；周期评估默认关闭，可通过 `training.periodic_evaluation: true` 开启每 100000 条经验的训练站位监控。
+- 每个保存点和训练结束按最近最多 100 个健康、全程无随机预热动作 Episode 的未折扣回报均值选择 best.pt，严格提高才替换。普通失败参与；没有合格回合则末尾明确记录回退至最终模型。
+- 训练结束加载 best.pt 做一次 rollout／视频，再用同一模型计算完整 Q 图。每 grasp 各 K=16 个动作，再对候选 grasp 等权平均；保存逐 grasp 结果。训练集评估不证明泛化。
+- 本次实现与实际验证见 [交付记录](../delivery/15-shared-grasps-best.md)。
 
 ## 1. 目标与已确认范围
 

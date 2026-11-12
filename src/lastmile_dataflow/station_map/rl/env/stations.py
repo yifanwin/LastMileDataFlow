@@ -17,18 +17,6 @@ from .scene import RLSceneConfig
 from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 
 
-def spatial_split(points, block_m, fractions, seed):
-    blocks = sorted({tuple(np.floor(np.asarray(p["xy"]) / block_m).astype(int)) for p in points})
-    order = np.random.default_rng(seed).permutation(len(blocks))
-    n_train = int(len(blocks) * fractions[0])
-    n_validation = int(len(blocks) * fractions[1])
-    labels = (
-        ["train"] * n_train + ["validation"] * n_validation + ["acceptance"] * (len(blocks) - n_train - n_validation)
-    )
-    assignment = {blocks[i]: label for i, label in zip(order, labels)}
-    return [assignment[tuple(np.floor(np.asarray(p["xy"]) / block_m).astype(int))] for p in points]
-
-
 def station_candidates(center, settings):
     """Enumerate the grid, or keep one explicit world pose independent of grid IDs."""
     fixed = settings.get("fixed_station")
@@ -51,13 +39,12 @@ def station_candidates(center, settings):
         ]
 
     points = disk_samples(center, settings["radius_m"], settings["spacing_m"])
-    splits = spatial_split(points, settings["block_m"], settings["split"], settings["seed"])
     offsets = np.deg2rad(settings["heading_offsets_deg"])
     rows = []
-    for point, split in zip(points, splits):
+    for point in points:
         xy = np.asarray(point["xy"])
         delta = center[:2] - xy
-        common = {"xy_id": point["xy_id"], "x": float(xy[0]), "y": float(xy[1]), "split": split}
+        common = {"xy_id": point["xy_id"], "x": float(xy[0]), "y": float(xy[1]), "split": "train"}
         if np.hypot(*delta) < 1e-9:
             rows.append(
                 {

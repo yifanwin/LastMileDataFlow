@@ -1,6 +1,8 @@
 """Off-policy vector sampling with explicit final observations and local reset."""
 
 import json
+from collections import deque
+import shutil
 import importlib.metadata
 import os
 from pathlib import Path
@@ -46,12 +48,15 @@ def runtime_metadata(config, physical_gpu):
     }
 
 
-def record_episodes(log, env, done, transitions, returns, components, steps):
+def record_episodes(log, env, done, transitions, returns, components, steps, random_episodes=None):
     for index in done.nonzero(as_tuple=True)[0].tolist():
         log.write(
             json.dumps(
                 {
                     "event": "episode",
+                    "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
+                    "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
+                    "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
                     "transitions": transitions,
                     "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
                     "return": float(returns[index]),
@@ -83,11 +88,25 @@ def validation_checkpoint(agent, env, config, transitions, output, log, metadata
     log.write(json.dumps(event) + "\n")
     log.flush()
     if not event["healthy_trials"]:
-        raise RuntimeError("Independent validation produced no healthy trials")
-    metadata["best_validation_score"] = [event["evaluation_success_rate"], event["episode_return_mean"]]
-    agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
-    agent.save(Path(output) / "latest.pt", metadata=metadata, transitions=transitions)
+        raise RuntimeError("Training-station evaluation produced no healthy trials")
     training_curves(Path(output) / "metrics.jsonl", Path(output) / "views")
+
+
+def save_training_checkpoint(agent, output, metadata, transitions, returns, *, final=False):
+    score = sum(returns) / len(returns) if returns else None
+    best = metadata.get("best_training_return")
+    improved = score is not None and (best is None or best["mean"] is None or score > best["mean"])
+    fallback = final and best is None and score is None
+    if improved or fallback:
+        metadata["best_training_return"] = {
+            "metric": "recent_mean_undiscounted_episode_return",
+            "mean": score, "count": len(returns), "transitions": transitions,
+            "fallback": "no eligible episodes; final model" if fallback else None,
+        }
+    metadata["recent_episode_returns"] = list(returns)
+    if improved or fallback:
+        agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
+    agent.save(Path(output) / "latest.pt", metadata=metadata, transitions=transitions)
 
 
 def target_updates(healthy, warmup, interval):
@@ -101,6 +120,7 @@ class Samplers:
 
         ctx = mp.get_context("spawn")
         self.queue = ctx.Queue(maxsize=2 * len(devices))
+        self.pending = deque()
         self.stop = ctx.Event()
         self.channels, self.processes, self.actors = [], [], []
         for worker, device in enumerate(devices):
@@ -117,7 +137,8 @@ class Samplers:
             self.processes.append(process)
 
     def receive(self):
-
+        if self.pending:
+            return self.pending.popleft()
         while True:
             try:
                 payload, blocked = self.queue.get(timeout=0.2)
@@ -226,6 +247,15 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             if saved["metadata"]["config"] != config:
                 raise ValueError("Resume requires the checkpoint effective configuration")
             transitions = saved["transitions"]
+            for key in ("best_training_return", "recent_episode_returns"):
+                if key in saved["metadata"]:
+                    metadata[key] = saved["metadata"][key]
+            previous_best = Path(resume).parent / "best.pt"
+            if metadata.get("best_training_return") is not None:
+                if not previous_best.is_file():
+                    raise ValueError("Resume requires the previously selected best.pt")
+                if previous_best.resolve() != (output / "best.pt").resolve():
+                    shutil.copyfile(previous_best, output / "best.pt")
         else:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
             transitions = 0
@@ -233,6 +263,8 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]
+        recent_returns = deque(metadata.get("recent_episode_returns", []), maxlen=100)
+        evaluation_at = transitions + 100000
         started = time.perf_counter()
         discarded = 0
         with (output / "metrics.jsonl").open("a") as log:
@@ -252,6 +284,8 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 for line in episodes.splitlines():
                     event = json.loads(line)
                     event.update(transitions=transitions, worker=worker)
+                    if not event["infrastructure_failure"] and not event["random_warmup"]:
+                        recent_returns.append(event["return"])
                     log.write(json.dumps(event) + "\n")
                 if before < settings["warmup_min"] <= collected:
                     workers.publish(agent, False)
@@ -285,8 +319,16 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                         + "\n"
                     )
                     log.flush()
-                    agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
+                    save_training_checkpoint(agent, output, metadata, transitions, recent_returns)
                     log_at += settings["log_every"]
+                if settings.get("periodic_evaluation", False) and transitions >= evaluation_at and transitions < limit:
+                    # Pause and drain before evaluation, keeping queued experience for normal ingestion.
+                    pending = workers.pause()
+                    validation_checkpoint(agent, env, config, transitions, output, log, metadata)
+                    workers.resume()
+                    for message in pending:
+                        workers.pending.append(message)
+                    evaluation_at += 100000
             # Drain in-flight data only at shutdown, then release all Samplers before validation.
             discarded += sum(len(message[3].reward) for message in workers.pause())
             log.write(
@@ -304,11 +346,13 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             )
             workers.close()
             workers = None
-            agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
+            save_training_checkpoint(agent, output, metadata, transitions, recent_returns, final=True)
+            agent, _ = SAC.load(output / "best.pt", env.device)
             validation_checkpoint(agent, env, config, transitions, output, log, metadata)
+            seed_all(config["evaluation"]["seed"])
             rows = station_scores(agent, env, config["evaluation"]["action_samples"])
             (output / "station-q.json").write_text(
-                json.dumps({"checkpoint": str(output / "best.pt"), "stations": rows}, indent=2)
+                json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
             )
             plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
         return {"transitions": transitions, "updates": agent.updates, "checkpoint": str(output / "latest.pt")}

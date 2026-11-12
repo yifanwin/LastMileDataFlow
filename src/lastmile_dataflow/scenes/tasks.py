@@ -1,5 +1,7 @@
 """Task discovery from the actual exported model, not historical success labels."""
 
+from lastmile_dataflow.operation.grasps import load_grasps
+
 from pathlib import Path
 from urllib.parse import quote
 import mujoco
@@ -194,24 +196,9 @@ def _dataset_grasps(task, assets_dir, max_rows, empty_sources):
         path = Path(assets_dir) / "grasps" / directory / asset / (asset + "_grasps_filtered.npz")
         if not path.is_file():
             continue
-        with np.load(path, allow_pickle=False) as z:
-            transforms = z["transforms"].astype(float)
-        if transforms.size == 0:
+        result = load_grasps(path, task["target_body"], max_rows)
+        if not result:
             empty_sources.append(str(path))
-            continue
-        if transforms.ndim != 3 or transforms.shape[1:] != (4, 4):
-            raise ValueError("invalid grasp shape")
-        ids = np.linspace(0, len(transforms) - 1, min(max_rows, len(transforms)), dtype=int)
-        result = []
-        for index in ids:
-            p = transforms[index].copy()
-            if not np.isfinite(p).all() or not np.allclose(p[3], [0, 0, 0, 1], atol=1e-5):
-                continue
-            u, s, v = np.linalg.svd(p[:3, :3])
-            if np.max(np.abs(s - 1)) > 0.02 or np.linalg.det(p[:3, :3]) <= 0:
-                continue
-            p[:3, :3] = u @ v
-            result.append({"pose_local": p, "body": task["target_body"], "source": str(path), "row": int(index)})
         if result:
             return result
     return []

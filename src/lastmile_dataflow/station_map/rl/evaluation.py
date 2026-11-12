@@ -1,4 +1,4 @@
-"""Frozen scores and held-out stochastic rollouts using the same environment."""
+"""Frozen scores and training-station rollouts using the same environment."""
 
 import json
 from pathlib import Path
@@ -28,13 +28,21 @@ def reset_stations(env, station_ids, env_ids=None):
 def station_scores(agent, env, samples, station_ids=None):
     rows = [{**s, "q_mean": None, "q_std": None, "K": samples} for s in env.task.stations]
     valid = [i for i, row in enumerate(rows) if row["valid"] and (station_ids is None or i in station_ids)]
-    for start in range(0, len(valid), env.num_envs):
-        batch = valid[start : start + env.num_envs]
-        padded = batch + [batch[-1]] * (env.num_envs - len(batch))
-        obs = reset_stations(env, padded)
-        mean, std = action_sampled_q(agent, obs, samples)
-        for offset, index in enumerate(batch):
-            rows[index].update(q_mean=float(mean[offset]), q_std=float(std[offset]))
+    for index in valid:
+        grasp_scores = []
+        pool = env.task.grasp_pools[index]
+        for start in range(0, len(pool), env.num_envs):
+            batch = pool[start:start + env.num_envs]
+            padded = batch + [batch[-1]] * (env.num_envs - len(batch))
+            env.task.requested_grasp_ids = torch.tensor(padded, device=env.device)
+            obs = reset_stations(env, [index] * env.num_envs)
+            mean, std = action_sampled_q(agent, obs, samples)
+            for offset, grasp_id in enumerate(batch):
+                candidate = env.task.grasps[grasp_id]
+                grasp_scores.append(dict(source=candidate["source"], row=candidate["row"], q_mean=float(mean[offset]), q_std=float(std[offset])))
+        average = float(np.mean([g["q_mean"] for g in grasp_scores]))
+        second = np.mean([g["q_std"] ** 2 + g["q_mean"] ** 2 for g in grasp_scores])
+        rows[index].update(q_mean=average, q_std=float(np.sqrt(max(0, second - average ** 2))), grasps=grasp_scores)
     return rows if station_ids is None else [rows[i] for i in station_ids]
 
 
@@ -93,6 +101,8 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
             unhealthy = bool(env.task.unhealthy[index])
             records[index] = {
                 "station_id": env.task.stations[station_ids[index]]["station_id"],
+                "grasp_source": task.grasps[int(task.grasp_ids[index])]["source"],
+                "grasp_row": task.grasps[int(task.grasp_ids[index])]["row"],
                 "seed": seed,
                 "success": bool(env.task.success[index]),
                 "collision_free": bool(env.task.collision_free[index]),
@@ -171,12 +181,12 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     settings = config["training"]
     seed = config["evaluation"]["seed"]
     fixed_station = config["stations"].get("fixed_station")
-    scope = "fixed_station" if fixed_station else "validation"
+    scope = "fixed_station" if fixed_station else "train"
     if fixed_station:
         station_ids = [int(env.task.pool[0])] * env.num_envs
     else:
-        candidates = [i for i, row in enumerate(env.task.stations) if row["valid"] and row["split"] == "validation"]
-        station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=False).tolist()
+        candidates = [i for i, row in enumerate(env.task.stations) if row["valid"]]
+        station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=len(candidates) < env.num_envs).tolist()
     selection = [{**env.task.stations[i], "group": scope} for i in dict.fromkeys(station_ids)]
     (analysis / "validation-selection.json").write_text(
         json.dumps(
@@ -232,7 +242,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     event = {
         "event": "evaluation",
         "transitions": transitions,
-        "split": "train" if fixed_station else "validation",
+        "split": "train",
         "scope": scope,
         "evaluation_success_rate": float(np.mean([r["success"] for r in healthy])) if healthy else None,
         "successes": sum(r["success"] for r in healthy),
@@ -290,7 +300,7 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
             "checkpoint": str(Path(checkpoint).absolute()),
             "seed": seed,
             "physical_gpu": gpu,
-            "interpretation": "raw E[min online Q]; K is action samples, not rollouts",
+            "interpretation": "mean over grasps of E[min online Q]; K is action samples per grasp",
             "legal_coverage": sum(r["valid"] for r in rows) / len(rows),
             "stations": rows,
         }
@@ -393,6 +403,8 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
                 )
                 result = {
                     "station_id": row["station_id"],
+                    "grasp_source": env.task.grasps[int(env.task.grasp_ids[0])]["source"],
+                    "grasp_row": env.task.grasps[int(env.task.grasp_ids[0])]["row"],
                     "seed": row["seed"],
                     "trial": row["trial"],
                     "success": bool(env.task.success[0]),

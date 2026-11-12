@@ -21,12 +21,9 @@ def main():
     parser.add_argument(
         "--scripted-batch", action="store_true", help="scripted pick from one sampled station per environment"
     )
-    parser.add_argument("--split", default="train", choices=("train", "validation"))
     parser.add_argument("--station-seed", type=int, default=42)
     parser.add_argument("--policy-checkpoint", help="report grasp-sequence progress of a frozen Actor")
     parser.add_argument("--station-id")
-    parser.add_argument("--approach-offset", type=float, help="diagnostic override of grasp.approach_offset_m")
-    parser.add_argument("--grasp-row", type=int, help="diagnostic override of grasp.row")
     parser.add_argument("--warmup-steps", type=int, default=2)
     parser.add_argument("--random-actions", action="store_true")
     parser.add_argument("--learner-updates", type=int, default=0)
@@ -36,6 +33,7 @@ def main():
     )
     parser.add_argument("--output", default="/tmp/lastmile-rl-smoke.json")
     args = parser.parse_args()
+    args.split = "train"
     if args.monitor and args.learner_updates <= 0:
         parser.error("--monitor requires --learner-updates > 0")
     select_devices([args.gpu])

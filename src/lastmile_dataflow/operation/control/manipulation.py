@@ -1,5 +1,7 @@
 """Native grasp planning and semantic physical execution; no scene resets."""
 
+from ..grasps import select_grasps
+
 import copy
 from dataclasses import dataclass, replace
 from functools import partial
@@ -38,7 +40,7 @@ def candidate_pool(sim, config, candidates, seed, forced):
     reference = tcp_pose(sim, sim.robot.arms[0])[:3, 3] if method == "tcp_distance" else sim.robot.base_pose()
     score = partial(_candidate_score, sim, reference, method)
     if method == "tcp_distance":
-        return sorted(candidates, key=score)[: config.max_grasp_candidates]
+        return select_grasps(candidates, [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates], reference, config.max_grasp_candidates, config.grasp_fps_position_scale_m, config.grasp_fps_rotation_scale_rad)
     pool = sorted(candidates, key=score, reverse=True)[: max(config.max_grasp_candidates * 8, 16)]
     return [pool[i] for i in rng.permutation(len(pool))[: config.max_grasp_candidates]]
 

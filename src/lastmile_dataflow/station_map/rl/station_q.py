@@ -29,7 +29,7 @@ def _take(group, candidates, count, selected, used, rng, *, ordered=False):
 
 def select_acceptance_stations(rows, config):
     """Save this selection before observing any rollout outcomes."""
-    valid = [r for r in rows if r["valid"] and r["split"] == "acceptance"]
+    valid = [r for r in rows if r["valid"]]
     ranked = sorted(valid, key=lambda row: row["q_mean"], reverse=True)
     rng = np.random.default_rng(config["seed"])
     selected, used = [], set()

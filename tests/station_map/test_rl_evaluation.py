@@ -84,6 +84,8 @@ class ValidationTests(unittest.TestCase):
         from lastmile_dataflow.station_map.rl.evaluation import validation_rollout
 
         env = TwoEpisodeEnv()
+        env.task.grasps = [dict(source="fixture", row=0)]
+        env.task.grasp_ids = torch.zeros(2, dtype=torch.long)
         rows = validation_rollout(SimpleNamespace(actor=ObservationActor()), env, [0, 1], 42, 0.5)
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["episode_return"], 2.0)
@@ -140,7 +142,7 @@ class ValidationTests(unittest.TestCase):
         }
         config = resolve_config(config)
         prefix = "lastmile_dataflow.station_map.rl.training."
-        cases = ((False, False, False), (True, True, True), (True, False, True), (True, True, False))
+        cases = ((False, False, False), (True, True, True), (True, False, False), (True, True, False))
         for resume, has_best, has_score in cases:
             with self.subTest(resume=resume, has_best=has_best, has_score=has_score), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 parent = Path(directory)
@@ -149,7 +151,7 @@ class ValidationTests(unittest.TestCase):
                 if has_best:
                     (source / "best.pt").touch()
                 agent = Mock(updates=0)
-                saved = {"transitions": 100, "metadata": {"config": config, "best_validation_score": [0, 5] if has_score else None}}
+                saved = {"transitions": 100, "metadata": {"config": config, "best_training_return": {"mean": 2.0} if has_score else None, "recent_episode_returns": [2.0] if has_score else []}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
@@ -181,7 +183,11 @@ class ValidationTests(unittest.TestCase):
                 self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
                 self.assertEqual(result["transitions"], 105 if resume else 5)
                 workers.pause.assert_called_once()
-                self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
-                self.assertEqual(sac.load.call_count, 1 if resume else 0)
+                if not (resume and has_score):
+                    self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
+                else:
+                    self.assertTrue((parent / "new" / "best.pt").is_file())
+                self.assertEqual(sac.load.call_args.args[0], parent / "new" / "best.pt")
+                self.assertEqual(sac.load.call_count, 2 if resume else 1)
                 workers.close.assert_called_once()
                 env.close.assert_called_once()

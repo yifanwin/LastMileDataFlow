@@ -1,5 +1,7 @@
 # PandaOmron（robocasa-v1）cuRobo 站位标定与连续采集；场景见 configs/scenes/panda_omron.yaml。
 grasp_candidate_order: tcp_distance
+# 最近 64 条后做 FPS；默认 10 cm 等价 90°。最终位置不偏移。
+approach_offset_m: 0.0
 grasp_roll_rad: 1.5707963267948966
 trials_per_station: 3
 operation_retries: 0
