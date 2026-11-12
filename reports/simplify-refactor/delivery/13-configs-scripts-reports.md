@@ -63,11 +63,7 @@
 
 改名与分类：`collision-handing` → `collision-handling`，`raw_asserts` → `raw-assets/analyze/`；各主题的 `info/` → `analyze/`，`docs/` 下的运行指南 → `delivery/running.md`（RL 的算法说明 → `delivery/algorithm-training-pipeline.md`），`no-edit-calibration/decisions/` → `plan/`。相对链接按新旧位置脚本重算；全仓库 Markdown 的链接检查没有新增断链（剩下的断链原来就有，指向已删的源码、外部仓库或其他 worktree）。`reports/README.md` 重写为目录约定、当前状态、主题和归档四段。
 
-保留但拿不准、请用户定：
-
-- `no-edit-calibration/`：10-27 的旧标定实验与归因，Oracle 边界分析里的调整还没实施。
-- `build-lastmile-datasets/`：首轮数据集交付描述的“独立物化”入口现已不提供。
-- `curobo-time-optimization/`、`panda-omron/phase_01` 的 10 月实验记录：当前代码延续了它们的方案，但实验数字是旧版本的。
+之后按用户 11-12 的答复，`no-edit-calibration/`、`build-lastmile-datasets/` 也移入 `reports/archives/`（前者是旧版本链路上的标定实验与归因，后者描述的独立物化入口已删除）；当前文档里指向它们的链接已改，断链检查前后都是 290 处、没有新增（剩下的都是原有的、指向已删源码、外部仓库或其他 worktree 的链接）。仍保留、但实验数字属于旧版本的：`curobo-time-optimization/`、`panda-omron/` 的 10 月记录。
 
 ## 验证
 

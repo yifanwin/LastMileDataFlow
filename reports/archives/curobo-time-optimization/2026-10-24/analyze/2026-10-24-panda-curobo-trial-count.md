@@ -3,7 +3,7 @@
 - 状态：archived
 - 日期：2026-10-24
 - 替代：[当前文档](../../../../curobo-time-optimization/analyze/01-current-status.md)
-- 关联：[数据集需求](../../../../build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[优化方案](../plan/2026-10-22-time-optimization-plan.md)、[P2/E03 实现](../delivery/E03-telemetry-parallel-planner-reuse.md)
+- 关联：[数据集需求](../../../build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[优化方案](../plan/2026-10-22-time-optimization-plan.md)、[P2/E03 实现](../delivery/E03-telemetry-parallel-planner-reuse.md)
 
 **2026-10-24 归档：保留当时的设置、结论与未验证边界；当前实验以 PandaOmron、每站位 3 次为准。本文中的旧预算与待办不作为当前方案。**
 

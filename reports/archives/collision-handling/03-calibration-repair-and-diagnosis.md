@@ -3,7 +3,7 @@
 - 状态：archived（2026-10-28 迁入 `collision-handing/archive/`；局部碰撞的后续工作改由[局部碰撞实现方案](../../collision-handling/plan/04-local-collision-representation.md)安排。归档前状态：N5 与凸包版本固定 12 站对照完成；保留凸包修复，已采样假内部误判消除；重叠区域漏判、val107 退化及残余失败待处理，见[交付第 14 节](04-calibration-repair.md#14-凸包修复复核与下一步2026-10-28)；整体成功率恢复尚未验证）
 - 日期：2026-10-27（进度更新 2026-10-28）
 - 替代：本文件上一版实施顺序；历史结果以交付报告为准
-- 关联：[阶段交付](04-calibration-repair.md)、[问题梳理](../../panda-omron/analyze/2026-10-27-calibration-problem-review.md)、[复用缺陷](../../no-edit-calibration/analyze/03-planner-reuse-target-binding.md)、[原始顺序对照](../../no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md)
+- 关联：[阶段交付](04-calibration-repair.md)、[问题梳理](../../panda-omron/analyze/2026-10-27-calibration-problem-review.md)、[复用缺陷](../no-edit-calibration/analyze/03-planner-reuse-target-binding.md)、[原始顺序对照](../no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md)
 
 ## 1. 当前判断：哪里严重，哪些必须修
 

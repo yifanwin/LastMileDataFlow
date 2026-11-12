@@ -4,7 +4,7 @@
 - 日期：2026-10-26
 - 替代：同文件初版
 - 范围变更：2026-10-26 由 `val_0`–`val_99`（100 个）扩展为 `val_0`–`val_999`（1000 个）
-- 关联：[任务模式需求](../../archives/task-modes/requirement/01-task-mode-construction.md)、[实验方案](../plan/01-experiment-plan.md)、[计划表](../plan/02-schedule.md)、[任务模式构建说明](../../archives/task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../docs/runbook.md)
+- 关联：[任务模式需求](../../task-modes/requirement/01-task-mode-construction.md)、[实验方案](../plan/01-experiment-plan.md)、[计划表](../plan/02-schedule.md)、[任务模式构建说明](../../task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../../docs/runbook.md)
 
 > 工作目录名 `no-edit-calibration-val0-99` 和分支名保留创建时名称，实际范围以本文为准。
 
@@ -268,7 +268,7 @@ recording_complete, collisions
   - `failure_table.md`：按 5.3.3 的主表、分组表、交叉表、约束细分表生成；
   - `target_success_rates.json`：类别、task、station 三层成功率与排除建议；
   - `replay_manifest.jsonl`：代表视频的 scene/task/station/trial/rollout/reason 映射。
-- 分析报告：`reports/no-edit-calibration/delivery/` 下的 Markdown，至少覆盖：
+- 分析报告：`reports/archives/no-edit-calibration/delivery/` 下的 Markdown，至少覆盖：
   - house / task / station / trial 四层计数；
   - 全失败、全成功、有效、未完成任务数与占比；
   - 无用场景的 task 口径与 house 口径；

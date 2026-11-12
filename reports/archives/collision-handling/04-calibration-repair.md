@@ -3,7 +3,7 @@
 - 状态：archived（2026-10-28 迁入 `collision-handing/archive/`，作为 N0–N5 与凸包修复的历史证据保留、不再追加；新结果写入本主题 `delivery/`。文中 `outputs/experiments/...` 位于 `.worktrees/no-edit-calibration/`。归档前状态：N5 与凸包版本的固定 12 站对照完成；保留凸包修复，已采样自由空间假内部误判消除；重叠区域漏判、val107 退化及残余任务失败待处理，复核见第 14 节）
 - 日期：2026-10-27（第 10–14 节 2026-10-28）
 - 替代：无；第 6 节为只读复核，第 7 节记录 N0–N2 实施结果，第 10 节记录 N3/N4 实施结果，不改写前文已有实验结果
-- 关联：[修复诊断方案](03-calibration-repair-and-diagnosis.md)、[重构计划](../../no-edit-calibration/plan/calibration-repair-schedule.md)、[复用缺陷分析](../../no-edit-calibration/analyze/03-planner-reuse-target-binding.md)、[Cup_30 顺序对照](../../no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md)
+- 关联：[修复诊断方案](03-calibration-repair-and-diagnosis.md)、[重构计划](../no-edit-calibration/plan/calibration-repair-schedule.md)、[复用缺陷分析](../no-edit-calibration/analyze/03-planner-reuse-target-binding.md)、[Cup_30 顺序对照](../no-edit-calibration/analyze/02-cup30-reuse-order-experiment.md)
 
 原阶段记录时改动尚未提交；本轮只读复核开始时工作区干净，HEAD 为 `023ca75 refactor: fix planner state reuse and restructure code`。第 7 节的代码改动在该 HEAD 之上，尚未提交。以下 GPU/测试结果仍只代表各节注明的实际运行版本。
 

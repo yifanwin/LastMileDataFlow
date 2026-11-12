@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-24
 - 替代：无
-- 关联：[交付报告](../delivery/01-implementation.md)、[PandaOmron 当前实验需求](../../curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)
+- 关联：[交付报告](../delivery/01-implementation.md)、[PandaOmron 当前实验需求](../../../curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)
 
 2026-10-16 提出的数据集生成需求保留；软件实现已落地，真实采集待验证。当前实验主体与标定次数以 PandaOmron 需求为准，不改变本文的两类示教和物化定义。
 
@@ -133,7 +133,7 @@ Pair Generation
 
 ## 7. 运行手册与最小验收要求
 
-- 后续实现时将 [运行手册](../../../docs/runbook.md) 拆为第 2 节“逐点标定”、第 3 节“lastmile-datasets 生成”；原 benchmark 与结果说明顺延为第 4、5 节。MolmoBot 标定说明归第 2 节，不混入 cuRobo 连续采集。
+- 后续实现时将 [运行手册](../../../../docs/runbook.md) 拆为第 2 节“逐点标定”、第 3 节“lastmile-datasets 生成”；原 benchmark 与结果说明顺延为第 4、5 节。MolmoBot 标定说明归第 2 节，不混入 cuRobo 连续采集。
 - 第 3 节分别说明引用型生成与独立物化的步骤、输入输出和依赖区别；`--calibration` 指向含 `config.json` / `trials.jsonl` 的具体 run，而不是其父目录。
 - 配对数量等于各场景任务 `|eligible_S0| × |eligible_S1|` 之和；改变附近距离与两个数量上限，不改变正式 pair 集合；阈值边界包含等号。
 - 无路径与停批后未执行 pair 不丢失；没有 rollout 就不出现训练轨迹。汇总分别报告计划数、执行覆盖、各类结果及两种来源的训练条数，不把未执行归为任务失败。
@@ -144,7 +144,7 @@ Pair Generation
 
 ## 8. 实现前核对与验证边界
 
-实现前核对了 [selection.py](../../../src/lastmile_dataflow/data/evaluation/selection.py)、[collection.py](../../../src/lastmile_dataflow/workflows/collection.py)、[标定与采集测试](../../../tests/workflows/test_collection.py) 和 [配置说明](../../../configs/lastmile_datasets/README.md)：当时选点受 `start_count` 与附近距离限制，连续采集截断 S1 候选，并写入 `episodes.jsonl`。这些是本次替换的行为，不是新实现的能力说明。
+实现前核对了 [selection.py](../../../../src/lastmile_dataflow/data/evaluation/selection.py)、[collection.py](../../../../src/lastmile_dataflow/workflows/collection.py)、[标定与采集测试](../../../../tests/workflows/test_collection.py) 和 [配置说明](../../../../configs/lastmile_datasets/README.md)：当时选点受 `start_count` 与附近距离限制，连续采集截断 S1 候选，并写入 `episodes.jsonl`。这些是本次替换的行为，不是新实现的能力说明。
 
 实现前的非归档跟踪文件未找到 `collect_views()`、`all_attempts_index`、`train_index` 或 `pair_index`。本次新增所需配对与训练索引，不恢复旧模块或额外的全 attempt 事实库。
 

@@ -3,7 +3,7 @@
 - 状态：done
 - 日期：2026-10-16
 - 替代：无
-- 关联：[需求定义](../requirement/01-lastmile-datasets.md)、[当前状况](../../curobo-time-optimization/analyze/01-current-status.md)
+- 关联：[需求定义](../requirement/01-lastmile-datasets.md)、[当前状况](../../../curobo-time-optimization/analyze/01-current-status.md)
 
 本文保留当轮数据集软件交付事实；2026-10-24 的 PandaOmron 主体与每点 3 次需求见当前状况，不据此改写下文历史验证结果。
 
@@ -52,7 +52,7 @@ git diff --check
 
 ## 使用与剩余边界
 
-按[运行手册第 3 节](../../../docs/runbook.md#3-lastmile-datasets-生成)先生成引用型结果，再调用独立物化。`--calibration` 必须指向具体标定 run，不是父目录。
+按[运行手册第 3 节](../../../../docs/runbook.md#3-lastmile-datasets-生成)先生成引用型结果，再调用独立物化。`--calibration` 必须指向具体标定 run，不是父目录。
 
 - 测试使用简化仿真、mock 结果和合成轨迹/观测；没有生成或宣称真实成功机器人示教。本轮未修改、删除或搬迁既有采集数据和外部资产。
 - 引用型结果仍依赖来源目录；只有物化完成后的训练读取路径自包含。来源元数据中的旧路径仅供追溯，训练读取器不访问它们。

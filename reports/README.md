@@ -26,11 +26,9 @@
 | `project-overview/` | pipeline 总图与站位热图示意 | [pipeline 图](project-overview/delivery/2026-11-02-pipeline-figure.md) |
 | `rl-station-map/` | 固定底盘 SAC 站位图（mjlab 独立环境） | [需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)、[分布式采样方案](rl-station-map/plan/03-distributed-sampling-centralized-learner.md) |
 | `benchmark/` | lastmile-bench：困难 S0、恢复区域与评测 | [需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[现状](benchmark/analyze/01-current-status.md) |
-| `build-lastmile-datasets/` | 连续采集数据集的需求与首轮实现 | [需求](build-lastmile-datasets/requirement/01-lastmile-datasets.md)、[实现交付](build-lastmile-datasets/delivery/01-implementation.md) |
 | `curobo-time-optimization/` | PandaOmron 场景构建与 cuRobo 标定加速（GPU 规划/CPU 执行拆分） | [当前需求](curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)、[现状](curobo-time-optimization/analyze/01-current-status.md)、[规划失败分析](curobo-time-optimization/analyze/2026-10-25-planning-failure-analysis.md) |
 | `collision-handling/` | 局部碰撞表示：机器人柱体/底盘球、结构化局部环境 | [需求](collision-handling/requirement/02-local-collision-representation.md)、[方案](collision-handling/plan/04-local-collision-representation.md) |
 | `navigation/` | A* 导航几何修复与软净空 | [专题入口](navigation/README.md)、[软净空实施结果](navigation/delivery/08-navigation-soft-clearance.md) |
-| `no-edit-calibration/` | 无编辑场景标定实验、低成功率归因与 Oracle 边界分析 | [需求](no-edit-calibration/requirement/01-requirement.md)、[成功率归因](no-edit-calibration/analyze/01-low-success-analysis.md)、[Oracle 边界](no-edit-calibration/analyze/04-oracle-validity-and-repositioning.md) |
 | `panda-omron/` | PandaOmron 接入、全流程与整机缩放 | [全流程需求](panda-omron/requirement/02-panda-omron-full-flow.md)、[整机缩放 0.9](panda-omron/delivery/20261111-scale-09.md) |
 | `pi05/` | π0.5 双本体接入与运行 | [需求](pi05/requirement/01-pi05-integration.md)、[构建报告](pi05/delivery/03-implementation.md)、[运行指南](pi05/delivery/running.md) |
 | `raw-assets/` | THOR 资产库、DROID 抓取库、ProcTHOR 场景库的内容分析 | [analyze/](raw-assets/analyze/) |
@@ -45,3 +43,5 @@
 | `archives/panda-omron/docs/` | PandaOmron phase01 worktree 的运行指南 | 指向已不存在的 worktree 和旧配置 |
 | `archives/collision-handling/` | 标定修复诊断方案与 N0–N5 阶段交付 | 原 `collision-handing/archive/`，已被局部碰撞方案接续 |
 | `archives/curobo-time-optimization/2026-10-24/` | 加速专题的旧方案、探针与耗时分析 | 原 `curobo-time-optimization/archive/`，已被当前方案接续 |
+| `archives/no-edit-calibration/` | 无编辑场景标定实验（10-27）、低成功率归因、Oracle 边界分析与未实施的调整清单 | 旧版本链路上的实验记录，用户 11-12 定为归档 |
+| `archives/build-lastmile-datasets/` | 连续采集数据集的需求与首轮实现（引用型结果＋独立物化） | 独立物化入口已删除，采集现在直接导出自包含数据集；用户 11-12 定为归档 |

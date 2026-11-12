@@ -3,7 +3,7 @@
 - 状态：draft（需求梳理，表示方式与精度参数待方案阶段确定）
 - 日期：2026-10-28
 - 替代：无；补充局部碰撞处理要求，不替代既有标定成功率定义
-- 关联：[标定需求](../../no-edit-calibration/requirement/01-requirement.md)、[局部碰撞实现方案](../plan/04-local-collision-representation.md)、[修复诊断方案](../../archives/collision-handling/03-calibration-repair-and-diagnosis.md)、[阶段交付与方案比较](../../archives/collision-handling/04-calibration-repair.md)
+- 关联：[标定需求](../../archives/no-edit-calibration/requirement/01-requirement.md)、[局部碰撞实现方案](../plan/04-local-collision-representation.md)、[修复诊断方案](../../archives/collision-handling/03-calibration-repair-and-diagnosis.md)、[阶段交付与方案比较](../../archives/collision-handling/04-calibration-repair.md)
 
 ## 1. 目标
 

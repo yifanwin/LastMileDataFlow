@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：无；将实验方案拆为可跟踪任务
-- 关联：[需求](../requirement/01-requirement.md)、[实验方案](01-experiment-plan.md)、[运行手册](../../../docs/runbook.md)
+- 关联：[需求](../requirement/01-requirement.md)、[实验方案](01-experiment-plan.md)、[运行手册](../../../../docs/runbook.md)
 
 ## 1. 执行约定与当前进度
 
@@ -33,7 +33,7 @@
 | 全量 | c000–c005 已完成；c006 曾启动 1,430 trial，因排除策略变更归档；主驱动暂停，先补跑 c000–c005 的排除类别 |
 | GPU 并发 | 当前 8 卡按负载分配：仅使用 GPU 6–7，各 2 个 planning worker；补跑和主链均用该配置 |
 | 视频 | 已渲染 265 条（试点 19、c000 4、c001–c004 178、c005 64）；8 卡并行约 16 条/min；补跑/主链恢复后继续由监视器增量渲染 |
-| 实时状态 | `reports/no-edit-calibration/delivery/status.md` 每 30 min 覆盖更新；含墙钟、各 chunk 准备/标定/trial、失败状态、热图/视频和 ETA |
+| 实时状态 | `reports/archives/no-edit-calibration/delivery/status.md` 每 30 min 覆盖更新；含墙钟、各 chunk 准备/标定/trial、失败状态、热图/视频和 ETA |
 | 输出整理 | `figures/preparations/planning/rollouts` 按 `<pick|open>/<类别>/<valid_task|no_valid_task>/` 建立符号链接视图；回放直接到 `outputs/replays/<pick|open>/<类别>/<valid_task|no_valid_task>/<success|failure>/<scene_id>`，不再保留 replay-run 层；每 30 min 与状态一起重建，详见 [03-output-layout.md](../delivery/03-output-layout.md) |
 | 收尾器 | 旧收尾器已停止；补跑完成、主驱动 c006 恢复后重启 |
 | 排除策略 | 累计 `trials >= 1000` 且 success rate < 0.1% 才自动剔除，不设房屋数门槛；永久白名单 Cup、Mug、Bowl、SoapBottle、SprayBottle、Vase 永不剔除；手动排除难抓类别 Pen、Pencil、CellPhone、CD、Newspaper、RemoteControl |
@@ -60,8 +60,8 @@
 
 | 编号 | 任务 | 交付/文件 | 前置 | 验收条件 | 状态 |
 |---|---|---|---|---|---|
-| P0.1 | 需求定稿 | `reports/no-edit-calibration/requirement/01-requirement.md` | — | 1000 场景、无编辑、task-mode 资格、失败表口径固定 | 已完成 |
-| P0.2 | 实验方案 | `reports/no-edit-calibration/plan/01-experiment-plan.md` | P0.1 | 直接标定、内部缓存、8 卡、CPU 规则明确 | 已完成 |
+| P0.1 | 需求定稿 | `reports/archives/no-edit-calibration/requirement/01-requirement.md` | — | 1000 场景、无编辑、task-mode 资格、失败表口径固定 | 已完成 |
+| P0.2 | 实验方案 | `reports/archives/no-edit-calibration/plan/01-experiment-plan.md` | P0.1 | 直接标定、内部缓存、8 卡、CPU 规则明确 | 已完成 |
 | P0.3 | 计划表 | 本文件 | P0.1、P0.2 | 任务、依赖、验收、状态可跟踪 | 已完成 |
 
 ### P1 代码实现
@@ -128,7 +128,7 @@
 | 编号 | 任务 | 产物 | 前置 | 验收条件 | 预计 | 状态 |
 |---|---|---|---|---|---|---|
 | P6.1 | 全量汇总 | 多 run 分析 | P5.9 | 1000 来源 house 表、task 分类、S0/S1、失败主表和细分表 | 2–4 h | 未开始 |
-| P6.2 | 最终报告 | `reports/no-edit-calibration/delivery/` | P6.1 | 覆盖需求验收项；unknown/未执行单独说明 | 2–4 h | 未开始 |
+| P6.2 | 最终报告 | `reports/archives/no-edit-calibration/delivery/` | P6.1 | 覆盖需求验收项；unknown/未执行单独说明 | 2–4 h | 未开始 |
 | P6.3 | 代表视频 | `outputs/replays/` + manifest | P6.1 | 有效场景 201 条已完成（试点 19、c000 4、c001–c004 178，8 卡约 11 min）；c005 起完成一个 chunk 渲染一个 | 2–6 h | 进行中 |
 
 ### P7 收尾
@@ -200,7 +200,7 @@ P1.5 和 P1.7 不阻塞主链，可提前完成；P2 的分析模块可以在 P1
 ## 8. 计划表维护
 
 - 每完成一项代码或验证，更新对应行状态和验收记录表；
-- 阶段结果写入 `reports/no-edit-calibration/delivery/`，不为每小步增设附件；
+- 阶段结果写入 `reports/archives/no-edit-calibration/delivery/`，不为每小步增设附件；
 - 运行配置、seed 和真实结果保存在标定 run，不另建重复索引；
 - 需求或方案变更时，先更新需求和方案，再同步本表的任务与依赖；
 - 本表编写阶段未修改源码、未执行测试或真实实验，代码与实验项保持未开始。

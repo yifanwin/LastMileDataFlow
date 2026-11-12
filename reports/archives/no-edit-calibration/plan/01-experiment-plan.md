@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-10-26
 - 替代：无
-- 关联：[需求](../requirement/01-requirement.md)、[计划表](02-schedule.md)、[任务模式构建说明](../../archives/task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../docs/runbook.md)
+- 关联：[需求](../requirement/01-requirement.md)、[计划表](02-schedule.md)、[任务模式构建说明](../../task-modes/info/01-build-scenes-modes.md)、[val100 全量实验](../../../curobo-time-optimization/delivery/2026-10-24-val100-experiment.md)、[运行手册](../../../../docs/runbook.md)
 
 ## 1. 方案摘要
 
@@ -26,7 +26,7 @@
 |---|---|---|
 | 标定 run | `outputs/<calibration-run-id>/` | `trials.jsonl`、`summary.json`、`figures/`、`rollouts/` |
 | 失败明细 | 标定 run 内 | `planning_failures.jsonl`、`execution_failures.jsonl`、`failure_summary.json`、`failure_table.md` |
-| 汇总报告 | `reports/no-edit-calibration/delivery/` | 最终 Markdown |
+| 汇总报告 | `reports/archives/no-edit-calibration/delivery/` | 最终 Markdown |
 | 视频 | `outputs/replays/<replay-run-id>/` | 全部标定完成后统一渲染 |
 | 内部输入缓存 | `outputs/_calibration_inputs/<run-id>/` | 非交付物；含 `scenes.jsonl` 和冻结快照 |
 
@@ -286,7 +286,7 @@ export MUJOCO_GL=egl
 ```bash
 .venv/bin/python scripts/analyze_no_edit_calibration.py \
   --calibration outputs/<run-id-1> outputs/<run-id-2> ... \
-  --output reports/no-edit-calibration/delivery/analysis
+  --output reports/archives/no-edit-calibration/delivery/analysis
 ```
 
 ### 6.5 统一视频
