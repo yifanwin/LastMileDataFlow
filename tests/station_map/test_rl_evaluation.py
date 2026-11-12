@@ -1,5 +1,6 @@
 import importlib.util
-from contextlib import ExitStack
+import json
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 import tempfile
 from unittest.mock import Mock, patch
@@ -94,16 +95,50 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(rows[0]["both_fingers"])
         self.assertAlmostEqual(rows[0]["best_position_error_m"], 3**0.5, places=6)
 
-    def test_training_starts_without_validation_or_initial_checkpoint_and_evaluates_at_end(self):
+    def test_fixed_station_evaluation_uses_training_pose_and_records_its_scope(self):
+        from lastmile_dataflow.station_map.rl.evaluation import monitor_validation
+        from lastmile_dataflow.utils.io import read_config
+
+        config = read_config("configs/station_map/rl/val103_cup30_s0246_y04.yaml")
+        config["training"]["validation_rollouts_per_station"] = 2
+        row = {"station_id": "S0246-y04", "split": "train", "valid": True, "q_mean": 1.0}
+        trial = {"station_id": row["station_id"], "success": True, "collision_free": True,
+                 "infrastructure_failure": False, "return": 2.0, "episode_return": 3.0}
+        env = SimpleNamespace(num_envs=1, device="cpu", task=SimpleNamespace(stations=[row], pool=[0]))
+        agent = SimpleNamespace(actor=Mock(), q1=Mock(), q2=Mock())
+        prefix = "lastmile_dataflow.station_map.rl.evaluation."
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch(prefix + "torch.random.fork_rng", return_value=nullcontext()))
+            scores = stack.enter_context(patch(prefix + "station_scores", return_value=[row]))
+            rollout = stack.enter_context(patch(prefix + "validation_rollout", return_value=[trial]))
+            stack.enter_context(patch(prefix + "station_evaluation"))
+            stack.enter_context(patch(prefix + "RolloutCapture", side_effect=lambda *a, **k: SimpleNamespace(videos=[])))
+            event = monitor_validation(agent, env, config, 100, directory, force_video=True)
+            selection = json.loads((Path(directory) / "analysis/validation-selection.json").read_text())
+        self.assertEqual(event["scope"], "fixed_station")
+        self.assertEqual(event["split"], "train")
+        self.assertEqual(event["healthy_trials"], 2)
+        self.assertEqual(event["evaluation_success_rate"], 1.0)
+        self.assertIsNone(event["value_success_correlation"])
+        self.assertEqual(selection["scope"], "fixed_station")
+        self.assertEqual(selection["stations"][0]["group"], "fixed_station")
+        scores.assert_called_once_with(agent, env, config["evaluation"]["action_samples"], [0])
+        self.assertEqual(rollout.call_count, 4)  # Two trials plus stochastic / mean video rollouts.
+        self.assertTrue(all(call.args[2] == [0] for call in rollout.call_args_list))
+
+    def test_training_validates_final_policy_once_after_closing_samplers(self):
         from lastmile_dataflow.station_map.rl.training import train
+        from lastmile_dataflow.station_map.rl.config import resolve_config
         from tests.station_map.test_rl_sac import observation
 
         config = {
             "training": {"validation_stations": 1, "replay_capacity": 10, "warmup_min": 20,
-                         "eval_every": 100, "log_every": 10, "max_transitions": 101, "transitions_per_update": 128},
+                         "eval_every": 1, "log_every": 10, "max_transitions": 105, "transitions_per_update": 128},
             "environment": {"num_envs": 1}, "evaluation": {"seed": 42, "action_samples": 1, "q_color_limits": [-1, 1]},
             "sac": {}, "success": {},
+            "stations": {"robot_config": "configs/robots/panda_omron.yaml"},
         }
+        config = resolve_config(config)
         prefix = "lastmile_dataflow.station_map.rl.training."
         cases = ((False, False, False), (True, True, True), (True, False, True), (True, True, False))
         for resume, has_best, has_score in cases:
@@ -127,19 +162,26 @@ class ValidationTests(unittest.TestCase):
                 workers = stack.enter_context(patch(prefix + "Samplers")).return_value
                 workers.receive.return_value = (0, 0, True, SimpleNamespace(reward=torch.zeros(1)), "", 0.0)
                 workers.pause.return_value = []
-                monitor = stack.enter_context(patch(prefix + "monitor_validation", return_value={
-                    "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0,
-                }))
+                def validate(*args, **kwargs):
+                    workers.close.assert_called_once()
+                    self.assertEqual(workers.receive.call_count, 5)
+                    self.assertIn("latest.pt", [call.args[0].name for call in agent.save.call_args_list])
+                    return {"healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}
+
+                monitor = stack.enter_context(patch(prefix + "monitor_validation", side_effect=validate))
                 stack.enter_context(patch(prefix + "training_curves"))
                 stack.enter_context(patch(prefix + "station_scores", return_value=[]))
                 stack.enter_context(patch(prefix + "plot_scores"))
                 result = train(config, gpus=[0], output=parent / "new", seed=42,
                                resume=source / "latest.pt" if resume else None,
-                               max_transitions=101 if resume else 1)
+                               max_transitions=105 if resume else 5)
                 self.assertEqual(monitor.call_count, 1)
                 self.assertEqual(monitor.call_args.args[3], result["transitions"])
                 self.assertNotIn("initial.pt", [call.args[0].name for call in agent.save.call_args_list])
                 self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
-                self.assertEqual(result["transitions"], 101 if resume else 1)
+                self.assertEqual(result["transitions"], 105 if resume else 5)
+                workers.pause.assert_called_once()
+                self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
+                self.assertEqual(sac.load.call_count, 1 if resume else 0)
                 workers.close.assert_called_once()
                 env.close.assert_called_once()

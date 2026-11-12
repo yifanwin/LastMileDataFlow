@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from lastmile_dataflow.utils.io import read_config
+from lastmile_dataflow.station_map.rl.config import resolve_config
 from lastmile_dataflow.station_map.rl.devices import VISIBLE_DEVICE
 from lastmile_dataflow.station_map.rl.env.environment import StationEnv
 from lastmile_dataflow.station_map.rl.evaluation import reset_stations
@@ -292,7 +293,7 @@ def run(args):
     if args.upstream:
         upstream_smoke(args)
         return
-    config = read_config(args.config)
+    config = resolve_config(read_config(args.config))
     if args.approach_offset is not None:
         config["grasp"]["approach_offset_m"] = args.approach_offset
     if args.grasp_row is not None:

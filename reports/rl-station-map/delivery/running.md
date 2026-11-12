@@ -62,6 +62,8 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 机器人尺寸由 `scene.robot_scale` 显式指定（当前 0.9，相对于原始 factory XML）。更改该值即可重新构建训练和评估模型；夹爪初态、动作上下限、升降位置归一化和底盘支撑半径从实际模型读取，不需同步修改尺寸常量。显式指定的 Home 升降高度仍以米计，需处于新模型范围内。
 
+站位采样通过 `stations.robot_config` 读取 `configs/robots/panda_omron.yaml`：圆盘半径取 `arm_working_reach_m`，网格间隔取 `base_radius_m × 0.25`，不再在 RL 配置中填写固定米数。当前为 0.8469596623341055 m / 0.09861573150365006 m；圆心及 9 档朝向规则不变。两个机器人尺寸字段是实际尺寸，不重复乘 `scene.robot_scale`；改变模型比例时需同步更新机器人配置中的臂展与底盘半径。训练、评分和验收都解析同一配置，有效半径与间隔随 checkpoint 保存；机器人配置变化后，旧 checkpoint 的配置一致性检查会拒绝恢复或评分。新网格须重新生成，历史运行的站位数量不作为新网格的合法数量。
+
 尺寸变化后使用新 run 从头训练；该字段随有效配置进入 checkpoint，resume / 评分 / 评估要求相同配置。缺少该字段的旧配置需明确补齐其原始实验尺寸，勿直接补成当前尺寸来复用旧结果。本研究入口不调用 cuRobo；主链规划 URDF 和碰撞球仍是 main 的 0.9 资产，不随 RL 实验比例改写。
 
 ```bash
@@ -71,17 +73,36 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 或周期评估前没有权重文件。`best.pt` 从首次周期或末次验证开始选择：优先 validation 成功率，同率比较平均 episode return。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。训练期间只保存 latest；结束时先保存最终 latest，再独立验证最终策略一次。best.pt 保留为已验证最终模型的同内容权重文件，不再比较历史周期模型；恢复训练也不沿用旧 best 的排名。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
+
+## 只训练 S0246-y04
+
+使用 `configs/station_map/rl/val103_cup30_s0246_y04.yaml`。该配置显式指定 `stations.fixed_station`，恢复历史世界位姿 `(6.613459458748234, 2.5988113404423916, -1.5707963267948966)`，不依赖当前网格是否存在这个编号。所有 Sampler 的 128 个环境均在同一位置和朝向重置，物体初态和 Home 沿用现有流程，保留物理合法性检查。
+
+```bash
+# 先查询实时资源；以下用当次空闲的物理 GPU 6 举例。
+nvidia-smi --query-gpu=index,utilization.gpu,memory.free --format=csv
+MUJOCO_GL=egl OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+.venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cup30_s0246_y04.yaml \
+  --gpu 6 --seed 42 \
+  --output outputs/experiments/fixed-station-sac/runs/s0246-y04
+```
+
+默认预算仍为 200000 条健康经验、随机预热 20000 条，每新增 128 条更新一次，预期 1406 次更新；batch 256、Replay 100000、动作、奖励、回合和 SAC 参数与当前默认配置相同。需要更多经验时显式传 `--max-transitions`。从头训练，不恢复其他站位/网格配置的 checkpoint。
+
+仅在训练结束后评估该站位：1 个评估环境、16 次 stochastic rollout，另保留 stochastic / mean 视频。评估日志标记 `scope: fixed_station`、`split: train`，Q 文件也只含这一站。成功率反映该训练站位的表现，单站位 Spearman 为 null，不代表空间泛化或全图验收。未指定 `stations.fixed_station` 时仍使用下述空间 validation 流程。实现及验证见[单站位交付记录](14-fixed-station-training.md)。
 
 ## 六项监控与四组图
 
 `metrics.jsonl` 保存 `learner`、`episode`、`evaluation` 三类记录：Actor Loss / Critic Loss / Entropy 为日志间隔内更新均值；Episode Return 是实际回合奖励和；独立评估记录成功数、健康 trial 数、总 trial 数、基础设施失败及 Value-Success Spearman。
 
-从头训练及恢复训练均跳过启动评估。默认每 100,000 条有效 transition 做一次独立评估，结束也评估。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，暂停全部 Sampler 后只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
+从头训练及恢复训练均不执行启动或周期评估；不再读取 training.eval_every。连续采样和学习至预算结束，关闭全部 Sampler 后独立运行一次 Validation。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
 
-训练目录的 `views/` 持续更新四组 PNG：
+结束后的 Validation 在 `views/` 生成四组 PNG：
 
 | 文件 | 内容 |
 |---|---|
@@ -134,7 +155,7 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 `reward_component_names` 对应 13 项实际奖励；新增 `views/reward-breakdown.png` 绘制指定 7 项已完成健康回合均值，日志保留接触事件次数。无已完成回合的区间不补零。
 
-视频需启用 EGL 并设置上文 native 库路径。`video.every` 默认 100000；周期及最终评估保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹；启动时没有评估、视频或视频专用 rollout。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
+视频需启用 EGL 并设置上文 native 库路径。训练中不录评估视频；结束后的单次 Validation 保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹；启动时没有评估、视频或视频专用 rollout。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
 
 
 ## 分布式采样与集中学习
@@ -148,4 +169,4 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 `--num-envs` 是每个 Sampler 的环境数。配置 `transitions_per_update=128`，全局健康经验前 20000 条预热，此后每 128 条更新一次；默认 batch=256、CPU Replay=100000。每 16 次更新向各 Sampler 发布最新完整 Actor。恢复 checkpoint 时保留历史 transition 横轴，重建 Replay 并重新全局预热。
 
-每 100000 条经验和末次验证均只评分固定 validation 子集；启动时不评估。结束后加载 validation 选出的 `best.pt`，计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。
+仅训练结束后的单次 Validation 评分固定 validation 子集；训练期间不暂停采样验证。之后使用同一个最终策略计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。

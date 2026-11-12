@@ -21,10 +21,10 @@ from .monitor import training_curves
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
+from .config import resolve_config
 import pickle
 from queue import Empty
 from queue import Full
-import shutil
 
 
 def runtime_metadata(config, physical_gpu):
@@ -75,23 +75,19 @@ def record_episodes(log, env, done, transitions, returns, components, steps):
     steps[done] = 0
 
 
-def validation_checkpoint(agent, env, config, transitions, output, log, metadata, best_score, force_video=False):
+def validation_checkpoint(agent, env, config, transitions, output, log, metadata):
 
     started = time.perf_counter()
-    event = monitor_validation(agent, env, config, transitions, output, force_video=force_video)
+    event = monitor_validation(agent, env, config, transitions, output, force_video=True)
     event["seconds"] = time.perf_counter() - started
     log.write(json.dumps(event) + "\n")
     log.flush()
     if not event["healthy_trials"]:
         raise RuntimeError("Independent validation produced no healthy trials")
-    score = (event["evaluation_success_rate"], event["episode_return_mean"])
-    if best_score is None or score > tuple(best_score):
-        best_score = score
-        metadata["best_validation_score"] = list(score)
-        agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
+    metadata["best_validation_score"] = [event["evaluation_success_rate"], event["episode_return_mean"]]
+    agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
     agent.save(Path(output) / "latest.pt", metadata=metadata, transitions=transitions)
     training_curves(Path(output) / "metrics.jsonl", Path(output) / "views")
-    return best_score
 
 
 def target_updates(healthy, warmup, interval):
@@ -196,6 +192,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     """``gpus`` are physical cards: the first also hosts the Learner, each one runs a Sampler."""
     from .env.environment import StationEnv
 
+    config = resolve_config(config)
     seed_all(seed)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -229,34 +226,20 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             if saved["metadata"]["config"] != config:
                 raise ValueError("Resume requires the checkpoint effective configuration")
             transitions = saved["transitions"]
-            best_score = saved["metadata"].get("best_validation_score")
-            # Keep the historical best available in a new output directory.
-
-            previous_best = Path(resume).parent / "best.pt"
-            if previous_best.exists() and previous_best.resolve() != (output / "best.pt").resolve():
-                shutil.copyfile(previous_best, output / "best.pt")
-            if not (output / "best.pt").exists():
-                best_score = None
         else:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
-            transitions, best_score = 0, None
-        metadata["best_validation_score"] = best_score
+            transitions = 0
         replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()))
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
-        evaluate_at = (transitions // settings["eval_every"] + 1) * settings["eval_every"]
         log_at = transitions + settings["log_every"]
         started = time.perf_counter()
-        pending = []
         discarded = 0
         with (output / "metrics.jsonl").open("a") as log:
-            last_evaluation = None
             workers = Samplers(config, devices, seed, num_envs)
             workers.publish(agent, True)
             while transitions < limit:
-                worker, version, random_actions, batch, episodes, blocked = (
-                    pending.pop(0) if pending else workers.receive()
-                )
+                worker, version, random_actions, batch, episodes, blocked = workers.receive()
                 count = len(batch.reward)
                 keep = min(count, limit - transitions)
                 if keep < count:
@@ -304,24 +287,8 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     log.flush()
                     agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
                     log_at += settings["log_every"]
-                if transitions >= evaluate_at or transitions >= limit:
-                    pending.extend(workers.pause())
-                    best_score = validation_checkpoint(
-                        agent,
-                        env,
-                        config,
-                        transitions,
-                        output,
-                        log,
-                        metadata,
-                        best_score,
-                        force_video=transitions >= limit,
-                    )
-                    last_evaluation = transitions
-                    evaluate_at = (transitions // settings["eval_every"] + 1) * settings["eval_every"]
-                    if transitions < limit:
-                        workers.resume()
-            discarded += sum(len(message[3].reward) for message in pending)
+            # Drain in-flight data only at shutdown, then release all Samplers before validation.
+            discarded += sum(len(message[3].reward) for message in workers.pause())
             log.write(
                 json.dumps(
                     {
@@ -337,13 +304,9 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             )
             workers.close()
             workers = None
-            if last_evaluation != transitions:
-                best_score = validation_checkpoint(
-                    agent, env, config, transitions, output, log, metadata, best_score, force_video=True
-                )
             agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
-            best, _ = SAC.load(output / "best.pt", env.device)
-            rows = station_scores(best, env, config["evaluation"]["action_samples"])
+            validation_checkpoint(agent, env, config, transitions, output, log, metadata)
+            rows = station_scores(agent, env, config["evaluation"]["action_samples"])
             (output / "station-q.json").write_text(
                 json.dumps({"checkpoint": str(output / "best.pt"), "stations": rows}, indent=2)
             )

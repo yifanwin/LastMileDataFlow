@@ -44,8 +44,10 @@ def training_curves(log_path, output):
     figure, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
     rows = [r for r in evaluations if r["evaluation_success_rate"] is not None]
     axes[0].plot([r["transitions"] for r in rows], [100 * r["evaluation_success_rate"] for r in rows], marker="o")
+    fixed_station = rows and all(r.get("scope") == "fixed_station" for r in rows)
+    title = "Fixed Station Success" if fixed_station else "Independent Validation Success"
     axes[0].set(
-        title="Independent Validation Success", xlabel="Valid transitions", ylabel="Success (%)", ylim=(-2, 102)
+        title=title, xlabel="Valid transitions", ylabel="Success (%)", ylim=(-2, 102)
     )
     if episodes:
         grouped = {}

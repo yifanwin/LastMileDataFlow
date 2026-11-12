@@ -8,6 +8,7 @@ import torch
 
 from lastmile_dataflow.utils.figures import plt
 from .station_q import action_sampled_q, select_acceptance_stations, summarize_trials
+from .config import resolve_config
 from .sac.agent import SAC
 from .env.observation import REWARD_COMPONENTS
 from .sac.agent import seed_all
@@ -169,12 +170,23 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     views.mkdir(exist_ok=True)
     settings = config["training"]
     seed = config["evaluation"]["seed"]
-    candidates = [i for i, row in enumerate(env.task.stations) if row["valid"] and row["split"] == "validation"]
-    station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=False).tolist()
-    selection = [{**env.task.stations[i], "group": "validation"} for i in station_ids]
+    fixed_station = config["stations"].get("fixed_station")
+    scope = "fixed_station" if fixed_station else "validation"
+    if fixed_station:
+        station_ids = [int(env.task.pool[0])] * env.num_envs
+    else:
+        candidates = [i for i, row in enumerate(env.task.stations) if row["valid"] and row["split"] == "validation"]
+        station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=False).tolist()
+    selection = [{**env.task.stations[i], "group": scope} for i in dict.fromkeys(station_ids)]
     (analysis / "validation-selection.json").write_text(
         json.dumps(
-            {"stations": selection, "seed": seed, "rollouts_per_station": settings["validation_rollouts_per_station"]},
+            {
+                "stations": selection,
+                "seed": seed,
+                "scope": scope,
+                "rollouts_per_station": settings["validation_rollouts_per_station"]
+                * (env.num_envs if fixed_station else 1),
+            },
             indent=2,
         )
     )
@@ -189,7 +201,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     captures = []
     with torch.random.fork_rng(devices=[torch.device(env.device).index]):
         torch.manual_seed(seed)
-        rows = station_scores(agent, env, config["evaluation"]["action_samples"], station_ids)
+        rows = station_scores(agent, env, config["evaluation"]["action_samples"], list(dict.fromkeys(station_ids)))
         values = {r["station_id"]: r for r in rows}
         selection = [{**row, "q_mean": values[row["station_id"]]["q_mean"]} for row in selection]
         trials = []
@@ -203,11 +215,11 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
             )
         if record_video:
             training_id = int(env.task.pool[0])
-            fixed = [training_id, station_ids[0]]
+            fixed = list(dict.fromkeys([training_id, station_ids[0]]))
             for deterministic in (False, True):
                 capture = RolloutCapture(output, transitions, config)
                 captures.append(capture)
-                slots = [fixed[i % 2] for i in range(env.num_envs)]
+                slots = [fixed[i % len(fixed)] for i in range(env.num_envs)]
                 # A one-slot evaluation still records both splits.
                 for selected in [slots] if env.num_envs > 1 else [[i] for i in fixed]:
                     validation_rollout(
@@ -220,7 +232,8 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     event = {
         "event": "evaluation",
         "transitions": transitions,
-        "split": "validation",
+        "split": "train" if fixed_station else "validation",
+        "scope": scope,
         "evaluation_success_rate": float(np.mean([r["success"] for r in healthy])) if healthy else None,
         "successes": sum(r["success"] for r in healthy),
         "healthy_trials": len(healthy),
@@ -262,6 +275,7 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
     """``gpu`` is the physical card the caller bound with select_devices."""
     from .env.environment import StationEnv
 
+    config = resolve_config(config)
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
     agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
@@ -323,6 +337,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     """``gpu`` is the physical card the caller bound with select_devices."""
     from .env.environment import StationEnv
 
+    config = resolve_config(config)
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
     agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")

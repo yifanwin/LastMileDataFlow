@@ -35,6 +35,7 @@
 | `policies/molmobot.yaml`、`pi05_panda_omron.yaml`、`pi05_rby1.yaml` | 策略服务配置 |
 | `lastmile_benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
 | `station_map/rl/val103_cup30.yaml` | RL 站位图研究 |
+| `station_map/rl/val103_cup30_s0246_y04.yaml` | 固定历史 S0246-y04 世界位姿的单站位 SAC 训练 |
 
 冒烟脚本自己持有的配置（`panda_omron_scene.yaml`、`panda_omron_position.yaml`、`panda_omron_mobile.yaml`）放在 `tests/smoke/`。
 
@@ -45,6 +46,10 @@
 ## 机器人
 
 `model_path` 是 MuJoCo 机器人 XML（相对 `data_root`），不改写外部 XML。`arm_working_reach_m` 是站位圆盘半径，`base_radius_m` 的四分之一是站位网格间距。`name: panda_omron` 选择 Panda 单臂适配器，`initial` 用 `base_xyyaw/lift/arm_q/gripper_width`；`observation_camera` 是站位筛选相机。命名空间 `robot_0/` 和 RBY-1 规划适配器 `joint_waypoints_v1` 是协议常量，不再写在配置里。执行流程从场景快照读取机器人配置，改这里的文件不会追溯修改已有快照；改变控制模式、步长、相机或分辨率后要重新生成场景和标定。
+
+RL 研究配置通过 `stations.robot_config` 指向该机器人 YAML（相对仓库根目录）。训练、评分、验收启动时读取其中的 `arm_working_reach_m` 与 `base_radius_m`，生成有效采样半径和间隔并保存到 checkpoint。尺寸值不再乘一次 `scene.robot_scale`；缩放模型后需同步维护机器人 YAML 中的实际尺寸。
+
+只训练一个底盘位姿时，设置 `stations.fixed_station: {station_id: S0246-y04, base_xyyaw: [x, y, yaw]}`，其中 x/y 为世界坐标米数，yaw 为世界朝向弧度。该选项替代圆盘网格和空间划分，生成唯一 train 站位，仍检查 Home 碰撞和地面支撑；不合法时直接报错。所有并行环境在该位姿重置，训练结束后只评估并评分该站位，结果标记 `scope: fixed_station`，不表示留出站位泛化。`training.debug_station_ids` 保持空列表；删除 `fixed_station` 恢复原网格模式。站位编号随网格参数变化，历史站位应从原始站位记录取实际位姿，不能在新网格里按同一编号猜测。
 
 ## 执行配置
 

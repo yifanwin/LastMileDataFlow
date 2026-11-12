@@ -1,8 +1,8 @@
 # SAC 直接启动采样
 
-- 状态：done
+- 状态：superseded
 - 日期：2026-11-12
-- 替代：无
+- 替代：[12-final-only-validation.md](12-final-only-validation.md)
 - 关联：[运行指南](running.md)
 - 记录时间：2026-11-12 13:34 +08:00
 
