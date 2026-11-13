@@ -130,51 +130,76 @@ class ValidationTests(unittest.TestCase):
 
     def test_training_validates_final_policy_once_after_closing_samplers(self):
         from lastmile_dataflow.station_map.rl.training import train
+        from lastmile_dataflow.station_map.rl.monitor import TrainingMonitor
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
         from lastmile_dataflow.station_map.rl.config import resolve_config
         from tests.station_map.test_rl_sac import observation
 
         config = {
-            "training": {"validation_stations": 1, "replay_capacity": 10, "warmup_min": 20,
-                         "eval_every": 1, "log_every": 10, "max_transitions": 105, "transitions_per_update": 128},
+            "training": {"validation_stations": 1, "replay_capacity": 10, "warmup_min": 2, "batch_size": 1,
+                         "eval_every": 1, "log_every": 10, "max_transitions": 105, "transitions_per_update": 1},
             "environment": {"num_envs": 1}, "evaluation": {"seed": 42, "action_samples": 1, "q_color_limits": [-1, 1]},
             "sac": {}, "success": {},
             "stations": {"robot_config": "configs/robots/panda_omron.yaml"},
         }
         config = resolve_config(config)
         prefix = "lastmile_dataflow.station_map.rl.training."
-        cases = ((False, False, False), (True, True, True), (True, False, False), (True, True, False))
-        for resume, has_best, has_score in cases:
-            with self.subTest(resume=resume, has_best=has_best, has_score=has_score), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+        cases = (
+            (False, False, False, False), (True, True, True, False), (True, False, False, False),
+            (True, True, False, False), (True, True, True, True),
+        )
+        for resume, has_best, has_score, same_output in cases:
+            with self.subTest(resume=resume, has_best=has_best, has_score=has_score, same_output=same_output), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 parent = Path(directory)
                 source = parent / "previous"
                 source.mkdir()
                 if has_best:
                     (source / "best.pt").touch()
+                output = source if same_output else parent / "new"
+                clock = Mock(return_value=0)
+                stack.enter_context(patch("lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)))
+                monitor_class = stack.enter_context(patch(prefix + "TrainingMonitor", wraps=TrainingMonitor))
                 agent = Mock(updates=0)
+                def update(batch):
+                    agent.updates += 1
+                    value = torch.tensor(float(agent.updates))
+                    return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
+
+                agent.update.side_effect = update
                 saved = {"transitions": 100, "metadata": {"config": config, "best_training_return": {"mean": 2.0} if has_score else None, "recent_episode_returns": [2.0] if has_score else []}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
                 stack.enter_context(patch(prefix + "runtime_metadata", return_value={}))
                 stack.enter_context(patch(prefix + "graph_observation", return_value=observation(1)))
-                stack.enter_context(patch(prefix + "Replay"))
+                stack.enter_context(patch(prefix + "Replay")).return_value.size = 0
+                stack.enter_context(patch(prefix + "torch.cuda.memory_allocated", return_value=0))
                 env = Mock(device="cpu")
                 env.reset.return_value = ({}, {})
                 stack.enter_context(patch("lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env))
                 workers = stack.enter_context(patch(prefix + "Samplers")).return_value
-                workers.receive.return_value = (0, 0, True, SimpleNamespace(reward=torch.zeros(1)), "", 0.0)
+                def receive():
+                    if workers.receive.call_count == 3:
+                        reader = EventAccumulator(str(output / "tensorboard")).Reload()
+                        points = reader.Scalars("runtime/healthy")
+                        self.assertEqual([(p.step, p.value) for p in points], [(102 if resume else 2, 2)])
+                        agent.save.assert_not_called()
+                        workers.close.assert_not_called()
+                    clock.return_value += 15
+                    return (0, 0, True, SimpleNamespace(reward=torch.zeros(1)), "", 0.0)
+
+                workers.receive.side_effect = receive
                 workers.pause.return_value = []
                 def validate(*args, **kwargs):
                     workers.close.assert_called_once()
                     self.assertEqual(workers.receive.call_count, 5)
                     self.assertIn("latest.pt", [call.args[0].name for call in agent.save.call_args_list])
-                    return {"healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}
+                    return {"scope": "train", "transitions": args[3], "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}
 
                 monitor = stack.enter_context(patch(prefix + "monitor_validation", side_effect=validate))
-                stack.enter_context(patch(prefix + "training_curves"))
                 stack.enter_context(patch(prefix + "station_scores", return_value=[]))
                 stack.enter_context(patch(prefix + "plot_scores"))
-                result = train(config, gpus=[0], output=parent / "new", seed=42,
+                result = train(config, gpus=[0], output=output, seed=42,
                                resume=source / "latest.pt" if resume else None,
                                max_transitions=105 if resume else 5)
                 self.assertEqual(monitor.call_count, 1)
@@ -186,8 +211,15 @@ class ValidationTests(unittest.TestCase):
                 if not (resume and has_score):
                     self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
                 else:
-                    self.assertTrue((parent / "new" / "best.pt").is_file())
-                self.assertEqual(sac.load.call_args.args[0], parent / "new" / "best.pt")
+                    self.assertTrue((output / "best.pt").is_file())
+                self.assertEqual(sac.load.call_args.args[0], output / "best.pt")
                 self.assertEqual(sac.load.call_count, 2 if resume else 1)
                 workers.close.assert_called_once()
                 env.close.assert_called_once()
+                self.assertEqual(monitor_class.call_args.kwargs["every_seconds"], 30)
+                self.assertEqual(monitor_class.call_args.kwargs["purge_step"], 100 if same_output else None)
+                reader = EventAccumulator(str(output / "tensorboard")).Reload()
+                self.assertEqual(agent.update.call_count, 3)
+                self.assertEqual([p.value for p in reader.Scalars("loss/actor")], [1.0, 2.5])
+                point, = reader.Scalars("evaluation/train/evaluation_success_rate")
+                self.assertEqual((point.step, point.value), (result["transitions"], 0))

@@ -35,6 +35,7 @@ pi05-data = ["lerobot==0.3.3", "datasets==3.6.0"]
 rl = [
     "torch>=2.14.0",
     "torch-geometric==2.7.0",
+    "tensorboard>=2.20",
     "numpy>=1.26,<3",
     "scipy>=1.15",
     "matplotlib>=3.8",

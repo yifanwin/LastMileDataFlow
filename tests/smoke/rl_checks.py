@@ -13,6 +13,7 @@ from lastmile_dataflow.station_map.rl.config import resolve_config
 from lastmile_dataflow.station_map.rl.devices import VISIBLE_DEVICE
 from lastmile_dataflow.station_map.rl.env.environment import StationEnv
 from lastmile_dataflow.station_map.rl.evaluation import reset_stations
+from lastmile_dataflow.station_map.rl.monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
 from lastmile_dataflow.station_map.rl.sac.agent import seed_all
 from lastmile_dataflow.station_map.rl.env.observation import graph_observation
 from lastmile_dataflow.station_map.rl.sac.agent import SAC, SACConfig
@@ -297,6 +298,7 @@ def run(args):
 
     seed_all(42)
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=42, num_envs=args.num_envs)
+    monitor = None
     try:
         if args.scripted_batch:
             scripted_batch(env, config, args)
@@ -424,9 +426,17 @@ def run(args):
             summary["control_trace"] = str(replay_path)
         if replay is not None:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
+            if args.monitor:
+                monitor = TrainingMonitor(
+                    Path(args.output).parent,
+                    every_seconds=config["training"].get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
+                )
             learner_started = time.perf_counter()
             for _ in range(args.learner_updates):
                 losses = agent.update(replay.sample(min(args.batch_size, replay.size)))
+                if monitor is not None:
+                    monitor.record_update(losses)
+                    monitor.flush(completed)
             torch.cuda.synchronize(env.device)
             summary["learner_seconds_per_update"] = (time.perf_counter() - learner_started) / args.learner_updates
             summary["learner_updates"] = agent.updates
@@ -461,10 +471,11 @@ def run(args):
             summary["partial_reset_ongoing_envs_checked"] = int(ongoing.sum())
         if args.monitor:
             from lastmile_dataflow.station_map.rl.evaluation import monitor_validation
-            from lastmile_dataflow.station_map.rl.monitor import training_curves
 
             output_dir = Path(args.output).parent
+            monitor.flush(completed, force=True)
             event = monitor_validation(agent, env, config, completed, output_dir)
+            monitor.record_evaluation(event)
             rows = json.loads((output_dir / "analysis" / f"validation-{completed:012d}.json").read_text())
             with (output_dir / "metrics.jsonl").open("w") as stream:
                 stream.write(
@@ -483,7 +494,6 @@ def run(args):
                         )
                         + "\n"
                     )
-            training_curves(output_dir / "metrics.jsonl", output_dir / "views")
             summary["monitor"] = event
             summary["monitor_interpretation"] = (
                 "untrained software smoke with diagnostic updates, not a training result"
@@ -491,4 +501,6 @@ def run(args):
         Path(args.output).write_text(json.dumps(summary, indent=2))
         print(json.dumps(summary, indent=2))
     finally:
+        if monitor is not None:
+            monitor.close(completed)
         env.close()

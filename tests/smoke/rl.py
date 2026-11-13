@@ -29,7 +29,7 @@ def main():
     parser.add_argument("--learner-updates", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument(
-        "--monitor", action="store_true", help="validate independent evaluation and all four metric figures"
+        "--monitor", action="store_true", help="validate evaluation, TensorBoard metrics and spatial figures"
     )
     parser.add_argument("--output", default="/tmp/lastmile-rl-smoke.json")
     args = parser.parse_args()
