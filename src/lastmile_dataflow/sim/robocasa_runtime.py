@@ -248,6 +248,22 @@ class RoboCasaRuntime:
                 found.add(model.geom(other).name or f"geom{other}")
         return tuple(sorted(found))
 
+    def robot_env_contacts(self, *, include_target=True):
+        """Active contacts between robot geoms and non-robot geoms (optionally excluding the target object)."""
+        model, data = self.env.sim.model._model, self.env.sim.data._data
+        target = set() if include_target else _body_subtree(model, self.target_body)
+        count = 0
+        for contact in data.contact[: data.ncon]:
+            bodies = [int(model.geom_bodyid[g]) for g in (contact.geom1, contact.geom2)]
+            robot = [b in self.robot_bodies for b in bodies]
+            if robot[0] != robot[1]:
+                count += bodies[robot[0]] not in target  # the non-robot side
+        return count
+
+    def native_observation(self):
+        """robosuite proprioceptive observation dict at the current state."""
+        return self.env._get_observations(force_update=True)
+
     def base_pose(self):
         model, data = self.env.sim.model._model, self.env.sim.data._data
         body = model.joint(BASE_JOINTS[0]).bodyid[0]
@@ -273,6 +289,21 @@ class RoboCasaRuntime:
         This initializes a trial; it does not navigate or check that the station is feasible.
         """
         self.reset()
+        self._place_base(x, y, yaw)
+        self.env.update_state()
+        self._sync_controllers()
+        return self.get_state()
+
+    def probe_station(self, x, y, yaw):
+        """Geometry-only check: frozen qpos with the base at (x, y, yaw); no reset, controllers untouched.
+
+        Used to screen station candidates (contacts at a static pose); trials still call ``set_station``.
+        """
+        self.env.sim.set_state_from_flattened(self.initial_state)
+        self._place_base(x, y, yaw)
+        return self.robot_env_contacts()
+
+    def _place_base(self, x, y, yaw):
         sim = self.env.sim
         model, data = sim.model._model, sim.data._data
         addresses = [model.joint(name).qposadr[0] for name in BASE_JOINTS]
@@ -288,13 +319,10 @@ class RoboCasaRuntime:
         data.qpos[addresses[0]] = c * dx + s * dy
         data.qpos[addresses[1]] = -s * dx + c * dy
         sim.forward()
-        self.env.update_state()
-        self._sync_controllers()
         reached = self.base_pose()
         error = np.r_[reached[:2] - (x, y), np.arctan2(np.sin(reached[2] - yaw), np.cos(reached[2] - yaw))]
         if np.max(np.abs(error)) > 1e-6:
             raise RuntimeError(f"base joints did not reach the station: error={error.tolist()}")
-        return self.get_state()
 
     def render(self, camera):
         width, height = self.kwargs["camera_widths"], self.kwargs["camera_heights"]

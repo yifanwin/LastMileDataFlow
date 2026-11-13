@@ -20,3 +20,14 @@ def execution_action(robot, prediction):
     action[19] = np.clip(action[19], *config.torso_limits)
     # Keep the existing live joint/actuator checks after protocol clipping.
     return sanitize_action(robot, action)[0]
+
+
+def robocasa_env_action(prediction):
+    """Unnormalized 12D model action → native ``env.step`` vector.
+
+    Layout already matches robosuite's PandaOmron split (arm 6, gripper, base 3, torso, base mode). Gripper and
+    mode follow RoboCasa's gym mapping: ``>= 0.5`` → +1 (close / base mode), otherwise −1.
+    """
+    action = vector(prediction, 12).astype(float)
+    action[[6, 11]] = np.where(action[[6, 11]] >= 0.5, 1.0, -1.0)
+    return action

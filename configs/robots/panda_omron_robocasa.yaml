@@ -9,3 +9,5 @@ control_freq: 20
 cameras: [robot0_agentview_left, robot0_eye_in_hand, robot0_agentview_right]
 camera_width: 256
 camera_height: 256
+arm_working_reach_m: 0.9410662914823395   # 出厂比例；= LMDF 0.9 比例值 / 0.9
+base_radius_m: 0.4382921400162225

@@ -21,6 +21,10 @@ class RoboCasaRobotConfig:
     cameras: tuple = ("robot0_agentview_left", "robot0_eye_in_hand", "robot0_agentview_right")
     camera_width: int = 256
     camera_height: int = 256
+    # Shoulder-pivot-to-TCP working reach and base+wheel circumscribed radius at factory scale
+    # (LMDF configs/robots/panda_omron.yaml values at scale 0.9 divided by 0.9); station grid radius / spacing×4.
+    arm_working_reach_m: float = 0.9410662914823395
+    base_radius_m: float = 0.4382921400162225
 
     def __post_init__(self):
         if self.runtime != "robocasa" or self.name != "panda_omron" or self.embodiment != "PandaOmron":

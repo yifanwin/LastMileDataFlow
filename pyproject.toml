@@ -57,6 +57,7 @@ robocasa = [
     "lxml>=5",
     "gymnasium>=1",
     "pynput>=1.7",
+    "imageio-ffmpeg>=0.5",
 ]
 pi05 = [
     "jax[cuda12]==0.5.3",
