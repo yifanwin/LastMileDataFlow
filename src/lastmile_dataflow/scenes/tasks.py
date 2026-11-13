@@ -281,6 +281,43 @@ def disk_samples(anchor, radius, spacing):
     return result
 
 
+def facing_stations(center, radius, spacing, heading_offsets_rad=(0.0,)):
+    """Station grid rule shared by ProcTHOR (RL) and RoboCasa: a disk lattice around ``center`` with one
+    heading per offset relative to facing ``center`` (offset 0 faces it). The lattice point on the centre has
+    no heading and is returned invalid (``no_heading``); validity checks belong to each runtime."""
+    rows = []
+    for point in disk_samples(center, radius, spacing):
+        xy = np.asarray(point["xy"])
+        delta = np.asarray(center[:2]) - xy
+        common = {"xy_id": point["xy_id"], "x": float(xy[0]), "y": float(xy[1])}
+        if np.hypot(*delta) < 1e-9:
+            rows.append(
+                {
+                    **common,
+                    "station_id": f"{point['xy_id']}-nh",
+                    "yaw": 0.0,
+                    "yaw_offset_rad": None,
+                    "valid": False,
+                    "invalid_reason": "no_heading",
+                }
+            )
+            continue
+        facing = math.atan2(delta[1], delta[0])
+        for index, offset in enumerate(heading_offsets_rad):
+            yaw = math.atan2(math.sin(facing + offset), math.cos(facing + offset))
+            rows.append(
+                {
+                    **common,
+                    "station_id": f"{point['xy_id']}-y{index:02d}",
+                    "yaw": yaw,
+                    "yaw_offset_rad": float(offset),
+                    "valid": True,
+                    "invalid_reason": "",
+                }
+            )
+    return rows
+
+
 def task_support_obstacles(sim, task):
     """Conservative support envelopes from actual geometry, not success labels.
 

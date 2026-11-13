@@ -11,7 +11,7 @@ from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.sim.model.geometry import floor_support, room_triangles
 from lastmile_dataflow.sim.model.geometry import body_pose
 from lastmile_dataflow.scenes.tasks import local_bounds
-from lastmile_dataflow.scenes.tasks import disk_samples
+from lastmile_dataflow.scenes.tasks import facing_stations
 from lastmile_dataflow.sim.placement import robot_contacts, place_frozen_station
 from lastmile_dataflow.operation.protocol import SimulationState
 from .scene import RLSceneConfig
@@ -39,39 +39,10 @@ def station_candidates(center, settings):
             }
         ]
 
-    points = disk_samples(center, settings["radius_m"], settings["spacing_m"])
-    offsets = np.deg2rad(settings["heading_offsets_deg"])
-    rows = []
-    for point in points:
-        xy = np.asarray(point["xy"])
-        delta = center[:2] - xy
-        common = {"xy_id": point["xy_id"], "x": float(xy[0]), "y": float(xy[1]), "split": "train"}
-        if np.hypot(*delta) < 1e-9:
-            rows.append(
-                {
-                    **common,
-                    "station_id": f"{point['xy_id']}-nh",
-                    "yaw": 0.0,
-                    "yaw_offset_rad": None,
-                    "valid": False,
-                    "invalid_reason": "no_heading",
-                }
-            )
-            continue
-        facing = math.atan2(delta[1], delta[0])
-        for index, offset in enumerate(offsets):
-            yaw = math.atan2(math.sin(facing + offset), math.cos(facing + offset))
-            rows.append(
-                {
-                    **common,
-                    "station_id": f"{point['xy_id']}-y{index:02d}",
-                    "yaw": yaw,
-                    "yaw_offset_rad": float(offset),
-                    "valid": True,
-                    "invalid_reason": "",
-                }
-            )
-    return rows
+    rows = facing_stations(
+        center, settings["radius_m"], settings["spacing_m"], np.deg2rad(settings["heading_offsets_deg"])
+    )
+    return [{**row, "split": "train"} for row in rows]
 
 
 def prepare_stations(model, prepared, config):

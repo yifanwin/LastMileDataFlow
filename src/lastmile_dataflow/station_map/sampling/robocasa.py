@@ -11,7 +11,7 @@ import math
 
 import numpy as np
 
-from lastmile_dataflow.scenes.tasks import disk_samples
+from lastmile_dataflow.scenes.tasks import facing_stations
 
 
 def _geom_corners(model, data, geom):
@@ -66,19 +66,15 @@ def robocasa_stations(runtime, robot):
     radius = footprint_radius(runtime)
     floor = floor_rectangles(runtime)
     spacing = robot.base_radius_m / 4
-    rows = []
-    for point in disk_samples(center, robot.arm_working_reach_m, spacing):
-        xy = np.asarray(point["xy"])
-        delta = center[:2] - xy
-        row = {"xy_id": point["xy_id"], "x": float(xy[0]), "y": float(xy[1]), "grid_index": point["grid_index"]}
-        if np.hypot(*delta) < 1e-9:
-            rows.append({**row, "station_id": f"{point['xy_id']}-nh", "yaw": 0.0, "valid": False, "invalid_reason": "no_heading"})
+    rows = facing_stations(center, robot.arm_working_reach_m, spacing)
+    for row in rows:
+        if not row["valid"]:
             continue
-        yaw = math.atan2(delta[1], delta[0])
+        xy = np.array([row["x"], row["y"]])
         footprint = [xy, *(xy + radius * np.array([math.cos(a), math.sin(a)]) for a in np.linspace(0, 2 * math.pi, 16, endpoint=False))]
-        contacts = runtime.probe_station(xy[0], xy[1], yaw)
+        contacts = runtime.probe_station(xy[0], xy[1], row["yaw"])
         reason = "home_penetration" if contacts else "" if all(_on_floor(p, floor) for p in footprint) else "floor_support"
-        rows.append({**row, "station_id": f"{point['xy_id']}-y00", "yaw": yaw, "valid": not reason, "invalid_reason": reason, "contacts": contacts})
+        row.update(valid=not reason, invalid_reason=reason, contacts=contacts)
     meta = {
         "rule": "rl-grid facing-target (val103): radius=arm_working_reach_m, spacing=base_radius_m/4",
         "center": center.tolist(),
