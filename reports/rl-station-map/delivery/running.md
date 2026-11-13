@@ -1,11 +1,11 @@
 # 固定底盘 mjlab / SAC 研究入口
 
 - 状态：active
-- 日期：2026-11-12
+- 日期：2026-11-13
 - 替代：无
 - 关联：../plan/01-implementation.md、../delivery/04-implementation.md
 
-从 actor-critic 工作区根目录运行。实际验证状态见[训练接手报告](05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
+从包含本文版本的 RL 工作区根目录运行。实际验证状态见[训练接手报告](05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
 
 算法和训练数据流见[算法设计与训练核心 Pipeline](algorithm-training-pipeline.md)。
 
@@ -73,7 +73,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。训练期间只保存 latest；结束时先保存最终 latest，再独立验证最终策略一次。best.pt 保留为已验证最终模型的同内容权重文件，不再比较历史周期模型；恢复训练也不沿用旧 best 的排名。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。每次日志 checkpoint 保存 latest，并按最近至多 100 条健康、完整、非随机预热回合的未折扣平均回报选择 best；结束时保存最终 latest，再独立加载 best 评估一次。没有合格回合时才以最终模型作为 best。恢复训练保留已有 best 排名及近期回报窗口。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -96,30 +96,34 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
 
 仅在训练结束后评估该站位：1 个评估环境、16 次 stochastic rollout，另保留 stochastic / mean 视频。评估日志标记 `scope: fixed_station`、`split: train`，Q 文件也只含这一站。成功率反映该训练站位的表现，单站位 Spearman 为 null，不代表空间泛化或全图验收。未指定 `stations.fixed_station` 时仍使用下述空间 validation 流程。实现及验证见[单站位交付记录](14-fixed-station-training.md)。
 
-## 六项监控与四组图
+## TensorBoard 实时监控
 
-`metrics.jsonl` 保存 `learner`、`episode`、`evaluation` 三类记录：Actor Loss / Critic Loss / Entropy 为日志间隔内更新均值；Episode Return 是实际回合奖励和；独立评估记录成功数、健康 trial 数、总 trial 数、基础设施失败及 Value-Success Spearman。
-
-从头训练及恢复训练均不执行启动或周期评估；不再读取 training.eval_every。连续采样和学习至预算结束，关闭全部 Sampler 后独立运行一次 Validation。固定抽取 8 个合法 validation 站位，每站位 2 次 stochastic rollout；使用独立向量环境，只计算这些固定验证点的 Q 和实际成功率。acceptance 集合保留到最终验收。评估 seeds 固定，评估前后的 Torch RNG 恢复，避免改变训练采样序列。
-
-结束后的 Validation 在 `views/` 生成四组 PNG：
-
-| 文件 | 内容 |
-|---|---|
-| `loss-curves.png` | Actor Loss、Critic Loss |
-| `exploration.png` | tanh 策略动作的 `-E[logπ]`，单位 nats，可为负数 |
-| `training-effect.png` | 独立 validation 成功率、每回合累计奖励 |
-| `station-evaluation.png` | 固定色标的 max-yaw Critic Value Map、真实 Value-Success Scatter 与 Spearman |
-
-每次评估原始数据保存在 `analysis/validation-<transition数>.json`，包含实际 trials、站位成功率与固定验证点原始 Q。全部成功率相同或数据不足时，相关性记录为 null、图中标 N/A；不填成 0。监控曲线本身不代表策略或站位图已通过最终验收。
-
-独立检查监控链路可运行下列真实 smoke；它只做两次诊断更新，不作为训练结果：
+训练默认每 30 秒汇总一次指标并刷新 `<run>/tensorboard/`，横轴为累计健康 transitions。首次刷新无需等待 checkpoint 或评估。检查发生在接收采样批次和每次梯度更新后；单次计算或等待采样耗时超过 30 秒时，下一个检查点再刷新。
 
 ```bash
-MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py \
-  --gpu 4 --num-envs 8 --steps 5 --random-actions --learner-updates 2 --monitor \
-  --output <smoke单元>/runs/smoke.json
+.venv/bin/tensorboard --logdir outputs/experiments/fixed-station-sac/runs --port 6006 --reload_interval 5
 ```
+
+打开本机 `http://localhost:6006`；远程训练时先将服务器 6006 端口转发至本机。也可将 `--logdir` 指向单次训练的 `tensorboard/`。使用 Runs 选择器比较不同 run。
+
+可选配置 `training.tensorboard_every_seconds` 必须大于零；省略时使用 30 秒。旧配置和 checkpoint 无需添加字段；恢复训练保持累计 transitions。同一输出目录恢复时隐藏恢复点及其之后的旧 TensorBoard 事件，新输出目录只记录恢复后的数据。`metrics.jsonl` 原始历史不清理。
+
+| TensorBoard 分组 | 统计口径 |
+|---|---|
+| `loss/actor`、`loss/critic`、`loss/alpha`、`policy/entropy` | 当前时间区间内全部梯度更新的均值；Entropy 为 `-E[logπ]`，单位 nats，可为负数 |
+| `policy/alpha` | 区间内最新 Alpha |
+| `train/`、`warmup/` | 分别统计策略回合、含随机预热动作的回合；仅包含健康完整回合，展示 return、steps、success、collision_free 和 contact_bonus_count 的回合均值；success 是 0–1 比例 |
+| `train/reward/`、`warmup/reward/` | 全部 13 项回合累计奖励的均值；contact 是奖励数值，接触触发次数单独记录 |
+| `runtime/` | 最新吞吐、累计更新次数、Replay 大小、版本滞后、队列阻塞及内存；吞吐为本次进程启动后的累计健康经验 / 已用时间 |
+| `evaluation/<scope>/` | 实际评估的成功率、未折扣回报、trial 数、相关性及耗时；scope 使用实际的 train 或 fixed_station，debug 阶段统计保留策略分组 |
+
+没有更新或没有完成健康回合时，对应曲线不补零；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
+
+`metrics.jsonl` 仍保存 learner、episode、evaluation 等原始记录；`training.log_every` 仍按 transitions 决定 learner JSON 和 checkpoint 的频率。JSON 中 learner 的 loss 保持原有的最后一次更新值，TensorBoard 展示区间内全部更新的均值。
+
+不再生成 `loss-curves.png`、`exploration.png`、`training-effect.png`、`reward-breakdown.png`。站位 Q 热图、`views/station-evaluation.png`、视频和原始评估 JSON 保留。已有 run 的图片不删除，也不自动转换历史日志。
+
+默认仍只在训练结束后评估选出的 best 模型，不因监控增加评估、视频或采样暂停。每次实际评估的原始数据仍保存于 `analysis/validation-<transition数>.json`；监控曲线不代表策略或站位图已通过最终验收。
 
 ## 冻结评分与验收
 
@@ -142,9 +146,8 @@ MUJOCO_GL=disable .venv/bin/python scripts/station_map/rl/evaluate.py \
 
 ```bash
 MUJOCO_GL=disable .venv/bin/python -m unittest \
-  tests.policies.test_sac tests.runtime.test_pick_state \
-  tests.runtime.test_dls tests.scenes.test_rl_observation \
-  tests.data.test_station_q tests.workflows.test_rl_evaluation -v
+  tests.station_map.test_rl_monitor tests.station_map.test_rl_evaluation \
+  tests.station_map.test_rl_sac tests.station_map.test_rl_sampling -v
 ```
 
 原主链全套软件回归仍使用主 checkout 的原环境，避免 MuJoCo / cuRobo 版本混装。真实 GPU rollout 和训练不随 unittest 自动运行。
@@ -153,7 +156,7 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 新训练使用 `rl-pick-1cm-1s-v1`：双指承力、离开支撑并抬升 1 cm 连续保持 1 s；不限制物体相对 TCP 滑移。非 RL 默认 `strict-pick-v3` 保留。Actor 仍为 7D，DLS 联合控制臂和升降，升降命令限制 0.05 m/s。观测新增升降、实测 TCP 速度、接触事件标记与历史最高进度；旧 checkpoint 不直接 resume。
 
-`reward_component_names` 对应 13 项实际奖励；新增 `views/reward-breakdown.png` 绘制指定 7 项已完成健康回合均值，日志保留接触事件次数。无已完成回合的区间不补零。
+`reward_component_names` 对应 13 项实际奖励；TensorBoard 展示全部分项的健康完整回合均值，并单独展示接触事件次数。无已完成回合的区间不补零。
 
 视频需启用 EGL 并设置上文 native 库路径。训练中不录评估视频；结束后的单次 Validation 保留固定 train / validation 各一站的 stochastic / mean 视频，并保留首次成功或碰撞代表轨迹；启动时没有评估、视频或视频专用 rollout。视频在 `views/`，状态在 `replays/`，引用、结果及渲染耗时在已有 validation JSON。视频源为实际 rollout 的状态回放；终止帧与 Home 都保留，编码时长比仿真时间多一个 0.05 s 初态帧。全景复用已有 `ThirdPersonCamera` 的分割可见性选角和机器人／目标联合取景，近景使用同一已有选角器对夹爪／目标联合取景（margin 4 cm）；同站位从相同 Home 选取相同初始角度。
 
@@ -169,4 +172,4 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 `--num-envs` 是每个 Sampler 的环境数。配置 `transitions_per_update=128`，全局健康经验前 20000 条预热，此后每 128 条更新一次；默认 batch=256、CPU Replay=100000。每 16 次更新向各 Sampler 发布最新完整 Actor。恢复 checkpoint 时保留历史 transition 横轴，重建 Replay 并重新全局预热。
 
-仅训练结束后的单次 Validation 评分固定 validation 子集；训练期间不暂停采样验证。之后使用同一个最终策略计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。
+仅训练结束后的单次 Validation 评分固定 validation 子集；训练期间不暂停采样验证。之后使用同一个 best 策略计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。

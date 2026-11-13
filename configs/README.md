@@ -52,6 +52,8 @@ RL 研究配置通过 `stations.robot_config` 指向该机器人 YAML（相对�
 
 只训练一个底盘位姿时，设置 `stations.fixed_station: {station_id: S0246-y04, base_xyyaw: [x, y, yaw]}`，其中 x/y 为世界坐标米数，yaw 为世界朝向弧度。该选项替代圆盘网格和空间划分，生成唯一 train 站位，仍检查 Home 碰撞和地面支撑；不合法时直接报错。所有并行环境在该位姿重置，训练结束后只评估并评分该站位，结果标记 `scope: fixed_station`，不表示留出站位泛化。`training.debug_station_ids` 保持空列表；删除 `fixed_station` 恢复原网格模式。站位编号随网格参数变化，历史站位应从原始站位记录取实际位姿，不能在新网格里按同一编号猜测。
 
+RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `training.tensorboard_every_seconds` 调整该间隔，必须大于零。它独立于 `training.log_every`（learner JSON 和 checkpoint 的 transition 间隔）。旧配置可直接使用，查看方式和统计口径见 [RL 运行指南](../reports/rl-station-map/delivery/running.md#tensorboard-实时监控)。
+
 ## 执行配置
 
 - 场景库的 `geometry` 只覆盖 `spacing_m`、`width`、`height`、`min_target_pixels`；操作范围与导航设置以执行配置为准，最终以 run 里保存的有效配置为准。
