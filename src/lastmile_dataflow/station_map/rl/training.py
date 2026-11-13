@@ -19,7 +19,7 @@ from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS
 from .env.observation import graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
-from .monitor import training_curves
+from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
@@ -80,16 +80,16 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
     steps[done] = 0
 
 
-def validation_checkpoint(agent, env, config, transitions, output, log, metadata):
-
+def validation_checkpoint(agent, env, config, transitions, output, log, monitor):
+    monitor.flush(transitions, force=True)
     started = time.perf_counter()
     event = monitor_validation(agent, env, config, transitions, output, force_video=True)
     event["seconds"] = time.perf_counter() - started
     log.write(json.dumps(event) + "\n")
     log.flush()
+    monitor.record_evaluation(event)
     if not event["healthy_trials"]:
         raise RuntimeError("Training-station evaluation produced no healthy trials")
-    training_curves(Path(output) / "metrics.jsonl", Path(output) / "views")
 
 
 def save_training_checkpoint(agent, output, metadata, transitions, returns, *, final=False):
@@ -223,6 +223,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"]
     )
     workers = None
+    monitor = None
     try:
         observations, _ = env.reset()
         obs = graph_observation(observations)
@@ -259,6 +260,12 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         else:
             agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
             transitions = 0
+        same_output = resume is not None and Path(resume).parent.resolve() == output.resolve()
+        monitor = TrainingMonitor(
+            output,
+            every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
+            purge_step=transitions if same_output else None,
+        )
         replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()))
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
@@ -287,44 +294,50 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     if not event["infrastructure_failure"] and not event["random_warmup"]:
                         recent_returns.append(event["return"])
                     log.write(json.dumps(event) + "\n")
+                    monitor.record_episode(event)
                 if before < settings["warmup_min"] <= collected:
                     workers.publish(agent, False)
+                learner = {
+                    "event": "learner",
+                    "transitions": transitions,
+                    "healthy": collected,
+                    "updates": agent.updates,
+                    "lifecycle_updates": updates,
+                    "replay_size": replay.size,
+                    "worker": worker,
+                    "random_actions": random_actions,
+                    "actor_version_lag": agent.updates - version,
+                    "queue_blocked_seconds": blocked,
+                    "generated_unused": discarded,
+                    "learner_gpu_allocated_bytes": torch.cuda.memory_allocated(env.device),
+                    "learner_max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                    "transitions_per_s": collected / (time.perf_counter() - started),
+                }
+                monitor.record_runtime(learner)
+                monitor.flush(transitions)
                 losses = {}
                 while updates < target_updates(collected, settings["warmup_min"], settings["transitions_per_update"]):
                     losses = agent.update(replay.sample(settings["batch_size"]).to(env.device))
                     updates += 1
+                    learner.update(
+                        updates=agent.updates, lifecycle_updates=updates, actor_version_lag=agent.updates - version,
+                        transitions_per_s=collected / (time.perf_counter() - started),
+                        learner_gpu_allocated_bytes=torch.cuda.memory_allocated(env.device),
+                    )
+                    monitor.record_update(losses)
+                    monitor.record_runtime(learner)
+                    monitor.flush(transitions)
                     if updates % 16 == 0:
                         workers.publish(agent, False)
                 if transitions >= log_at:
-                    log.write(
-                        json.dumps(
-                            {
-                                "event": "learner",
-                                "transitions": transitions,
-                                "healthy": collected,
-                                "updates": agent.updates,
-                                "lifecycle_updates": updates,
-                                "replay_size": replay.size,
-                                "worker": worker,
-                                "random_actions": random_actions,
-                                "actor_version_lag": agent.updates - version,
-                                "queue_blocked_seconds": blocked,
-                                "generated_unused": discarded,
-                                "learner_gpu_allocated_bytes": torch.cuda.memory_allocated(env.device),
-                                "learner_max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                                "transitions_per_s": collected / (time.perf_counter() - started),
-                                **{k: float(v) for k, v in losses.items()},
-                            }
-                        )
-                        + "\n"
-                    )
+                    log.write(json.dumps({**learner, **{k: float(v) for k, v in losses.items()}}) + "\n")
                     log.flush()
                     save_training_checkpoint(agent, output, metadata, transitions, recent_returns)
                     log_at += settings["log_every"]
                 if settings.get("periodic_evaluation", False) and transitions >= evaluation_at and transitions < limit:
                     # Pause and drain before evaluation, keeping queued experience for normal ingestion.
                     pending = workers.pause()
-                    validation_checkpoint(agent, env, config, transitions, output, log, metadata)
+                    validation_checkpoint(agent, env, config, transitions, output, log, monitor)
                     workers.resume()
                     for message in pending:
                         workers.pending.append(message)
@@ -344,11 +357,13 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 )
                 + "\n"
             )
+            monitor.record_runtime({"generated_unused": discarded})
+            monitor.flush(transitions, force=True)
             workers.close()
             workers = None
             save_training_checkpoint(agent, output, metadata, transitions, recent_returns, final=True)
             agent, _ = SAC.load(output / "best.pt", env.device)
-            validation_checkpoint(agent, env, config, transitions, output, log, metadata)
+            validation_checkpoint(agent, env, config, transitions, output, log, monitor)
             seed_all(config["evaluation"]["seed"])
             rows = station_scores(agent, env, config["evaluation"]["action_samples"])
             (output / "station-q.json").write_text(
@@ -359,4 +374,6 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     finally:
         if workers is not None:
             workers.close()
+        if monitor is not None:
+            monitor.close(transitions)
         env.close()

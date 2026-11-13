@@ -1,110 +1,103 @@
-"""The four requested SAC monitoring figures, backed by recorded metrics."""
+"""Live TensorBoard training metrics and spatial evaluation figures."""
 
-import json
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
+from torch import Tensor
+from torch.utils.tensorboard import SummaryWriter
 
 
-def training_curves(log_path, output):
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=True)
-    learners, episodes, evaluations = [], [], []
-    with Path(log_path).open() as stream:
-        for line in stream:
-            row = json.loads(line)
-            if row["event"] == "learner" and "actor_loss" in row:
-                learners.append(row)
-            elif row["event"] == "episode" and not row["infrastructure_failure"]:
-                episodes.append(row)
-            elif row["event"] == "evaluation":
-                evaluations.append(row)
-
-    reward_breakdown(episodes, learners, output)
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
-    for axis, key, title in zip(axes, ("actor_loss", "critic_loss"), ("Actor Loss", "Critic Loss")):
-        axis.plot([r["transitions"] for r in learners], [r[key] for r in learners], marker=".", markersize=3)
-        axis.set(title=title, xlabel="Valid transitions", ylabel="Mean loss per log interval")
-        axis.grid(alpha=0.2)
-    figure.savefig(output / "loss-curves.png", dpi=150)
-    plt.close(figure)
-
-    figure, axis = plt.subplots(figsize=(6, 4), constrained_layout=True)
-    rows = [r for r in learners if "entropy" in r]
-    axis.plot([r["transitions"] for r in rows], [r["entropy"] for r in rows], marker=".", markersize=3)
-    axis.set(title="Policy Entropy", xlabel="Valid transitions", ylabel="-E[log pi(a|s)] (nats)")
-    axis.grid(alpha=0.2)
-    figure.savefig(output / "exploration.png", dpi=150)
-    plt.close(figure)
-
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
-    rows = [r for r in evaluations if r["evaluation_success_rate"] is not None]
-    axes[0].plot([r["transitions"] for r in rows], [100 * r["evaluation_success_rate"] for r in rows], marker="o")
-    fixed_station = rows and all(r.get("scope") == "fixed_station" for r in rows)
-    title = "Fixed Station Success" if fixed_station else "Independent Validation Success"
-    axes[0].set(
-        title=title, xlabel="Valid transitions", ylabel="Success (%)", ylim=(-2, 102)
-    )
-    if episodes:
-        grouped = {}
-        for row in episodes:
-            grouped.setdefault(row["transitions"], []).append(row["return"])
-        axes[1].scatter([r["transitions"] for r in episodes], [r["return"] for r in episodes], s=5, alpha=0.12)
-        axes[1].plot(
-            list(grouped),
-            [np.mean(v) for v in grouped.values()],
-            marker=".",
-            markersize=3,
-            label="Mean of completed episodes",
-        )
-        axes[1].legend()
-    axes[1].set(title="Episode Return", xlabel="Valid transitions", ylabel="Undiscounted reward sum")
-    for axis in axes:
-        axis.grid(alpha=0.2)
-    figure.savefig(output / "training-effect.png", dpi=150)
-    plt.close(figure)
+DEFAULT_TENSORBOARD_EVERY_SECONDS = 30
 
 
-def reward_breakdown(episodes, learners, output):
-    keys = ("position", "rotation", "close", "contact", "lift", "held", "collision")
-    titles = (
-        "Position Reward",
-        "Rotation Reward",
-        "Close Reward",
-        "Contact Bonus Count",
-        "Lift Progress Reward",
-        "Held Reward",
-        "Collision Penalty",
-    )
-    boundaries = sorted({r["transitions"] for r in learners})
-    if episodes and (not boundaries or episodes[-1]["transitions"] > boundaries[-1]):
-        boundaries.append(episodes[-1]["transitions"])
-    figure, axes = plt.subplots(4, 2, figsize=(12, 12), constrained_layout=True)
-    for axis, key, title in zip(axes.flat, keys, titles):
-        points = []
-        previous = -1
-        for boundary in boundaries:
-            rows = [r for r in episodes if previous < r["transitions"] <= boundary and "reward_component_names" in r]
-            if rows:
-                values = [
-                    r["contact_bonus_count"]
-                    if key == "contact"
-                    else r["reward_components"][r["reward_component_names"].index(key)]
-                    for r in rows
-                ]
-                points.append((boundary, np.mean(values)))
-            previous = boundary
-        if points:
-            axis.plot(*zip(*points), marker=".")
-        axis.set(title=title, xlabel="Valid transitions (training episodes)", ylabel="Episode mean")
-        axis.grid(alpha=0.2)
-    axes.flat[-1].set_visible(False)
-    figure.savefig(Path(output) / "reward-breakdown.png", dpi=150)
-    plt.close(figure)
+@dataclass
+class _Mean:
+    total: float | Tensor = 0.0
+    count: int = 0
+
+    def add(self, value):
+        self.total = self.total + (value.detach() if isinstance(value, Tensor) else value)
+        self.count += 1
+
+
+class TrainingMonitor:
+    """Learner-owned interval statistics; tensors stay on device until flush."""
+
+    def __init__(self, output, *, every_seconds, purge_step=None):
+        if not every_seconds > 0:
+            raise ValueError("training.tensorboard_every_seconds must be positive")
+        self.writer = SummaryWriter(str(Path(output) / "tensorboard"), purge_step=purge_step)
+        self.every_seconds = every_seconds
+        self.last_flush = time.monotonic()
+        self.means: dict[str, _Mean] = defaultdict(_Mean)
+        self.latest: dict[str, float | Tensor] = {}
+
+    def _mean(self, tag, value):
+        self.means[tag].add(value)
+
+    def record_update(self, losses):
+        for key, tag in (
+            ("actor_loss", "loss/actor"),
+            ("critic_loss", "loss/critic"),
+            ("alpha_loss", "loss/alpha"),
+            ("entropy", "policy/entropy"),
+        ):
+            self._mean(tag, losses[key])
+        self.latest["policy/alpha"] = losses["alpha"].detach()
+
+    def record_episode(self, event):
+        if event["infrastructure_failure"]:
+            return
+        group = "warmup" if event.get("random_warmup", False) else "train"
+        for key in ("return", "steps", "success", "collision_free", "contact_bonus_count"):
+            if key in event:
+                self._mean(f"{group}/{key}", event[key])
+        for name, value in zip(event.get("reward_component_names", ()), event.get("reward_components", ()), strict=True):
+            self._mean(f"{group}/reward/{name}", value)
+
+    def record_runtime(self, event):
+        self.latest.update({
+            f"runtime/{key}": value for key, value in event.items()
+            if key not in ("event", "transitions")
+        })
+
+    def flush(self, transitions, *, force=False):
+        now = time.monotonic()
+        if not force and now - self.last_flush < self.every_seconds:
+            return
+        for tag, mean in self.means.items():
+            self.writer.add_scalar(tag, float(mean.total / mean.count), transitions)
+        for tag, value in self.latest.items():
+            self.writer.add_scalar(tag, float(value), transitions)
+        self.writer.flush()
+        self.means.clear()
+        self.latest.clear()
+        self.last_flush = now
+
+    def record_evaluation(self, event):
+        prefix = f"evaluation/{event['scope']}"
+        for key in (
+            "evaluation_success_rate", "episode_return_mean", "healthy_trials", "total_trials",
+            "successes", "infrastructure_failures", "value_success_correlation", "seconds",
+        ):
+            value = event.get(key)
+            if value is not None:
+                self.writer.add_scalar(f"{prefix}/{key}", value, event["transitions"])
+        for policy, metrics in event.get("debug_stations", {}).items():
+            for key, value in metrics.items():
+                if value is not None:
+                    self.writer.add_scalar(f"{prefix}/debug/{policy}/{key}", value, event["transitions"])
+        self.writer.flush()
+
+    def close(self, transitions):
+        self.flush(transitions, force=True)
+        self.writer.close()
 
 
 def station_evaluation(scores, measured, path, *, q_limits, correlation=None):
