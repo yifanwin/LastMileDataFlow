@@ -94,7 +94,7 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
 
 默认预算仍为 200000 条健康经验、随机预热 20000 条，每新增 128 条更新一次，预期 1406 次更新；batch 256、Replay 100000、动作、奖励、回合和 SAC 参数与当前默认配置相同。需要更多经验时显式传 `--max-transitions`。从头训练，不恢复其他站位/网格配置的 checkpoint。
 
-仅在训练结束后评估该站位：1 个评估环境、16 次 stochastic rollout，另保留 stochastic / mean 视频。评估日志标记 `scope: fixed_station`、`split: train`，Q 文件也只含这一站。成功率反映该训练站位的表现，单站位 Spearman 为 null，不代表空间泛化或全图验收。未指定 `stations.fixed_station` 时仍使用下述空间 validation 流程。实现及验证见[单站位交付记录](14-fixed-station-training.md)。
+仅在训练结束后评估该站位：16 个评估环境并行完成 16 次 stochastic rollout，另保留 stochastic / mean 视频。评估日志标记 `scope: fixed_station`、`split: train`，Q 文件也只含这一站。成功率反映该训练站位的表现，单站位 Spearman 为 null，不代表空间泛化或全图验收。未指定 `stations.fixed_station` 时仍使用下述空间 validation 流程。实现及验证见[单站位交付记录](14-fixed-station-training.md)。
 
 ## TensorBoard 实时监控
 
@@ -173,3 +173,14 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 `--num-envs` 是每个 Sampler 的环境数。配置 `transitions_per_update=128`，全局健康经验前 20000 条预热，此后每 128 条更新一次；默认 batch=256、CPU Replay=100000。每 16 次更新向各 Sampler 发布最新完整 Actor。恢复 checkpoint 时保留历史 transition 横轴，重建 Replay 并重新全局预热。
 
 仅训练结束后的单次 Validation 评分固定 validation 子集；训练期间不暂停采样验证。之后使用同一个 best 策略计算一次全合法站位 Q，写入训练目录 `station-q.json` / `station-q.png`；非法站位保留空值。该图不代表抓取验收通过，acceptance 仍使用独立 evaluate 入口。
+
+
+## 并行评估与阶段进度（2026-11-13）
+
+`training.validation_stations` 表示选取的站位数，`validation_rollouts_per_station` 表示每站正式试验数；训练入口的评估环境数取二者乘积。单站位配置仍填写 1 / 16，由 16 个环境同时评估，不需要扩大试验预算。外部检查若传入更少环境，会分批完成同样数量的正式试验。
+
+初态 Q 在抓取姿态和动作采样维度合批，样本数不变。结束评估返回的同一冻结 checkpoint 的 Q 结果供最终 station-q.json 复用；全图中的其他站位仍正常评分。缓存只在这次调用内显式传递，不跨 checkpoint 复用。
+
+正式成功率试验不采集视频；视频专用 stochastic / mean 回合只存选中的站位轨迹，GPU 数据在回合结束后批量转到 CPU 并格式化。原先所有回合中挑首次成功/碰撞代表视频的路径不再默认启用，因此视频本身不保证包含正式试验中首次成功或碰撞。正式试验仍保留完整成功/碰撞等数值结果。
+
+`analysis/evaluation-progress-<transitions>.json` 与 stdout 显示 initial_q / rollouts / videos / complete 阶段和正式试验完成数；评估 JSON 的 `metrics.stage_seconds` 记录初态 Q、正式 rollout 与视频阶段耗时。并行试验记录批次 seed 和全局 trial 编号，固定配置和批量布局可重复；向量化后的随机数顺序与旧串行版不同，不承诺旧 seed 的逐轨迹复现。实际验证见[并行评估交付](18-parallel-evaluation.md)。

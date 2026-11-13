@@ -83,13 +83,14 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
 def validation_checkpoint(agent, env, config, transitions, output, log, monitor):
     monitor.flush(transitions, force=True)
     started = time.perf_counter()
-    event = monitor_validation(agent, env, config, transitions, output, force_video=True)
+    event, scores = monitor_validation(agent, env, config, transitions, output, force_video=True, return_scores=True)
     event["seconds"] = time.perf_counter() - started
     log.write(json.dumps(event) + "\n")
     log.flush()
     monitor.record_evaluation(event)
     if not event["healthy_trials"]:
         raise RuntimeError("Training-station evaluation produced no healthy trials")
+    return scores
 
 
 def save_training_checkpoint(agent, output, metadata, transitions, returns, *, final=False):
@@ -220,7 +221,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     settings = config["training"]
     devices = [str(gpu) for gpu in gpus]
     env = StationEnv(
-        config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"]
+        config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"] * settings.get("validation_rollouts_per_station", 1)
     )
     workers = None
     monitor = None
@@ -363,9 +364,9 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             workers = None
             save_training_checkpoint(agent, output, metadata, transitions, recent_returns, final=True)
             agent, _ = SAC.load(output / "best.pt", env.device)
-            validation_checkpoint(agent, env, config, transitions, output, log, monitor)
+            initial_scores = validation_checkpoint(agent, env, config, transitions, output, log, monitor)
             seed_all(config["evaluation"]["seed"])
-            rows = station_scores(agent, env, config["evaluation"]["action_samples"])
+            rows = station_scores(agent, env, config["evaluation"]["action_samples"], initial_scores=initial_scores)
             (output / "station-q.json").write_text(
                 json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
             )

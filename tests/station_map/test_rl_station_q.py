@@ -1,9 +1,28 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import torch
 
 from lastmile_dataflow.station_map.rl.station_q import select_acceptance_stations, summarize_trials
 
 
 class StationQTests(unittest.TestCase):
+    def test_action_samples_are_batched_without_changing_mean_or_variance(self):
+        from lastmile_dataflow.station_map.rl.station_q import action_sampled_q
+        from tests.station_map.test_rl_sac import observation
+
+        actor = Mock()
+        actor.sample.side_effect = lambda obs: (torch.arange(len(obs.nodes)).float()[:, None], None)
+        q1 = Mock(side_effect=lambda obs, actions: actions[:, 0])
+        q2 = Mock(side_effect=lambda obs, actions: actions[:, 0] + 1)
+        mean, std = action_sampled_q(SimpleNamespace(actor=actor, q1=q1, q2=q2), observation(2), 3)
+        torch.testing.assert_close(mean, torch.tensor([1.0, 4.0]))
+        torch.testing.assert_close(std, torch.full((2,), (2 / 3) ** 0.5))
+        actor.sample.assert_called_once()
+        q1.assert_called_once()
+        q2.assert_called_once()
+
     def test_predeclared_groups_are_disjoint_and_held_out(self):
         rows = [
             {"station_id": str(i), "valid": i != 0, "split": "train" if i == 1 else "acceptance", "q_mean": float(i)}

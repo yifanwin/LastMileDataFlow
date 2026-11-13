@@ -10,12 +10,11 @@ def action_sampled_q(agent, observation, samples=16):
     agent.actor.eval()
     agent.q1.eval()
     agent.q2.eval()
-    values = []
-    for _ in range(samples):
-        action, _ = agent.actor.sample(observation)
-        values.append(torch.minimum(agent.q1(observation, action), agent.q2(observation, action)))
-    values = torch.stack(values)
-    return values.mean(0), values.std(0, correction=0)
+    count = observation.arm_task_state.shape[0]
+    expanded = observation.map(lambda value: value.repeat_interleave(samples, dim=0))
+    action, _ = agent.actor.sample(expanded)
+    values = torch.minimum(agent.q1(expanded, action), agent.q2(expanded, action)).reshape(count, samples)
+    return values.mean(1), values.std(1, correction=0)
 
 
 def _take(group, candidates, count, selected, used, rng, *, ordered=False):

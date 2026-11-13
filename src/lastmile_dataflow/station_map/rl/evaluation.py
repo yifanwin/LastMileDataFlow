@@ -1,6 +1,8 @@
 """Frozen scores and training-station rollouts using the same environment."""
 
 import json
+import time
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -25,9 +27,12 @@ def reset_stations(env, station_ids, env_ids=None):
 
 
 @torch.no_grad()
-def station_scores(agent, env, samples, station_ids=None):
+def station_scores(agent, env, samples, station_ids=None, *, initial_scores=()):
     rows = [{**s, "q_mean": None, "q_std": None, "K": samples} for s in env.task.stations]
-    valid = [i for i, row in enumerate(rows) if row["valid"] and (station_ids is None or i in station_ids)]
+    cached = {row["station_id"]: row for row in initial_scores}
+    rows = [cached.get(row["station_id"], row) for row in rows]
+    valid = [i for i, row in enumerate(rows) if row["valid"] and row["station_id"] not in cached
+             and (station_ids is None or i in station_ids)]
     for index in valid:
         grasp_scores = []
         pool = env.task.grasp_pools[index]
@@ -47,7 +52,7 @@ def station_scores(agent, env, samples, station_ids=None):
 
 
 @torch.no_grad()
-def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False, capture=None):
+def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False, capture=None, *, on_progress=None):
     """One episode per vector slot; ended slots reset without entering results twice.
 
     Stage facts (closest pose, both fingers, lift, hold) locate the earliest
@@ -69,6 +74,7 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     discounted = torch.zeros_like(returns)
     discount = 1.0
     records = [None] * env.num_envs
+    steps = 0
     if capture is not None:
         capture.initialize(env, station_ids, seed, deterministic)
     while not finished.all():
@@ -97,7 +103,8 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
         discount *= gamma
         done = terminated | truncated | env.task.unhealthy
         first_done = done & active
-        for index in first_done.nonzero(as_tuple=True)[0].tolist():
+        ended = first_done.nonzero(as_tuple=True)[0].tolist()
+        for index in ended:
             unhealthy = bool(env.task.unhealthy[index])
             records[index] = {
                 "station_id": env.task.stations[station_ids[index]]["station_id"],
@@ -129,6 +136,9 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
                 "reward_component_names": list(REWARD_COMPONENTS),
             }
         finished |= first_done
+        steps += 1
+        if on_progress is not None and (steps % 100 == 0 or ended):
+            on_progress(finished, steps)
         obs = graph_observation(observations).clone()
         if done.any() and not finished.all():
             ids = done.nonzero(as_tuple=True)[0]
@@ -171,7 +181,20 @@ def stage_summary(rows):
     }
 
 
-def monitor_validation(agent, env, config, transitions, output, force_video=False):
+def evaluation_progress(path, transitions, stage, timings, completed=0, total=0):
+    path.write_text(json.dumps({"stage": stage, "completed_trials": completed,
+                               "total_trials": total, "seconds": timings}, indent=2))
+    print(f"Evaluation {transitions}: {stage} {completed}/{total}", flush=True)
+
+
+def rollout_progress(finished, steps, *, path, transitions, timings, offset, count, total):
+    completed = offset + int(finished[:count].sum())
+    path.write_text(json.dumps({"stage": "rollouts", "completed_trials": completed,
+                               "total_trials": total, "vector_steps": steps, "seconds": timings}, indent=2))
+    print(f"Evaluation {transitions}: rollouts {completed}/{total}, vector step {steps}", flush=True)
+
+
+def monitor_validation(agent, env, config, transitions, output, force_video=False, *, return_scores=False):
     """Fixed validation points/seeds and frozen online Q throughout evaluation."""
 
     output = Path(output)
@@ -183,10 +206,10 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     fixed_station = config["stations"].get("fixed_station")
     scope = "fixed_station" if fixed_station else "train"
     if fixed_station:
-        station_ids = [int(env.task.pool[0])] * env.num_envs
+        station_ids = [int(env.task.pool[0])]
     else:
         candidates = [i for i, row in enumerate(env.task.stations) if row["valid"]]
-        station_ids = np.random.default_rng(seed).choice(candidates, env.num_envs, replace=len(candidates) < env.num_envs).tolist()
+        station_ids = np.random.default_rng(seed).choice(candidates, settings["validation_stations"], replace=len(candidates) < settings["validation_stations"]).tolist()
     selection = [{**env.task.stations[i], "group": scope} for i in dict.fromkeys(station_ids)]
     (analysis / "validation-selection.json").write_text(
         json.dumps(
@@ -194,8 +217,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
                 "stations": selection,
                 "seed": seed,
                 "scope": scope,
-                "rollouts_per_station": settings["validation_rollouts_per_station"]
-                * (env.num_envs if fixed_station else 1),
+                "rollouts_per_station": settings["validation_rollouts_per_station"],
             },
             indent=2,
         )
@@ -209,37 +231,52 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
         or transitions >= config["training"]["max_transitions"]
     )
     captures = []
-    with torch.random.fork_rng(devices=[torch.device(env.device).index]):
+    timings = {}
+    progress = analysis / f"evaluation-progress-{transitions:012d}.json"
+
+    with torch.random.fork_rng(devices=[torch.device(env.device).index] if torch.device(env.device).type == "cuda" else []):
         torch.manual_seed(seed)
+        evaluation_progress(progress, transitions, "initial_q", timings)
+        started = time.perf_counter()
         rows = station_scores(agent, env, config["evaluation"]["action_samples"], list(dict.fromkeys(station_ids)))
+        timings["initial_q"] = time.perf_counter() - started
         values = {r["station_id"]: r for r in rows}
         selection = [{**row, "q_mean": values[row["station_id"]]["q_mean"]} for row in selection]
         trials = []
-        for repeat in range(settings["validation_rollouts_per_station"]):
-            capture = None
-            if record_video:
-                capture = RolloutCapture(output, transitions, config, representatives=True)
-                captures.append(capture)
-            trials.extend(
-                validation_rollout(agent, env, station_ids, seed + repeat, config["sac"]["gamma"], capture=capture)
-            )
+        requested = station_ids * settings["validation_rollouts_per_station"]
+        started = time.perf_counter()
+        for start in range(0, len(requested), env.num_envs):
+            batch = requested[start:start + env.num_envs]
+            slots = batch + [batch[-1]] * (env.num_envs - len(batch))
+            evaluation_progress(progress, transitions, "rollouts", timings, len(trials), len(requested))
+            on_progress = partial(rollout_progress, path=progress, transitions=transitions,
+                                  timings=timings, offset=start, count=len(batch), total=len(requested))
+            result = validation_rollout(agent, env, slots, seed + start, config["sac"]["gamma"],
+                                        on_progress=on_progress)
+            trials.extend({**row, "trial": start + i} for i, row in enumerate(result[:len(batch)]))
+        timings["rollouts"] = time.perf_counter() - started
+        evaluation_progress(progress, transitions, "videos", timings, len(trials), len(requested))
+        started = time.perf_counter()
         if record_video:
             training_id = int(env.task.pool[0])
             fixed = list(dict.fromkeys([training_id, station_ids[0]]))
             for deterministic in (False, True):
-                capture = RolloutCapture(output, transitions, config)
-                captures.append(capture)
                 slots = [fixed[i % len(fixed)] for i in range(env.num_envs)]
+                selected_slots = [slots.index(i) for i in dict.fromkeys(slots)]
+                capture = RolloutCapture(output, transitions, config, selected_slots=selected_slots)
+                captures.append(capture)
                 # A one-slot evaluation still records both splits.
                 for selected in [slots] if env.num_envs > 1 else [[i] for i in fixed]:
                     validation_rollout(
                         agent, env, selected, seed, config["sac"]["gamma"], deterministic=deterministic, capture=capture
                     )
             env._video_transitions = transitions
+        timings["videos"] = time.perf_counter() - started
         debug = debug_station_rollouts(agent, env, settings, seed)
     summary = summarize_trials(selection, trials, seed=seed)
     healthy = [row for row in trials if not row["infrastructure_failure"]]
     event = {
+        "stage_seconds": timings,
         "event": "evaluation",
         "transitions": transitions,
         "split": "train",
@@ -278,7 +315,8 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     agent.actor.train()
     agent.q1.train()
     agent.q2.train()
-    return event
+    evaluation_progress(progress, transitions, "complete", timings, len(trials), len(requested))
+    return (event, rows) if return_scores else event
 
 
 def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):

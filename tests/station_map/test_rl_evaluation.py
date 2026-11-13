@@ -86,7 +86,10 @@ class ValidationTests(unittest.TestCase):
         env = TwoEpisodeEnv()
         env.task.grasps = [dict(source="fixture", row=0)]
         env.task.grasp_ids = torch.zeros(2, dtype=torch.long)
-        rows = validation_rollout(SimpleNamespace(actor=ObservationActor()), env, [0, 1], 42, 0.5)
+        progress = Mock()
+        rows = validation_rollout(SimpleNamespace(actor=ObservationActor()), env, [0, 1], 42, 0.5,
+                                  on_progress=progress)
+        self.assertEqual([call.args[1] for call in progress.call_args_list], [1, 2])
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["episode_return"], 2.0)
         self.assertEqual(rows[1]["episode_return"], 7.0)
@@ -106,13 +109,13 @@ class ValidationTests(unittest.TestCase):
         row = {"station_id": "S0246-y04", "split": "train", "valid": True, "q_mean": 1.0}
         trial = {"station_id": row["station_id"], "success": True, "collision_free": True,
                  "infrastructure_failure": False, "return": 2.0, "episode_return": 3.0}
-        env = SimpleNamespace(num_envs=1, device="cpu", task=SimpleNamespace(stations=[row], pool=[0]))
+        env = SimpleNamespace(num_envs=2, device="cpu", task=SimpleNamespace(stations=[row], pool=[0]))
         agent = SimpleNamespace(actor=Mock(), q1=Mock(), q2=Mock())
         prefix = "lastmile_dataflow.station_map.rl.evaluation."
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             stack.enter_context(patch(prefix + "torch.random.fork_rng", return_value=nullcontext()))
             scores = stack.enter_context(patch(prefix + "station_scores", return_value=[row]))
-            rollout = stack.enter_context(patch(prefix + "validation_rollout", return_value=[trial]))
+            rollout = stack.enter_context(patch(prefix + "validation_rollout", return_value=[trial, trial]))
             stack.enter_context(patch(prefix + "station_evaluation"))
             stack.enter_context(patch(prefix + "RolloutCapture", side_effect=lambda *a, **k: SimpleNamespace(videos=[])))
             event = monitor_validation(agent, env, config, 100, directory, force_video=True)
@@ -125,8 +128,39 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(selection["scope"], "fixed_station")
         self.assertEqual(selection["stations"][0]["group"], "fixed_station")
         scores.assert_called_once_with(agent, env, config["evaluation"]["action_samples"], [0])
-        self.assertEqual(rollout.call_count, 4)  # Two trials plus stochastic / mean video rollouts.
-        self.assertTrue(all(call.args[2] == [0] for call in rollout.call_args_list))
+        self.assertEqual(rollout.call_count, 3)  # One parallel trial batch and two video batches.
+        self.assertNotIn("capture", rollout.call_args_list[0].kwargs)
+        self.assertTrue(all(call.kwargs["capture"] is not None for call in rollout.call_args_list[1:]))
+        self.assertTrue(all(call.args[2] == [0, 0] for call in rollout.call_args_list))
+
+    def test_cached_scores_are_reused_without_reset_or_network_calls(self):
+        from lastmile_dataflow.station_map.rl.evaluation import station_scores
+
+        row = {"station_id": "S0246", "valid": True, "q_mean": 1.5, "q_std": 0.2, "K": 16}
+        env = SimpleNamespace(task=SimpleNamespace(stations=[row]))
+        with patch("lastmile_dataflow.station_map.rl.evaluation.reset_stations") as reset:
+            result = station_scores(None, env, 16, initial_scores=[row])
+        self.assertEqual(result, [row])
+        reset.assert_not_called()
+
+    def test_partial_q_cache_preserves_mask_and_only_scores_missing_station(self):
+        from lastmile_dataflow.station_map.rl.evaluation import station_scores
+
+        cached = {"station_id": "S0", "valid": True, "q_mean": 9.0, "q_std": 0.2, "K": 16}
+        env = SimpleNamespace(device="cpu", num_envs=2, task=SimpleNamespace(
+            stations=[{"station_id": "S0", "valid": True}, {"station_id": "S1", "valid": True},
+                      {"station_id": "S2", "valid": False}],
+            grasp_pools=[[0, 1]] * 3, grasps=[dict(source="fixture", row=i) for i in range(2)]))
+        with patch("lastmile_dataflow.station_map.rl.evaluation.reset_stations") as reset, patch(
+            "lastmile_dataflow.station_map.rl.evaluation.action_sampled_q",
+            return_value=(torch.tensor([1.0, 3.0]), torch.zeros(2)),
+        ):
+            rows = station_scores(None, env, 16, initial_scores=[cached])
+        reset.assert_called_once_with(env, [1, 1])
+        self.assertEqual(rows[0], cached)
+        self.assertEqual(rows[1]["q_mean"], 2.0)
+        self.assertFalse(rows[2]["valid"])
+        self.assertIsNone(rows[2]["q_mean"])
 
     def test_training_validates_final_policy_once_after_closing_samplers(self):
         from lastmile_dataflow.station_map.rl.training import train
@@ -194,7 +228,7 @@ class ValidationTests(unittest.TestCase):
                     workers.close.assert_called_once()
                     self.assertEqual(workers.receive.call_count, 5)
                     self.assertIn("latest.pt", [call.args[0].name for call in agent.save.call_args_list])
-                    return {"scope": "train", "transitions": args[3], "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}
+                    return {"scope": "train", "transitions": args[3], "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}, []
 
                 monitor = stack.enter_context(patch(prefix + "monitor_validation", side_effect=validate))
                 stack.enter_context(patch(prefix + "station_scores", return_value=[]))
