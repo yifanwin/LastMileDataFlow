@@ -10,7 +10,7 @@ import numpy as np
 from lastmile_dataflow.station_map.aggregate import aggregate, eligible_stations, station_calibration
 from lastmile_dataflow.operation.config import ExecutionConfig
 from lastmile_dataflow.sim.simulation import Simulation
-from lastmile_dataflow.scenes.library import load_scenes
+from lastmile_dataflow.scenes.library import load_scenes, require_stations
 from lastmile_dataflow.utils.io import append_row
 from tests.helpers import DatasetTestCase
 
@@ -33,7 +33,8 @@ class DatasetTests(DatasetTestCase):
         dataset = self.dataset()
         (dataset / "stations.jsonl").unlink()
         with self.assertRaises(FileNotFoundError):
-            load_scenes(dataset)
+            require_stations(dataset)
+        self.assertNotIn("stations", load_scenes(dataset)[0])
         append_row(
             dataset / "stations.jsonl",
             {"scene_id": self.scene["scene_id"], "status": "rejected", "reason": "no_valid_initial_stations"},

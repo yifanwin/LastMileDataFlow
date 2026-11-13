@@ -6,7 +6,8 @@ import mujoco
 from lastmile_dataflow.sim.model.mjcf import load_spec
 from .panda_omron import adapter as panda_omron
 from .panda_omron import robocasa as panda_robocasa
-from .panda_omron.adapter import SCALE as PANDA_SCALE, PandaOmronAdapter
+from .panda_omron.adapter import PandaOmronAdapter
+from .robocasa_config import RoboCasaRobotConfig
 from .panda_omron.robocasa import PandaRoboCasaAdapter
 from .rby1.adapter import RBY1Adapter, prepare_rby1_spec
 from .panda_omron.planning import PlanningModel as PandaPlanningModel
@@ -33,7 +34,13 @@ def robot_config(values):
 
 
 def load_robot_config(path):
-    return robot_config(read_config(path, data_fields=("model_path",)))
+    """LMDF robot (``runtime: lmdf``, default) or RoboCasa native robot (``runtime: robocasa``)."""
+    if read_config(path).get("runtime", "lmdf") == "robocasa":
+        return RoboCasaRobotConfig(**read_config(path))
+    values = read_config(path, data_fields=("model_path",))
+    if values.pop("runtime", "lmdf") != "lmdf":
+        raise ValueError("robot runtime must be lmdf or robocasa")
+    return robot_config(values)
 
 
 # (robot name, control profile or None for the default) -> (adapter, spec preparation)
@@ -61,7 +68,7 @@ def load_robot_spec(config, scale=None):
     source = load_spec(config.model_path)
     prepare_robot_spec(source, config)
     if scale is None:
-        scale = PANDA_SCALE if config.name == "panda_omron" else 1.0
+        scale = config.scale
     if scale == 1.0:
         return source
     frames = [frame for frame in source.worldbody.frames if frame.frame is None]

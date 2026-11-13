@@ -1,0 +1,11 @@
+# RoboCasa365 原生 PandaOmron：官方 robosuite 机器人、比例 1.0、默认原生控制器
+# （机械臂 OSC_POSE、升降 JOINT_POSITION、底盘 JOINT_VELOCITY）。只由 RoboCasa runtime 使用。
+runtime: robocasa
+name: panda_omron
+embodiment: PandaOmron
+scale: 1.0
+controller: default
+control_freq: 20
+cameras: [robot0_agentview_left, robot0_eye_in_hand, robot0_agentview_right]
+camera_width: 256
+camera_height: 256

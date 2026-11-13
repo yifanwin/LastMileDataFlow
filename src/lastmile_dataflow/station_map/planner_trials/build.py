@@ -35,7 +35,7 @@ from lastmile_dataflow.operation.protocol import (
 )
 from .workers import execution_worker, initialize_preparation_worker, prepare_job, record_unexecuted
 from lastmile_dataflow.operation.config import ExecutionConfig, load_execution_config
-from lastmile_dataflow.scenes.library import load_scenes, open_scene
+from lastmile_dataflow.scenes.library import load_scenes, open_scene, require_stations
 from lastmile_dataflow.scenes.tasks import grasp_candidates
 from lastmile_dataflow.utils.io import append_row, create_run, read_json, rows, write_json
 
@@ -107,6 +107,7 @@ class StationRunContext:
 
 
 def _resolve_scenes(dataset, config, samples):
+    require_stations(dataset)
     scenes = load_scenes(dataset, samples)
     if not scenes:
         raise ValueError("no accepted scenes")

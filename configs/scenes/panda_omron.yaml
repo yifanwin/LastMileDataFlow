@@ -1,4 +1,6 @@
 # PandaOmron 场景配方：procthor-10k-val 前 10 个 house，每 house 取 pick、open 各 1 个目标。
+scene_source: procthor_10k
+runtime: lmdf
 data_root: /data1/wenyifan/lmdf/molmospaces_data
 dataset_dir: assets/scenes/procthor-10k-val
 assets_dir: assets

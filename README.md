@@ -13,7 +13,7 @@ scripts/install/main.sh
 
 | 阶段脚本 | 用途 |
 |---|---|
-| scripts/scenes/build.py | 找目标，生成原场景和桌面/地面障碍编辑场景，导出快照 |
+| scripts/scenes/build.py | 找目标，生成原场景和桌面/地面障碍编辑场景，导出快照；`scene_source: robocasa365` 时改为导入并冻结 RoboCasa365 原生厨房实例（独立环境 `.venv-robocasa`，见 [RoboCasa 运行指南](reports/robocasa/delivery/running.md)） |
 | scripts/station_map/sample.py | 对场景库逐场景采候选站位并导出预览，没有合法站位的场景在这一步淘汰 |
 | scripts/station_map/planner_trials.py | cuRobo 逐点标定与热图 |
 | scripts/lastmile_dataset/collect.py | 复用标定或先标定，执行 S0→S1→操作，直接导出自包含训练数据 |

@@ -95,6 +95,8 @@ class SceneRecipe:
     robot_config: str
     houses: list
     schema_version: str = "scene-recipe-v1"
+    scene_source: str = "procthor_10k"
+    runtime: str = "lmdf"
     edits: SceneEditConfig = field(default_factory=SceneEditConfig)
     operations: list = field(default_factory=lambda: ["pick", "open"])
     max_final_stations: int = 20
@@ -118,6 +120,8 @@ class SceneRecipe:
     def __post_init__(self):
         if self.schema_version != "scene-recipe-v1":
             raise ValueError("expected scene-recipe-v1")
+        if (self.scene_source, self.runtime) != ("procthor_10k", "lmdf"):
+            raise ValueError("ProcTHOR recipes use scene_source procthor_10k with the lmdf runtime")
         if isinstance(self.edits, dict):
             object.__setattr__(self, "edits", SceneEditConfig(**self.edits))
         houses = [house_number(h) for h in self.houses]
@@ -212,13 +216,18 @@ def load_scene_recipe(path):
 STATIONS = "stations.jsonl"
 
 
-def scene_records(dataset):
-    """Every scenes.jsonl row with its sampled stations merged; a scene without legal stations is rejected."""
-    root = Path(dataset).resolve()
-    path = root / STATIONS
+def require_stations(dataset):
+    """Entries that consume stations call this explicitly; loading scenes alone does not need them."""
+    path = Path(dataset).resolve() / STATIONS
     if not path.exists():
         raise FileNotFoundError(f"{path} missing: run scripts/station_map/sample.py on this scene library first")
-    stations = {row["scene_id"]: row for row in rows(path)}
+    return path
+
+
+def scene_records(dataset):
+    """Every scenes.jsonl row with sampled stations merged when present; a scene without legal stations is rejected."""
+    root = Path(dataset).resolve()
+    stations = {row["scene_id"]: row for row in rows(root / STATIONS)}
     records = []
     for record in rows(root / "scenes.jsonl"):
         sampled = stations.get(record.get("scene_id"))

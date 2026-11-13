@@ -1,6 +1,8 @@
 # PandaOmron，robocasa-v1 控制与三相机（场景构建和 cuRobo、π0.5 执行共用）。
 data_root: /data1/wenyifan/lmdf/molmospaces_data
+runtime: lmdf
 name: panda_omron
+scale: 0.9
 model_path: assets/robots/panda_omron/model.xml
 control_profile: robocasa-v1
 physics_dt: 0.002

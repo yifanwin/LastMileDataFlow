@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 import math
 from ..interface import ROBOT_NAMESPACE
 
+# LMDF PandaOmron geometry scale; planning model and camera calibration assume it.
+SCALE = 0.9
+
 
 @dataclass(frozen=True)
 class PandaOmronConfig:
@@ -16,6 +19,7 @@ class PandaOmronConfig:
     observation_xyaxes: tuple = (0.0, -1.0, 0.0, 0.2425356, 0.0, 0.9701425)
     observation_fovy: float = 75.0
     name: str = "panda_omron"
+    scale: float = SCALE
     control_profile: str = "position-v1"
     control_hz: float = 20.0
     physics_dt: float = 0.004
@@ -43,5 +47,7 @@ class PandaOmronConfig:
     def __post_init__(self):
         if self.name != "panda_omron" or self.control_profile not in ("position-v1", "robocasa-v1"):
             raise ValueError("unsupported PandaOmron control profile")
+        if self.scale != SCALE:
+            raise ValueError(f"LMDF PandaOmron uses scale {SCALE}")
         if not 0 < self.control_hz * self.physics_dt <= 1:
             raise ValueError("invalid PandaOmron control/physics rate")

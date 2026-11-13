@@ -16,7 +16,7 @@ from lastmile_dataflow.planning.curobo.head_fov import target_camera_torch
 from lastmile_dataflow.operation.control.context import planner_options
 from lastmile_dataflow.operation.config import load_execution_config
 from lastmile_dataflow.sim.simulation import Simulation
-from lastmile_dataflow.scenes.library import load_scenes
+from lastmile_dataflow.scenes.library import load_scenes, require_stations
 from lastmile_dataflow.sim.placement import place_frozen_station
 
 
@@ -32,6 +32,7 @@ def main():
     args = parser.parse_args()
     select_devices([args.gpu])
     args.output.mkdir(parents=True, exist_ok=False)
+    require_stations(args.dataset)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     task = scene["task"]
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)

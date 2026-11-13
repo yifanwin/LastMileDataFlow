@@ -42,6 +42,7 @@ python -c 'import ctypes; ctypes.CDLL("libEGL.so.1"); print("EGL ok")'
 .venv/bin/python scripts/scenes/build.py --help
 
 scripts/install/pi05.sh        # 需要 π0.5 时
+scripts/install/robocasa.sh    # 需要 RoboCasa365 原生场景时，独立的 .venv-robocasa，见 reports/robocasa/delivery/running.md
 ```
 
 已验证版本：Python 3.11、mujoco 3.5.0、torch 2.7.1、torchvision 0.22.1、transformers 5.4.0、numpy 2.4.6、warp-lang 1.11.1、nvidia-curobo 0.8.0。

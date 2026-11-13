@@ -12,7 +12,8 @@ import numpy as np
 
 from ..action import InvalidAction, vector
 from ..interface import RobotCommand
-from .adapter import SCALE, PandaBody
+from .adapter import PandaBody
+from .config import SCALE
 
 
 # RoboCasa CAM_CONFIGS['DEFAULT']; wrist optics come from the Panda factory XML.

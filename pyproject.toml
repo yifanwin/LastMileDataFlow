@@ -40,6 +40,23 @@ rl = [
     "matplotlib>=3.8",
     "PyYAML>=6",
 ]
+robocasa = [
+    "numpy==2.2.5",
+    "numba==0.61.2",
+    "scipy==1.15.3",
+    "mujoco==3.3.1",
+    "qpsolvers[quadprog]>=4.3.1",
+    "opencv-python-headless>=4.11",
+    "Pillow>=10",
+    "PyYAML>=6",
+    "termcolor>=3",
+    "tqdm>=4",
+    "imageio>=2.34",
+    "h5py>=3",
+    "lxml>=5",
+    "gymnasium>=1",
+    "pynput>=1.7",
+]
 pi05 = [
     "jax[cuda12]==0.5.3",
     "flax==0.10.2",

@@ -6,8 +6,8 @@
 
 | 目录 | 加载它的代码 | 用途 |
 |---|---|---|
-| `scenes/` | `scenes.library.load_scene_recipe`（`scripts/scenes/build.py`） | 场景配方：房屋、目标筛选、障碍数量、站位参数、构建进程 |
-| `robots/` | `robots.registry.load_robot_config` | 机器人模型、控制 profile、相机与初始姿态；由场景配方的 `robot_config` 引用 |
+| `scenes/` | `scenes.build.build_scenes` 按 `scene_source` 分派：`scenes.library.load_scene_recipe`（ProcTHOR）或 `scenes.robocasa.load_robocasa_recipe`（RoboCasa365） | 场景配方：来源、runtime、机器人配置引用、实例选择；ProcTHOR 另有房屋、目标筛选、障碍数量、站位参数、构建进程 |
+| `robots/` | `robots.registry.load_robot_config`（按 `runtime` 分派） | 机器人 embodiment、比例、控制配置、相机与初始姿态；由场景配方的 `robot_config` 引用 |
 | `policies/` | `policies.config.load_policy_config` | MolmoBot / π0.5 权重、tokenizer、解释器；由执行配置的 `policy_config` 引用，`scripts/lastmile_benchmark/evaluate.py --config` 直接读取 |
 | `station_map/` | `station_map.config`（`--config`）→ `station_map.planner_trials.build` 用 `operation.config.load_execution_config` 解析 | 执行配置：物理执行、规划、导航、成功率阈值；站位标定（`scripts/station_map/planner_trials.py`）和连续采集（`scripts/lastmile_dataset/collect.py`）共用 |
 | `station_map/rl/` | `station_map.rl.training` | 独立 RL 站位图研究配置 |
@@ -25,7 +25,9 @@
 
 | 文件 | 说明 |
 |---|---|
-| `scenes/panda_omron.yaml` | PandaOmron 场景配方：procthor-10k-val 前 10 个 house，每 house pick、open 各 1 个目标；每个任务一份原场景、一份编辑场景 |
+| `scenes/robocasa365_pick.yaml` | RoboCasa365 `PickPlaceCounterToCabinet` 台面取物：布局 1/2/3、style 1、seed 42/43/44，目标 `obj_groups: cup`，判据 `robocasa-pick-1cm-1s-v1` |
+| `robots/panda_omron_robocasa.yaml` | RoboCasa 原生 PandaOmron：`runtime: robocasa`、比例 1.0、默认原生控制器、三相机 256×256 |
+| `scenes/panda_omron.yaml` | PandaOmron 场景配方（`procthor_10k` / `lmdf`）：procthor-10k-val 前 10 个 house，每 house pick、open 各 1 个目标；每个任务一份原场景、一份编辑场景 |
 | `robots/panda_omron.yaml` | PandaOmron，robocasa-v1 控制、三相机；场景构建和 cuRobo、π0.5 执行共用 |
 | `robots/rby1.yaml` | RBY-1，position-v1 |
 | `station_map/panda_omron_curobo.yaml` | PandaOmron cuRobo 站位标定与连续采集（3 次/站位，1/3 与 1.0 阈值） |
@@ -41,9 +43,13 @@
 
 ## 场景配方
 
+`scene_source` 与 `runtime` 成对出现：`procthor_10k` / `lmdf`（省略时的默认值）或 `robocasa365` / `robocasa`。RoboCasa 配方只需 `robot_config`、`env_name`、`obj_groups`、`criterion` 与 `instances`（每项 `layout_id/style_id/seed`），不读 `data_root`。以下为 ProcTHOR 配方。
+
 必填 `data_root`、`dataset_dir`、`assets_dir`、`asset_index`、`robot_config`、`houses`。`edits` 默认桌面障碍 1–3 个（目标 0.3 m 内同一支撑面）、地面 0–2 个；`edits.enabled: false` 只生成原场景。`max_proposals`、`variant_timeout_s` 控制编辑候选预算，`task_timeout_s` 控制单任务总预算，`build_workers` 控制房屋并行数。
 
 ## 机器人
+
+`runtime` 默认 `lmdf`；`runtime: robocasa` 选 `RoboCasaRobotConfig`（官方 robosuite 机器人，不装配、不缩放，`controller: default` 在导入场景时解析成 robosuite 默认控制器字典并随场景保存）。`scale` 是机器人几何比例：LMDF PandaOmron 固定 0.9（规划模型与相机标定按它建立），RBY-1 为 1.0，RoboCasa 为 1.0，写其他值会报错。
 
 `model_path` 是 MuJoCo 机器人 XML（相对 `data_root`），不改写外部 XML。`arm_working_reach_m` 是站位圆盘半径，`base_radius_m` 的四分之一是站位网格间距。`name: panda_omron` 选择 Panda 单臂适配器，`initial` 用 `base_xyyaw/lift/arm_q/gripper_width`；`observation_camera` 是站位筛选相机。命名空间 `robot_0/` 和 RBY-1 规划适配器 `joint_waypoints_v1` 是协议常量，不再写在配置里。执行流程从场景快照读取机器人配置，改这里的文件不会追溯修改已有快照；改变控制模式、步长、相机或分辨率后要重新生成场景和标定。
 

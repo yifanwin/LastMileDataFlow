@@ -15,7 +15,7 @@ from .recovery import RecoveryRegion, difficulty
 from lastmile_dataflow.planning.navigation.astar import navigation_grid
 from lastmile_dataflow.planning.navigation.routes import GeometryNavigation, NavigationSettings, NAVIGATION_PROTOCOL
 from lastmile_dataflow.scenes.tasks import task_support_obstacles
-from lastmile_dataflow.scenes.library import load_scenes, open_scene
+from lastmile_dataflow.scenes.library import load_scenes, open_scene, require_stations
 from lastmile_dataflow.sim.placement import place_frozen_station
 from lastmile_dataflow.sim.contacts import ContactSampler, NavigationContacts
 from lastmile_dataflow.sim.model.geometry import floor_support
@@ -259,6 +259,7 @@ def build(dataset, output, *, calibration_dir, config_path=None):
         yaw_speed=reference.get("navigation_yaw_speed_rad_s", 0.4),
     )
     trials = rows(calibration_dir / "trials.jsonl")
+    require_stations(source)
     scenes = load_scenes(source)
     scene_ids = {s["scene_id"] for s in scenes}
     if any(r["scene_id"] not in scene_ids for r in trials):

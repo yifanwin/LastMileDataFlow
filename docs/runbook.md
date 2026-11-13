@@ -1,7 +1,7 @@
 # 运行手册
 
 - 状态：active
-- 日期：2026-11-12
+- 日期：2026-11-13
 - 替代：无
 - 关联：../reports/simplify-refactor/plan/01-refactor-plan.md
 
@@ -31,7 +31,7 @@ $PY scripts/scenes/build.py --config configs/scenes/panda_omron.yaml --output ou
 $PY scripts/station_map/sample.py --scenes outputs/batches/example/runs/scenes --gpu 0
 ```
 
-逐场景重开快照，在目标周围 1m、间距 0.25m 的格点上按覆盖顺序做真实初始化，每场景最多取 max_final_stations 个合法站位（编辑场景另测目标可见性）。结果写回场景库：stations.jsonl、stations_summary.json、index.html 与 previews/。没有合法站位的场景在这一步淘汰。后面各步只认采过站位的场景库，缺 stations.jsonl 会报错。采样参数仍在场景配置的 station 段。
+逐场景重开快照，在目标周围 1m、间距 0.25m 的格点上按覆盖顺序做真实初始化，每场景最多取 max_final_stations 个合法站位（编辑场景另测目标可见性）。结果写回场景库：stations.jsonl、stations_summary.json、index.html 与 previews/。没有合法站位的场景在这一步淘汰。读取场景库本身不需要站位；标定、benchmark 等用到站位的入口会显式检查，缺 stations.jsonl 时报错。采样参数仍在场景配置的 station 段。
 
 ## 3. 站位标定
 
@@ -64,7 +64,19 @@ $PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/r
 
 保持独立 RL 环境，使用 scripts/station_map/rl/ 下的 train.py、score.py、evaluate.py；先查看 --help。`--gpu` 填物理卡号，train.py 可给多张（每张一个 Sampler，第一张同时放 Learner），原来的 `--gpus 0,5` 写成 `--gpu 0 5`。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
 
-## 7. 渲染与失败结果
+## 7. RoboCasa365 原生场景
+
+用独立环境 `.venv-robocasa`。场景构建沿用同一入口，配置的 `scene_source: robocasa365` 会走 RoboCasa 导入：
+
+```bash
+source .venv-robocasa/bin/activate
+python scripts/scenes/build.py --config configs/scenes/robocasa365_pick.yaml --output outputs/experiments/<单元>/runs/<run> --gpu 0
+python tests/smoke/robocasa_native.py --scenes outputs/experiments/<单元>/runs/<run> --output outputs/experiments/<单元>/runs/<验证run> --gpu 0
+```
+
+只导入并冻结实例，不采站位、不标定；细节见 [RoboCasa 运行指南](../reports/robocasa/delivery/running.md)。
+
+## 8. 渲染与失败结果
 
 入口自动解析物理 GPU 和 EGL 的对应关系。手动覆盖示例为 --gpu 0 --egl-devices 7（本机2026-11-11映射），其他机器重新查询，不硬编码。多卡参数一一对应；CPU trial 不暴露 CUDA，仍在指定卡渲染。
 

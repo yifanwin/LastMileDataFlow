@@ -1,7 +1,7 @@
 # 架构
 
 - 状态：active
-- 日期：2026-11-12
+- 日期：2026-11-13
 - 替代：上一版（按 scenes/runtime/planning/data/policies/workflows 六个领域分组）
 - 关联：../reports/simplify-refactor/plan/02-further-simplify-plan.md 第二节
 
@@ -32,12 +32,12 @@
 |---|---|
 | `utils/` | 不含任务语义、不依赖 MuJoCo：`io.py`（JSON/JSONL/YAML 读写、run 目录、仓库路径、`configs/local.yaml`）、`logging_config.py`、`gpu.py`（GPU/EGL 绑定）、`figures.py`（matplotlib Agg、栅格 extent、保存、CJK 字体） |
 | `sim/model/` | 只读模型、不推进物理：`mjcf.py`（MJCF 读写与 include 展开）、`geometry.py`（几何与位姿、支撑面、房间地面三角形与地面射线） |
-| `robots/` | 机器人。根目录放公共件：`registry.py`（`ROBOTS` 分派、`robot_config/load_robot_config`、`load_robot_spec`、`planning_model`）、`interface.py`（`RobotCommand`、`ROBOT_NAMESPACE`）、`joints.py`、`action.py`（20 维动作布局、限位、躯干联动）、`planning_common.py`。`rby1/`：`config.py`、`adapter.py`（含 `state22`）、`native_actions.py`（MolmoBot 原生控制）、`planning.py`；`panda_omron/`：`config.py`、`adapter.py`（`PandaBody` 与 position 适配器）、`robocasa.py`（RoboCasa 控制与相机出厂校验）、`planning.py`、`assets/` |
-| `sim/` | 仿真本体 `simulation.py`（载入、推进、快照、渲染；`begin()` 之后不能恢复或重置；`OperationFailure`、`InitializationError`）、`source.py`、`state.py`（按名称迁移状态）、`settle.py`（静置、`SettleReport`、`clone_preparation`）、`native_scene.py`、`placement.py`（机器人落位、初态检查、`robot_contacts`、`robot_footprint`、`park_robot`）、`contacts.py`、`cameras.py` |
+| `robots/` | 机器人。根目录放公共件：`registry.py`（`ROBOTS` 分派、`robot_config/load_robot_config`（按 `runtime` 分派 LMDF 与 RoboCasa 配置）、`load_robot_spec`、`planning_model`）、`interface.py`（`RobotCommand`、`ROBOT_NAMESPACE`）、`joints.py`、`action.py`（20 维动作布局、限位、躯干联动）、`planning_common.py`。`rby1/`：`config.py`、`adapter.py`（含 `state22`）、`native_actions.py`（MolmoBot 原生控制）、`planning.py`；`panda_omron/`：`config.py`、`adapter.py`（`PandaBody` 与 position 适配器）、`robocasa.py`（RoboCasa 控制与相机出厂校验）、`planning.py`、`assets/`；`robocasa_config.py`（RoboCasa 原生 runtime 的机器人配置：官方 PandaOmron、比例 1.0、默认原生控制器） |
+| `sim/` | 仿真本体 `simulation.py`（载入、推进、快照、渲染；`begin()` 之后不能恢复或重置；`OperationFailure`、`InitializationError`）、`source.py`、`state.py`（按名称迁移状态）、`settle.py`（静置、`SettleReport`、`clone_preparation`）、`native_scene.py`、`placement.py`（机器人落位、初态检查、`robot_contacts`、`robot_footprint`、`park_robot`）、`contacts.py`、`cameras.py`；统一运行接口 `runtime.py`（`ActionSpec`、`StepResult`、`RuntimeState`、`SceneRuntime`）及两个实现 `lmdf_runtime.py`（包装 `Simulation`）、`robocasa_runtime.py`（包装 RoboCasa 原生 Environment，延迟导入 robosuite） |
 | `planning/` | `result.py`（`PlanResult`）；`curobo/`：cuRobo V2 规划器、`tracing`（含求解证据）、`costs`、`context`、`collision_world`、`head_fov`；`navigation/`：`astar.py`、`routes.py`（带朝向的几何导航）、`follow.py`（底盘沿路线跟随） |
-| `operation/` | 站位上的单次操作试验，c、d、e 共用：`config.py`（`ExecutionConfig`、`CollectionConfig`）、`episode.py`（逐 episode 隔离、阶段、资源清理、异常分类）、`protocol.py`、`outcomes/`（算不算成功）、`control/`（怎么动：`context`、`manipulation`、`checkpoint`、`planner_pool`、`remote_planner`）、`recording/`（记下什么：`recorder`、`analysis_video`、`replay`）、`preparation.py`、`attempt.py`（两种执行共用的试验外壳）、`curobo.py`（`CuroboAttempt`：在一个站位上用 cuRobo 做一次操作，含重试） |
+| `operation/` | 站位上的单次操作试验，c、d、e 共用：`config.py`（`ExecutionConfig`、`CollectionConfig`）、`episode.py`（逐 episode 隔离、阶段、资源清理、异常分类）、`protocol.py`、`outcomes/`（算不算成功，含 RoboCasa 派生 pick 判定 `robocasa_pick.py`）、`control/`（怎么动：`context`、`manipulation`、`checkpoint`、`planner_pool`、`remote_planner`）、`recording/`（记下什么：`recorder`、`analysis_video`、`replay`）、`preparation.py`、`attempt.py`（两种执行共用的试验外壳）、`curobo.py`（`CuroboAttempt`：在一个站位上用 cuRobo 做一次操作，含重试） |
 | `policies/` | 下游策略：`config.py`（`BACKENDS`）、`task.py`、`process.py`（策略子进程 RPC、`PolicyAction`）、`serving.py`（两个服务共用的 `serve()`）、`molmobot/`（`client`、`service`、移植的 `multitask/`）、`pi05/`（客户端、服务、推理、配置、观测、动作、归一化、训练数据视图 `data_config`、移植的 `core/`） |
-| `scenes/` | (a)(b) 场景：`build.py`（阶段编排）、`library.py`（场景配方、场景库读取、按 scene_id 合并站位）、`graph.py`、`tasks.py`（任务发现、抓取候选、支撑障碍、采样圆）、`assets.py`、`edits/`（`placement`、`checks`、`search`、`session`）、`preview.py` |
+| `scenes/` | (a)(b) 场景：`build.py`（阶段编排，按 `scene_source` 分派）、`robocasa.py`（RoboCasa365 实例导入与冻结）、`library.py`（场景配方、场景库读取、按 scene_id 合并站位）、`graph.py`、`tasks.py`（任务发现、抓取候选、支撑障碍、采样圆）、`assets.py`、`edits/`（`placement`、`checks`、`search`、`session`）、`preview.py` |
 | `station_map/` | (c) 站位图：`config.py`（`StationRun` 与命令行参数）、`sampling/`（第一步，候选站位：`build.py`、`sample.py`、`visibility.py`）、`aggregate.py`（实测率、选 S0/S1）、`heatmap.py`、`planner_trials/`（第二步旧方法：`build.py` 标定调度、`workers.py`）、`rl/`（第二步新方法：`env/`、`sac/`、训练、采样、评测、`devices.py` 等） |
 | `lastmile_dataset/` | (d) 数据集：`collect.py`（配对规划与采集编排）、`continuous.py`（`ContinuousAttempt`：S0 → 导航 → S1 → 操作）、`export.py`（自包含导出与 `load_training_batch`）、`pi05_export.py`（转 π0.5 训练格式） |
 | `lastmile_benchmark/` | (d)(e) benchmark：`summary.py`（`BenchmarkConfig`、困难起点、成功率汇总）、`recovery.py`、`build.py`、`policy_rollout.py`（策略闭环执行）、`evaluate.py`、`figures.py` |
@@ -64,3 +64,16 @@
 - 控制与结果：规划参考经本体适配、FK 与真实控制器执行，规划成功不算任务成功。抓取按 strict-pick-v3 的真实力、抬升、支撑、保持与滑移判定；执行终止和任务结果分开保存；普通躯干反馈偏差只记录，严重失控仍停止。
 - 策略：不导入外部 MolmoBot 包；策略返回 20 维动作（Panda π0.5 为 12 维），仿真仍由 `sim` 推进。`configs/policies/pi05_rby1` 的 `norm_stats` 需先运行 `scripts/lastmile_dataset/export_pi05.py` 生成。
 - 设备：在 CUDA/渲染初始化前绑定。`utils/gpu.py` 在干净子进程里查询 EGL 映射，spawn 的子进程继承显式映射；`CUDA_VISIBLE_DEVICES` 不能替代 EGL 绑定。
+
+## 两种 runtime
+
+| | ProcTHOR | RoboCasa365 |
+|---|---|---|
+| 场景配置 | `scene_source: procthor_10k`、`runtime: lmdf` | `scene_source: robocasa365`、`runtime: robocasa` |
+| 机器人配置 | `runtime: lmdf`，LMDF 装配，PandaOmron 比例 0.9 | `runtime: robocasa`，官方 PandaOmron，比例 1.0，默认原生控制器 |
+| 推进物理 | `sim/simulation.py`（经机器人适配器） | 原生 `env.step()`，本仓库不推进其物理 |
+| 场景产物 | `model.mjb/model.xml/initial.npz/config.json` | `env.json/ep_meta.json/model.xml/initial_state.npz`，资产外部引用 |
+| 运行接口 | `sim/lmdf_runtime.LmdfRuntime` | `sim/robocasa_runtime.RoboCasaRuntime` |
+| Python 环境 | `.venv`（mujoco 3.16） | `.venv-robocasa`（mujoco 3.3.1，robosuite/robocasa） |
+
+两者实现同一个小接口（`reset/step/get_state/set_station/render/close` 与 `action_spec`），各在自己的环境里运行，不经 RPC。统一调用方式不表示动作数值可以互换：LMDF Panda 是绝对关节/底盘目标，RoboCasa 是 12 维 [-1, 1] 原生控制器输入，以 `action_spec` 为准。任务判定在 `operation` 层，只消费 runtime 给出的事实：ProcTHOR 用 `strict-pick-v3`，RoboCasa 用逐控制步的 `robocasa-pick-1cm-1s-v1`，两者不等价。站位采样、cuRobo 标定、采集和 benchmark 目前只接 ProcTHOR 场景库。

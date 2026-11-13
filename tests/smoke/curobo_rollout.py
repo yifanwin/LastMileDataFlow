@@ -11,7 +11,7 @@ from lastmile_dataflow.utils.io import create_run, read_json, write_json
 from lastmile_dataflow.operation.curobo import run_curobo_attempt
 from lastmile_dataflow.operation.config import load_execution_config
 from lastmile_dataflow.sim.simulation import Simulation
-from lastmile_dataflow.scenes.library import load_scenes
+from lastmile_dataflow.scenes.library import load_scenes, require_stations
 from lastmile_dataflow.scenes.tasks import grasp_candidates
 
 
@@ -27,6 +27,7 @@ def main():
     args = parser.parse_args()
     select_devices([args.gpu])
     config = load_execution_config(args.config)
+    require_stations(args.dataset)
     scene = next(row for row in load_scenes(args.dataset, [args.scene_id]))
     station = next(row for row in scene["stations"] if row["station_id"] == args.station)
     robot = robot_config(read_json(Path(scene["scene_path"]) / "config.json")["robot"])

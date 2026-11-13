@@ -12,7 +12,7 @@ from lastmile_dataflow.robots.panda_omron.planning import (
     ARM_NAMES,
     FULL_NAMES,
 )
-from lastmile_dataflow.robots.panda_omron.adapter import SCALE
+from lastmile_dataflow.robots.panda_omron.config import SCALE
 from tests.robots.test_robot_interface import panda_adapter
 
 

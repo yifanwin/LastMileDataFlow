@@ -10,9 +10,6 @@ from ..action import InvalidAction, vector
 from ..interface import RobotCommand
 from ..joints import JointMap, check_cameras
 
-# Factory PandaOmron geometry is scaled once when the robot spec is loaded.
-SCALE = 0.9
-
 
 def _servo(act, kp, kv, limits, *, force_limits=None):
     act.gaintype = mujoco.mjtGain.mjGAIN_FIXED

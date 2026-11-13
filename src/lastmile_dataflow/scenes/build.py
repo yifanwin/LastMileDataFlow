@@ -24,12 +24,13 @@ from lastmile_dataflow.sim.simulation import Simulation
 from .edits.search import BuildContext, build_task
 from .edits.placement import support_regions
 from .library import load_scene_recipe
+from .robocasa import build_robocasa_scenes
 from lastmile_dataflow.sim.source import SceneSource
 from lastmile_dataflow.sim.model.geometry import inside_triangles, room_triangles
 from .tasks import disk_samples
 from .tasks import discover_tasks, grasp_candidates
 from .tasks import task_support_obstacles
-from lastmile_dataflow.utils.io import append_row, create_run, read_json, rows, write_json
+from lastmile_dataflow.utils.io import append_row, create_run, read_config, read_json, rows, write_json
 from lastmile_dataflow.utils.logging_config import Progress
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,9 @@ def _build_into_root(recipe, robot, root, gpu_ids):
 
 
 def build_scenes(config, output, *, gpu_ids):
+    """Dispatch on ``scene_source``: ProcTHOR houses (LMDF runtime) or RoboCasa365 kitchens (native runtime)."""
+    if read_config(config).get("scene_source", "procthor_10k") == "robocasa365":
+        return build_robocasa_scenes(config, output)
     recipe = load_scene_recipe(config)
     limit = min(64, max(1, os.cpu_count() or 1))
     if not 1 <= recipe.build_workers <= limit:

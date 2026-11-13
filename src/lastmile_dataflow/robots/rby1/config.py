@@ -9,6 +9,7 @@ class RobotConfig:
     arm_working_reach_m: float | None = None
     base_radius_m: float | None = None
     name: str = "rby1m"
+    scale: float = 1.0
     control_hz: float = 20.0
     physics_dt: float = 0.004
     cameras: tuple = ("head_camera", "wrist_camera_l", "wrist_camera_r")
@@ -42,6 +43,8 @@ class RobotConfig:
             raise ValueError("unknown robot control profile")
         if self.name != "rby1m":
             raise ValueError("v1 only supports rby1m")
+        if self.scale != 1.0:
+            raise ValueError("RBY-1 uses factory scale 1.0")
         for key in (
             "control_hz",
             "physics_dt",

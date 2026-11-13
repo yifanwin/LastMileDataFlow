@@ -16,6 +16,7 @@
 - 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。
 - RL 站位图：仍在研究，学习策略尚无成功；算法与训练主链见[算法与训练 pipeline](rl-station-map/delivery/algorithm-training-pipeline.md)，运行见[运行指南](rl-station-map/delivery/running.md)，接手见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)。
 - lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
+- RoboCasa365 原生场景：三个厨房的 pick 子任务已导入，统一运行接口通过真实验证；pick 判定只有单元测试，尚无真实抓取成功证据；见[交付记录](robocasa/delivery/01-native-pick.md)。
 - 公开机器人配套资产是否齐全仍是复现限制。
 
 ## 主题
@@ -31,6 +32,7 @@
 | `navigation/` | A* 导航几何修复与软净空 | [专题入口](navigation/README.md)、[软净空实施结果](navigation/delivery/08-navigation-soft-clearance.md) |
 | `panda-omron/` | PandaOmron 接入、全流程与整机缩放 | [全流程需求](panda-omron/requirement/02-panda-omron-full-flow.md)、[整机缩放 0.9](panda-omron/delivery/20261111-scale-09.md) |
 | `pi05/` | π0.5 双本体接入与运行 | [需求](pi05/requirement/01-pi05-integration.md)、[构建报告](pi05/delivery/03-implementation.md)、[运行指南](pi05/delivery/running.md)、[val103 多站位推理](pi05/delivery/06-val103-cup30-inference.md) |
+| `robocasa/` | RoboCasa365 原生场景、统一运行接口与派生 pick 判定 | [需求](robocasa/requirement/01-native-pick.md)、[方案](robocasa/plan/01-native-runtime.md)、[交付](robocasa/delivery/01-native-pick.md)、[运行指南](robocasa/delivery/running.md) |
 | `raw-assets/` | THOR 资产库、DROID 抓取库、ProcTHOR 场景库的内容分析 | [analyze/](raw-assets/analyze/) |
 
 ## 归档

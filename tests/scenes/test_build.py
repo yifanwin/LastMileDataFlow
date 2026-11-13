@@ -1,6 +1,8 @@
 """场景构建编排回归；简化模型和替代站位不证明真实可见性或任务成功。"""
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from lastmile_dataflow.utils.io import read_json, rows
@@ -61,7 +63,9 @@ class SceneDatasetTests(DatasetTestCase):
             patch.object(workflow, "load_robot_config", return_value=self.robot),
             patch.object(workflow, "_build_house", side_effect=worker),
         ):
-            return workflow.build_scenes("unused", self.root / name, gpu_ids=[6])
+            recipe = self.root / "recipe.yaml"
+            recipe.write_text("scene_source: procthor_10k\n")
+            return workflow.build_scenes(recipe, self.root / name, gpu_ids=[6])
 
     def test_parent_writes_one_main_file_and_preserves_negative_results(self):
         def worker(job):
@@ -145,3 +149,18 @@ class SceneDatasetTests(DatasetTestCase):
             all(r["reason"] == "task_preparation_failed" and r["detail"] == "missing support" for r in records)
         )
         self.assertEqual(report["status"], "preparation_rejected")
+
+
+class SceneSourceDispatchTests(unittest.TestCase):
+    def test_robocasa_source_skips_procthor_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "robocasa.yaml"
+            config.write_text("scene_source: robocasa365\nruntime: robocasa\n")
+            with (
+                patch.object(workflow, "build_robocasa_scenes", return_value="robocasa-run") as robocasa,
+                patch.object(workflow, "load_scene_recipe") as procthor,
+            ):
+                self.assertEqual(workflow.build_scenes(config, Path(tmp) / "out", gpu_ids=[3]), "robocasa-run")
+            robocasa.assert_called_once_with(config, Path(tmp) / "out")
+            procthor.assert_not_called()
+

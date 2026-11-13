@@ -1,0 +1,12 @@
+# RoboCasa365 原生场景：PickPlaceCounterToCabinet 的台面取物部分，三个厨房（布局 1/2/3，style 1），
+# 目标限定可抓取杯类。导入时冻结实际物体实例和初态，重载不重新抽样。
+scene_source: robocasa365
+runtime: robocasa
+robot_config: configs/robots/panda_omron_robocasa.yaml
+env_name: PickPlaceCounterToCabinet
+obj_groups: cup
+criterion: robocasa-pick-1cm-1s-v1
+instances:
+  - {layout_id: 1, style_id: 1, seed: 42}
+  - {layout_id: 2, style_id: 1, seed: 43}
+  - {layout_id: 3, style_id: 1, seed: 44}
