@@ -25,7 +25,7 @@
 
 ## 真实检查
 
-产物根目录：`outputs/experiments/scratch/grasp-fps-check/runs/`。运行前 GPU 0–5 忙，6／7 空闲；检查使用 6／7，未干预其他进程。
+产物根目录：`outputs/experiments/scratch/diagnostics/grasp-fps-check/runs/`。运行前 GPU 0–5 忙，6／7 空闲；检查使用 6／7，未干预其他进程。
 
 1. `rl-reset/`：4 环境、8 steps、2 次 SAC 更新，有限状态检查通过，局部 reset 保留其他 3 个环境的 qpos、目标身份及回合缓存。
 2. `end-to-end/`：为验证输出链而使用 0.1 s Episode、32 条经验、warmup=2 等短程配置，配置嵌入 checkpoint 元数据。完成 11 次学习更新，best 选中 transition=24，10 个合格回合均值 0.036786102。末尾加载该 best，生成 16 grasp 的 Q 汇总和 2 个视频。仅证明链路运行，不证明抓取学习效果。
@@ -38,7 +38,7 @@
 MUJOCO_GL=egl LD_LIBRARY_PATH="$PWD/.venv/lib/native" .venv/bin/python tests/smoke/rl.py \
   --config configs/station_map/rl/val103_cup30_s0246_y04.yaml --gpu 7 \
   --num-envs 4 --steps 8 --random-actions --learner-updates 2 --batch-size 4 \
-  --output outputs/experiments/scratch/grasp-fps-check/runs/rl-reset/result.json
+  --output outputs/experiments/scratch/diagnostics/grasp-fps-check/runs/rl-reset/result.json
 ```
 
 ## 限制

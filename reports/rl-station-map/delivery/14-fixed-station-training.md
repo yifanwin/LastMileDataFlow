@@ -44,7 +44,7 @@ MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 .venv/bin/python tests/smoke/rl.py \
   --config configs/station_map/rl/val103_cup30_s0246_y04.yaml \
   --gpu 6 --num-envs 4 --steps 5 --random-actions --learner-updates 2 \
-  --output outputs/experiments/scratch/20261112-sac-fixed-s0246-y04/runs/smoke/result.json
+  --output outputs/experiments/scratch/smoke/20261112-sac-fixed-s0246-y04/runs/smoke/result.json
 ```
 
 启动前查询实时 GPU：6、7 卡利用率为 0%，各空闲 72831 MiB，选物理 GPU 6。进程退出码 0，20 transitions、2 次实际 SAC 更新，4 环境的 selected_stations 全部为指定站位；合法站位仅 1 个且为 train。局部 reset 保留其余 3 环境的 qpos，overflow_bits 全部为 0，loss 有限。

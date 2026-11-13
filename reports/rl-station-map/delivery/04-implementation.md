@@ -52,7 +52,7 @@
 
 已处理两个真实兼容问题：NumPy int 在 MuJoCo 3.16 枚举 tuple 中的反向比较导致圆柱被误判，现将公共几何类型转为 int；Warp 不支持非零 mesh margin 与 MULTICCD 同开，研究配置显式关闭 MULTICCD，保留原 margin、碰撞形状与物理接触。DLS 的目标名按本地 mjlab 实际 API 绑定到 Panda 工作臂关节。
 
-MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、验收 290（旧 CPU 3.5 的 2,263 不作为当前分母）。图容量 435，arm/task 状态 65 维。有效 32 环境单元为 `outputs/experiments/scratch/20261109-mjlab-panda-smoke-220024/`，源码 `5a6f4d3`，最大底盘 XY / yaw / 升降漂移为 0.722 mm / 0.000134 rad / 0.133 mm，实际机械臂关节位移范数 0.0052–0.0209 rad。
+MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、验收 290（旧 CPU 3.5 的 2,263 不作为当前分母）。图容量 435，arm/task 状态 65 维。有效 32 环境单元为 `outputs/experiments/scratch/smoke/20261109-mjlab-panda-smoke-220024/`，源码 `5a6f4d3`，最大底盘 XY / yaw / 升降漂移为 0.722 mm / 0.000134 rad / 0.133 mm，实际机械臂关节位移范数 0.0052–0.0209 rad。
 
 早期单 / 32 环境单元日志存在 broadphase overflow，已撤回其物理通过结论。原因是 mjlab 默认每环境 96 个接触缓冲不足以容纳真实房间，现显式使用原场景量级的 nconmax=5,000 / njmax=5,000，运行中 overflow 单列基础设施失败并排除 Replay。初次枚举、MULTICCD、绑定及缓冲诊断均保留在独立 scratch 单元，没有覆盖原日志。
 
@@ -62,7 +62,7 @@ MuJoCo 3.16 下实际初始化合法点为 1,596：训练 1,124、验证 182、�
 
 用户于本轮追加 Actor Loss、Critic Loss、Entropy、Evaluation Success Rate、Episode Return、Value-Success Correlation 六项指标，以及四组图（Loss、探索、训练效果、站位评价）。已接入 Entropy、日志间隔均值、独立 validation 向量 rollout、冻结 Q 全图、Spearman、best checkpoint 和四组 PNG；配置固定为每 100,000 transition、8 站位×2 rollout。软件检查与真实监控 smoke 分开，尚无正式训练学习曲线结论。
 
-真实监控验证单元：`outputs/experiments/scratch/20261109-mjlab-panda-monitor-gpu5-222243/`，源码 `75da668`。四组图位于其 `runs/views/`：`loss-curves.png`、`exploration.png`、`training-effect.png`、`station-evaluation.png`。底层 metrics、逐 trial 结果、实际全图 Q 和 seeds 同时保存。该 Actor 仅做了两次软件诊断更新，不是已训练策略；全零成功率下相关性不可计算，图内标 N/A，不以热图外观通过地图验收。
+真实监控验证单元：`outputs/experiments/scratch/smoke/20261109-mjlab-panda-monitor-gpu5-222243/`，源码 `75da668`。四组图位于其 `runs/views/`：`loss-curves.png`、`exploration.png`、`training-effect.png`、`station-evaluation.png`。底层 metrics、逐 trial 结果、实际全图 Q 和 seeds 同时保存。该 Actor 仅做了两次软件诊断更新，不是已训练策略；全零成功率下相关性不可计算，图内标 N/A，不以热图外观通过地图验收。
 
 P2 首个原始抓取脚本 20 s 超时，轨迹显示伺服目标只领先实测关节约 0.005 rad，导致收敛过慢。`2874119` 改为按上一命令限制变化速度，并从 reset 实测位置初始化命令；两项针对性控制测试通过。修复后的实际脚本在接近杯子时达到 3.26 cm 位置误差，但触发 2.05 mm 底盘漂移，保持失败，未将双指接触当作成功。后继脚本采用预抓取接近，并对齐现有 Panda 执行配置的 π/2 抓取 roll 与 1 cm 接近偏移，继续验证。
 

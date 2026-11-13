@@ -36,6 +36,7 @@
 | `lastmile_benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
 | `station_map/rl/val103_cup30.yaml` | RL 站位图研究 |
 | `station_map/rl/val103_cup30_s0246_y04.yaml` | 固定历史 S0246-y04 世界位姿的单站位 SAC 训练 |
+| `station_map/rl/val103_cup30_s0246_facing.yaml` | S0246 正对 Cup_30，100 万条经验；启动时选择空闲卡，最多 8 卡 |
 
 冒烟脚本自己持有的配置（`panda_omron_scene.yaml`、`panda_omron_position.yaml`、`panda_omron_mobile.yaml`）放在 `tests/smoke/`。
 

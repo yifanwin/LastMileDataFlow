@@ -74,7 +74,7 @@
 
 ## 4. GPU 4 新尺度脚本验证梳理
 
-单元：`outputs/experiments/scratch/20261110-mjlab-panda-scripted-fast60-155604/`；冻结源码 `123bc88`，seed42，GPU4，128训练站位。`runs/smoke.json`保存全部128行；本次从逐行结果复算，而非只看日志末尾。
+单元：`outputs/experiments/scratch/scripted-pick/20261110-mjlab-panda-scripted-fast60-155604/`；冻结源码 `123bc88`，seed42，GPU4，128训练站位。`runs/smoke.json`保存全部128行；本次从逐行结果复算，而非只看日志末尾。
 
 对照：`scratch/20261109-mjlab-panda-scripted-offsetm1-234644/`。两批站位ID及顺序完全一致；不是重新随机抽了一批有利站位。
 
@@ -171,6 +171,6 @@ S0237-y12脚本耗步从363降到155（7.75s），新批success、无碰撞均�
 - 随机预热直接取 `training.warmup_min`，配置改为 20000 条，不再与回合长度绑定。128 环境、60 s 时预热不再是 153600 条，500000 条预算下约有 3.0 万次 learner 更新（u8）。
 - 配置了 `debug_station_ids` 时，每次评估另在这些训练站位上分别跑随机动作和均值动作（`tanh(mu)`），记录到达位姿（位置 < 3 cm 且姿态 < 0.3 rad）、双指接触、抬升 5 cm、最长保持和完整成功，写入 `metrics.jsonl` 的 `debug_stations`；空间 validation 和 best 选择口径不变。
 
-软件冒烟 `outputs/experiments/scratch/20261110-sac-debugeval-smoke-170311/`（GPU 5，16 环境，回合临时缩为 2 s，仅验证代码路径，不是学习结果）：退出码 0；预热 1000 条后开始更新，3008 条时共 252 次更新；两次评估都输出了 `debug_stations`，S0237-y12 上随机 / 均值动作各 8 次均未到达位姿，最近位置误差中位数约 1.09 / 1.13 m，与未训练模型相符。局部软件测试 34 项通过。
+软件冒烟 `outputs/experiments/scratch/diagnostics/20261110-sac-debugeval-smoke-170311/`（GPU 5，16 环境，回合临时缩为 2 s，仅验证代码路径，不是学习结果）：退出码 0；预热 1000 条后开始更新，3008 条时共 252 次更新；两次评估都输出了 `debug_stations`，S0237-y12 上随机 / 均值动作各 8 次均未到达位姿，最近位置误差中位数约 1.09 / 1.13 m，与未训练模型相符。局部软件测试 34 项通过。
 
 当时 GPU 4–7 被其他用户的任务占用约 89% 利用率，冒烟期间首轮评估（含全图 Q）耗时 221 s，吞吐只有每秒约 7 条，正式的单站位训练尚未启动。

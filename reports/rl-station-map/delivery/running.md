@@ -56,7 +56,7 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 随机预热条数直接取 `training.warmup_min`（当前 20000），不再与回合长度绑定；旧实现为 `max(warmup_min, 环境数×回合步数)`，128 环境 / 60 s 时达 153600 条，超过 Replay 容量。总量和每向量步更新次数需按实验显式设定，并记录实际更新数。配置了 `debug_station_ids` 时，每次评估另在这些训练站位上各跑一遍随机动作和均值动作（`tanh(mu)`），记录到达位姿、双指接触、抬升 1 cm、最长保持和完整成功，写入 `metrics.jsonl` 的 `debug_stations` 字段；空间 validation 照旧。
 
-正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
+正式实验先按仓库规则提交源码并固定 revision，在实验单元 README 记录状态、源码、输入、报告；运行期间不改源码。产物单元示例为 `outputs/experiments/sac-history/val103-cup30-sac-20261109/`，训练结果放其 `runs/train/`。
 
 长期实验从固定 commit 的 worktree 启动，记录路径和启动时工作区状态；运行期间不修改该工作区，也不复制源码。
 
@@ -69,7 +69,7 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 ```bash
 MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --config configs/station_map/rl/val103_cup30.yaml --gpu 4 --seed 42 \
-  --output outputs/experiments/val103-cup30-sac-20261109/runs/train \
+  --output outputs/experiments/sac-history/val103-cup30-sac-20261109/runs/train \
   --max-transitions 200000
 ```
 
