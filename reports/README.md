@@ -16,7 +16,7 @@
 - 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。
 - RL 站位图：仍在研究，学习策略尚无成功；算法与训练主链见[算法与训练 pipeline](rl-station-map/delivery/algorithm-training-pipeline.md)，运行见[运行指南](rl-station-map/delivery/running.md)，接手见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)。
 - lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
-- RoboCasa365 原生场景：三个厨房的 pick 子任务已导入，统一运行接口通过真实验证；pick 判定只有单元测试，见[交付记录](robocasa/delivery/01-native-pick.md)。π0.5 在三个厨房 120 个 RL 网格站位 × 3 seed 上抓取成功 32/360（8.9%，20 s 预算），见[抓取实验](robocasa/delivery/02-pi05-pick.md)。
+- RoboCasa365 原生场景：三个厨房的 pick 子任务已导入，统一运行接口通过真实验证；pick 判定只有单元测试，见[交付记录](robocasa/delivery/01-native-pick.md)。π0.5 在三个厨房 120 个 RL 网格站位 × 3 seed 上抓取成功 32/360（8.9%，20 s 预算）、175/360（48.6%，50 s 预算），见[抓取实验](robocasa/delivery/02-pi05-pick.md)。
 - 公开机器人配套资产是否齐全仍是复现限制。
 
 ## 主题
