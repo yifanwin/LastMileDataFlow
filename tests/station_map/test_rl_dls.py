@@ -6,6 +6,22 @@ import torch
 
 @unittest.skipUnless(importlib.util.find_spec("mjlab"), "requires the independent RL environment")
 class JointCommandTests(unittest.TestCase):
+    def test_contact_gripper_positive_closes_and_graph_keeps_its_sign(self):
+        from lastmile_dataflow.station_map.rl.env.environment import Gripper
+
+        gripper = Gripper.__new__(Gripper)
+        gripper._raw = torch.zeros(3, 1)
+        gripper.targets = torch.zeros(3, 2)
+        gripper.open_targets = torch.tensor([[0.04, -0.04]]).expand(3, -1)
+        gripper.closed_targets = torch.zeros(3, 2)
+        actions = torch.tensor([[-1.], [0.], [1.]])
+        for positive_closes in (True, False):
+            gripper.positive_closes = positive_closes
+            gripper.process_actions(actions)
+            expected = torch.tensor([[0.04, -0.04], [0.02, -0.02], [0., 0.]])
+            torch.testing.assert_close(gripper.targets, expected if positive_closes else expected.flip(0))
+            torch.testing.assert_close(gripper.raw_action, actions)
+
     def test_command_rate_is_relative_to_previous_command(self):
         from lastmile_dataflow.station_map.rl.env.dls import limit_joint_command
 

@@ -68,49 +68,77 @@ class RewardTests(unittest.TestCase):
         self.assertLess(float(first[0, 0]), 0)
         self.assertEqual(float(first[0, REWARD_COMPONENTS.index("close")]), 0)
 
-    def test_contact_reward_components_and_one_time_success(self):
-        distance = torch.tensor([0.005, 0.02])
-        angles = torch.tensor([0.1, 0.2])
+    def contact_reward_env(self, distances, angles, actions):
+        n = len(distances)
+        config = read_config("configs/station_map/rl/val103_cube_s0246_facing.yaml")
+        distance, angle = torch.tensor(distances), torch.tensor(angles)
         task = SimpleNamespace(
             contact_protocol=True,
-            goal_error=lambda: (torch.stack((distance, torch.zeros_like(distance), torch.zeros_like(distance)), -1),
-                                 torch.stack((angles, torch.zeros_like(angles), torch.zeros_like(angles)), -1)),
-            robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[0.02, -0.02], [0.0, 0.0]]))),
-            fingers=[0, 1], open_grip=0.08,
-            previous_distance=torch.tensor([0.01, 0.01]),
-            previous_angle=torch.tensor([0.2, 0.1]),
-            step_collision=torch.tensor([True, True]),
-            success=torch.tensor([True, False]),
-            contact_success_paid=torch.tensor([False, False]),
-            reward_components=torch.zeros(2, len(CONTACT_REWARD_COMPONENTS)),
+            goal_error=lambda: (torch.stack((distance, torch.zeros(n), torch.zeros(n)), -1),
+                                torch.stack((angle, torch.zeros(n), torch.zeros(n)), -1)),
+            last_action=torch.zeros(n, 7), forces=torch.ones(n, 2),
+            previous_distance=distance + 0.01, previous_angle=angle + 0.1,
+            step_collision=torch.ones(n, dtype=torch.bool),
+            success=torch.zeros(n, dtype=torch.bool),
+            contact_success_paid=torch.zeros(n, dtype=torch.bool),
+            reward_components=torch.zeros(n, len(CONTACT_REWARD_COMPONENTS)),
         )
-        env = SimpleNamespace(task=task, step_dt=0.05, research_config={"reward": {
-            "position": 10.0, "rotation": 0.5, "collision": 2.0, "success": 50.0, "close": 0.05,
-        }})
+        task.last_action[:, -1] = torch.tensor(actions)
+        return SimpleNamespace(task=task, step_dt=0.05, research_config=config)
+
+    def test_contact_reward_components_and_one_time_success(self):
+        env = self.contact_reward_env([0.005, 0.05], [0.1, 0.2], [0.5, -0.5])
+        task = env.task
+        task.success[0] = True
+        task.previous_distance[1] = 0.04
+        task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.05, 0.05, -2., 50., 0.00125]))
-        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -2., 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -2., 30., 0., 0.025, 0.05]))
+        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -2., 0., 0.01, 0., 0.]))
+        env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         reward(env)
         self.assertEqual(float(task.reward_components[:, 3].sum()), 0.0)
-        self.assertEqual(float(task.reward_components[:, 0].sum()), 0.0)
-        self.assertEqual(float(task.reward_components[:, 1].sum()), 0.0)
+        self.assertEqual(float(task.reward_components[:, :2].sum()), 0.0)
+        torch.testing.assert_close(task.reward_components[0, 4:], torch.tensor([0., 0.025, 0.05]))
+        torch.testing.assert_close(task.reward_components[1, 4:], torch.tensor([0.01, 0., 0.]))
+
+    def test_contact_reward_gates_and_action_signs(self):
+        angle_limit = read_config("configs/station_map/rl/val103_cube_s0246_facing.yaml")["reward"]["grasp_angle_rad"]
+        env = self.contact_reward_env(
+            [0.03, 0.029, 0.029, 0.04, 0.041, 0.029, 0.029, 0.041],
+            [0., angle_limit, 0., 0., 0., 0., 0., 0.],
+            [1., 1., -1., -1., -1., 0., 1., 1.],
+        )
+        env.task.forces[6, 0] = 1e-6
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, 4:], torch.tensor([
+            [0., 0., 0.], [0., 0., 0.], [0., 0., 0.05], [0., 0., 0.],
+            [0.02, 0., 0.], [0., 0., 0.05], [0., 0.05, 0.], [0., 0., 0.],
+        ]))
+        # Only the final physical sample counts for shaping, unlike success.
+        env.task.forces.zero_()
+        reward(env)
+        self.assertEqual(float(env.task.reward_components[:, -1].sum()), 0.)
 
     def test_contact_requires_simultaneous_substep_forces_and_latches(self):
         task = TaskState.__new__(TaskState)
         task.contact_protocol = True
-        task.env = SimpleNamespace(physics_dt=0.002, research_config={"success": {"finger_force_min_n": 1e-6}},
+        task.env = SimpleNamespace(physics_dt=0.002, research_config={"success": {"finger_force_min_n": 1e-6, "lift_m": 0.0086}},
                                    sim=SimpleNamespace(data=SimpleNamespace(
                                        overflow=torch.zeros(1), qpos=torch.zeros(1, 1),
                                        qvel=torch.zeros(1, 1), qacc=torch.zeros(1, 1))))
+        target_position = torch.zeros(1, 3)
         task.poses = lambda: (torch.zeros(1, 3), torch.eye(3)[None], None, None,
-                              torch.zeros(1, 3), torch.eye(3)[None])
+                              target_position, torch.eye(3)[None])
         task.goal_error = lambda: (torch.zeros(1, 3), torch.zeros(1, 3))
         samples = iter((torch.tensor([[1., 0.]]), torch.tensor([[0., 1.]]),
-                        torch.tensor([[1e-6, 2.]]), torch.tensor([[0.1, 0.2]]), torch.zeros(1, 2)))
-        task.contact_facts = lambda: (next(samples), torch.tensor([False]), torch.zeros(1, 1, dtype=torch.bool))
+                        torch.tensor([[1e-6, 2.]]), torch.tensor([[0.1, 0.2]]),
+                        torch.zeros(1, 2), torch.tensor([[0.1, 0.2]]), torch.zeros(1, 2)))
+        hits = iter([torch.ones(1, 2, dtype=torch.bool)] + [torch.zeros(1, 2, dtype=torch.bool)] * 6)
+        task.contact_facts = lambda: (next(samples), torch.tensor([False]), next(hits))
         task.forces = torch.zeros(1, 2)
         task.support = torch.zeros(1, dtype=torch.bool)
-        task.collision_hits = torch.zeros(1, 1)
+        task.collision_hits = torch.zeros(1, 2)
         task.step_collision = torch.zeros(1, dtype=torch.bool)
         task.collision_free = torch.ones(1, dtype=torch.bool)
         task.collision_time = torch.zeros(1)
@@ -130,12 +158,42 @@ class RewardTests(unittest.TestCase):
         for _ in range(3):
             task.sample_physics()
             self.assertFalse(bool(task.success[0]))
+        # Both fingers alone are no longer success.
+        target_position[:, 2] = 0.008599
+        task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
+        # Reaching height in a later, contact-free substep cannot combine events.
+        target_position[:, 2] = 0.0086
+        task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        task.sample_physics()
+        self.assertTrue(bool(task.success[0]))
+        target_position[:, 2] = 0.
         task.sample_physics()
         self.assertTrue(bool(task.success[0]))
         self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
+        self.assertTrue(bool(task.step_collision[0]))
+        self.assertAlmostEqual(float(task.collision_time[0]), 0.002)
+        # The reference is per episode, rather than an absolute world-height threshold.
+        task.success.zero_()
+        task.height_reference[:] = 0.77
+        task.contact_facts = lambda: (torch.ones(1, 2), torch.tensor([False]), torch.zeros(1, 2, dtype=torch.bool))
+        target_position[:, 2] = 0.77
+        task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        target_position[:, 2] = 0.78
+        task.failed[:] = True
+        task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        task.failed.zero_()
+        task.unhealthy[:] = True
+        task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        task.unhealthy.zero_()
+        task.goal_error = lambda: (torch.ones(1, 3), torch.ones(1, 3))
         task.sample_physics()
         self.assertTrue(bool(task.success[0]))
-        self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
 
     def test_rl_window_ignores_slip_but_release_resets(self):
         position = torch.ones(1, 3)

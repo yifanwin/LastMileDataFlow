@@ -41,6 +41,22 @@ def episode(value, *, warmup=False, unhealthy=False):
 
 @unittest.skipUnless(importlib.util.find_spec("tensorboard"), "requires RL TensorBoard dependency")
 class TrainingMonitorTests(unittest.TestCase):
+    def test_contact_task_writes_all_seven_rewards(self):
+        from lastmile_dataflow.station_map.rl.env.observation import CONTACT_REWARD_COMPONENTS
+
+        event = episode(1)
+        event.pop("contact_bonus_count")
+        event["reward_component_names"] = CONTACT_REWARD_COMPONENTS
+        event["reward_components"] = [0.1, 0.05, -2., 30., 0.02, 0.05, 0.05]
+        with tempfile.TemporaryDirectory() as directory:
+            monitor = TrainingMonitor(directory, every_seconds=30)
+            monitor.record_episode(event)
+            monitor.close(128)
+            reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
+            for name, value in zip(CONTACT_REWARD_COMPONENTS, event["reward_components"], strict=True):
+                self.assertAlmostEqual(reader.Scalars(f"train/reward/{name}")[0].value, value, places=6)
+            self.assertNotIn("train/contact_bonus_count", reader.Tags()["scalars"])
+
     def test_live_interval_means_all_updates_and_healthy_episode_groups(self):
         clock = Mock(return_value=0)
         with tempfile.TemporaryDirectory() as directory, patch(

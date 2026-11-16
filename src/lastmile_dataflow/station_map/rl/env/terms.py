@@ -74,7 +74,7 @@ class TaskState:
             - self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint2").range[0]
         )
         self.lift_range = self.model.joint(ROBOT_PREFIX + "mobilebase0_joint_torso_height").range.copy()
-        self.contact_protocol = env.research_config["success"].get("version") == "rl-pick-contact-v1"
+        self.contact_protocol = env.research_config["success"].get("version") == "rl-pick-contact-v2"
         self.graph = None if self.contact_protocol else GeometryObservation(
             self.model,
             self.target,
@@ -197,16 +197,29 @@ class TaskState:
         action._point_torch[:] = self.env.sim.data.site_xpos[:, self.tcp]
         action._compute_jacobian()
         velocity = self.env.sim.data.qvel
-        tcp_p, _, base_p, base_r, _, _ = self.poses()
+        linear = torch.einsum("bij,bj->bi", action._jacp_torch, velocity)
+        angular = torch.einsum("bij,bj->bi", action._jacr_torch, velocity)
+        return self.base_frame_velocity(action._point_torch, linear, angular)
+
+    def target_velocity(self):
+        data = self.env.sim.data
+        position = data.xpos[:, self.target]
+        motion = data.cvel[:, self.target]
+        root = int(self.model.body_rootid[self.target])
+        angular = motion[:, :3]
+        linear = motion[:, 3:] + torch.cross(angular, position - data.subtree_com[:, root], dim=-1)
+        return self.base_frame_velocity(position, linear, angular)
+
+    def base_frame_velocity(self, position, linear, angular):
+        """Velocity of a point relative to the measured moving base frame."""
+        _, _, base_p, base_r, _, _ = self.poses()
         data = self.env.sim.data
         body = int(self.model.site_bodyid[self.base])
         root = int(self.model.body_rootid[body])
         motion = data.cvel[:, body]
         omega = motion[:, :3]
         base_linear = motion[:, 3:] + torch.cross(omega, base_p - data.subtree_com[:, root], dim=-1)
-        linear = torch.einsum("bij,bj->bi", action._jacp_torch, velocity)
-        angular = torch.einsum("bij,bj->bi", action._jacr_torch, velocity)
-        relative_linear = linear - base_linear - torch.cross(omega, tcp_p - base_p, dim=-1)
+        relative_linear = linear - base_linear - torch.cross(omega, position - base_p, dim=-1)
         return (
             torch.einsum("bji,bj->bi", base_r, relative_linear),
             torch.einsum("bji,bj->bi", base_r, angular - omega),
@@ -264,7 +277,8 @@ class TaskState:
             )
             first = both & (self.first_contact_time_s < 0)
             self.first_contact_time_s[first] = self.elapsed[first] + self.env.physics_dt
-            self.success |= both & ~self.failed & ~self.unhealthy
+            lifted = lift >= self.env.research_config["success"]["lift_m"]
+            self.success |= both & lifted & ~self.failed & ~self.unhealthy
             self.elapsed += self.env.physics_dt
             return
         dp, dr = self.goal_error()
@@ -311,15 +325,7 @@ class TaskState:
         self.elapsed += self.env.physics_dt
 
     def flat_state(self):
-        """Return 45D flat state in FLAT_FIELDS order, all base-frame vectors.
-
-        Position errors, cube dimensions, TCP/cube position and linear velocity
-        are in metres (or m/s), scale 1. All rotation vectors divide by pi;
-        arm positions divide by 3.14 and velocities by 3; torso position is
-        normalized to its model joint range, torso velocity divides by 0.05;
-        TCP angular velocity divides by 1 rad/s; aperture divides by model
-        open width and finger differential velocity by 0.2 m/s.
-        """
+        """Return 65D base-frame state in FLAT_FIELDS order and scales."""
         tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = self.poses()
         dp, dr = self.goal_error()
         distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
@@ -331,22 +337,30 @@ class TaskState:
         cube_local_r = base_r.transpose(-1, -2) @ cube_r
         tcp_local_r = base_r.transpose(-1, -2) @ tcp_r
         linear, angular = self.tcp_velocity()
+        cube_linear, cube_angular = self.target_velocity()
+        cube_position = torch.einsum("bji,bj->bi", base_r, cube_p - base_p)
+        size = torch.full((self.env.num_envs, 3), self.env.research_config["scene"]["cube"]["size_m"], device=self.device)
+        extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
         return torch.cat((
-            torch.einsum("bji,bj->bi", base_r, cube_p - base_p),
-            axis_angle_from_quat(quat_from_matrix(cube_local_r)) / torch.pi,
-            torch.full((self.env.num_envs, 3), self.env.research_config["scene"]["cube"]["size_m"], device=self.device),
+            cube_position,
+            cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
+            size,
+            cube_position[:, 2:3] - extent[:, 2:3],
             dp,
             dr / torch.pi,
+            cube_linear,
+            cube_angular,
             q[:, self.arm] / 3.14,
             (q[:, self.fixed[3:4]] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
             v[:, self.arm] / 3.0,
             v[:, self.fixed[3:4]] / 0.05,
             torch.einsum("bji,bj->bi", base_r, tcp_p - base_p),
-            axis_angle_from_quat(quat_from_matrix(tcp_local_r)) / torch.pi,
+            tcp_local_r[:, :, :2].transpose(-1, -2).flatten(1),
             linear,
             angular,
             ((q[:, self.fingers[0]] - q[:, self.fingers[1]]) / self.open_grip)[:, None],
             ((v[:, self.fingers[0]] - v[:, self.fingers[1]]) / 0.2)[:, None],
+            self.last_action,
         ), -1).float()
 
     def observation_state(self):
@@ -500,23 +514,25 @@ def substep(env):
 
 def reward(env):
     task = env.task
+    # Upstream computes rewards before its final forward(), so poses and the
+    # cached forces here refer to the same last native physical substep.
     dp, dr = task.goal_error()
     distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
     if getattr(task, "contact_protocol", False):
         cfg = env.research_config["reward"]
-        opening = (
-            (task.robot.data.joint_pos[:, task.fingers[0]] - task.robot.data.joint_pos[:, task.fingers[1]])
-            / task.open_grip
-        ).clamp(0, 1)
+        gripper_action = task.last_action[:, -1]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
-        close = (distance < 0.01) & (angle < torch.pi / 18)
+        near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
+        both = (task.forces > env.research_config["success"]["finger_force_min_n"]).all(-1)
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
             -cfg["collision"] * task.step_collision.float(),
             cfg["success"] * success_event.float(),
-            cfg["close"] * env.step_dt * close.float() * (1 - opening),
+            cfg["open"] * (distance > cfg["open_distance_m"]) * (-gripper_action).clamp(min=0),
+            cfg["close"] * near * gripper_action.clamp(min=0),
+            cfg["grasp"] * (near & both),
         ), -1)
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle

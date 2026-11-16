@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from lastmile_dataflow.station_map.rl.env.observation import GraphObservation, graph_edges
+from lastmile_dataflow.station_map.rl.env.observation import GraphObservation, graph_edges, FLAT_FIELDS, CONTACT_REWARD_COMPONENTS
 from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition
 
 
@@ -119,3 +119,30 @@ class SACTests(unittest.TestCase):
         action, log_prob = actor.sample(observation())
         self.assertTrue(torch.isfinite(log_prob).all())
         self.assertTrue((action <= 1).all())
+
+    def test_flat_65d_replay_update_checkpoint_and_old_input_rejection(self):
+        from lastmile_dataflow.station_map.rl.sac.agent import SAC
+
+        dim = sum(size for _, size, _ in FLAT_FIELDS)
+        obs = torch.randn(4, dim)
+        components = torch.randn(4, len(CONTACT_REWARD_COMPONENTS))
+        transition = Transition(obs, torch.zeros(4, 7), components.sum(-1), obs + 1,
+                                torch.tensor([True, False, False, True]), torch.zeros(4, dtype=torch.bool), components.clone())
+        replay = Replay(8, obs)
+        replay.add(transition.to("cpu"))
+        transition.reward_components.zero_()
+        torch.testing.assert_close(replay.reward_components[:4], components)
+        agent = SAC(dim, "cpu", mode="flat")
+        losses = agent.update(replay.sample(4))
+        self.assertTrue(all(torch.isfinite(value) for value in losses.values()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            agent.save(path, metadata={}, transitions=4)
+            restored, _ = SAC.load(path, "cpu")
+            torch.testing.assert_close(agent.actor.sample(obs, True)[0], restored.actor.sample(obs, True)[0])
+            saved = torch.load(path, weights_only=False)
+            saved["state_dim"] = 45
+            saved["input_definition"] = ("flat", (("old_contact_input", 45, 1.),))
+            torch.save(saved, path)
+            with self.assertRaisesRegex(ValueError, "observation definition"):
+                SAC.load(path, "cpu")

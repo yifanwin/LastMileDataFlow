@@ -1,9 +1,9 @@
 # 固定底盘 mjlab / SAC 研究入口
 
 - 状态：active
-- 日期：2026-11-13
+- 日期：2026-11-16
 - 替代：无
-- 关联：[方块接触交付](19-cube-contact-single-station.md)、../plan/01-implementation.md、../delivery/04-implementation.md
+- 关联：[方块接触抬升v2](20-cube-contact-lift-v2.md)、[旧方块v1](19-cube-contact-single-station.md)、../plan/01-implementation.md、../delivery/04-implementation.md
 
 从包含本文版本的 RL 工作区根目录运行。实际验证状态见[训练接手报告](05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
 
@@ -187,4 +187,6 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 ## 方块接触实验（2026-11-16）
 
-新配置和固定提交的运行记录另见本主题方块实验交付报告。沿用本指南的物理 GPU 绑定、EGL 与独立 Sampler/Learner；需设置 `PYTHONPATH` 为实验工作区 `src` 并复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.venv`，`ulimit -n 1048576`。该实验以 `observation.mode: flat` 和 `success.version: rl-pick-contact-v1` 区别于上述 Cup 抓取图协议；无启动、周期或终点站位 Q 图评估，仅训练结束固定初态 20 次策略评估。
+当前配置 `configs/station_map/rl/val103_cube_s0246_facing.yaml` 使用 `observation.mode: flat`、65维输入与 `success.version: rl-pick-contact-v2`：双指同子步接触且方块中心相对初态抬升0.0086 m即成功。夹爪动作正值闭爪、负值张开；七项奖励逐步记录，详见[当前需求](../requirement/01-fixed-base-sac.md)和[v2交付记录](20-cube-contact-lift-v2.md)。旧45维checkpoint不能加载到新任务，需从头训练；[旧v1实验](19-cube-contact-single-station.md)的成功仅表示接触。
+
+沿用物理GPU绑定、EGL与独立Sampler/Learner；设置 `PYTHONPATH` 为本实验工作区的 `src`，并使用已安装完整RL依赖的解释器。本次验证复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-critic/.venv/bin/python`，不安装或下载依赖。无渲染时设 `MUJOCO_GL=disable`；四卡传 `--gpu 0 1 2 3`，运行前仍核查实时占用。无启动、周期或终点站位Q图评估。正式训练须另建run、固定源码版本；本次仅验证1024条健康transition，不执行正式训练或策略成功率验收。

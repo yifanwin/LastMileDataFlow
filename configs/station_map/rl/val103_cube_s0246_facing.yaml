@@ -30,9 +30,12 @@ reward:
   position: 10.0
   rotation: 0.5
   collision: 2.0
-  success: 50.0
+  success: 30.0
+  open: 0.02
   close: 0.05
-  grasp_distance_m: 0.01
+  grasp: 0.05
+  open_distance_m: 0.04
+  grasp_distance_m: 0.03
   grasp_angle_rad: 0.17453292519943295
 sac:
   gamma: 0.999
@@ -78,8 +81,9 @@ acceptance:
   top_uniform_gap_min: 0.1
   positive_spearman: true
 success:
-  version: rl-pick-contact-v1
+  version: rl-pick-contact-v2
   finger_force_min_n: 1.0e-06
+  lift_m: 0.0086
 video:
   every: 100000
   width: 640

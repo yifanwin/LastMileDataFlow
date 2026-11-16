@@ -54,7 +54,7 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                 {
                     "event": "episode",
                     "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
-                    **({} if env.research_config["success"].get("version") == "rl-pick-contact-v1" else {
+                    **({} if env.research_config["success"].get("version") == "rl-pick-contact-v2" else {
                         "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
                         "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
                     }),
@@ -63,8 +63,10 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
-                    "reward_component_names": (CONTACT_REWARD_COMPONENTS if env.research_config["success"].get("version") == "rl-pick-contact-v1" else REWARD_COMPONENTS),
-                    "contact_bonus_count": int(env.task.contact_bonus_paid[index]) if hasattr(env.task, "contact_bonus_paid") else 0,
+                    "reward_component_names": (CONTACT_REWARD_COMPONENTS if env.research_config["success"].get("version") == "rl-pick-contact-v2" else REWARD_COMPONENTS),
+                    **({} if env.task.contact_protocol else {
+                        "contact_bonus_count": int(env.task.contact_bonus_paid[index]),
+                    }),
                     "success": bool(env.task.success[index]),
                     "first_contact_time_s": float(env.task.first_contact_time_s[index]) if hasattr(env.task, "first_contact_time_s") and env.task.first_contact_time_s[index] >= 0 else None,
                     "collision_free": bool(env.task.collision_free[index]),
@@ -231,7 +233,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         observations, _ = env.reset()
         mode = config.get("observation", {}).get("mode", "graph")
         obs = graph_observation(observations) if mode == "graph" else policy_observation(observations, mode)
-        contact = config["success"].get("version") == "rl-pick-contact-v1"
+        contact = config["success"].get("version") == "rl-pick-contact-v2"
         metadata = {
             "config": config,
             "seed": seed,

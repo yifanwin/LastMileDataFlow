@@ -24,23 +24,27 @@ REWARD_COMPONENTS = (
     "held",
 )
 
-CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing")
+CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "opening", "closing", "grasp")
 
-# The 45D contact policy uses base-frame coordinates throughout.
+# The 65D contact-and-lift policy uses base-frame coordinates throughout.
 FLAT_FIELDS = (
     ("cube_position_base", 3, 1.0),
-    ("cube_rotation_vector_base", 3, "pi"),
+    ("cube_rotation_columns_6d", 6, 1.0),
     ("cube_size_local", 3, 1.0),
+    ("cube_bottom_height_base", 1, 1.0),
     ("target_position_error_base", 3, 1.0),
     ("target_rotation_error_base", 3, "pi"),
+    ("cube_linear_velocity_base", 3, 1.0),
+    ("cube_angular_velocity_base", 3, 1.0),
     ("arm_and_lift_q", 8, "arm:3.14; lift:model_lift_range"),
     ("arm_and_lift_qdot", 8, "arm:3; lift:0.05"),
     ("tcp_position_base", 3, 1.0),
-    ("tcp_rotation_vector_base", 3, "pi"),
+    ("tcp_rotation_columns_6d", 6, 1.0),
     ("tcp_linear_velocity_base", 3, 1.0),
     ("tcp_angular_velocity_base", 3, 1.0),
     ("gripper_aperture", 1, "model_open_grip"),
     ("gripper_velocity", 1, 0.2),
+    ("previous_action", 7, 1.0),
 )
 
 NODE_DIM = 24

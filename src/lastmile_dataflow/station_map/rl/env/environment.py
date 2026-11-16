@@ -26,6 +26,8 @@ from .terms import TaskState
 
 @dataclass(kw_only=True)
 class GripperCfg(ActionTermCfg):
+    positive_closes: bool = False
+
     def build(self, env):
         return Gripper(self, env)
 
@@ -42,6 +44,7 @@ class Gripper(ActionTerm):
         self.upper = self._entity.data.joint_pos_limits[:, self.ids, 1]
         self.open_targets = torch.stack((self.upper[:, 0], self.lower[:, 1]), -1)
         self.closed_targets = torch.stack((self.lower[:, 0], self.upper[:, 1]), -1)
+        self.positive_closes = cfg.positive_closes
         self._raw = torch.zeros(self.num_envs, 1, device=self.device)
         self.targets = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -55,7 +58,7 @@ class Gripper(ActionTerm):
 
     def process_actions(self, actions):
         self._raw[:] = actions
-        fraction = (actions + 1) / 2
+        fraction = (1 - actions if self.positive_closes else 1 + actions) / 2
         self.targets[:] = self.closed_targets + fraction * (self.open_targets - self.closed_targets)
 
     def apply_actions(self):
@@ -117,7 +120,7 @@ def build_sensors(prepared):
 class StationEnv(ManagerBasedRlEnv):
     def __init__(self, config, *, gpu, seed, num_envs=None):
 
-        contact_protocol = config["success"].get("version") == "rl-pick-contact-v1"
+        contact_protocol = config["success"].get("version") == "rl-pick-contact-v2"
         if not contact_protocol:
             for key, value in config["success"].items():
                 if RL_PICK_THRESHOLDS[key] != value:
@@ -186,7 +189,7 @@ class StationEnv(ManagerBasedRlEnv):
                     joint_limit_weight=action["joint_limit_weight"],
                     joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
                 ),
-                "gripper": GripperCfg(entity_name=ROBOT_ENTITY),
+                "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol),
             },
             observations={
                 "policy": ObservationGroupCfg(

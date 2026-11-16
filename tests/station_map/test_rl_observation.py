@@ -14,8 +14,8 @@ from lastmile_dataflow.sim.model.geometry import geom_points
 
 class GeometryTests(unittest.TestCase):
     def test_flat_policy_shape_and_dispatch(self):
-        self.assertEqual(sum(dim for _, dim, _ in FLAT_FIELDS), 45)
-        flat = torch.zeros(2, 45)
+        self.assertEqual(sum(dim for _, dim, _ in FLAT_FIELDS), 65)
+        flat = torch.zeros(2, 65)
         self.assertIs(policy_observation({"policy": {"flat": flat}}, "flat"), flat)
         with self.assertRaises(ValueError):
             policy_observation({}, "unknown")
@@ -30,7 +30,9 @@ class GeometryTests(unittest.TestCase):
         task.poses = lambda: (torch.tensor([[1., 2., 3.]]), identity,
                               torch.tensor([[1., 1., 1.]]), yaw,
                               torch.tensor([[2., 1., 2.]]), yaw)
-        task.goal_error = lambda: (torch.tensor([[0.1, 0.2, 0.3]]), torch.tensor([[0., 0., 0.]]))
+        task.goal_error = lambda: (torch.tensor([[0.1, 0.2, 0.3]]), torch.tensor([[torch.pi / 2, -torch.pi / 4, 0.]]))
+        task.target_velocity = lambda: (torch.tensor([[0.7, 0.8, 0.9]]), torch.tensor([[1.1, 1.2, 1.3]]))
+        task.last_action = torch.arange(7)[None].float() / 7
         task.tcp_velocity = lambda: (torch.tensor([[0.1, 0.2, 0.3]]), torch.tensor([[0.4, 0.5, 0.6]]))
         task.needs_baseline = torch.tensor([True])
         task.previous_distance = torch.zeros(1)
@@ -47,17 +49,60 @@ class GeometryTests(unittest.TestCase):
         task.open_grip = 0.08
         task.elapsed = torch.tensor([2.])
         state = task.flat_state()
-        self.assertEqual(state.shape, (1, 45))
-        torch.testing.assert_close(state[0, :3], torch.tensor([0., -1., 1.]))
-        torch.testing.assert_close(state[0, 6:9], torch.full((3,), 0.04))
-        torch.testing.assert_close(state[0, 9:12], torch.tensor([0.1, 0.2, 0.3]))
-        self.assertAlmostEqual(float(state[0, 22]), 0.5)
-        self.assertAlmostEqual(float(state[0, 30]), 1.0)
-        torch.testing.assert_close(state[0, 31:34], torch.tensor([1., 0., 2.]))
-        torch.testing.assert_close(state[0, 37:43], torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]))
-        self.assertAlmostEqual(float(state[0, 43]), 0.5)
-        self.assertAlmostEqual(float(state[0, 44]), 0.2)
+        self.assertEqual(state.shape, (1, 65))
+        values = {}
+        offset = 0
+        for name, dim, _ in FLAT_FIELDS:
+            values[name] = state[0, offset:offset + dim]
+            offset += dim
+        expected = {
+            "cube_position_base": [0., -1., 1.],
+            "cube_rotation_columns_6d": [1., 0., 0., 0., 1., 0.],
+            "cube_size_local": [0.04] * 3,
+            "cube_bottom_height_base": [0.98],
+            "target_position_error_base": [0.1, 0.2, 0.3],
+            "target_rotation_error_base": [0.5, -0.25, 0.],
+            "cube_linear_velocity_base": [0.7, 0.8, 0.9],
+            "cube_angular_velocity_base": [1.1, 1.2, 1.3],
+            "arm_and_lift_q": [0.] * 7 + [0.5],
+            "arm_and_lift_qdot": [0.] * 7 + [1.],
+            "tcp_position_base": [1., 0., 2.],
+            "tcp_rotation_columns_6d": [0., -1., 0., 1., 0., 0.],
+            "tcp_linear_velocity_base": [0.1, 0.2, 0.3],
+            "tcp_angular_velocity_base": [0.4, 0.5, 0.6],
+            "gripper_aperture": [0.5],
+            "gripper_velocity": [0.2],
+            "previous_action": task.last_action[0].tolist(),
+        }
+        self.assertEqual(list(values), list(expected))
+        for name, value in expected.items():
+            torch.testing.assert_close(values[name], torch.tensor(value), msg=name)
         self.assertAlmostEqual(float(task.height_reference[0]), 2.)
+        # A tilted cube's bottom is its lowest corner, not center minus size/2.
+        tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5], [0., 2**-0.5, 2**-0.5]]])
+        poses = task.poses()
+        task.poses = lambda: (*poses[:5], yaw @ tilt)
+        tilted = task.flat_state()
+        self.assertAlmostEqual(float(tilted[0, 12]), 1 - 0.02 * 2**0.5, places=6)
+        # Re-reading observations during a rollout must not move the height baseline.
+        self.assertAlmostEqual(float(task.height_reference[0]), 2.)
+
+    def test_target_velocity_accounts_for_com_and_moving_base(self):
+        task = TaskState.__new__(TaskState)
+        task.target, task.base = 1, 0
+        task.model = SimpleNamespace(body_rootid=[0, 1], site_bodyid=[0])
+        identity = torch.eye(3)[None]
+        yaw = torch.tensor([[[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]])
+        position = torch.tensor([[1., 0., 0.]])
+        task.poses = lambda: (position, identity, torch.zeros(1, 3), yaw, position, identity)
+        task.env = SimpleNamespace(sim=SimpleNamespace(data=SimpleNamespace(
+            xpos=torch.stack((torch.zeros(1, 3), position), 1),
+            subtree_com=torch.zeros(1, 2, 3),
+            cvel=torch.tensor([[[0., 0., 1., 1., 0., 0.], [0., 0., 2., 3., 0., 0.]]]),
+        )))
+        linear, angular = task.target_velocity()
+        torch.testing.assert_close(linear, torch.tensor([[1., -2., 0.]]))
+        torch.testing.assert_close(angular, torch.tensor([[0., 0., 1.]]))
 
     def test_source_cylinder_bounds_with_numpy_geom_enum(self):
         model = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
