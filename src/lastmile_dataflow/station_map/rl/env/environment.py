@@ -117,9 +117,11 @@ def build_sensors(prepared):
 class StationEnv(ManagerBasedRlEnv):
     def __init__(self, config, *, gpu, seed, num_envs=None):
 
-        for key, value in config["success"].items():
-            if RL_PICK_THRESHOLDS[key] != value:
-                raise ValueError("RL success configuration must match the named protocol")
+        contact_protocol = config["success"].get("version") == "rl-pick-contact-v1"
+        if not contact_protocol:
+            for key, value in config["success"].items():
+                if RL_PICK_THRESHOLDS[key] != value:
+                    raise ValueError("RL success configuration must match the named protocol")
         self.research_config = config
         self.prepared = prepare_rl_scene(RLSceneConfig(**config["scene"]))
         self.task = None
@@ -138,6 +140,14 @@ class StationEnv(ManagerBasedRlEnv):
         action = config["action"]
         env_cfg = config["environment"]
         sensors = build_sensors(prepared)
+        observation_terms = (
+            {"flat": ObservationTermCfg(func=terms.flat)} if contact_protocol
+            else {
+                "nodes": ObservationTermCfg(func=terms.nodes),
+                "node_mask": ObservationTermCfg(func=terms.node_mask),
+                "arm_task_state": ObservationTermCfg(func=terms.arm_state),
+            }
+        )
         cfg = ManagerBasedRlEnvCfg(
             scene=SceneCfg(
                 num_envs=num_envs or env_cfg["num_envs"],
@@ -180,11 +190,7 @@ class StationEnv(ManagerBasedRlEnv):
             },
             observations={
                 "policy": ObservationGroupCfg(
-                    terms={
-                        "nodes": ObservationTermCfg(func=terms.nodes),
-                        "node_mask": ObservationTermCfg(func=terms.node_mask),
-                        "arm_task_state": ObservationTermCfg(func=terms.arm_state),
-                    },
+                    terms=observation_terms,
                     concatenate_terms=False,
                 )
             },

@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-11-12
 - 替代：无
-- 关联：../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../plan/03-distributed-sampling-centralized-learner.md、../delivery/03-mjlab-build-plan.md
+- 关联：[方块接触交付](../delivery/19-cube-contact-single-station.md)、../plan/01-implementation.md、../plan/02-staged-reward-and-lift.md、../plan/03-distributed-sampling-centralized-learner.md、../delivery/03-mjlab-build-plan.md
 
 ## 2026-11-12 当前规则
 
@@ -219,3 +219,11 @@ Contact Bonus 次数为每回合实际发放奖励的事件数 0 或 1；图中�
 增加代表性视频输出：初始模型、周期验证和训练结束时，在固定 1 个 train 站位与 1 个 validation 站位分别录制 stochastic / mean 策略完整回合，默认每 100000 条有效 transition 输出，标明阶段、位姿误差、夹爪 / 接触、物体抬升、保持计时、碰撞和最终结果。另在视频采样时段的已有验证中，保留首次成功、首次明显碰撞各 1 条真实代表轨迹，每类整次训练最多补充 1 条，无对应样本则不输出；视频放实验 `views/`，对应状态放 `replays/`。采用全景与夹爪近景并排、20 fps、仿真时间 1× 播放；不在训练物理子步持续渲染。样本选择、画面、路径和验证口径见[调整方案第 8 节](../plan/02-staged-reward-and-lift.md#8-代表性视频输出)，已实现并生成短验证视频，沿用已有选角器；实际覆盖范围见交付记录。
 
 训练期间暂停采样并同步评估固定 8 个 validation 站位，每点 2 次 stochastic rollout，使用固定 seeds，用于观察与选 checkpoint；Q 计算仅限这 8 点，不扫描全部合法站位。训练结束先完成末次轻量验证，再选出 best.pt，仅对该模型计算一次全部合法站位 Q 图。最终 acceptance 集合继续留给独立验收，不用于选择 best 或拼接不同 checkpoint 的逐点最大 Q。Value Map 保留 yaw 语义、invalid mask 和固定色标，Scatter 使用该 checkpoint 的真实 rollout 结果；未运行评估时不填造成功率或相关性。
+
+## 2026-11-16 方块接触单站位实验（独立于旧 Cup 抓取协议）
+
+仅在新配置启用，旧图站位实验与历史协议不变。val103 局部场景内将 Cup_30 替换成边长 0.04 m、质量 0.1 kg、带自由关节的实体方块，原支撑面、原世界 XY 中心和静置初态；固定底盘 S0246 XY=(6.613459458748234, 2.5988113404423916) 正对目标。最终 TCP 抓取点是方块中心，朝向跟随方块，向下夹持、闭合方向为方块局部 X；完全不读取 Cup grasp 候选。动作仍为底盘坐标 TCP 平移 3、rotvec 3、夹爪 1，批量 DLS 控制 7 臂关节与升降。仿真 dt=0.002 s，25 子步/策略步，20 Hz，50 s/1000 步。
+
+`observation.mode: flat|graph` 默认 graph；新任务 flat=45 维，字段与尺度见源码 `env/observation.py`。flat 不建图或把图放入 Replay；独立 2×256 ReLU Actor 与两个 Critic 训练连续 SAC，checkpoint 包含模式与输入定义。仅五项奖励：位置势差 -10d、SO(3) 最短姿态势差 -0.5θ、任一子步非法碰撞 -2/步一次、首次成功 +50、d<0.01 m 且 θ<10° 时 0.05×0.05s×(1−开度)；势基线在 reset 重建，不附加旧阶段奖励。新 `rl-pick-contact-v1` 在同一个物理子步两指对目标各法向力>1e-6 N 即成功并锁存至步尾终止；不要求抬起/持稳/离支撑，不跨子步组合，成功与非法碰撞可同时发生。
+
+训练从头开始：单张实时空闲 GPU ×128 环境，seed 42，1000000 条健康 transition，预热20000，128条/更新（目标 7656 更新），batch256，Replay100000；不开启启动或周期评估，按近期非预热训练回报选 best.pt，仅结束后固定初态 20 次随机策略 rollout 并保存代表视频。成功率只反映该训练站位与初态，DLS 接触不能替代学习策略证据；未设置通过线。实际验证状态以本主题交付记录及对应 run 为准。

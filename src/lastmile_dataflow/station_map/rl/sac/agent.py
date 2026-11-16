@@ -9,6 +9,7 @@ import torch
 from torch.nn import functional as F
 
 from .networks import Actor, Critic
+from ..env.observation import ARM_STATE_FIELDS, FLAT_FIELDS, NODE_DIM
 
 
 @dataclass(frozen=True)
@@ -22,17 +23,24 @@ class SACConfig:
     target_entropy: float = -7.0
 
 
+def input_definition(mode):
+    return ("flat", FLAT_FIELDS) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
+
+
 def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
     return reward + gamma * (~terminated).float() * (next_q - alpha * next_log_prob)
 
 
 class SAC:
-    def __init__(self, state_dim, device, config=SACConfig()):
+    def __init__(self, state_dim, device, config=SACConfig(), *, mode="graph"):
+        if mode not in ("graph", "flat"):
+            raise ValueError(f"Unknown SAC mode: {mode}")
+        self.mode = mode
         self.config = config
         self.state_dim = state_dim
         self.device = torch.device(device)
-        self.actor = Actor(state_dim).to(device)
-        self.q1, self.q2 = (Critic(state_dim).to(device) for _ in range(2))
+        self.actor = Actor(state_dim, mode=mode).to(device)
+        self.q1, self.q2 = (Critic(state_dim, mode=mode).to(device) for _ in range(2))
         self.target1, self.target2 = deepcopy(self.q1), deepcopy(self.q2)
         self.target1.requires_grad_(False)
         self.target2.requires_grad_(False)
@@ -93,6 +101,8 @@ class SAC:
         torch.save(
             {
                 "state_dim": self.state_dim,
+                "mode": self.mode,
+                "input_definition": input_definition(self.mode),
                 "sac_config": asdict(self.config),
                 "networks": {
                     name: getattr(self, name).state_dict() for name in ("actor", "q1", "q2", "target1", "target2")
@@ -118,7 +128,10 @@ class SAC:
     @classmethod
     def load(cls, path, device, *, restore_rng=False):
         saved = torch.load(path, map_location=device, weights_only=False)
-        agent = cls(saved["state_dim"], device, SACConfig(**saved["sac_config"]))
+        mode = saved.get("mode", "graph")
+        if saved.get("input_definition", input_definition(mode)) != input_definition(mode):
+            raise ValueError("Checkpoint observation definition does not match SAC mode")
+        agent = cls(saved["state_dim"], device, SACConfig(**saved["sac_config"]), mode=mode)
         for name, state in saved["networks"].items():
             getattr(agent, name).load_state_dict(state)
         for name, state in saved["optimizers"].items():

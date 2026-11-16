@@ -15,8 +15,7 @@ import torch
 from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
-from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS
-from .env.observation import graph_observation
+from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, FLAT_FIELDS, policy_observation, graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
 from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
@@ -55,16 +54,19 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                 {
                     "event": "episode",
                     "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
-                    "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
-                    "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
+                    **({} if env.research_config["success"].get("version") == "rl-pick-contact-v1" else {
+                        "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
+                        "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
+                    }),
                     "transitions": transitions,
                     "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
-                    "reward_component_names": REWARD_COMPONENTS,
-                    "contact_bonus_count": int(env.task.contact_bonus_paid[index]),
+                    "reward_component_names": (CONTACT_REWARD_COMPONENTS if env.research_config["success"].get("version") == "rl-pick-contact-v1" else REWARD_COMPONENTS),
+                    "contact_bonus_count": int(env.task.contact_bonus_paid[index]) if hasattr(env.task, "contact_bonus_paid") else 0,
                     "success": bool(env.task.success[index]),
+                    "first_contact_time_s": float(env.task.first_contact_time_s[index]) if hasattr(env.task, "first_contact_time_s") and env.task.first_contact_time_s[index] >= 0 else None,
                     "collision_free": bool(env.task.collision_free[index]),
                     "collision_time_s": float(env.task.collision_time[index]),
                     "max_drift_m": float(env.task.max_drift[index]),
@@ -227,7 +229,9 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     monitor = None
     try:
         observations, _ = env.reset()
-        obs = graph_observation(observations)
+        mode = config.get("observation", {}).get("mode", "graph")
+        obs = graph_observation(observations) if mode == "graph" else policy_observation(observations, mode)
+        contact = config["success"].get("version") == "rl-pick-contact-v1"
         metadata = {
             "config": config,
             "seed": seed,
@@ -236,10 +240,11 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             "learner_gpu": devices[0],
             "sampler_num_envs": num_envs or config["environment"]["num_envs"],
             "transition_limit": max_transitions or settings["max_transitions"],
-            "node_capacity": obs.nodes.shape[1],
-            "state_dim": obs.arm_task_state.shape[-1],
-            "arm_state_fields": ARM_STATE_FIELDS,
-            "reward_component_names": REWARD_COMPONENTS,
+            "observation_mode": mode,
+            "node_capacity": obs.nodes.shape[1] if mode == "graph" else None,
+            "state_dim": obs.arm_task_state.shape[-1] if mode == "graph" else obs.shape[-1],
+            "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else FLAT_FIELDS,
+            "reward_component_names": CONTACT_REWARD_COMPONENTS if contact else REWARD_COMPONENTS,
             "success_protocol": config["success"],
             "stations": env.task.stations,
             "resume": "parameters/optimizers; fresh environment and CPU replay",
@@ -259,7 +264,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 if previous_best.resolve() != (output / "best.pt").resolve():
                     shutil.copyfile(previous_best, output / "best.pt")
         else:
-            agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
+            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode)
             transitions = 0
         same_output = resume is not None and Path(resume).parent.resolve() == output.resolve()
         monitor = TrainingMonitor(
@@ -267,7 +272,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
             purge_step=transitions if same_output else None,
         )
-        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()))
+        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu())
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]
@@ -364,13 +369,14 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             workers = None
             save_training_checkpoint(agent, output, metadata, transitions, recent_returns, final=True)
             agent, _ = SAC.load(output / "best.pt", env.device)
-            initial_scores = validation_checkpoint(agent, env, config, transitions, output, log, monitor)
-            seed_all(config["evaluation"]["seed"])
-            rows = station_scores(agent, env, config["evaluation"]["action_samples"], initial_scores=initial_scores)
-            (output / "station-q.json").write_text(
-                json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
-            )
-            plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
+            if not contact:
+                initial_scores = validation_checkpoint(agent, env, config, transitions, output, log, monitor)
+                seed_all(config["evaluation"]["seed"])
+                rows = station_scores(agent, env, config["evaluation"]["action_samples"], initial_scores=initial_scores)
+                (output / "station-q.json").write_text(
+                    json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
+                )
+                plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
         return {"transitions": transitions, "updates": agent.updates, "checkpoint": str(output / "latest.pt")}
     finally:
         if workers is not None:

@@ -21,6 +21,11 @@ class GraphEncoder(nn.Module):
         return torch.cat((embedding, observation.arm_task_state), dim=-1)
 
 
+class FlatEncoder(nn.Module):
+    def forward(self, observation):
+        return observation
+
+
 def mlp(input_dim, output_dim):
     return nn.Sequential(
         nn.Linear(input_dim, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, output_dim)
@@ -28,10 +33,10 @@ def mlp(input_dim, output_dim):
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim=7):
+    def __init__(self, state_dim, action_dim=7, *, mode="graph"):
         super().__init__()
-        self.encoder = GraphEncoder()
-        self.head = mlp(128 + state_dim, action_dim * 2)
+        self.encoder = GraphEncoder() if mode == "graph" else FlatEncoder()
+        self.head = mlp((128 if mode == "graph" else 0) + state_dim, action_dim * 2)
 
     def forward(self, observation):
         mu, log_std = self.head(self.encoder(observation)).chunk(2, -1)
@@ -49,10 +54,10 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim=7):
+    def __init__(self, state_dim, action_dim=7, *, mode="graph"):
         super().__init__()
-        self.encoder = GraphEncoder()
-        self.head = mlp(128 + state_dim + action_dim, 1)
+        self.encoder = GraphEncoder() if mode == "graph" else FlatEncoder()
+        self.head = mlp((128 if mode == "graph" else 0) + state_dim + action_dim, 1)
 
     def forward(self, observation, action):
         return self.head(torch.cat((self.encoder(observation), action), -1)).squeeze(-1)

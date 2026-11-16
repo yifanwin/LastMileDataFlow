@@ -13,7 +13,7 @@ from lastmile_dataflow.sim.source import SceneSource
 from lastmile_dataflow.robots.registry import load_robot_spec
 from lastmile_dataflow.sim.state import migrate_state
 from lastmile_dataflow.sim.simulation import closed_on_error
-from lastmile_dataflow.sim.model.geometry import geom_points
+from lastmile_dataflow.sim.model.geometry import extract_regions, geom_points, support_rays
 
 
 # mjlab names every element of an entity "<entity>/<name>"; the robot is the entity "robot",
@@ -45,6 +45,7 @@ class RLSceneConfig:
     multiccd: bool = False
     home: tuple = (0.0, -0.00365045915, 0.0, -2.61799387799, 0.0, 2.74159265359, 0.78539816339)
     lift: float = 0.2
+    cube: dict | None = None
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
@@ -107,6 +108,13 @@ def prepare_rl_scene(config):
     )
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
+    if config.cube is not None:
+        cube = config.cube
+        if set(cube) != {"size_m", "mass_kg"} or cube["size_m"] <= 0 or cube["mass_kg"] <= 0:
+            raise ValueError("cube requires positive size_m and mass_kg")
+        replacement = replace_with_cube(sim, cube["size_m"], cube["mass_kg"])
+        sim.close()
+        sim = replacement
     target = sim.model.body(sim.target_id).name
     anchor = sim.data.xpos[sim.target_id].copy()
     local = task_local_model(sim, {"anchor_world": anchor.tolist(), "target_body": target}, config.local_radius_m)
@@ -132,6 +140,44 @@ def prepare_rl_scene(config):
     local.close()
     sim.close()
     return prepared
+
+
+def replace_with_cube(sim, size_m, mass_kg):
+    """Replace the source cup in memory on its original dining-table support."""
+    target = sim.model.body(sim.target_id).name
+    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
+    support = next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+    xy = sim.data.xpos[sim.target_id, :2].copy()
+    half = size_m / 2
+    # Select the original static tabletop, not a bounding box or the source cup bottom.
+    corners = xy + np.array([[-half, -half], [-half, half], [half, -half], [half, half]])
+    regions = [
+        region for region in extract_regions(sim, support)
+        if region.contains(np.column_stack((corners, np.full(4, region.height))), tolerance=-0.002)
+        and support_rays(sim, sim.target_id, region, np.column_stack((corners, np.full(4, region.height))))
+    ]
+    if not regions:
+        raise ValueError(f"No physical support for cube at original {target} XY")
+    height = max(region.height for region in regions)
+    spec = sim.spec.copy()
+    spec.delete(spec.body(target))
+    body = spec.worldbody.add_body(name="RL_Cube", pos=[*xy, height + half])
+    body.add_freejoint(name="RL_Cube_free")
+    body.add_geom(
+        name="RL_Cube_geom", type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=[half, half, half], mass=mass_kg, rgba=[0.95, 0.32, 0.15, 1.0],
+    )
+    model = spec.compile()
+    catalog = [item for item in sim.catalog if item["mjcf_body"] != target]
+    catalog.append({
+        "instance_id": "RL_Cube", "mjcf_body": "RL_Cube",
+        "body_id": model.body("RL_Cube").id, "asset_id": None,
+        "category": "Cube", "name_map": {},
+        "pose_frame": "world", "pose_order": "xyz_wxyz",
+    })
+    with closed_on_error(sim.derive(model=model, catalog=catalog, target="RL_Cube", spec=spec)) as replaced:
+        migrate_state(sim, replaced)
+    return replaced
 
 
 def root_body(model, body):

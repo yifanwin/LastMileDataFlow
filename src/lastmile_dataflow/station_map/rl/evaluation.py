@@ -14,16 +14,16 @@ from .config import resolve_config
 from .sac.agent import SAC
 from .env.observation import REWARD_COMPONENTS
 from .sac.agent import seed_all
-from .env.observation import graph_observation
+from .env.observation import graph_observation, policy_observation
 from .monitor import station_evaluation
 from .capture import RolloutCapture
 from .devices import VISIBLE_DEVICE
 
 
-def reset_stations(env, station_ids, env_ids=None):
+def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
     env.task.requested_station_ids = torch.as_tensor(station_ids, dtype=torch.long, device=env.device)
     observations, _ = env.reset(env_ids=env_ids)
-    return graph_observation(observations)
+    return graph_observation(observations) if mode == "graph" else policy_observation(observations, mode)
 
 
 @torch.no_grad()
@@ -59,7 +59,7 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     failing phase; they do not replace the configured RL success protocol.
     """
     torch.manual_seed(seed)
-    obs = reset_stations(env, station_ids)
+    obs = reset_stations(env, station_ids, mode=getattr(agent, "mode", "graph"))
     finished = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     task = env.task
     best_position = torch.full((env.num_envs,), float("inf"), device=env.device)
@@ -139,11 +139,15 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
         steps += 1
         if on_progress is not None and (steps % 100 == 0 or ended):
             on_progress(finished, steps)
-        obs = graph_observation(observations).clone()
+        obs = policy_observation(observations, getattr(agent, "mode", "graph")).clone()
         if done.any() and not finished.all():
             ids = done.nonzero(as_tuple=True)[0]
-            reset_obs = reset_stations(env, [station_ids[i] for i in ids.tolist()], env_ids=ids)
-            obs.replace(ids, reset_obs)
+            reset_obs = reset_stations(env, [station_ids[i] for i in ids.tolist()], env_ids=ids,
+                                       mode=getattr(agent, "mode", "graph"))
+            if isinstance(obs, torch.Tensor):
+                obs[ids] = reset_obs[ids] if len(reset_obs) == env.num_envs else reset_obs
+            else:
+                obs.replace(ids, reset_obs)
     if capture is not None:
         capture.finish(env, records)
     return records
@@ -329,6 +333,8 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
     agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Scoring requires the checkpoint effective configuration")
+    if agent.mode == "flat":
+        raise ValueError("Flat contact checkpoints do not have station Q scores; use evaluate instead")
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -391,6 +397,10 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Evaluation requires the checkpoint effective configuration")
+    if agent.mode == "flat":
+        return evaluate_flat(config, agent, checkpoint, gpu, output, seed)
+    if scores is None:
+        raise ValueError("Graph evaluation requires station scores")
     scored = json.loads(Path(scores).read_text())
     if baseline and saved["transitions"] != 0:
         raise ValueError("The initialization baseline must be an untrained checkpoint")
@@ -425,7 +435,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
                     actions.append(action[0].cpu().numpy().copy())
                     observations, reward, terminated, truncated, _ = env.step(action)
                     controls.append(env.sim.data.ctrl[0].cpu().numpy().copy())
-                    obs = graph_observation(observations)
+                    obs = policy_observation(observations, agent.mode)
                     episode_return += discount * float(reward[0])
                     discount *= config["sac"]["gamma"]
                     done = bool((terminated | truncated)[0])
@@ -480,6 +490,94 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
             q_limits=config["evaluation"]["q_color_limits"],
             correlation=summary["q_success_spearman"],
         )
+        return summary
+    finally:
+        env.close()
+
+
+def evaluate_flat(config, agent, checkpoint, gpu, output, seed):
+    """Fixed-start stochastic contact trials without grasp or Q-based station selection."""
+    from .env.environment import StationEnv
+
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "views").mkdir(exist_ok=True)
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=1)
+    trials = []
+    videos = []
+    try:
+        station = int(env.task.pool[0])
+        station_name = env.task.stations[station]["station_id"]
+        with (output / "trials.jsonl").open("w") as log:
+            for trial in range(20):
+                trial_seed = seed + trial
+                seed_all(trial_seed)
+                obs = reset_stations(env, [station], mode="flat")
+                capture = RolloutCapture(output, agent.updates, config, selected_slots=[0]) if trial == 0 else None
+                if capture is not None:
+                    capture.initialize(env, [station], trial_seed, False)
+                episode_return = 0.0
+                steps = 0
+                while True:
+                    with torch.no_grad():
+                        action, _ = agent.actor.sample(obs)
+                        observations, reward, terminated, truncated, _ = env.step(action)
+                    episode_return += float(reward[0])
+                    steps += 1
+                    if capture is not None:
+                        capture.sample(env, torch.ones(1, dtype=torch.bool, device=env.device))
+                    if bool((terminated | truncated | env.task.unhealthy)[0]):
+                        break
+                    obs = policy_observation(observations, "flat")
+                unhealthy = bool(env.task.unhealthy[0])
+                success = bool(env.task.success[0]) and not unhealthy
+                result = {
+                    "station_id": station_name,
+                    "seed": trial_seed,
+                    "trial": trial,
+                    "success": success,
+                    "infrastructure_failure": unhealthy,
+                    "collision_free": bool(env.task.collision_free[0]),
+                    "failed": bool(env.task.failed[0]),
+                    "first_simultaneous_contact_s": (float(env.task.first_contact_time_s[0])
+                                                      if env.task.first_contact_time_s[0] >= 0 else None),
+                    "steps": steps,
+                    "episode_return": None if unhealthy else episode_return,
+                    "reason": "infrastructure_failure" if unhealthy else "simultaneous_contact" if success
+                    else "collision_failure" if not bool(env.task.collision_free[0])
+                    else "control_failure" if bool(env.task.failed[0]) else "timeout",
+                }
+                trials.append(result)
+                log.write(json.dumps(result) + "\n")
+                log.flush()
+                if capture is not None:
+                    capture.finish(env, [result])
+                    videos.extend(capture.videos)
+        healthy = [row for row in trials if not row["infrastructure_failure"]]
+        successes = sum(row["success"] for row in healthy)
+        collision_free_successes = sum(row["success"] and row["collision_free"] for row in healthy)
+        failure_reason_counts = {
+            reason: sum(row["reason"] == reason for row in trials)
+            for reason in ("infrastructure_failure", "collision_failure", "control_failure", "timeout")
+        }
+        summary = {
+            "checkpoint": str(Path(checkpoint).absolute()),
+            "seed": seed,
+            "physical_gpu": gpu,
+            "policy": "stochastic_flat_contact",
+            "station_id": station_name,
+            "total_trials": len(trials),
+            "healthy_trials": len(healthy),
+            "successes": successes,
+            "success_rate": successes / len(healthy) if healthy else None,
+            "collision_free_successes": collision_free_successes,
+            "collision_free_success_rate": collision_free_successes / len(healthy) if healthy else None,
+            "first_contact_times_s": [row["first_simultaneous_contact_s"] for row in healthy if row["success"]],
+            "failure_reason_counts": failure_reason_counts,
+            "videos": videos,
+            "trials": trials,
+        }
+        (output / "summary.json").write_text(json.dumps(summary, indent=2))
         return summary
     finally:
         env.close()

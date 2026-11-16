@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-11-11
 - 替代：本文件原 CPU / Mink 草案
-- 关联：../requirement/01-fixed-base-sac.md、02-staged-reward-and-lift.md、../delivery/03-mjlab-build-plan.md
+- 关联：[方块接触交付](../delivery/19-cube-contact-single-station.md)、../requirement/01-fixed-base-sac.md、02-staged-reward-and-lift.md、../delivery/03-mjlab-build-plan.md
 
 ## 1. 已确认目标与交付范围
 
@@ -311,3 +311,7 @@ checkpoint 保存 Actor、双 Q、target、优化器、logα、有效配置、�
 ## 13. 本轮规划结果
 
 已将 CPU / Mink 方案改为用户确认的 mjlab / DLS / SAC 双 Q，明确学习避障语义、独立研究环境、本地上游依赖、val103-cup30 验收和 P0–P6 交付顺序。实施已启动，详见 [实施记录](../delivery/04-implementation.md)；尚无 GPU 训练或新策略抓取成功结论。
+
+## 2026-11-16 单站位方块接触实验增量方案
+
+与上文历史图站位路线并行、单独配置和从头训练，不迁移 checkpoint 或产物。先验证软件契约（45维/基坐标、flat 采样-回放-SAC-重载及 graph 回归、五项奖励边界、同子步双指锁存），再验证真实物理初态、合法站位和 DLS 双指中心接触，最后单卡真实 GPU 采样与 learner 短程。汇总 GPU、实测健康 throughput 和预计 1e6 耗时后，固定代码提交，生产训练期间不修改运行源码。训练停止后仅载入按近期训练回报选出的 best.pt，固定初态 20 次随机策略测成功/无碰撞成功/首次双指时间/失败原因与代表视频；实验不能声称泛化。详见[增量需求](../requirement/01-fixed-base-sac.md)。

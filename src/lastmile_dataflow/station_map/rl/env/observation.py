@@ -24,6 +24,25 @@ REWARD_COMPONENTS = (
     "held",
 )
 
+CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing")
+
+# The 45D contact policy uses base-frame coordinates throughout.
+FLAT_FIELDS = (
+    ("cube_position_base", 3, 1.0),
+    ("cube_rotation_vector_base", 3, "pi"),
+    ("cube_size_local", 3, 1.0),
+    ("target_position_error_base", 3, 1.0),
+    ("target_rotation_error_base", 3, "pi"),
+    ("arm_and_lift_q", 8, "arm:3.14; lift:model_lift_range"),
+    ("arm_and_lift_qdot", 8, "arm:3; lift:0.05"),
+    ("tcp_position_base", 3, 1.0),
+    ("tcp_rotation_vector_base", 3, "pi"),
+    ("tcp_linear_velocity_base", 3, 1.0),
+    ("tcp_angular_velocity_base", 3, 1.0),
+    ("gripper_aperture", 1, "model_open_grip"),
+    ("gripper_velocity", 1, 0.2),
+)
+
 NODE_DIM = 24
 NODE_TYPES = ("goal", "tabletop_obstacle", "ground_obstacle", "container")
 ARM_STATE_FIELDS = (
@@ -188,3 +207,12 @@ class GeometryObservation:
 
 def graph_observation(observations):
     return GraphObservation(**observations["policy"])
+
+
+def policy_observation(observations, mode):
+    """Decode the selected policy observation without constructing a graph in flat mode."""
+    if mode == "flat":
+        return observations["policy"]["flat"]
+    if mode == "graph":
+        return graph_observation(observations)
+    raise ValueError(f"Unknown observation mode: {mode}")

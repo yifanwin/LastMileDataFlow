@@ -3,7 +3,7 @@
 - 状态：active
 - 日期：2026-11-13
 - 替代：无
-- 关联：../plan/01-implementation.md、../delivery/04-implementation.md
+- 关联：[方块接触交付](19-cube-contact-single-station.md)、../plan/01-implementation.md、../delivery/04-implementation.md
 
 从包含本文版本的 RL 工作区根目录运行。实际验证状态见[训练接手报告](05-training-handover.md)；脚本抓取已有正例，学习策略仍未成功。
 
@@ -184,3 +184,7 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 正式成功率试验不采集视频；视频专用 stochastic / mean 回合只存选中的站位轨迹，GPU 数据在回合结束后批量转到 CPU 并格式化。原先所有回合中挑首次成功/碰撞代表视频的路径不再默认启用，因此视频本身不保证包含正式试验中首次成功或碰撞。正式试验仍保留完整成功/碰撞等数值结果。
 
 `analysis/evaluation-progress-<transitions>.json` 与 stdout 显示 initial_q / rollouts / videos / complete 阶段和正式试验完成数；评估 JSON 的 `metrics.stage_seconds` 记录初态 Q、正式 rollout 与视频阶段耗时。并行试验记录批次 seed 和全局 trial 编号，固定配置和批量布局可重复；向量化后的随机数顺序与旧串行版不同，不承诺旧 seed 的逐轨迹复现。实际验证见[并行评估交付](18-parallel-evaluation.md)。
+
+## 方块接触实验（2026-11-16）
+
+新配置和固定提交的运行记录另见本主题方块实验交付报告。沿用本指南的物理 GPU 绑定、EGL 与独立 Sampler/Learner；需设置 `PYTHONPATH` 为实验工作区 `src` 并复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.venv`，`ulimit -n 1048576`。该实验以 `observation.mode: flat` 和 `success.version: rl-pick-contact-v1` 区别于上述 Cup 抓取图协议；无启动、周期或终点站位 Q 图评估，仅训练结束固定初态 20 次策略评估。

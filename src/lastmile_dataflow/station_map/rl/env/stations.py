@@ -25,6 +25,11 @@ def station_candidates(center, settings):
         x, y, yaw = fixed["base_xyyaw"]
         if not np.isfinite([x, y, yaw]).all():
             raise ValueError("fixed_station.base_xyyaw must contain finite x, y, yaw")
+        if fixed.get("face_target"):
+            delta = center[:2] - np.array([x, y])
+            if np.linalg.norm(delta) < 1e-9:
+                raise ValueError("fixed_station cannot face a target at its own XY")
+            yaw = math.atan2(delta[1], delta[0])
         return [
             {
                 "station_id": fixed["station_id"],
