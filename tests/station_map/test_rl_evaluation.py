@@ -200,7 +200,7 @@ class ValidationTests(unittest.TestCase):
                     return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
 
                 agent.update.side_effect = update
-                saved = {"transitions": 100, "metadata": {"config": config, "best_training_return": {"mean": 2.0} if has_score else None, "recent_episode_returns": [2.0] if has_score else []}}
+                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"metric": "recent_100_episode_success_rate" if has_best else "tensorboard_interval_success_rate", "rate": 0.5, "count": 2} if has_score else None}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
@@ -242,7 +242,7 @@ class ValidationTests(unittest.TestCase):
                 self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
                 self.assertEqual(result["transitions"], 105 if resume else 5)
                 workers.pause.assert_called_once()
-                if not (resume and has_score):
+                if not (resume and has_score and has_best):
                     self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
                 else:
                     self.assertTrue((output / "best.pt").is_file())

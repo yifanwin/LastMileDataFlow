@@ -73,7 +73,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。每次日志 checkpoint 保存 latest，并按最近至多 100 条健康、完整、非随机预热回合的未折扣平均回报选择 best；结束时保存最终 latest，再独立加载 best 评估一次。没有合格回合时才以最终模型作为 best。恢复训练保留已有 best 排名及近期回报窗口。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`。每次日志 checkpoint 保存 latest；每次监控刷新有新合格训练回合时，按与 `train/success` 相同的最近至多 100 回合成功率选择 best，严格提高才替换，同分保留，不足 100 回合使用实际数量。结束尾段参与比较；全程没有合格回合才以最终模型兜底，再独立加载 best 评估一次。恢复训练重新建立回合窗口，仅继承 `recent_100_episode_success_rate` 口径的 best 排名；旧 return 或区间成功率重新选模。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -112,12 +112,14 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
 |---|---|
 | `loss/actor`、`loss/critic`、`loss/alpha`、`policy/entropy` | 当前时间区间内全部梯度更新的均值；Entropy 为 `-E[logπ]`，单位 nats，可为负数 |
 | `policy/alpha` | 区间内最新 Alpha |
-| `train/`、`warmup/` | 分别统计策略回合、含随机预热动作的回合；仅包含健康完整回合，展示 return、steps、success、collision_free 和 contact_bonus_count 的回合均值；success 是 0–1 比例 |
-| `train/reward/`、`warmup/reward/` | 全部 13 项回合累计奖励的均值；contact 是奖励数值，接触触发次数单独记录 |
+| `train_interval/` | 当前刷新区间内健康完整且无随机预热动作的回合：success、return、steps、collision_free、contact_bonus_count 均值；episode_count、success_count 为区间完成数和成功数 |
+| `train/` | 全部 Sampler 按 Learner 收到事件的顺序合并，最近至多 100 个合格回合的上述均值；episode_count、success_count 为窗口实际数量和成功数 |
+| `train_interval/reward/`、`train/reward/` | 分别为区间与最近 100 回合的各项累计奖励均值；分项按 episode 的 reward_component_names 写入 |
+| `warmup/`、`warmup/reward/` | 含随机预热动作的健康完整回合，维持区间均值，不进入 train 窗口 |
 | `runtime/` | 最新吞吐、累计更新次数、Replay 大小、版本滞后、队列阻塞及内存；吞吐为本次进程启动后的累计健康经验 / 已用时间 |
 | `evaluation/<scope>/` | 实际评估的成功率、未折扣回报、trial 数、相关性及耗时；scope 使用实际的 train 或 fixed_station，debug 阶段统计保留策略分组 |
 
-没有更新或没有完成健康回合时，对应曲线不补零；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
+空区间的 train_interval/episode_count 和 success_count 写零，不写回合均值；train 保留已有窗口并继续展示，但不重复参与选模。没有更新时不补 loss，首次合格回合之前不写 train 均值；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
 
 `metrics.jsonl` 仍保存 learner、episode、evaluation 等原始记录；`training.log_every` 仍按 transitions 决定 learner JSON 和 checkpoint 的频率。JSON 中 learner 的 loss 保持原有的最后一次更新值，TensorBoard 展示区间内全部更新的均值。
 
