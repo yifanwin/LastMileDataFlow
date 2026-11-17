@@ -1,12 +1,14 @@
 """PPO numerical contracts, global batches, checkpoints and synchronized transport."""
 
+from contextlib import ExitStack
+import json
 import multiprocessing as mp
 from pathlib import Path
 import pickle
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import torch
 
@@ -230,6 +232,59 @@ class PPOTests(unittest.TestCase):
                                                    success=True, collision_free=True, **{"return": 1.})], seed=42)
         self.assertIn("v_success_spearman", summary)
         self.assertNotIn("q_success_spearman", summary)
+
+    def test_rolling_success_saves_generated_policy_before_ppo_update(self):
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+        from lastmile_dataflow.station_map.rl.ppo.training import train_ppo
+
+        config = {"ppo": {}, "observation": {"mode": "flat"}, "evaluation": {"seed": 42},
+                  "training": {"max_transitions": 2, "num_envs": 1, "validation_stations": 1, "log_every": 100}}
+        clock = Mock(return_value=0)
+        agent = Mock(updates=0, optimizer_steps=0)
+        selected = []
+
+        def save(path, *, metadata, transitions):
+            if path.name == "best.pt":
+                best = metadata["best_training_success_rate"]
+                selected.append((transitions, agent.updates, best["rate"], best["count"]))
+
+        def update(batch):
+            agent.updates += 1
+            agent.optimizer_steps += 1
+            return {"actor_loss": float(agent.updates)}
+
+        def collect(policy, quota):
+            clock.return_value += 30
+            event = json.dumps({"success": agent.updates > 0, "infrastructure_failure": False})
+            return [(0, SimpleNamespace(returns=torch.zeros(1)), event)]
+
+        agent.save.side_effect = save
+        agent.update.side_effect = update
+        prefix = "lastmile_dataflow.station_map.rl.ppo.training."
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch("lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)))
+            stack.enter_context(patch(prefix + "resolve_config", side_effect=lambda value: value))
+            stack.enter_context(patch(prefix + "seed_all"))
+            stack.enter_context(patch(prefix + "training_metadata", return_value={"state_dim": 4}))
+            stack.enter_context(patch(prefix + "policy_observation", return_value=torch.zeros(1, 4)))
+            stack.enter_context(patch(prefix + "PPO", return_value=agent))
+            stack.enter_context(patch(prefix + "RolloutBatch.concatenate"))
+            stack.enter_context(patch(prefix + "torch.cuda.memory_allocated", return_value=0))
+            env = Mock(device="cpu")
+            env.reset.return_value = ({}, {})
+            stack.enter_context(patch("lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env))
+            workers = stack.enter_context(patch(prefix + "SynchronousSamplers")).return_value
+            workers.collect.side_effect = collect
+            result = train_ppo(config, gpus=[0], output=directory, seed=42)
+            self.assertEqual(result["transitions"], 2)
+            self.assertEqual(selected, [(1, 0, 0, 1), (2, 1, 0.5, 2)])
+            self.assertEqual(agent.update.call_count, 2)
+            reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
+            self.assertEqual([p.value for p in reader.Scalars("train_interval/success")], [0, 1])
+            self.assertEqual([p.value for p in reader.Scalars("train/success")][:2], [0, 0.5])
+            self.assertEqual([p.value for p in reader.Scalars("ppo/actor_loss")], [1, 2])
+            workers.close.assert_called_once()
+            env.close.assert_called_once()
 
     def test_ppo_tensorboard_omits_sac_alpha(self):
         from tensorboard.backend.event_processing.event_accumulator import EventAccumulator

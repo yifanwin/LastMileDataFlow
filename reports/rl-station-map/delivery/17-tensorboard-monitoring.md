@@ -3,7 +3,9 @@
 - 状态：done
 - 日期：2026-11-13
 - 替代：无
-- 关联：[运行指南](running.md#tensorboard-实时监控)
+- 关联：[2026-11-17 双窗口更新](2026-11-17-dual-window-monitoring.md)、[运行指南](running.md#tensorboard-实时监控)
+
+> 本文记录 2026-11-13 版本；当前 train_interval / train 分组及成功率选模见关联的双窗口更新。
 
 ## 目标与执行
 

@@ -6,6 +6,8 @@
 - 替代：运行指南中的最近100回合 best 规则；历史run和历史报告不改写
 - 关联：[运行指南](running.md)、[核心需求](../requirement/01-fixed-base-sac.md)
 
+> 2026-11-17 更新：本文的 30 秒区间 best 规则已被[双窗口监控](2026-11-17-dual-window-monitoring.md)取代，当前按 train/success 最近 100 回合成功率选模；周期 checkpoint 规则保留。
+
 ## 目标与修改
 
 用户要求 best.pt 与 TensorBoard 同步，以30秒区间内的成功率比较；每40万步保留一次独立 checkpoint，放入 ckpts/。

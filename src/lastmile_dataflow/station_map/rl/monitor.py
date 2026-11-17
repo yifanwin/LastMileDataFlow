@@ -1,6 +1,6 @@
 """Live TensorBoard training metrics and spatial evaluation figures."""
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -35,7 +35,7 @@ class _Mean:
 
 
 class TrainingMonitor:
-    """Learner-owned interval statistics; tensors stay on device until flush."""
+    """Learner-owned interval and last-100-episode training statistics."""
 
     def __init__(self, output, *, every_seconds, purge_step=None):
         if not every_seconds > 0:
@@ -45,6 +45,9 @@ class TrainingMonitor:
         self.last_flush = time.monotonic()
         self.means: dict[str, _Mean] = defaultdict(_Mean)
         self.latest: dict[str, float | Tensor] = {}
+        self.episodes: deque[dict[str, float]] = deque(maxlen=100)
+        self.interval_episodes = 0
+        self.interval_successes = 0
 
     def _mean(self, tag, value):
         self.means[tag].add(value)
@@ -69,12 +72,20 @@ class TrainingMonitor:
     def record_episode(self, event):
         if event["infrastructure_failure"]:
             return
-        group = "warmup" if event.get("random_warmup", False) else "train"
-        for key in ("return", "steps", "success", "collision_free", "contact_bonus_count"):
-            if key in event:
-                self._mean(f"{group}/{key}", event[key])
-        for name, value in zip(event.get("reward_component_names", ()), event.get("reward_components", ()), strict=True):
-            self._mean(f"{group}/reward/{name}", value)
+        values = {key: event[key] for key in
+                  ("return", "steps", "success", "collision_free", "contact_bonus_count") if key in event}
+        values.update({f"reward/{name}": value for name, value in zip(
+            event.get("reward_component_names", ()), event.get("reward_components", ()), strict=True
+        )})
+        if event.get("random_warmup", False):
+            for key, value in values.items():
+                self._mean(f"warmup/{key}", value)
+            return
+        self.episodes.append(values)
+        self.interval_episodes += 1
+        self.interval_successes += int(event["success"])
+        for key, value in values.items():
+            self._mean(f"train_interval/{key}", value)
 
     def record_runtime(self, event):
         self.latest.update({
@@ -90,9 +101,21 @@ class TrainingMonitor:
             self.writer.add_scalar(tag, float(mean.total / mean.count), transitions)
         for tag, value in self.latest.items():
             self.writer.add_scalar(tag, float(value), transitions)
+        self.writer.add_scalar("train_interval/episode_count", self.interval_episodes, transitions)
+        self.writer.add_scalar("train_interval/success_count", self.interval_successes, transitions)
+        rolling: dict[str, _Mean] = defaultdict(_Mean)
+        for episode in self.episodes:
+            for key, value in episode.items():
+                rolling[key].add(value)
+        for key, mean in rolling.items():
+            self.writer.add_scalar(f"train/{key}", float(mean.total / mean.count), transitions)
+        count = len(self.episodes)
+        successes = sum(episode["success"] for episode in self.episodes)
+        self.writer.add_scalar("train/episode_count", count, transitions)
+        self.writer.add_scalar("train/success_count", successes, transitions)
+        window = SuccessWindow(successes / count, count) if self.interval_episodes else None
         self.writer.flush()
-        success = self.means.get("train/success")
-        window = SuccessWindow(float(success.total / success.count), success.count) if success is not None else None
+        self.interval_episodes = self.interval_successes = 0
         self.means.clear()
         self.latest.clear()
         self.last_flush = now

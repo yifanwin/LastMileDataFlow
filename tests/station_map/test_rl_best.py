@@ -1,4 +1,4 @@
-"""Best selection shares TensorBoard windows; periodic weights keep actual steps."""
+"""Best selection uses the same last-100-episode window as TensorBoard."""
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -14,7 +14,7 @@ from lastmile_dataflow.station_map.rl.training_common import (
 
 
 class BestTests(unittest.TestCase):
-    def test_best_matches_tensorboard_intervals_and_excludes_warmup_and_unhealthy(self):
+    def test_best_matches_tensorboard_rolling_window_and_excludes_warmup_and_unhealthy(self):
         agent, metadata = Mock(), {}
         clock = Mock(return_value=0)
         with TemporaryDirectory() as output, patch(
@@ -33,11 +33,11 @@ class BestTests(unittest.TestCase):
                 flush_training_monitor(agent, output, metadata, 20, monitor)
                 self.assertEqual(metadata["best_training_success_rate"]["count"], 2)
                 self.assertEqual(metadata["best_training_success_rate"]["rate"], 0.5)
-                # The next interval starts empty, with no rolling history.
+                # Empty intervals retain the rolling history without selecting a new model.
                 clock.return_value = 60
                 flush_training_monitor(agent, output, metadata, 30, monitor)
                 for now, transition, values in ((90, 40, [False, True]), (120, 50, [False]),
-                                                (150, 60, [True])):
+                                                (150, 60, [True] * 100)):
                     for value in values:
                         monitor.record_episode({"success": value, "infrastructure_failure": False})
                     clock.return_value = now
@@ -45,11 +45,14 @@ class BestTests(unittest.TestCase):
                 save_best_checkpoint(agent, output, metadata, 70, None, final=True)
                 self.assertEqual([c.kwargs["transitions"] for c in agent.save.call_args_list], [20, 60])
                 self.assertTrue(all(c.args[0].name == "best.pt" for c in agent.save.call_args_list))
-                self.assertEqual(metadata["best_training_success_rate"]["count"], 1)
+                self.assertEqual(metadata["best_training_success_rate"]["count"], 100)
                 self.assertEqual(metadata["best_training_success_rate"]["rate"], 1)
                 reader = EventAccumulator(str(Path(output) / "tensorboard")).Reload()
-                self.assertEqual([(p.step, p.value) for p in reader.Scalars("train/success")],
-                                 [(20, 0.5), (40, 0.5), (50, 0), (60, 1)])
+                points = reader.Scalars("train/success")
+                self.assertEqual([p.step for p in points], [20, 30, 40, 50, 60])
+                for point, expected in zip(points, [0.5, 0.5, 0.5, 0.4, 1], strict=True):
+                    self.assertAlmostEqual(point.value, expected)
+                self.assertEqual([p.step for p in reader.Scalars("train_interval/success")], [20, 40, 50, 60])
             finally:
                 monitor.close(70)
 

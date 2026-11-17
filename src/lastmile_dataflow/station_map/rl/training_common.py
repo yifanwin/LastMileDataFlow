@@ -91,7 +91,7 @@ def save_best_checkpoint(agent, output, metadata, transitions, window: SuccessWi
     fallback = final and best is None and window is None
     if improved or fallback:
         metadata["best_training_success_rate"] = {
-            "metric": "tensorboard_interval_success_rate",
+            "metric": "recent_100_episode_success_rate",
             "rate": window.rate if window is not None else None,
             "count": window.count if window is not None else 0,
             "transitions": transitions,
@@ -144,7 +144,7 @@ def restore_best_checkpoint(saved, resume, output, metadata):
     if resume_output.name == "ckpts":
         # A historical snapshot cannot identify an overwritten best.pt.
         resume_output = resume_output.parent
-    elif best is not None and best.get("metric") == "tensorboard_interval_success_rate":
+    elif best is not None and best.get("metric") == "recent_100_episode_success_rate":
         metadata["best_training_success_rate"] = best
     previous_best = resume_output / "best.pt"
     if metadata.get("best_training_success_rate") is not None:
