@@ -153,4 +153,3 @@ def restore_best_checkpoint(saved, resume, output, metadata):
         if previous_best.resolve() != (output / "best.pt").resolve():
             shutil.copyfile(previous_best, output / "best.pt")
     return resume_output
-
