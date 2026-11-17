@@ -196,3 +196,16 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 训练预算为3,000,000条健康transition，batch_size为512，预热20,000，每128条新增经验更新一次；CUDA0–3各128环境时共512环境。最新改动、验证与四卡训练见[阶段峰值奖励与成功率选模](29-cube-stage-peak-success-best-training.md)，上一轮结果见[阶段接触奖励结果](28-cube-stage-contact-b512-results.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务；奖励与batch变化使用新run从头训练。
 
 沿用物理GPU绑定、EGL与独立Sampler/Learner；设置 `PYTHONPATH` 为本实验工作区的 `src`，并使用已安装完整RL依赖的解释器。本次验证复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-critic/.venv/bin/python`，不安装或下载依赖。无渲染时设 `MUJOCO_GL=disable`；四卡传 `--gpu 0 1 2 3`，运行前仍核查实时占用。无启动、周期或终点站位Q图评估。正式训练须另建run、固定源码版本；本次仅验证1024条健康transition，不执行正式训练或策略成功率验收。
+
+
+### 独立评估的并行数
+
+`evaluate.py` 默认最多20个环境并行，使用 `--num-envs N` 覆盖；总试验数和checkpoint配置不变。每回合使用独立seed随机流，输出的 `num_envs` 与 `rng` 记录运行方式。比较checkpoint时使用同一试验清单和seed；旧串行结果的轨迹不保证复现。graph评估保留逐回合完整状态、速度、控制与动作回放。
+
+方块独立评估保持20回合，默认20环境同时执行，默认保存全部20段视频和状态回放；文件名包含全局回合编号，视频元数据包含对应trial和seed。使用训练run中的config.yaml及冻结checkpoint，例如：
+
+```bash
+PYTHONPATH="$PWD/src" /data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-critic/.venv/bin/python scripts/station_map/rl/evaluate.py --config <训练run>/config.yaml --checkpoint <训练run>/best.pt --gpu <物理卡号> --output <评估run>
+```
+
+渲染前按环境说明设置EGL及native库路径。独立评估不需要station Q scores。

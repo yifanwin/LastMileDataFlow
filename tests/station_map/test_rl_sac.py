@@ -152,3 +152,21 @@ class SACTests(unittest.TestCase):
             torch.save(saved, path)
             with self.assertRaisesRegex(ValueError, "observation definition"):
                 SAC.load(path, "cpu")
+
+
+@unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependency group")
+class ActorNoiseTests(unittest.TestCase):
+    def test_supplied_noise_is_batched_and_keeps_sampling_contract(self):
+        from lastmile_dataflow.station_map.rl.sac.networks import Actor
+
+        torch.manual_seed(5)
+        actor = Actor(9)
+        obs = observation()
+        noise = torch.randn(2, 7)
+        action, log_prob = actor.sample(obs, noise=noise)
+        mu, log_std = actor(obs)
+        torch.testing.assert_close(action, (mu + log_std.exp() * noise).tanh())
+        single, _ = actor.sample(obs[1:2], noise=noise[1:2])
+        torch.testing.assert_close(single[0], action[1])
+        self.assertTrue(torch.isfinite(log_prob).all())
+        torch.testing.assert_close(actor.sample(obs, True, noise=noise)[0], mu.tanh())

@@ -12,11 +12,11 @@ from lastmile_dataflow.utils.figures import plt
 from .station_q import action_sampled_q, select_acceptance_stations, summarize_trials
 from .config import resolve_config
 from .sac.agent import SAC
-from .env.observation import REWARD_COMPONENTS
+from .env.observation import REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS
 from .sac.agent import seed_all
 from .env.observation import graph_observation, policy_observation
 from .monitor import station_evaluation
-from .capture import RolloutCapture
+from .capture import RolloutCapture, EpisodeReplays
 from .devices import VISIBLE_DEVICE
 
 
@@ -51,15 +51,43 @@ def station_scores(agent, env, samples, station_ids=None, *, initial_scores=()):
     return rows if station_ids is None else [rows[i] for i in station_ids]
 
 
+def episode_generators(seeds, device):
+    return [torch.Generator(device=device).manual_seed(seed) for seed in seeds]
+
+
+def episode_noise(generators, action_dim, active):
+    noise = torch.zeros(len(generators), action_dim, device=active.device)
+    for index in active.nonzero(as_tuple=True)[0].tolist():
+        noise[index] = torch.randn(action_dim, generator=generators[index], device=active.device)
+    return noise
+
+
+def request_episode_grasps(task, station_ids, generators):
+    """Uniform grasp selection tied to each trial, independent of batch layout."""
+    grasps = []
+    for station, generator in zip(station_ids, generators):
+        pool = task.grasp_pools[station]
+        offset = int(torch.rand((), generator=generator, device=task.device) * len(pool))
+        grasps.append(pool[offset])
+    task.requested_grasp_ids = torch.tensor(grasps, device=task.device)
+
+
 @torch.no_grad()
-def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False, capture=None, *, on_progress=None):
+def validation_rollout(
+    agent, env, station_ids, seed, gamma, deterministic=False, capture=None, *,
+    on_progress=None, trial_seeds=None, on_trial=None, replay=None,
+):
     """One episode per vector slot; ended slots reset without entering results twice.
 
     Stage facts (closest pose, both fingers, lift, hold) locate the earliest
     failing phase; they do not replace the configured RL success protocol.
     """
     torch.manual_seed(seed)
-    obs = reset_stations(env, station_ids, mode=getattr(agent, "mode", "graph"))
+    generators = episode_generators(trial_seeds, env.device) if trial_seeds is not None else None
+    mode = getattr(agent, "mode", "graph")
+    if generators is not None and mode == "graph":
+        request_episode_grasps(env.task, station_ids, generators)
+    obs = reset_stations(env, station_ids, mode=mode)
     finished = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     task = env.task
     best_position = torch.full((env.num_envs,), float("inf"), device=env.device)
@@ -77,11 +105,16 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
     steps = 0
     if capture is not None:
         capture.initialize(env, station_ids, seed, deterministic)
+    if replay is not None:
+        replay.initialize(env)
     while not finished.all():
         active = ~finished
-        action, _ = agent.actor.sample(obs, deterministic=deterministic)
+        sampling = {} if generators is None else {"noise": episode_noise(generators, 7, active)}
+        action, _ = agent.actor.sample(obs, deterministic=deterministic, **sampling)
         action[finished] = 0
         observations, reward, terminated, truncated, _ = env.step(action)
+        if replay is not None:
+            replay.sample(env, action)
         if capture is not None:
             capture.sample(env, active)
         position, rotation = (e.norm(dim=-1) for e in task.goal_error())
@@ -108,10 +141,9 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
             unhealthy = bool(env.task.unhealthy[index])
             records[index] = {
                 "station_id": env.task.stations[station_ids[index]]["station_id"],
-                "grasp_source": task.grasps[int(task.grasp_ids[index])]["source"],
-                "grasp_row": task.grasps[int(task.grasp_ids[index])]["row"],
-                "seed": seed,
-                "success": bool(env.task.success[index]),
+                "seed": seed if trial_seeds is None else trial_seeds[index],
+                "steps": steps + 1,
+                "success": bool(env.task.success[index]) and not unhealthy,
                 "collision_free": bool(env.task.collision_free[index]),
                 "infrastructure_failure": unhealthy,
                 "return": None if unhealthy else float(discounted[index]),
@@ -133,8 +165,16 @@ def validation_rollout(agent, env, station_ids, seed, gamma, deterministic=False
                     zip(("Approach", "Pre-grasp", "Grasp", "LIFT"), stage_time[index].cpu().tolist())
                 ),
                 "reward_components": component_sums[index].cpu().tolist(),
-                "reward_component_names": list(REWARD_COMPONENTS),
+                "reward_component_names": list(CONTACT_REWARD_COMPONENTS if mode == "flat" else REWARD_COMPONENTS),
             }
+            if mode == "flat":
+                first_contact = float(task.first_contact_time_s[index])
+                records[index]["first_simultaneous_contact_s"] = first_contact if first_contact >= 0 else None
+            else:
+                grasp = task.grasps[int(task.grasp_ids[index])]
+                records[index].update(grasp_source=grasp["source"], grasp_row=grasp["row"])
+            if on_trial is not None:
+                on_trial(index, records[index])
         finished |= first_done
         steps += 1
         if on_progress is not None and (steps % 100 == 0 or ended):
@@ -387,7 +427,7 @@ def plot_scores(rows, path, q_limits):
     plt.close(fig)
 
 
-def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=False):
+def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=False, num_envs=20):
     """``gpu`` is the physical card the caller bound with select_devices."""
     from .env.environment import StationEnv
 
@@ -398,7 +438,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     if config != saved["metadata"]["config"]:
         raise ValueError("Evaluation requires the checkpoint effective configuration")
     if agent.mode == "flat":
-        return evaluate_flat(config, agent, checkpoint, gpu, output, seed)
+        return evaluate_flat(config, agent, checkpoint, gpu, output, seed, num_envs=num_envs)
     if scores is None:
         raise ValueError("Graph evaluation requires station scores")
     scored = json.loads(Path(scores).read_text())
@@ -415,72 +455,17 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         for trial in range(config["evaluation"]["rollouts_per_station"])
     ]
     (output / "selection.json").write_text(json.dumps(trial_plan, indent=2))
-    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=1)
-    trials = []
+    if num_envs < 1:
+        raise ValueError("num_envs must be positive")
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=min(num_envs, len(trial_plan)))
     try:
-        lookup = {row["station_id"]: i for i, row in enumerate(env.task.stations)}
-        with (output / "trials.jsonl").open("w") as log:
-            for row in trial_plan:
-                seed_all(row["seed"])
-                obs = reset_stations(env, [lookup[row["station_id"]]])
-                states, velocities, controls, actions = [], [], [], []
-                episode_return = 0.0
-                discount = 1.0
-                done = False
-                while not done:
-                    with torch.no_grad():
-                        action, _ = agent.actor.sample(obs)
-                    states.append(env.sim.data.qpos[0].cpu().numpy().copy())
-                    velocities.append(env.sim.data.qvel[0].cpu().numpy().copy())
-                    actions.append(action[0].cpu().numpy().copy())
-                    observations, reward, terminated, truncated, _ = env.step(action)
-                    controls.append(env.sim.data.ctrl[0].cpu().numpy().copy())
-                    obs = policy_observation(observations, agent.mode)
-                    episode_return += discount * float(reward[0])
-                    discount *= config["sac"]["gamma"]
-                    done = bool((terminated | truncated)[0])
-                states.append(env.sim.data.qpos[0].cpu().numpy().copy())
-                velocities.append(env.sim.data.qvel[0].cpu().numpy().copy())
-                name = f"{row['station_id'].lower()}-t{row['trial']:02d}.npz"
-                np.savez_compressed(
-                    output / name,
-                    qpos=np.array(states),
-                    qvel=np.array(velocities),
-                    ctrl=np.array(controls),
-                    action=np.array(actions),
-                )
-                result = {
-                    "station_id": row["station_id"],
-                    "grasp_source": env.task.grasps[int(env.task.grasp_ids[0])]["source"],
-                    "grasp_row": env.task.grasps[int(env.task.grasp_ids[0])]["row"],
-                    "seed": row["seed"],
-                    "trial": row["trial"],
-                    "success": bool(env.task.success[0]),
-                    "collision_free": bool(env.task.collision_free[0]),
-                    "collision_time_s": float(env.task.collision_time[0]),
-                    "max_drift_m": float(env.task.max_drift[0]),
-                    "max_yaw_drift_rad": float(env.task.max_yaw_drift[0]),
-                    "max_lift_drift_m": float(env.task.max_lift_drift[0]),
-                    "return": episode_return,
-                    "infrastructure_failure": bool(env.task.unhealthy[0]),
-                    "reason": (
-                        "infrastructure_failure"
-                        if env.task.unhealthy[0]
-                        else "strict_pick"
-                        if env.task.success[0]
-                        else "fixed_drift_or_fall"
-                        if env.task.failed[0]
-                        else "timeout"
-                    ),
-                    "replay": name,
-                }
-                trials.append(result)
-                log.write(json.dumps(result) + "\n")
-                log.flush()
+        trials, _ = run_evaluation_trials(agent, env, trial_plan, config["sac"]["gamma"], output)
         summary = summarize_trials(selection, trials, seed=seed)
         summary["policy"] = "initialization_baseline" if baseline else "trained_stochastic_actor"
         summary["checkpoint"] = str(Path(checkpoint).absolute())
         summary["physical_gpu"] = gpu
+        summary["num_envs"] = env.num_envs
+        summary["rng"] = "per_trial_generator"
         (output / "summary.json").write_text(json.dumps(summary, indent=2))
 
         station_evaluation(
@@ -495,85 +480,107 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         env.close()
 
 
-def evaluate_flat(config, agent, checkpoint, gpu, output, seed):
-    """Fixed-start stochastic contact trials without grasp or Q-based station selection."""
+def record_evaluation_trial(index, result, *, plan, log, trials, replay, output):
+    if index >= len(plan):
+        return
+    row = plan[index]
+    result["trial"] = row["trial"]
+    if "first_simultaneous_contact_s" in result:
+        result["reason"] = (
+            "infrastructure_failure" if result["infrastructure_failure"] else
+            "simultaneous_contact" if result["success"] else
+            "collision_failure" if not result["collision_free"] else
+            "control_failure" if result["failed"] else "timeout"
+        )
+    else:
+        result["reason"] = (
+            "infrastructure_failure" if result["infrastructure_failure"] else
+            "strict_pick" if result["success"] else
+            "fixed_drift_or_fall" if result["failed"] else "timeout"
+        )
+    if replay is not None:
+        name = f"{row['station_id'].lower()}-t{row['trial']:02d}.npz"
+        replay.save(index, result["steps"], output / name)
+        result["replay"] = name
+    trials[index] = result
+    log.write(json.dumps(result) + "\n")
+    log.flush()
+
+
+def run_evaluation_trials(agent, env, plan, gamma, output, *, capture_all=False):
+    """Bounded batches share the validation runner and persist each terminal result."""
+    lookup = {row["station_id"]: i for i, row in enumerate(env.task.stations)}
+    trials, videos = [], []
+    timings = {}
+    started = time.perf_counter()
+    progress = output / "progress.json"
+    with (output / "trials.jsonl").open("w") as log:
+        for start in range(0, len(plan), env.num_envs):
+            batch = plan[start:start + env.num_envs]
+            padded = batch + [batch[-1]] * (env.num_envs - len(batch))
+            replay = None if capture_all else EpisodeReplays()
+            capture = None
+            if capture_all:
+                capture = RolloutCapture(output, agent.updates, env.research_config,
+                                         selected_slots=list(range(len(batch))),
+                                         trial_ids=[r["trial"] for r in padded],
+                                         trial_seeds=[r["seed"] for r in padded])
+            rows = [None] * len(batch)
+            on_trial = partial(record_evaluation_trial, plan=batch, log=log, trials=rows,
+                               replay=replay, output=output)
+            on_progress = partial(rollout_progress, path=progress, transitions=agent.updates,
+                                  timings=timings, offset=start, count=len(batch), total=len(plan))
+            validation_rollout(agent, env, [lookup[r["station_id"]] for r in padded],
+                               padded[0]["seed"], gamma, trial_seeds=[r["seed"] for r in padded],
+                               on_trial=on_trial, replay=replay, capture=capture, on_progress=on_progress)
+            trials.extend(rows)
+            if capture is not None:
+                videos.extend(capture.videos)
+            print(f"Evaluation: completed {len(trials)}/{len(plan)} trials", flush=True)
+    timings["rollouts_and_videos"] = time.perf_counter() - started
+    evaluation_progress(progress, agent.updates, "complete", timings, len(trials), len(plan))
+    return trials, videos
+
+
+def evaluate_flat(config, agent, checkpoint, gpu, output, seed, *, num_envs):
+    """Twenty fixed-start stochastic trials, including every trial's replay/video."""
     from .env.environment import StationEnv
 
+    if num_envs < 1:
+        raise ValueError("num_envs must be positive")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     (output / "views").mkdir(exist_ok=True)
-    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=1)
-    trials = []
-    videos = []
+    env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=min(num_envs, 20))
     try:
-        station = int(env.task.pool[0])
-        station_name = env.task.stations[station]["station_id"]
-        with (output / "trials.jsonl").open("w") as log:
-            for trial in range(20):
-                trial_seed = seed + trial
-                seed_all(trial_seed)
-                obs = reset_stations(env, [station], mode="flat")
-                capture = RolloutCapture(output, agent.updates, config, selected_slots=[0]) if trial == 0 else None
-                if capture is not None:
-                    capture.initialize(env, [station], trial_seed, False)
-                episode_return = 0.0
-                steps = 0
-                while True:
-                    with torch.no_grad():
-                        action, _ = agent.actor.sample(obs)
-                        observations, reward, terminated, truncated, _ = env.step(action)
-                    episode_return += float(reward[0])
-                    steps += 1
-                    if capture is not None:
-                        capture.sample(env, torch.ones(1, dtype=torch.bool, device=env.device))
-                    if bool((terminated | truncated | env.task.unhealthy)[0]):
-                        break
-                    obs = policy_observation(observations, "flat")
-                unhealthy = bool(env.task.unhealthy[0])
-                success = bool(env.task.success[0]) and not unhealthy
-                result = {
-                    "station_id": station_name,
-                    "seed": trial_seed,
-                    "trial": trial,
-                    "success": success,
-                    "infrastructure_failure": unhealthy,
-                    "collision_free": bool(env.task.collision_free[0]),
-                    "failed": bool(env.task.failed[0]),
-                    "first_simultaneous_contact_s": (float(env.task.first_contact_time_s[0])
-                                                      if env.task.first_contact_time_s[0] >= 0 else None),
-                    "steps": steps,
-                    "episode_return": None if unhealthy else episode_return,
-                    "reason": "infrastructure_failure" if unhealthy else "simultaneous_contact" if success
-                    else "collision_failure" if not bool(env.task.collision_free[0])
-                    else "control_failure" if bool(env.task.failed[0]) else "timeout",
-                }
-                trials.append(result)
-                log.write(json.dumps(result) + "\n")
-                log.flush()
-                if capture is not None:
-                    capture.finish(env, [result])
-                    videos.extend(capture.videos)
+        station_name = env.task.stations[int(env.task.pool[0])]["station_id"]
+        plan = [dict(station_id=station_name, seed=seed + trial, trial=trial) for trial in range(20)]
+        (output / "selection.json").write_text(json.dumps(plan, indent=2))
+        trials, videos = run_evaluation_trials(agent, env, plan, config["sac"]["gamma"], output, capture_all=True)
         healthy = [row for row in trials if not row["infrastructure_failure"]]
         successes = sum(row["success"] for row in healthy)
         collision_free_successes = sum(row["success"] and row["collision_free"] for row in healthy)
-        failure_reason_counts = {
-            reason: sum(row["reason"] == reason for row in trials)
-            for reason in ("infrastructure_failure", "collision_failure", "control_failure", "timeout")
-        }
         summary = {
             "checkpoint": str(Path(checkpoint).absolute()),
             "seed": seed,
             "physical_gpu": gpu,
+            "num_envs": env.num_envs,
+            "rng": "per_trial_generator",
             "policy": "stochastic_flat_contact",
+            "success_protocol": config["success"],
             "station_id": station_name,
             "total_trials": len(trials),
             "healthy_trials": len(healthy),
+            "infrastructure_failures": len(trials) - len(healthy),
             "successes": successes,
             "success_rate": successes / len(healthy) if healthy else None,
             "collision_free_successes": collision_free_successes,
             "collision_free_success_rate": collision_free_successes / len(healthy) if healthy else None,
-            "first_contact_times_s": [row["first_simultaneous_contact_s"] for row in healthy if row["success"]],
-            "failure_reason_counts": failure_reason_counts,
+            "first_contact_times_s": [r["first_simultaneous_contact_s"] for r in healthy if r["success"]],
+            "failure_reason_counts": {
+                reason: sum(r["reason"] == reason for r in trials)
+                for reason in ("infrastructure_failure", "collision_failure", "control_failure", "timeout")
+            },
             "videos": videos,
             "trials": trials,
         }

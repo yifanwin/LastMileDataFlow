@@ -1,4 +1,4 @@
-"""(c) RL 站位图评测：在留出站位上 rollout，并保存事先确定的试验清单。"""
+"""(c) RL 站位图评测：并行运行冻结策略，并保存事先确定的试验清单。"""
 
 import argparse
 import json
@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--gpu", type=int, required=True, help="物理 GPU 编号")
     parser.add_argument("--output", required=True)
     parser.add_argument("--seed", type=int, help="默认取配置的 evaluation.seed")
+    parser.add_argument("--num-envs", type=int, help="并行环境数，默认最多20个；不修改checkpoint配置")
     args = parser.parse_args()
     config = read_config(args.config)
     select_devices([args.gpu])
@@ -33,6 +34,7 @@ def main():
         output=args.output,
         seed=args.seed,
         baseline=args.baseline,
+        **({"num_envs": args.num_envs} if args.num_envs is not None else {}),
     )
     print(json.dumps(result, indent=2))
 

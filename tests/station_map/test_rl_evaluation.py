@@ -271,3 +271,127 @@ class ValidationTests(unittest.TestCase):
                 self.assertEqual([p.value for p in reader.Scalars("loss/actor")], [1.0, 2.5])
                 point, = reader.Scalars("evaluation/train/evaluation_success_rate")
                 self.assertEqual((point.step, point.value), (result["transitions"], 0))
+
+
+class ParallelEvaluationTests(unittest.TestCase):
+    def test_trial_streams_ignore_batch_width_and_finished_lanes(self):
+        from lastmile_dataflow.station_map.rl.evaluation import episode_generators, episode_noise
+
+        generators = episode_generators([42, 43], "cpu")
+        single = episode_generators([43], "cpu")
+        for active in ([True, True], [False, True], [False, True]):
+            batch = episode_noise(generators, 7, torch.tensor(active))
+            alone = episode_noise(single, 7, torch.tensor([True]))
+            torch.testing.assert_close(batch[1], alone[0])
+        first = episode_generators([42], "cpu")
+        episode_noise(first, 7, torch.tensor([True]))
+        torch.testing.assert_close(episode_noise(generators, 7, torch.tensor([True, False]))[0],
+                                   episode_noise(first, 7, torch.tensor([True]))[0])
+
+    def test_grasp_selection_follows_trial_seed_when_lanes_are_reordered(self):
+        from lastmile_dataflow.station_map.rl.evaluation import episode_generators, request_episode_grasps
+
+        task = SimpleNamespace(device="cpu", grasp_pools=[[3, 5, 7], [1, 2]])
+        request_episode_grasps(task, [0, 1], episode_generators([42, 43], "cpu"))
+        original = task.requested_grasp_ids.clone()
+        request_episode_grasps(task, [1, 0], episode_generators([43, 42], "cpu"))
+        torch.testing.assert_close(task.requested_grasp_ids, original.flip(0))
+
+    def test_batches_keep_trial_order_and_exclude_padding(self):
+        from lastmile_dataflow.station_map.rl.evaluation import run_evaluation_trials
+
+        env = SimpleNamespace(num_envs=2, task=SimpleNamespace(stations=[{"station_id": "S0246"}]))
+        plan = [dict(station_id="S0246", seed=42 + i, trial=i) for i in range(3)]
+
+        def rollout(agent, env, stations, seed, gamma, **kwargs):
+            for i in reversed(range(2)):
+                kwargs["on_trial"](i, dict(seed=kwargs["trial_seeds"][i], steps=2,
+                                          success=False, failed=False, infrastructure_failure=False))
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "lastmile_dataflow.station_map.rl.evaluation.validation_rollout", side_effect=rollout
+        ) as run, patch("lastmile_dataflow.station_map.rl.evaluation.EpisodeReplays") as replay:
+            rows, videos = run_evaluation_trials(SimpleNamespace(updates=0), env, plan, 0.99, Path(directory))
+            logged = [json.loads(line) for line in (Path(directory) / "trials.jsonl").read_text().splitlines()]
+        self.assertEqual([r["trial"] for r in rows], [0, 1, 2])
+        self.assertEqual([r["trial"] for r in logged], [1, 0, 2])
+        self.assertEqual([r["seed"] for r in rows], [42, 43, 44])
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(replay.return_value.save.call_count, 3)
+        self.assertEqual(videos, [])
+
+
+class FlatTwoEpisodeEnv(TwoEpisodeEnv):
+    def __init__(self):
+        super().__init__()
+        self.task.first_contact_time_s = torch.tensor([0.1, -1.0])
+        self.task.reward_components = torch.zeros(2, 7)
+
+    def reset(self, env_ids=None):
+        obs, info = super().reset(env_ids)
+        return {"policy": {"flat": obs["policy"]["arm_task_state"]}}, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = super().step(action)
+        return {"policy": {"flat": obs["policy"]["arm_task_state"]}}, reward, terminated, truncated, info
+
+
+class FlatNoiseActor:
+    def sample(self, observation, deterministic=False, *, noise=None):
+        return observation.expand(-1, 7).clone() + noise, None
+
+
+class FlatParallelEvaluationTests(unittest.TestCase):
+    def test_flat_runner_preserves_ongoing_tensor_observations_and_contact_facts(self):
+        from lastmile_dataflow.station_map.rl.evaluation import validation_rollout
+
+        env = FlatTwoEpisodeEnv()
+        callback = Mock()
+        rows = validation_rollout(SimpleNamespace(mode="flat", actor=FlatNoiseActor()), env,
+                                  [0, 1], 42, 0.5, trial_seeds=[42, 43], on_trial=callback)
+        self.assertEqual(callback.call_count, 2)
+        self.assertEqual([r["steps"] for r in rows], [1, 2])
+        self.assertEqual([r["episode_return"] for r in rows], [2.0, 7.0])
+        self.assertEqual([r["seed"] for r in rows], [42, 43])
+        self.assertAlmostEqual(rows[0]["first_simultaneous_contact_s"], 0.1)
+        self.assertIsNone(rows[1]["first_simultaneous_contact_s"])
+        self.assertEqual(len(rows[0]["reward_component_names"]), 7)
+        self.assertNotIn("grasp_source", rows[0])
+        self.assertTrue(torch.all(env.actions[1][0] == 0))
+
+    def test_flat_evaluation_excludes_unhealthy_and_captures_all_twenty(self):
+        from lastmile_dataflow.station_map.rl.evaluation import evaluate_flat
+
+        env = SimpleNamespace(num_envs=20, task=SimpleNamespace(pool=[0], stations=[{"station_id": "S0246"}]), close=Mock())
+        rows = [dict(trial=i, seed=42+i, success=i < 10, collision_free=i < 8,
+                     infrastructure_failure=i >= 18, first_simultaneous_contact_s=0.2,
+                     reason="infrastructure_failure" if i >= 18 else "simultaneous_contact" if i < 10 else "timeout")
+                for i in range(20)]
+        config = {"sac": {"gamma": 0.999}, "success": {"version": "rl-pick-contact-v2", "lift_m": 0.0086}}
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env
+        ), patch("lastmile_dataflow.station_map.rl.evaluation.run_evaluation_trials", return_value=(rows, [])) as run:
+            result = evaluate_flat(config, SimpleNamespace(), "best.pt", 0, directory, 42, num_envs=20)
+            plan = json.loads((Path(directory) / "selection.json").read_text())
+        self.assertEqual([r["seed"] for r in plan], list(range(42, 62)))
+        self.assertTrue(run.call_args.kwargs["capture_all"])
+        self.assertEqual(result["total_trials"], 20)
+        self.assertEqual(result["healthy_trials"], 18)
+        self.assertEqual(result["success_rate"], 10 / 18)
+        self.assertEqual(result["collision_free_success_rate"], 8 / 18)
+        env.close.assert_called_once()
+
+    def test_parallel_override_keeps_checkpoint_configuration_check(self):
+        from lastmile_dataflow.station_map.rl.evaluation import evaluate
+
+        config = {"evaluation": {"seed": 42}}
+        with patch("lastmile_dataflow.station_map.rl.evaluation.resolve_config", side_effect=lambda c: c), patch(
+            "lastmile_dataflow.station_map.rl.evaluation.SAC.load", return_value=(SimpleNamespace(mode="flat"), {"metadata": {"config": {}}})
+        ) as load, patch("lastmile_dataflow.station_map.rl.evaluation.evaluate_flat") as flat:
+            with self.assertRaisesRegex(ValueError, "checkpoint effective configuration"):
+                evaluate(config, checkpoint="best.pt", scores=None, gpu=0, output="unused", num_envs=3)
+            flat.assert_not_called()
+            load.return_value[1]["metadata"]["config"] = config
+            evaluate(config, checkpoint="best.pt", scores=None, gpu=0, output="unused", num_envs=3)
+            self.assertEqual(flat.call_args.kwargs["num_envs"], 3)
+            self.assertEqual(config, {"evaluation": {"seed": 42}})
