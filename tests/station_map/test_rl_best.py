@@ -1,70 +1,95 @@
-"""Training-success selection requires a full 100-episode window."""
-from collections import deque
+"""Best selection shares TensorBoard windows; periodic weights keep actual steps."""
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 import unittest
-from lastmile_dataflow.station_map.rl.training import save_training_checkpoint
+
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+from lastmile_dataflow.station_map.rl.monitor import SuccessWindow, TrainingMonitor
+from lastmile_dataflow.station_map.rl.training import (
+    flush_training_monitor, save_best_checkpoint, save_periodic_checkpoint,
+)
 
 
 class BestTests(unittest.TestCase):
-    def test_strict_improvement_and_final_does_not_overwrite_best(self):
+    def test_best_matches_tensorboard_intervals_and_excludes_warmup_and_unhealthy(self):
+        agent, metadata = Mock(), {}
+        clock = Mock(return_value=0)
+        with TemporaryDirectory() as output, patch(
+            "lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)
+        ):
+            monitor = TrainingMonitor(output, every_seconds=30)
+            try:
+                for success, warmup, unhealthy in ((False, False, False), (True, False, False),
+                                                   (True, True, False), (True, False, True)):
+                    monitor.record_episode({"success": success, "random_warmup": warmup,
+                                            "infrastructure_failure": unhealthy})
+                clock.return_value = 29
+                flush_training_monitor(agent, output, metadata, 10, monitor)
+                agent.save.assert_not_called()
+                clock.return_value = 30
+                flush_training_monitor(agent, output, metadata, 20, monitor)
+                self.assertEqual(metadata["best_training_success_rate"]["count"], 2)
+                self.assertEqual(metadata["best_training_success_rate"]["rate"], 0.5)
+                # The next interval starts empty, with no rolling history.
+                clock.return_value = 60
+                flush_training_monitor(agent, output, metadata, 30, monitor)
+                for now, transition, values in ((90, 40, [False, True]), (120, 50, [False]),
+                                                (150, 60, [True])):
+                    for value in values:
+                        monitor.record_episode({"success": value, "infrastructure_failure": False})
+                    clock.return_value = now
+                    flush_training_monitor(agent, output, metadata, transition, monitor)
+                save_best_checkpoint(agent, output, metadata, 70, None, final=True)
+                self.assertEqual([c.kwargs["transitions"] for c in agent.save.call_args_list], [20, 60])
+                self.assertTrue(all(c.args[0].name == "best.pt" for c in agent.save.call_args_list))
+                self.assertEqual(metadata["best_training_success_rate"]["count"], 1)
+                self.assertEqual(metadata["best_training_success_rate"]["rate"], 1)
+                reader = EventAccumulator(str(Path(output) / "tensorboard")).Reload()
+                self.assertEqual([(p.step, p.value) for p in reader.Scalars("train/success")],
+                                 [(20, 0.5), (40, 0.5), (50, 0), (60, 1)])
+            finally:
+                monitor.close(70)
+
+    def test_final_partial_interval_competes_with_best(self):
+        clock = Mock(return_value=0)
+        with TemporaryDirectory() as output, patch(
+            "lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)
+        ):
+            agent, metadata = Mock(), {}
+            monitor = TrainingMonitor(output, every_seconds=30)
+            monitor.record_episode({"success": True, "infrastructure_failure": False})
+            clock.return_value = 5
+            flush_training_monitor(agent, output, metadata, 10, monitor, force=True)
+            monitor.close(10)
+            self.assertEqual(metadata["best_training_success_rate"]["rate"], 1)
+            reader = EventAccumulator(str(Path(output) / "tensorboard")).Reload()
+            self.assertEqual(reader.Scalars("train/success")[0].step, 10)
+            agent.save.assert_called_once()
+
+    def test_no_episodes_falls_back_only_at_end_and_scored_window_replaces_it(self):
         agent, metadata = Mock(), {}
         with TemporaryDirectory() as output:
-            for transition, values in [(10, [False, True] * 50), (20, [True, False] * 50),
-                                       (30, [False] * 100), (40, [True] * 100)]:
-                save_training_checkpoint(agent, output, metadata, transition, deque(values, maxlen=100), final=True)
-        best_calls = [c for c in agent.save.call_args_list if c.args[0].name == "best.pt"]
-        self.assertEqual([c.kwargs["transitions"] for c in best_calls], [10, 40])
-        self.assertEqual(metadata["best_training_success_rate"]["rate"], 1)
-        self.assertEqual(metadata["recent_episode_successes"], [True] * 100)
+            save_best_checkpoint(agent, output, metadata, 1, None)
+            agent.save.assert_not_called()
+            save_best_checkpoint(agent, output, metadata, 2, None, final=True)
+            self.assertIsNone(metadata["best_training_success_rate"]["rate"])
+            self.assertIsNotNone(metadata["best_training_success_rate"]["fallback"])
+            save_best_checkpoint(agent, output, metadata, 3, SuccessWindow(0, 1))
+            self.assertEqual(metadata["best_training_success_rate"]["rate"], 0)
+            self.assertIsNone(metadata["best_training_success_rate"]["fallback"])
 
-    def test_partial_window_cannot_select_best(self):
-        agent, metadata = Mock(), {}
+    def test_periodic_checkpoints_keep_every_400k_boundary_and_batch_overshoot(self):
+        agent, metadata = Mock(), {"config": {}}
+        checkpoint_at = 400_000
         with TemporaryDirectory() as output:
-            for count in (1, 99):
-                save_training_checkpoint(agent, output, metadata, count, [True] * count)
-                self.assertNotIn("best_training_success_rate", metadata)
-            self.assertTrue(all(c.args[0].name == "latest.pt" for c in agent.save.call_args_list))
-            save_training_checkpoint(agent, output, metadata, 100, [True] * 99 + [False])
-        self.assertEqual(metadata["best_training_success_rate"]["rate"], 0.99)
-        self.assertEqual(metadata["best_training_success_rate"]["count"], 100)
-
-    def test_rolling_window_and_legacy_return_score_is_ignored(self):
-        agent = Mock()
-        metadata = {"best_training_return": {"mean": 10000}}
-        successes = deque([True] * 100, maxlen=100)
-        successes.extend([False] * 25)
-        with TemporaryDirectory() as output:
-            save_training_checkpoint(agent, output, metadata, 100, successes)
-        self.assertEqual(metadata["best_training_success_rate"]["rate"], 0.75)
-        self.assertEqual(metadata["best_training_success_rate"]["count"], 100)
-        self.assertEqual(len(metadata["recent_episode_successes"]), 100)
-        self.assertEqual(agent.save.call_args_list[0].args[0].name, "best.pt")
-
-    def test_incomplete_window_only_falls_back_at_end(self):
-        for count in (0, 1, 99):
-            with self.subTest(count=count), TemporaryDirectory() as output:
-                agent, metadata = Mock(), {}
-                save_training_checkpoint(agent, output, metadata, 1, [True] * count)
-                self.assertNotIn("best_training_success_rate", metadata)
-                save_training_checkpoint(agent, output, metadata, 2, [True] * count, final=True)
-                self.assertIsNone(metadata["best_training_success_rate"]["rate"])
-                self.assertEqual(metadata["best_training_success_rate"]["count"], count)
-                self.assertIsNotNone(metadata["best_training_success_rate"]["fallback"])
-
-    def test_scored_model_replaces_no_episode_fallback(self):
-        agent, metadata = Mock(), {}
-        with TemporaryDirectory() as output:
-            save_training_checkpoint(agent, output, metadata, 1, [], final=True)
-            save_training_checkpoint(agent, output, metadata, 2, [False] * 100)
-        self.assertEqual(metadata["best_training_success_rate"]["rate"], 0)
-        self.assertIsNone(metadata["best_training_success_rate"]["fallback"])
-
-    def test_legacy_small_window_score_does_not_block_full_window(self):
-        agent = Mock()
-        metadata = {"best_training_success_rate": {"rate": 1.0, "count": 1}}
-        with TemporaryDirectory() as output:
-            save_training_checkpoint(agent, output, metadata, 100, [True] * 98 + [False] * 2)
-        self.assertEqual(metadata["best_training_success_rate"]["rate"], 0.98)
-        self.assertEqual(metadata["best_training_success_rate"]["count"], 100)
-        self.assertEqual(agent.save.call_args_list[0].args[0].name, "best.pt")
+            for transitions in (399_999, 400_000, 400_128, 799_999, 800_127, 1_200_001):
+                checkpoint_at = save_periodic_checkpoint(agent, output, metadata, transitions, checkpoint_at)
+            self.assertTrue((Path(output) / "ckpts").is_dir())
+            self.assertEqual([c.args[0].relative_to(output).as_posix() for c in agent.save.call_args_list],
+                             ["ckpts/step-000400000.pt", "ckpts/step-000800127.pt", "ckpts/step-001200001.pt"])
+            self.assertEqual([c.kwargs["transitions"] for c in agent.save.call_args_list],
+                             [400_000, 800_127, 1_200_001])
+            self.assertEqual(checkpoint_at, 1_600_000)

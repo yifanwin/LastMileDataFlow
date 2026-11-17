@@ -18,7 +18,7 @@ from .sac.replay import Replay
 from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, FLAT_FIELDS, policy_observation, graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
-from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
+from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, SuccessWindow, TrainingMonitor
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
@@ -26,6 +26,9 @@ from .config import resolve_config
 import pickle
 from queue import Empty
 from queue import Full
+
+
+CHECKPOINT_EVERY_TRANSITIONS = 400_000
 
 
 def runtime_metadata(config, physical_gpu):
@@ -85,7 +88,6 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
 
 
 def validation_checkpoint(agent, env, config, transitions, output, log, monitor):
-    monitor.flush(transitions, force=True)
     started = time.perf_counter()
     event, scores = monitor_validation(agent, env, config, transitions, output, force_video=True, return_scores=True)
     event["seconds"] = time.perf_counter() - started
@@ -97,24 +99,33 @@ def validation_checkpoint(agent, env, config, transitions, output, log, monitor)
     return scores
 
 
-def save_training_checkpoint(agent, output, metadata, transitions, successes, *, final=False):
-    score = sum(successes) / 100 if len(successes) == 100 else None
+def save_best_checkpoint(agent, output, metadata, transitions, window: SuccessWindow | None, *, final=False):
     best = metadata.get("best_training_success_rate")
-    if best is not None and best["count"] < 100:
-        metadata.pop("best_training_success_rate")
-        best = None
-    improved = score is not None and (best is None or best["rate"] is None or score > best["rate"])
-    fallback = final and best is None and score is None
+    improved = window is not None and (best is None or best["rate"] is None or window.rate > best["rate"])
+    fallback = final and best is None and window is None
     if improved or fallback:
         metadata["best_training_success_rate"] = {
-            "metric": "recent_episode_success_rate",
-            "rate": score, "count": len(successes), "transitions": transitions,
-            "fallback": "fewer than 100 eligible episodes; final model" if fallback else None,
+            "metric": "tensorboard_interval_success_rate",
+            "rate": window.rate if window is not None else None,
+            "count": window.count if window is not None else 0,
+            "transitions": transitions,
+            "fallback": "no eligible episodes; final model" if fallback else None,
         }
-    metadata["recent_episode_successes"] = list(successes)
-    if improved or fallback:
         agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
-    agent.save(Path(output) / "latest.pt", metadata=metadata, transitions=transitions)
+
+
+def flush_training_monitor(agent, output, metadata, transitions, monitor, *, force=False):
+    window = monitor.flush(transitions, force=force)
+    save_best_checkpoint(agent, output, metadata, transitions, window)
+
+
+def save_periodic_checkpoint(agent, output, metadata, transitions, checkpoint_at):
+    if transitions >= checkpoint_at:
+        directory = Path(output) / "ckpts"
+        directory.mkdir(exist_ok=True)
+        agent.save(directory / f"step-{transitions:09d}.pt", metadata=metadata, transitions=transitions)
+        return (transitions // CHECKPOINT_EVERY_TRANSITIONS + 1) * CHECKPOINT_EVERY_TRANSITIONS
+    return checkpoint_at
 
 
 def target_updates(healthy, warmup, interval):
@@ -259,13 +270,14 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             if saved["metadata"]["config"] != config:
                 raise ValueError("Resume requires the checkpoint effective configuration")
             transitions = saved["transitions"]
-            for key in ("best_training_success_rate", "recent_episode_successes"):
-                if key in saved["metadata"]:
-                    metadata[key] = saved["metadata"][key]
-            best = metadata.get("best_training_success_rate")
-            if best is not None and best["count"] < 100:
-                metadata.pop("best_training_success_rate")
-            previous_best = Path(resume).parent / "best.pt"
+            best = saved["metadata"].get("best_training_success_rate")
+            resume_output = Path(resume).parent
+            if resume_output.name == "ckpts":
+                # A historical snapshot cannot identify an overwritten best.pt.
+                resume_output = resume_output.parent
+            elif best is not None and best.get("metric") == "tensorboard_interval_success_rate":
+                metadata["best_training_success_rate"] = best
+            previous_best = resume_output / "best.pt"
             if metadata.get("best_training_success_rate") is not None:
                 if not previous_best.is_file():
                     raise ValueError("Resume requires the previously selected best.pt")
@@ -274,7 +286,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         else:
             agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode)
             transitions = 0
-        same_output = resume is not None and Path(resume).parent.resolve() == output.resolve()
+        same_output = resume is not None and resume_output.resolve() == output.resolve()
         monitor = TrainingMonitor(
             output,
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
@@ -284,7 +296,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]
-        recent_successes = deque(metadata.get("recent_episode_successes", []), maxlen=100)
+        checkpoint_at = (transitions // CHECKPOINT_EVERY_TRANSITIONS + 1) * CHECKPOINT_EVERY_TRANSITIONS
         evaluation_at = transitions + 100000
         started = time.perf_counter()
         discarded = 0
@@ -305,8 +317,6 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 for line in episodes.splitlines():
                     event = json.loads(line)
                     event.update(transitions=transitions, worker=worker)
-                    if not event["infrastructure_failure"] and not event["random_warmup"]:
-                        recent_successes.append(event["success"])
                     log.write(json.dumps(event) + "\n")
                     monitor.record_episode(event)
                 if before < settings["warmup_min"] <= collected:
@@ -328,7 +338,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     "transitions_per_s": collected / (time.perf_counter() - started),
                 }
                 monitor.record_runtime(learner)
-                monitor.flush(transitions)
+                flush_training_monitor(agent, output, metadata, transitions, monitor)
                 losses = {}
                 while updates < target_updates(collected, settings["warmup_min"], settings["transitions_per_update"]):
                     losses = agent.update(replay.sample(settings["batch_size"]).to(env.device))
@@ -340,17 +350,19 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     )
                     monitor.record_update(losses)
                     monitor.record_runtime(learner)
-                    monitor.flush(transitions)
+                    flush_training_monitor(agent, output, metadata, transitions, monitor)
                     if updates % 16 == 0:
                         workers.publish(agent, False)
                 if transitions >= log_at:
                     log.write(json.dumps({**learner, **{k: float(v) for k, v in losses.items()}}) + "\n")
                     log.flush()
-                    save_training_checkpoint(agent, output, metadata, transitions, recent_successes)
+                    agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
                     log_at += settings["log_every"]
+                checkpoint_at = save_periodic_checkpoint(agent, output, metadata, transitions, checkpoint_at)
                 if settings.get("periodic_evaluation", False) and transitions >= evaluation_at and transitions < limit:
                     # Pause and drain before evaluation, keeping queued experience for normal ingestion.
                     pending = workers.pause()
+                    flush_training_monitor(agent, output, metadata, transitions, monitor, force=True)
                     validation_checkpoint(agent, env, config, transitions, output, log, monitor)
                     workers.resume()
                     for message in pending:
@@ -372,10 +384,11 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 + "\n"
             )
             monitor.record_runtime({"generated_unused": discarded})
-            monitor.flush(transitions, force=True)
+            flush_training_monitor(agent, output, metadata, transitions, monitor, force=True)
             workers.close()
             workers = None
-            save_training_checkpoint(agent, output, metadata, transitions, recent_successes, final=True)
+            save_best_checkpoint(agent, output, metadata, transitions, None, final=True)
+            agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
             agent, _ = SAC.load(output / "best.pt", env.device)
             if not contact:
                 initial_scores = validation_checkpoint(agent, env, config, transitions, output, log, monitor)

@@ -1,7 +1,7 @@
 # 固定底盘 mjlab / SAC 研究入口
 
 - 状态：active
-- 日期：2026-11-16
+- 日期：2026-11-17
 - 替代：无
 - 关联：[方块接触抬升v2](20-cube-contact-lift-v2.md)、[旧方块v1](19-cube-contact-single-station.md)、../plan/01-implementation.md、../delivery/04-implementation.md
 
@@ -73,7 +73,9 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。每次日志 checkpoint 保存 latest，并按最近至多 100 条健康、完整、全程非随机预热训练回合的成功率选择 best；不足100回合使用已有回合，成功率严格提高才覆盖，同分保留原best。结束时保存最终 latest，再独立加载 best 评估一次（方块contact协议不执行终点评估）。没有合格回合时才以最终模型作为 best，并标记无评分。恢复训练保留成功率排名及近期成功标记窗口；旧回报排名不转换为成功率。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt`、`ckpts/step-<实际累计步数>.pt` 和 `metrics.jsonl`。每次日志 checkpoint 保存 latest；每次 TensorBoard 刷新使用同一窗口的 `train/success` 选择 best，默认窗口 30 秒，成功率严格提高才覆盖，同分保留原 best。只统计健康、完整、全程非随机预热训练回合；窗口之间不累计，不要求满 100 回合，空窗口不比较。训练结束的不足 30 秒尾段随 TensorBoard 强制刷新并参与比较；全程没有有效回合时才用最终模型作为无评分 best。训练结束保存最终 latest，再独立加载 best 评估一次（方块 contact 协议不执行终点评估）。
+
+每跨过累计 400000 条健康 transition，独立保存一次完整 checkpoint 到 `ckpts/`，全部保留；以接收该批次并完成对应更新后的实际步数命名，例如 `ckpts/step-000400000.pt`。批量采样可能略超阈值，后续阈值仍固定为 800000、1200000 等。恢复训练按累计步数定位下一个 40 万阈值。恢复 latest 时保留新版 TensorBoard 窗口排名，旧回报或最近 100 回合的排名不沿用；恢复 `ckpts/` 历史快照时重新比较 best，避免引用已被后来训练覆盖的根目录 best。窗口统计从恢复时重新开始。历史 run 的权重文件不自动改写。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -187,11 +189,13 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 ## 方块接触实验（2026-11-16）
 
-当前配置 `configs/station_map/rl/val103_cube_s0246_facing.yaml` 使用 `observation.mode: flat`、65维输入与 `success.version: rl-pick-contact-v2`：双指同子步接触且方块中心相对初态抬升0.0086 m即成功。夹爪动作正值闭爪、负值张开；[旧v1实验](19-cube-contact-single-station.md)的成功仅表示接触。
+2026-11-17 当前成功与奖励口径见[连续保持0.25秒与历史最高抬升奖励](33-cube-hold-quarter-second-reward.md)，此前调整见[最低点离桌面与接触力门槛](31-cube-clearance-success-reward.md)。历史训练报告保留各次运行的原判定。
+
+当前配置 `configs/station_map/rl/val103_cube_s0246_facing.yaml` 使用 `observation.mode: flat`、65维输入与 `success.version: rl-pick-contact-v2`：双指对方块的接触法向力各严格大于0.5 N、方块最低点距原始桌面至少0.01 m、方块无桌面/场景支撑接触，三项条件须连续保持0.25 s才成功（2026-11-17更新）。逐物理子步累计，任一条件中断即清零重新计时，达标后锁存成功并在策略步末终止。最低点按当前旋转计算，桌面高度固定为场景生成时真实支撑面高度。夹爪动作正值闭爪、负值张开；[旧v1实验](19-cube-contact-single-station.md)的成功仅表示接触。
 
 2026-11-17更新：抓取位置误差除以0.02 m，原始旋转误差除以20°对应的弧度值，不裁剪；奖励仍用原始米和弧度。七项奖励为位置、旋转、碰撞、成功、闭爪、双指接触、抬升，关闭张开奖励；碰撞每策略步最多扣1分。
 
-抓取阶段为严格小于3 cm和20°，首次双指同时承力奖励5分，每回合仅一次；离开阶段再进入不恢复资格。事件逐物理子步采集，策略步末结算。闭爪奖励使用实际指间距：`c=clip(1-width/open_grip,0,1)`；抬升进度为 `Φ=clip((z-z_initial)/0.0086,0,1)`。闭爪以对准为有效阶段，抬升以双指同时承力为有效阶段；两者沿用策略步末采样，进入阶段时以当前实际进度重置峰值基准，该次不加分，持续阶段内仅对峰值增量按3和5加权。保持或下降均不加分、不扣分；失去条件再进入不补发此前进度。各阶段共享回合额度，闭爪累计最多3分、抬升最多5分；局部reset仅清除对应环境的阶段状态、峰值、已发额度和接触资格。
+抓取阶段为严格小于3 cm和20°，首次双指同时承力奖励3分，每回合仅一次；离开阶段再进入不恢复资格。事件逐物理子步采集，策略步末结算。位置奖励为 `20×(d_previous−d_current)`，旋转奖励为 `5×(θ_previous−θ_current)`，分别使用原始米和弧度。闭爪奖励使用实际指间距：`c=clip(1-width/open_grip,0,1)`；对准时进入阶段，以当前实际进度作为基准，持续阶段按峰值增量加权3，重入不补发、整回合累计最多3分。抬升进度为 `Φ=clip(h/0.01,0,1)`，其中 `h=z_center−(size_m/2)×Σ|R_world[2,j]|−z_table`；仅双指有效接触时更新整回合历史峰值，奖励 `8×(Φ_peak_current−Φ_peak_previous)`，峰值初始为0、松开不重置、保持或下降不加分，整回合累计最多8分。抓握奖励、抬升奖励、评估与视频的双指接触条件统一为两指法向力均严格大于0.5 N；评估 `max_lift_m` 和视频 `lift` 均记录最低点离桌面高度。无桌面接触使用既有场景支撑传感器的接触标记，即使法向力很小也中断保持。成功奖励仍为一次性30分、碰撞每策略步最多扣1分；局部reset仅清除对应环境的保持计时、峰值和接触资格。
 
 训练预算为3,000,000条健康transition，batch_size为512，预热20,000，每128条新增经验更新一次；CUDA0–3各128环境时共512环境。最新改动、验证与四卡训练见[阶段峰值奖励与成功率选模](29-cube-stage-peak-success-best-training.md)，上一轮结果见[阶段接触奖励结果](28-cube-stage-contact-b512-results.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务；奖励与batch变化使用新run从头训练。
 
@@ -209,3 +213,11 @@ PYTHONPATH="$PWD/src" /data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-cri
 ```
 
 渲染前按环境说明设置EGL及native库路径。独立评估不需要station Q scores。
+
+### 2026-11-17T16:41:37+08:00 新判定四卡训练已启动
+
+当前训练run为 `outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-164137-s0246-cube-clearance-1cm-force05-3m-b512-g0123`，源码固定于 `d618bb709b77657a72c2a449cf079079c26eca73`；CUDA0–3各128环境，从零训练300万条健康经验，batch512、seed42，无resume。已核查120,064条健康经验与781次SAC更新、四卡绑定及TensorBoard；本次采用双指>0.5 N、最低点距桌面≥1 cm和姿态权重1。详情见[启动记录](32-cube-clearance-training-launch.md)，此前“仅验证1024条”的描述属于上一轮。
+
+### 2026-11-17T17:53:32.106298+08:00 当前CUDA2–3训练
+
+按用户指令，从头启动当前0.25 s保持协议与新奖励配置。run为 `outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-175136-s0246-cube-hold025-3m-b512-g23`，固定源码 `bcbaaac19a6858856e6d0be3067a5fd1de71a837`；CUDA2–3各128环境，300万健康经验预算、batch512、seed42、无resume。已核查实际采样与更新；[启动记录](34-cube-hold-g23-training-launch.md)。先前CUDA0–3训练已按用户指令停止，旧产物保留。

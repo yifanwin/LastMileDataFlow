@@ -17,6 +17,12 @@ DEFAULT_TENSORBOARD_EVERY_SECONDS = 30
 
 
 @dataclass
+class SuccessWindow:
+    rate: float
+    count: int
+
+
+@dataclass
 class _Mean:
     total: float | Tensor = 0.0
     count: int = 0
@@ -67,7 +73,7 @@ class TrainingMonitor:
             if key not in ("event", "transitions")
         })
 
-    def flush(self, transitions, *, force=False):
+    def flush(self, transitions, *, force=False) -> SuccessWindow | None:
         now = time.monotonic()
         if not force and now - self.last_flush < self.every_seconds:
             return
@@ -76,9 +82,12 @@ class TrainingMonitor:
         for tag, value in self.latest.items():
             self.writer.add_scalar(tag, float(value), transitions)
         self.writer.flush()
+        success = self.means.get("train/success")
+        window = SuccessWindow(float(success.total / success.count), success.count) if success is not None else None
         self.means.clear()
         self.latest.clear()
         self.last_flush = now
+        return window
 
     def record_evaluation(self, event):
         prefix = f"evaluation/{event['scope']}"

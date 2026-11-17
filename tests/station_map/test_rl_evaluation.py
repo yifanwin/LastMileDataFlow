@@ -204,17 +204,22 @@ class ValidationTests(unittest.TestCase):
         config = resolve_config(config)
         prefix = "lastmile_dataflow.station_map.rl.training."
         cases = (
-            (False, False, False, False, 0), (True, True, True, False, 100), (True, False, False, False, 0),
-            (True, True, False, False, 0), (True, True, True, True, 100),
-            (True, False, True, False, 1),
+            (False, False, False, False, 0, False), (True, True, True, False, 100, False),
+            (True, False, False, False, 0, False), (True, True, False, False, 0, False),
+            (True, True, True, True, 100, False), (True, False, True, False, 1, False),
+            (True, True, True, False, 1, False), (True, True, True, True, 1, True),
         )
-        for resume, has_best, has_score, same_output, score_count in cases:
+        for resume, has_best, has_score, same_output, score_count, from_ckpts in cases:
             with self.subTest(resume=resume, has_best=has_best, has_score=has_score, same_output=same_output), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 parent = Path(directory)
                 source = parent / "previous"
                 source.mkdir()
                 if has_best:
                     (source / "best.pt").touch()
+                resume_path = source / "latest.pt"
+                if from_ckpts:
+                    (source / "ckpts").mkdir()
+                    resume_path = source / "ckpts" / "step-000000100.pt"
                 output = source if same_output else parent / "new"
                 clock = Mock(return_value=0)
                 stack.enter_context(patch("lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)))
@@ -226,8 +231,11 @@ class ValidationTests(unittest.TestCase):
                     return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
 
                 agent.update.side_effect = update
-                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"rate": 1.0, "count": score_count} if has_score else None, "recent_episode_successes": [True] * score_count if has_score else []}}
+                score_metric = "tensorboard_interval_success_rate" if has_best else "recent_episode_success_rate"
+                preserve_best = resume and has_score and has_best and not from_ckpts
+                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"metric": score_metric, "rate": 1.0, "count": score_count} if has_score else None}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
+                stack.enter_context(patch(prefix + "CHECKPOINT_EVERY_TRANSITIONS", 103))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
                 stack.enter_context(patch(prefix + "runtime_metadata", return_value={}))
@@ -269,7 +277,7 @@ class ValidationTests(unittest.TestCase):
                 stack.enter_context(patch(prefix + "station_scores", return_value=[]))
                 stack.enter_context(patch(prefix + "plot_scores"))
                 result = train(config, gpus=[0], output=output, seed=42,
-                               resume=source / "latest.pt" if resume else None,
+                               resume=resume_path if resume else None,
                                max_transitions=105 if resume else 5)
                 self.assertEqual(monitor.call_count, 1)
                 self.assertEqual(monitor.call_args.args[3], result["transitions"])
@@ -277,17 +285,18 @@ class ValidationTests(unittest.TestCase):
                 self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
                 self.assertEqual(result["transitions"], 105 if resume else 5)
                 workers.pause.assert_called_once()
-                if not (resume and has_score and score_count == 100):
+                if not preserve_best:
                     self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
                 else:
                     self.assertTrue((output / "best.pt").is_file())
                 self.assertEqual(sac.load.call_args.args[0], output / "best.pt")
                 self.assertEqual(sac.load.call_count, 2 if resume else 1)
                 metadata = agent.save.call_args.kwargs["metadata"]
-                expected = (([True] * score_count if resume and has_score else []) + [False, True])[-100:]
-                self.assertEqual(metadata["recent_episode_successes"], expected)
+                self.assertNotIn("recent_episode_successes", metadata)
                 self.assertEqual(metadata["best_training_success_rate"]["rate"],
-                                 1. if resume and has_score and score_count == 100 else None)
+                                 1. if preserve_best else 0.5)
+                snapshots = [c for c in agent.save.call_args_list if c.args[0].parent.name == "ckpts"]
+                self.assertEqual([c.kwargs["transitions"] for c in snapshots], [103] if resume else [])
                 workers.close.assert_called_once()
                 env.close.assert_called_once()
                 self.assertEqual(monitor_class.call_args.kwargs["every_seconds"], 30)

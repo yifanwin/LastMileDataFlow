@@ -16,7 +16,18 @@
 - 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。
 - RL 站位图：旧协议仍在研究，学习策略尚无成功；独立的[方块双指接触单站位实验](rl-station-map/delivery/19-cube-contact-single-station.md)正在验证，不能把 DLS 物理接触当作策略成功；算法与训练主链见[算法与训练 pipeline](rl-station-map/delivery/algorithm-training-pipeline.md)，运行见[运行指南](rl-station-map/delivery/running.md)，接手见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)。
 - lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
+- cuRobo方块基线：[S0246固定10次pick试验](rl-station-map/delivery/22-curobo-cube-pick-10-trials.md)，完整pick成功0/10，均在闭爪后的抬升规划阶段失败。 [关闭cuRobo碰撞对照](rl-station-map/delivery/23-curobo-cube-pick-collision-off-10-trials.md)成功10/10，保留MuJoCo物理碰撞。
 - 公开机器人配套资产是否齐全仍是复现限制。
+
+- RL 输入尺度：[S0246 65维归一化检查](rl-station-map/delivery/24-cube-input-normalization-audit.md)，重新采样16万条输入，逐维统计与数值检查。
+- RL 方块归一化初版：[误差归一化与奖励调整](rl-station-map/delivery/25-cube-normalization-rewards.md)，2 cm / 20°归一化、碰撞−1、关闭张开奖励、增加抬升进度差奖励，预算300万条健康transition。
+- RL 方块上一轮训练：[归一化与新奖励300万条启动记录](rl-station-map/delivery/26-cube-normalized-3m-training-launch.md)，已按用户指令停止，独立run保留实际采样、更新与监控记录。
+- RL 方块上一版奖励与训练：[阶段接触事件、平滑闭爪、batch512](rl-station-map/delivery/27-cube-stage-contact-b512-training.md)，停止上一轮后在CUDA0–3从头训练300万条健康样本，旧run完整保留。
+- RL 方块300万训练结果：[阶段成功率与奖励分解](rl-station-map/delivery/28-cube-stage-contact-b512-results.md)，完整完成23,281次更新；中期成功约95%–96%，后期回报被重复接触与闭爪奖励主导，最后100个训练回合成功0次，尚无独立checkpoint评估。
+
+- RL 方块当前成功与奖励口径：[连续保持0.25秒与历史最高抬升奖励](rl-station-map/delivery/33-cube-hold-quarter-second-reward.md)，双指各>0.5 N、最低点距桌面≥1 cm、无支撑接触连续保持0.25 s；位置/旋转/接触/抬升权重为20/5/3/8。本轮仅修改与离线验证，上一轮[训练记录](rl-station-map/delivery/32-cube-clearance-training-launch.md)保留原判定。
+
+- RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
 ## 主题
 
@@ -45,3 +56,7 @@
 | `archives/curobo-time-optimization/2026-10-24/` | 加速专题的旧方案、探针与耗时分析 | 原 `curobo-time-optimization/archive/`，已被当前方案接续 |
 | `archives/no-edit-calibration/` | 无编辑场景标定实验（10-27）、低成功率归因、Oracle 边界分析与未实施的调整清单 | 旧版本链路上的实验记录，用户 11-12 定为归档 |
 | `archives/build-lastmile-datasets/` | 连续采集数据集的需求与首轮实现（引用型结果＋独立物化） | 独立物化入口已删除，采集现在直接导出自包含数据集；用户 11-12 定为归档 |
+
+- RL 方块阶段峰值与成功率选模：[奖励调整及四卡训练](rl-station-map/delivery/29-cube-stage-peak-success-best-training.md)，已完成300万经验/23,281次更新；末50万训练成功率96.80%、末100回合98/100，但末100回合无碰撞成功0/100；best锁定于早期1/1窗口，尚无独立checkpoint评估。
+
+- RL 方块当前训练：[CUDA2–3连续保持0.25秒训练](rl-station-map/delivery/34-cube-hold-g23-training-launch.md)，从头300万健康经验、各128环境、batch512，实际采样与学习更新已核查；此前四卡训练已停止。
