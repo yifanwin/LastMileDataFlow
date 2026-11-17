@@ -231,7 +231,7 @@ class ValidationTests(unittest.TestCase):
                     return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
 
                 agent.update.side_effect = update
-                score_metric = "tensorboard_interval_success_rate" if has_best else "recent_episode_success_rate"
+                score_metric = "recent_100_episode_success_rate" if has_best else "tensorboard_interval_success_rate"
                 preserve_best = resume and has_score and has_best and not from_ckpts
                 saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"metric": score_metric, "rate": 1.0, "count": score_count} if has_score else None}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
