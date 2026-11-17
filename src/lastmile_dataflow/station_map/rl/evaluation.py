@@ -18,6 +18,7 @@ from .env.observation import graph_observation, policy_observation
 from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
 from .devices import VISIBLE_DEVICE
+from .env.terms import finger_contact, target_lift_height
 
 
 def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
@@ -119,13 +120,13 @@ def validation_rollout(
             capture.sample(env, active)
         position, rotation = (e.norm(dim=-1) for e in task.goal_error())
         reached_pose |= active & (position < 0.01) & (rotation < np.deg2rad(10))
-        lift = env.sim.data.xpos[:, task.target, 2] - task.height_reference
+        lift = target_lift_height(env)
         best_position = torch.where(active, torch.minimum(best_position, position), best_position)
         best_rotation = torch.where(active, torch.minimum(best_rotation, rotation), best_rotation)
-        both_fingers |= active & (task.forces > 1e-6).all(-1)
+        both_fingers |= active & finger_contact(env)
         max_lift = torch.where(active, torch.maximum(max_lift, lift), max_lift)
         max_hold = torch.where(active, torch.maximum(max_hold, task.hold.float()), max_hold)
-        both = (task.forces > 1e-6).all(-1)
+        both = finger_contact(env)
         grasp = ~both & (position < 0.01) & (rotation < np.deg2rad(10))
         pre = ~both & ~grasp & (position < 0.04)
         approach = ~both & ~grasp & ~pre

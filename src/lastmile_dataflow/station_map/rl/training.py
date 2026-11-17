@@ -98,15 +98,18 @@ def validation_checkpoint(agent, env, config, transitions, output, log, monitor)
 
 
 def save_training_checkpoint(agent, output, metadata, transitions, successes, *, final=False):
-    score = sum(successes) / len(successes) if successes else None
+    score = sum(successes) / 100 if len(successes) == 100 else None
     best = metadata.get("best_training_success_rate")
+    if best is not None and best["count"] < 100:
+        metadata.pop("best_training_success_rate")
+        best = None
     improved = score is not None and (best is None or best["rate"] is None or score > best["rate"])
     fallback = final and best is None and score is None
     if improved or fallback:
         metadata["best_training_success_rate"] = {
             "metric": "recent_episode_success_rate",
             "rate": score, "count": len(successes), "transitions": transitions,
-            "fallback": "no eligible episodes; final model" if fallback else None,
+            "fallback": "fewer than 100 eligible episodes; final model" if fallback else None,
         }
     metadata["recent_episode_successes"] = list(successes)
     if improved or fallback:
@@ -259,6 +262,9 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             for key in ("best_training_success_rate", "recent_episode_successes"):
                 if key in saved["metadata"]:
                     metadata[key] = saved["metadata"][key]
+            best = metadata.get("best_training_success_rate")
+            if best is not None and best["count"] < 100:
+                metadata.pop("best_training_success_rate")
             previous_best = Path(resume).parent / "best.pt"
             if metadata.get("best_training_success_rate") is not None:
                 if not previous_best.is_file():

@@ -89,11 +89,12 @@ class RewardTests(unittest.TestCase):
             lift_peak=torch.zeros(n), lift_paid=torch.zeros(n),
             step_contact=torch.zeros(n),
             height_reference=torch.full((n,), 0.77),
+            table_height_m=0.75,
             reward_components=torch.zeros(n, len(CONTACT_REWARD_COMPONENTS)),
         )
         target_position = torch.zeros(n, 3)
         target_position[:, 2] = task.height_reference
-        task.poses = lambda: (None, None, None, None, target_position, None)
+        task.poses = lambda: (None, None, None, None, target_position, torch.eye(3)[None].expand(n, -1, -1))
         task.last_action[:, -1] = torch.tensor(actions)
         return SimpleNamespace(task=task, step_dt=0.05, research_config=config)
 
@@ -105,8 +106,8 @@ class RewardTests(unittest.TestCase):
         task.previous_distance[1] = 0.04
         task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -1., 30., 0., 5., 0.]))
-        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -1., 0., 0., 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.1, -1., 30., 0., 5., 0.]))
+        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.1, -1., 0., 0., 0., 0.]))
         env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         task.step_contact.zero_()
         reward(env)
@@ -184,13 +185,15 @@ class RewardTests(unittest.TestCase):
                                    sim=SimpleNamespace(data=SimpleNamespace(
                                        overflow=torch.zeros(1), qpos=torch.zeros(1, 1),
                                        qvel=torch.zeros(1, 1), qacc=torch.zeros(1, 1))))
+        task.env.task = task
+        task.table_height_m = -0.02
         target_position = torch.zeros(1, 3)
         task.poses = lambda: (torch.zeros(1, 3), torch.eye(3)[None], None, None,
                               target_position, torch.eye(3)[None])
         task.goal_error = lambda: (torch.zeros(1, 3), torch.zeros(1, 3))
         samples = iter((torch.tensor([[1., 0.]]), torch.tensor([[0., 1.]]),
-                        torch.tensor([[1e-6, 2.]]), torch.tensor([[0.1, 0.2]]),
-                        torch.zeros(1, 2), torch.tensor([[0.1, 0.2]]), torch.zeros(1, 2)))
+                        torch.tensor([[0.5, 2.]]), torch.tensor([[0.6, 0.7]]),
+                        torch.zeros(1, 2), torch.tensor([[0.6, 0.7]]), torch.zeros(1, 2)))
         hits = iter([torch.ones(1, 2, dtype=torch.bool)] + [torch.zeros(1, 2, dtype=torch.bool)] * 6)
         task.contact_facts = lambda: (next(samples), torch.tensor([False]), next(hits))
         task.forces = torch.zeros(1, 2)
@@ -225,12 +228,12 @@ class RewardTests(unittest.TestCase):
             task.sample_physics()
             self.assertFalse(bool(task.success[0]))
         # Both fingers alone are no longer success.
-        target_position[:, 2] = 0.008599
+        target_position[:, 2] = 0.009999
         task.sample_physics()
         self.assertFalse(bool(task.success[0]))
         self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
         # Reaching height in a later, contact-free substep cannot combine events.
-        target_position[:, 2] = 0.0086
+        target_position[:, 2] = 0.01
         task.sample_physics()
         self.assertFalse(bool(task.success[0]))
         task.sample_physics()
@@ -242,14 +245,15 @@ class RewardTests(unittest.TestCase):
         self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
         self.assertTrue(bool(task.step_collision[0]))
         self.assertAlmostEqual(float(task.collision_time[0]), 0.002)
-        # The reference is per episode, rather than an absolute world-height threshold.
+        # The tabletop is fixed independently of the per-episode center baseline.
         task.success.zero_()
         task.height_reference[:] = 0.77
+        task.table_height_m = 0.75
         task.contact_facts = lambda: (torch.ones(1, 2), torch.tensor([False]), torch.zeros(1, 2, dtype=torch.bool))
         target_position[:, 2] = 0.77
         task.sample_physics()
         self.assertFalse(bool(task.success[0]))
-        target_position[:, 2] = 0.78
+        target_position[:, 2] = 0.781
         task.failed[:] = True
         task.sample_physics()
         self.assertFalse(bool(task.success[0]))
@@ -262,6 +266,58 @@ class RewardTests(unittest.TestCase):
         task.sample_physics()
         self.assertTrue(bool(task.success[0]))
 
+    def test_tilted_cube_clearance_controls_success_and_lift_reward(self):
+        env = self.contact_reward_env([0.1], [0.8], [0.])
+        task = env.task
+        position = task.poses()[4]
+        tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5],
+                              [0., 2**-0.5, 2**-0.5]]])
+        task.poses = lambda: (None, None, None, None, position, tilt)
+        # Upright: 0.78 would give 1 cm clearance; tilted: only about 1.7 mm.
+        position[:, 2] = 0.78
+        reward(env)  # Enter the lift stage without backpay.
+        position[:, 2] += 0.002
+        reward(env)
+        self.assertAlmostEqual(float(task.reward_components[0, -1]), 1., places=4)
+        # Rotation alone can reduce clearance despite unchanged center height.
+        position[:, 2] = 0.785
+        task.poses = lambda: (None, None, None, None, position, torch.eye(3)[None])
+        reward(env)
+        paid = task.lift_paid.clone()
+        task.poses = lambda: (None, None, None, None, position, tilt)
+        reward(env)
+        self.assertEqual(float(task.reward_components[0, -1]), 0.)
+        torch.testing.assert_close(task.lift_paid, paid)
+
+        physics, center = self.contact_physics_task()
+        physics.contact_facts = lambda: (torch.ones(1, 2), torch.tensor([False]),
+                                        torch.zeros(1, 2, dtype=torch.bool))
+        physics.poses = lambda: (torch.zeros(1, 3), torch.eye(3)[None], None, None, center, tilt)
+        center[:, 2] = 0.01  # Center rose 1 cm, lowest corner did not.
+        physics.sample_physics()
+        self.assertFalse(bool(physics.success[0]))
+        center[:, 2] = 0.019
+        physics.sample_physics()
+        self.assertTrue(bool(physics.success[0]))
+
+    def test_lift_reward_requires_strict_half_newton_on_each_finger(self):
+        env = self.contact_reward_env([0.1], [0.8], [0.])
+        task = env.task
+        position = task.poses()[4]
+        for forces in ([0.5, 1.], [1., 0.5], [0.1, 0.2]):
+            task.forces[0] = torch.tensor(forces)
+            position[:, 2] = 0.77
+            reward(env)
+            position[:, 2] = 0.78
+            reward(env)
+            self.assertEqual(float(task.reward_components[0, -1]), 0.)
+        task.forces.fill_(0.6)
+        position[:, 2] = 0.77
+        reward(env)
+        position[:, 2] = 0.775
+        reward(env)
+        self.assertAlmostEqual(float(task.reward_components[0, -1]), 2.5, places=4)
+
     def test_contact_bonus_once_per_episode_even_after_stage_reentry(self):
         task, _ = self.contact_physics_task()
         dp, dr, forces = torch.zeros(1, 3), torch.zeros(1, 3), torch.ones(1, 2)
@@ -273,7 +329,8 @@ class RewardTests(unittest.TestCase):
             (0.02, 0., 0., 0., 0, False),
             (0.02, 0., 1., 0., 0, False),
             (0.02, 0., 0., 1., 0, False),
-            (0.02, 0., 1e-6, 1., 0, False),
+            (0.02, 0., 0.5, 1., 0, False),
+            (0.02, 0., 1., 0.5, 0, False),
             (0.02, 0., 1., 1., 1, True),
             (0.02, 0., 1., 1., 1, True),
             (0.02, 0., 0., 0., 1, True),

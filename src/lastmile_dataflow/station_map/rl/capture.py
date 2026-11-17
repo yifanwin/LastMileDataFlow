@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from .video import render_rollout
+from .env.terms import finger_contact, target_lift_height
 
 
 class RolloutCapture:
@@ -32,12 +33,13 @@ class RolloutCapture:
         ids = self.selected_slots
         dp, dr = task.goal_error()
         q = task.robot.data.joint_pos
+        lift_goal = env.research_config["success"]["lift_m"] if getattr(task, "contact_protocol", False) else 0.01
         facts = torch.stack((
             task.elapsed, dp.norm(dim=-1), dr.norm(dim=-1),
             q[:, task.fingers[0]] - q[:, task.fingers[1]],
-            (task.forces > 1e-6).all(-1).float(),
-            env.sim.data.xpos[:, task.target, 2] - task.height_reference,
-            task.lift_peak * 0.01, task.hold, task.step_collision.float(),
+            finger_contact(env).float(),
+            target_lift_height(env),
+            task.lift_peak * lift_goal, task.hold, task.step_collision.float(),
         ), dim=-1)
         # Copy only selected video lanes; defer CPU transfers and formatting until the episode ends.
         self.frames.append(env.sim.data.qpos[ids].clone())

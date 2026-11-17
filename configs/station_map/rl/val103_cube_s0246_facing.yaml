@@ -28,7 +28,7 @@ action:
   lift_velocity_m_s: 0.05
 reward:
   position: 10.0
-  rotation: 0.5
+  rotation: 1.0
   collision: 1.0
   success: 30.0
   close: 3.0
@@ -81,8 +81,8 @@ acceptance:
   positive_spearman: true
 success:
   version: rl-pick-contact-v2
-  finger_force_min_n: 1.0e-06
-  lift_m: 0.0086
+  finger_force_min_n: 0.5
+  lift_m: 0.01
 video:
   every: 100000
   width: 640

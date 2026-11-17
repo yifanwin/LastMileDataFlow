@@ -41,6 +41,29 @@ class VideoSelectionTests(unittest.TestCase):
             self.assertEqual(capture.states[0], [])
             self.assertEqual(capture.states[2], [])
 
+    def test_cube_video_uses_clearance_force_gate_and_configured_peak_scale(self):
+        position = torch.tensor([[0., 0., 0.785], [0., 0., 0.785]])
+        tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5],
+                              [0., 2**-0.5, 2**-0.5]]]).expand(2, -1, -1)
+        task = SimpleNamespace(
+            contact_protocol=True, table_height_m=0.75,
+            poses=lambda: (None, None, None, None, position, tilt),
+            goal_error=lambda: (torch.zeros(2, 3), torch.zeros(2, 3)),
+            robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.zeros(2, 2))),
+            fingers=[0, 1], forces=torch.tensor([[0.5, 1.], [0.6, 0.7]]),
+            elapsed=torch.zeros(2), lift_peak=torch.full((2,), 0.8),
+            hold=torch.zeros(2), step_collision=torch.zeros(2),
+        )
+        env = SimpleNamespace(task=task, num_envs=2, device="cpu",
+                              research_config={"success": {"finger_force_min_n": 0.5, "lift_m": 0.01},
+                                               "scene": {"cube": {"size_m": 0.04}}},
+                              sim=SimpleNamespace(data=SimpleNamespace(qpos=torch.zeros(2, 3))))
+        capture = RolloutCapture("unused", 100, {})
+        capture.initialize(env, [0, 1], 42, False)
+        self.assertEqual(capture.facts[0][:, 4].tolist(), [0., 1.])
+        torch.testing.assert_close(capture.facts[0][:, 5], torch.full((2,), 0.785 - 0.02 * 2**0.5 - 0.75))
+        torch.testing.assert_close(capture.facts[0][:, 6], torch.full((2,), 0.008))
+
     def test_success_with_collision_shares_one_representative_video(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

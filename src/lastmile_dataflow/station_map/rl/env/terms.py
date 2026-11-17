@@ -31,6 +31,27 @@ def contact_addresses(model, prefixes, field, device):
     )
 
 
+def finger_contact(env):
+    """Use the task protocol's normal-force threshold for both fingers."""
+    threshold = (
+        env.research_config["success"]["finger_force_min_n"]
+        if getattr(env.task, "contact_protocol", False) else P["finger_force_min_n"]
+    )
+    return (env.task.forces > threshold).all(-1)
+
+
+def target_lift_height(env, target_position=None, target_rotation=None):
+    """Cube clearance above its original tabletop; legacy tasks use center rise."""
+    task = env.task
+    if getattr(task, "contact_protocol", False):
+        if target_position is None:
+            *_, target_position, target_rotation = task.poses()
+        half = env.research_config["scene"]["cube"]["size_m"] / 2
+        extent_z = half * target_rotation[:, 2, :].abs().sum(-1)
+        return target_position[:, 2] - extent_z - task.table_height_m
+    return env.sim.data.xpos[:, task.target, 2] - task.height_reference
+
+
 def grasp_events(both, previous_both, paid, progress, peak, near):
     event = ~previous_both & both & ~paid & near
     new_peak = torch.maximum(peak, progress)
@@ -152,6 +173,9 @@ class TaskState:
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
         if self.contact_protocol:
+            # Cube creation places an upright box directly on the physical support.
+            # Keep that tabletop fixed, independently of each episode's baseline.
+            self.table_height_m = float(env.prepared.target_position[2]) - env.research_config["scene"]["cube"]["size_m"] / 2
             self.closing_active = torch.zeros(n, dtype=torch.bool, device=self.device)
             self.lift_active = torch.zeros_like(self.closing_active)
             self.closing_peak = torch.zeros(n, device=self.device)
@@ -274,11 +298,7 @@ class TaskState:
         relative_p = torch.einsum("bji,bj->bi", tcp_r, target_p - tcp_p)
         relative_r = tcp_r.transpose(-1, -2) @ target_r
         lift = target_p[:, 2] - self.height_reference
-        threshold = (
-            self.env.research_config["success"]["finger_force_min_n"]
-            if self.contact_protocol else P["finger_force_min_n"]
-        )
-        both = (self.forces > threshold).all(-1)
+        both = finger_contact(self.env)
         if self.contact_protocol:
             # The same native sensor sample must show force on both fingers.
             dp, dr = self.goal_error()
@@ -304,7 +324,8 @@ class TaskState:
             )
             first = both & (self.first_contact_time_s < 0)
             self.first_contact_time_s[first] = self.elapsed[first] + self.env.physics_dt
-            lifted = lift >= self.env.research_config["success"]["lift_m"]
+            clearance = target_lift_height(self.env, target_p, target_r)
+            lifted = clearance >= self.env.research_config["success"]["lift_m"]
             self.success |= both & lifted & ~self.failed & ~self.unhealthy
             self.elapsed += self.env.physics_dt
             return
@@ -558,9 +579,8 @@ def reward(env):
         closing_progress = stage_peak_progress(
             closing, near, task.closing_active, task.closing_peak, task.closing_paid
         )
-        both = (task.forces > env.research_config["success"]["finger_force_min_n"]).all(-1)
-        target_position = task.poses()[4]
-        lift = target_position[:, 2] - task.height_reference
+        both = finger_contact(env)
+        lift = target_lift_height(env)
         potential = (lift / env.research_config["success"]["lift_m"]).clamp(0, 1)
         lift_progress = stage_peak_progress(
             potential, both, task.lift_active, task.lift_peak, task.lift_paid

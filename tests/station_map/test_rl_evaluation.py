@@ -100,6 +100,31 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(rows[0]["both_fingers"])
         self.assertAlmostEqual(rows[0]["best_position_error_m"], 3**0.5, places=6)
 
+    def test_cube_evaluation_reports_clearance_and_configured_contact_threshold(self):
+        from lastmile_dataflow.station_map.rl.evaluation import validation_rollout
+
+        env = TwoEpisodeEnv()
+        env.research_config = {"success": {"finger_force_min_n": 0.5},
+                               "scene": {"cube": {"size_m": 0.04}}}
+        task = env.task
+        task.contact_protocol = True
+        task.table_height_m = 0.75
+        task.height_reference.fill_(0.77)
+        task.forces[:] = torch.tensor([[0.5, 1.], [0.6, 0.7]])
+        env.sim.data.xpos[:, 0, 2] = 0.785
+        tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5],
+                              [0., 2**-0.5, 2**-0.5]]]).expand(2, -1, -1)
+        task.poses = lambda: (None, None, None, None, env.sim.data.xpos[:, 0], tilt)
+        task.grasps = [dict(source="fixture", row=0)]
+        task.grasp_ids = torch.zeros(2, dtype=torch.long)
+        rows = validation_rollout(SimpleNamespace(actor=ObservationActor()), env, [0, 1], 42, 0.5)
+        self.assertFalse(rows[0]["both_fingers"])
+        self.assertTrue(rows[1]["both_fingers"])
+        for row in rows:
+            self.assertAlmostEqual(row["max_lift_m"], 0.785 - 0.02 * 2**0.5 - 0.75, places=6)
+        self.assertEqual(rows[0]["stage_seconds"]["LIFT"], 0.)
+        self.assertAlmostEqual(rows[1]["stage_seconds"]["LIFT"], 0.1)
+
     def test_fixed_station_evaluation_uses_training_pose_and_records_its_scope(self):
         from lastmile_dataflow.station_map.rl.evaluation import monitor_validation
         from lastmile_dataflow.utils.io import read_config
@@ -179,10 +204,11 @@ class ValidationTests(unittest.TestCase):
         config = resolve_config(config)
         prefix = "lastmile_dataflow.station_map.rl.training."
         cases = (
-            (False, False, False, False), (True, True, True, False), (True, False, False, False),
-            (True, True, False, False), (True, True, True, True),
+            (False, False, False, False, 0), (True, True, True, False, 100), (True, False, False, False, 0),
+            (True, True, False, False, 0), (True, True, True, True, 100),
+            (True, False, True, False, 1),
         )
-        for resume, has_best, has_score, same_output in cases:
+        for resume, has_best, has_score, same_output, score_count in cases:
             with self.subTest(resume=resume, has_best=has_best, has_score=has_score, same_output=same_output), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 parent = Path(directory)
                 source = parent / "previous"
@@ -200,7 +226,7 @@ class ValidationTests(unittest.TestCase):
                     return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
 
                 agent.update.side_effect = update
-                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"rate": 1.0} if has_score else None, "recent_episode_successes": [True] if has_score else []}}
+                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"rate": 1.0, "count": score_count} if has_score else None, "recent_episode_successes": [True] * score_count if has_score else []}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
@@ -251,17 +277,17 @@ class ValidationTests(unittest.TestCase):
                 self.assertTrue(monitor.call_args_list[-1].kwargs["force_video"])
                 self.assertEqual(result["transitions"], 105 if resume else 5)
                 workers.pause.assert_called_once()
-                if not (resume and has_score):
+                if not (resume and has_score and score_count == 100):
                     self.assertIn("best.pt", [call.args[0].name for call in agent.save.call_args_list])
                 else:
                     self.assertTrue((output / "best.pt").is_file())
                 self.assertEqual(sac.load.call_args.args[0], output / "best.pt")
                 self.assertEqual(sac.load.call_count, 2 if resume else 1)
                 metadata = agent.save.call_args.kwargs["metadata"]
-                expected = ([True] if resume and has_score else []) + [False, True]
+                expected = (([True] * score_count if resume and has_score else []) + [False, True])[-100:]
                 self.assertEqual(metadata["recent_episode_successes"], expected)
                 self.assertEqual(metadata["best_training_success_rate"]["rate"],
-                                 1. if resume and has_score else 0.5)
+                                 1. if resume and has_score and score_count == 100 else None)
                 workers.close.assert_called_once()
                 env.close.assert_called_once()
                 self.assertEqual(monitor_class.call_args.kwargs["every_seconds"], 30)
