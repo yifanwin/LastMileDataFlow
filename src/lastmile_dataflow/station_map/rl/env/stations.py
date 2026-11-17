@@ -14,7 +14,7 @@ from lastmile_dataflow.scenes.tasks import local_bounds
 from lastmile_dataflow.scenes.tasks import disk_samples
 from lastmile_dataflow.sim.placement import robot_contacts, place_frozen_station
 from lastmile_dataflow.operation.protocol import SimulationState
-from .scene import RLSceneConfig
+from .scene import ENTITY_PREFIX, RLSceneConfig
 from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 
 
@@ -83,21 +83,58 @@ def prepare_stations(model, prepared, config):
     """CPU preparation only, before GPU episodes; no IK, FOV or reach filter."""
 
     scene = RLSceneConfig(**config["scene"])
-    robot_config = scene.robot_config(entity=True)
-    sim = Simulation(model, robot_config, prepared.catalog, prepared.target_body)
+    reference = prepared.reference_model if scene.fixed_base else model
+    robot_config = scene.robot_config(entity=not scene.fixed_base)
+    sim = Simulation(reference, robot_config, prepared.catalog, prepared.target_body)
     parked = deepcopy(robot_config.initial)
     parked["base_xyyaw"] = [-10.0, -10.0, 0.0]
     sim.robot.initialize(parked)
     for _ in range(round(config["environment"]["settling_s"] / scene.physics_dt)):
         sim.robot.hold()
-        mujoco.mj_step(model, sim.data)
-    mujoco.mj_forward(model, sim.data)
-    initial_qpos = sim.data.qpos.copy()
+        mujoco.mj_step(reference, sim.data)
+    mujoco.mj_forward(reference, sim.data)
+    initial_qpos = map_joint_positions(reference, sim.data.qpos, model)
     rows = check_stations(sim, config["stations"])
     sim.close()
     if config["stations"].get("fixed_station") and not rows[0]["valid"]:
         raise ValueError(f"Fixed station {rows[0]['station_id']} is invalid: {rows[0]['invalid_reason']}")
     return rows, initial_qpos
+
+
+def map_joint_positions(source, qpos, target):
+    """Transfer named joints, including free/ball joints, across robot topologies."""
+    result = target.qpos0.copy()
+    names = {source.joint(index).name for index in range(source.njnt)}
+    for index in range(target.njnt):
+        joint = target.joint(index)
+        name = joint.name.removeprefix(ENTITY_PREFIX)
+        source_joint = source.joint(name if name in names else joint.name)
+        width = 7 if joint.type == mujoco.mjtJoint.mjJNT_FREE else 4 if joint.type == mujoco.mjtJoint.mjJNT_BALL else 1
+        start = int(joint.qposadr[0])
+        source_start = int(source_joint.qposadr[0])
+        result[start:start + width] = qpos[source_start:source_start + width]
+    return result
+
+
+def station_mocap_poses(model, base_site, stations):
+    """Place base_site at each world XY/yaw, preserving its original world Z."""
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    body = int(model.body_rootid[model.site_bodyid[base_site]])
+    root_rotation = data.xmat[body].reshape(3, 3)
+    base_rotation = data.site_xmat[base_site].reshape(3, 3)
+    local_rotation = root_rotation.T @ base_rotation
+    local_position = root_rotation.T @ (data.site_xpos[base_site] - data.xpos[body])
+    poses = []
+    for station in stations:
+        yaw = station["yaw"]
+        c, s = np.cos(yaw), np.sin(yaw)
+        rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ local_rotation.T
+        position = np.array([station["x"], station["y"], data.site_xpos[base_site, 2]]) - rotation @ local_position
+        quat = np.empty(4)
+        mujoco.mju_mat2Quat(quat, rotation.ravel())
+        poses.append(np.r_[position, quat])
+    return np.asarray(poses)
 
 
 def check_stations(sim, settings, *, facing_only=False):

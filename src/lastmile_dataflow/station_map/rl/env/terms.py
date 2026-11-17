@@ -8,7 +8,7 @@ from .observation import (
     GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
     GRASP_POSITION_TOLERANCE_M, GRASP_ROTATION_TOLERANCE_RAD,
 )
-from .stations import prepare_stations
+from .stations import prepare_stations, station_mocap_poses
 from lastmile_dataflow.operation.grasps import load_grasps, select_grasps
 from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
@@ -100,15 +100,14 @@ class TaskState:
         self.fingers, _ = self.robot.find_joints(
             ["gripper0_right_finger_joint1", "gripper0_right_finger_joint2"], preserve_order=True
         )
-        self.fixed, _ = self.robot.find_joints(
-            [
-                "mobilebase0_joint_mobile_forward",
-                "mobilebase0_joint_mobile_side",
-                "mobilebase0_joint_mobile_yaw",
-                "mobilebase0_joint_torso_height",
-            ],
-            preserve_order=True,
-        )
+        self.physical_fixed = env.research_config["scene"].get("fixed_base", False)
+        self.base_joints = []
+        if not self.physical_fixed:
+            self.base_joints, _ = self.robot.find_joints(
+                ["mobilebase0_joint_mobile_" + suffix for suffix in ("forward", "side", "yaw")],
+                preserve_order=True,
+            )
+        self.lift, _ = self.robot.find_joints(["mobilebase0_joint_torso_height"])
         self.open_grip = float(
             self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint1").range[1]
             - self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint2").range[0]
@@ -124,6 +123,10 @@ class TaskState:
         self.stations, initial = prepare_stations(self.model, env.prepared, env.research_config)
         self.initial_qpos = torch.tensor(initial, device=self.device, dtype=torch.float32)
         self.station_poses = torch.tensor([[s["x"], s["y"], s["yaw"]] for s in self.stations], device=self.device)
+        if self.physical_fixed:
+            self.mocap_poses = torch.tensor(
+                station_mocap_poses(self.model, self.base, self.stations), device=self.device, dtype=torch.float32
+            )
         # A non-empty debug list narrows training for algorithm checks only; it is never an acceptance input.
         debug = set(env.research_config["training"]["debug_station_ids"])
         self.pool = torch.tensor(
@@ -277,6 +280,29 @@ class TaskState:
         self.held_time.zero_()
         self.last_action[:] = action
 
+    def fixed_state(self):
+        """Base XY/yaw and lift position, independent of the base's joint layout."""
+        q = self.robot.data.joint_pos
+        if self.physical_fixed:
+            data = self.env.sim.data
+            rotation = data.site_xmat[:, self.base].reshape(-1, 3, 3)
+            yaw = torch.atan2(rotation[:, 1, 0], rotation[:, 0, 0])[:, None]
+            base = torch.cat((data.site_xpos[:, self.base, :2], yaw), -1)
+        else:
+            base = q[:, self.base_joints]
+        return torch.cat((base, q[:, self.lift]), -1)
+
+    def record_base_drift(self):
+        delta = self.fixed_state() - self.fixed_reference
+        drift = delta[:, :2].norm(dim=-1)
+        yaw = torch.atan2(delta[:, 2].sin(), delta[:, 2].cos()).abs()
+        self.max_drift = torch.maximum(self.max_drift, drift)
+        self.max_yaw_drift = torch.maximum(self.max_yaw_drift, yaw)
+        self.max_lift_drift = torch.maximum(self.max_lift_drift, delta[:, 3].abs())
+        translation_limit = 1e-6 if self.physical_fixed else P["base_translation_m"]
+        yaw_limit = 1e-6 if self.physical_fixed else P["base_yaw_rad"]
+        return (drift > translation_limit) | (yaw > yaw_limit)
+
     def contact_facts(self):
         values = self.env.sim.data.sensordata
         forces = values[:, self.finger_addresses].clamp(min=0)
@@ -308,14 +334,7 @@ class TaskState:
             event = near & both & ~self.contact_bonus_paid
             self.step_contact += event.float()
             self.contact_bonus_paid |= event
-            fixed = self.robot.data.joint_pos[:, self.fixed]
-            delta = fixed - self.fixed_reference
-            drift = delta[:, :2].norm(dim=-1)
-            yaw = torch.atan2(delta[:, 2].sin(), delta[:, 2].cos()).abs()
-            self.max_drift = torch.maximum(self.max_drift, drift)
-            self.max_yaw_drift = torch.maximum(self.max_yaw_drift, yaw)
-            self.max_lift_drift = torch.maximum(self.max_lift_drift, delta[:, 3].abs())
-            fixed_failure = (drift > P["base_translation_m"]) | (yaw > P["base_yaw_rad"])
+            fixed_failure = self.record_base_drift()
             self.control_failed |= fixed_failure
             self.failed |= fixed_failure | (lift < -0.3)
             data = self.env.sim.data
@@ -358,15 +377,8 @@ class TaskState:
             xp=torch,
             thresholds=P,
         )
-        fixed = self.robot.data.joint_pos[:, self.fixed]
-        delta = fixed - self.fixed_reference
-        drift = delta[:, :2].norm(dim=-1)
-        self.max_drift = torch.maximum(self.max_drift, drift)
-        yaw = torch.atan2(delta[:, 2].sin(), delta[:, 2].cos()).abs()
-        self.max_yaw_drift = torch.maximum(self.max_yaw_drift, yaw)
-        self.max_lift_drift = torch.maximum(self.max_lift_drift, delta[:, 3].abs())
         active = ~(self.success | self.failed | self.unhealthy)
-        fixed_failure = (drift > P["base_translation_m"]) | (yaw > P["base_yaw_rad"])
+        fixed_failure = self.record_base_drift()
         self.control_failed |= active & fixed_failure
         self.failed |= active & (fixed_failure | (lift < -0.3))
         data = self.env.sim.data
@@ -377,7 +389,7 @@ class TaskState:
         self.elapsed += self.env.physics_dt
 
     def flat_state(self):
-        """Return 65D base-frame state in FLAT_FIELDS order and scales."""
+        """Return base-frame state, optionally followed by world XY/yaw and lift metres."""
         tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = self.poses()
         dp, dr = self.goal_error()
         distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
@@ -393,7 +405,7 @@ class TaskState:
         cube_position = torch.einsum("bji,bj->bi", base_r, cube_p - base_p)
         size = torch.full((self.env.num_envs, 3), self.env.research_config["scene"]["cube"]["size_m"], device=self.device)
         extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
-        return torch.cat((
+        state = torch.cat((
             cube_position,
             cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
             size,
@@ -403,9 +415,9 @@ class TaskState:
             cube_linear,
             cube_angular,
             q[:, self.arm] / 3.14,
-            (q[:, self.fixed[3:4]] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
+            (q[:, self.lift] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
             v[:, self.arm] / 3.0,
-            v[:, self.fixed[3:4]] / 0.05,
+            v[:, self.lift] / 0.05,
             torch.einsum("bji,bj->bi", base_r, tcp_p - base_p),
             tcp_local_r[:, :, :2].transpose(-1, -2).flatten(1),
             linear,
@@ -414,6 +426,10 @@ class TaskState:
             ((v[:, self.fingers[0]] - v[:, self.fingers[1]]) / 0.2)[:, None],
             self.last_action,
         ), -1).float()
+        if self.env.research_config.get("observation", {}).get("world_state", False):
+            yaw = torch.atan2(base_r[:, 1, 0], base_r[:, 0, 0])[:, None]
+            state = torch.cat((state, base_p[:, :2], yaw, q[:, self.lift]), -1)
+        return state
 
     def observation_state(self):
         tcp_p, tcp_r, base_p, base_r, target_p, target_r = self.poses()
@@ -463,11 +479,11 @@ class TaskState:
                 slip_p,
                 slip_r[..., :2].transpose(-1, -2).flatten(-2),
                 remaining[:, None],
-                q[:, self.fixed] - self.fixed_reference,
+                self.fixed_state() - self.fixed_reference,
                 torch.stack((self.previous_distance, self.previous_angle), -1),
                 self.last_action,
-                (q[:, self.fixed[3:4]] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
-                v[:, self.fixed[3:4]] / 0.05,
+                (q[:, self.lift] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
+                v[:, self.lift] / 0.05,
                 linear,
                 angular,
                 self.contact_bonus_paid.float()[:, None],
@@ -519,12 +535,15 @@ def reset(env, env_ids):
         reset_grasp_targets(task, selected, ids)
     env.sim.data.qpos[ids] = task.initial_qpos
     env.sim.data.qvel[ids] = 0
-    # Named robot indices select the four fixed-base/lift coordinates.
     q = task.robot.data.default_joint_pos[ids].clone()
-    q[:, task.fixed[:3]] = task.station_poses[selected]
+    if task.physical_fixed:
+        task.robot.write_mocap_pose_to_sim(task.mocap_poses[selected], env_ids=ids)
+    else:
+        q[:, task.base_joints] = task.station_poses[selected]
     task.robot.write_joint_state_to_sim(q, torch.zeros_like(q), env_ids=ids)
     task.robot.set_joint_position_target(q, env_ids=ids)
-    task.fixed_reference[ids] = q[:, task.fixed]
+    base = task.station_poses[selected] if task.physical_fixed else q[:, task.base_joints]
+    task.fixed_reference[ids] = torch.cat((base, q[:, task.lift]), -1)
     task.window_start[ids] = -1
     task.reference_position[ids] = 0
     task.reference_rotation[ids] = torch.eye(3, device=env.device)

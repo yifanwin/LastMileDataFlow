@@ -137,7 +137,10 @@ class StationEnv(ManagerBasedRlEnv):
         root = prepared.robot_spec.bodies[1]
         robot = EntityCfg(
             spec_fn=prepared.copy_robot,
-            init_state=EntityCfg.InitialStateCfg(pos=tuple(root.pos), rot=tuple(root.quat), joint_pos=initial),
+            init_state=EntityCfg.InitialStateCfg(
+                pos=(0.0, 0.0, 0.0) if config["scene"].get("fixed_base", False) else tuple(root.pos),
+                rot=tuple(root.quat), joint_pos=initial,
+            ),
             articulation=EntityArticulationInfoCfg(actuators=(XmlActuatorCfg(target_names_expr=tuple(initial)),)),
         )
         action = config["action"]

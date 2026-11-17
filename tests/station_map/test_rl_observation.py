@@ -43,7 +43,9 @@ class GeometryTests(unittest.TestCase):
             joint_vel=torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0.05, 0.02, -0.02]]),
         ))
         task.arm = list(range(7))
-        task.fixed = [0, 1, 2, 7]
+        task.physical_fixed = False
+        task.base_joints = [0, 1, 2]
+        task.lift = [7]
         task.fingers = [8, 9]
         task.lift_range = torch.tensor([0., 1.])
         task.open_grip = 0.08
@@ -85,6 +87,13 @@ class GeometryTests(unittest.TestCase):
                                   torch.tensor([[0., torch.pi / 9, 0.]]))
         normalized = task.flat_state()
         torch.testing.assert_close(normalized[0, 13:19], torch.tensor([-1., 0., 0., 0., 1., 0.]))
+        # World state appends raw XY/yaw and lift metres without changing old fields.
+        task.env.research_config["observation"] = {"world_state": True}
+        extended = task.flat_state()
+        self.assertEqual(extended.shape, (1, 69))
+        torch.testing.assert_close(extended[:, :65], normalized)
+        torch.testing.assert_close(extended[0, 65:], torch.tensor([1., 1., torch.pi / 2, 0.5]))
+        task.env.research_config["observation"]["world_state"] = False
         # A tilted cube's bottom is its lowest corner, not center minus size/2.
         tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5], [0., 2**-0.5, 2**-0.5]]])
         poses = task.poses()

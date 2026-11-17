@@ -9,7 +9,7 @@ import torch
 from torch.nn import functional as F
 
 from .networks import Actor, Critic
-from ..env.observation import ARM_STATE_FIELDS, FLAT_FIELDS, NODE_DIM
+from ..env.observation import ARM_STATE_FIELDS, flat_fields, NODE_DIM
 
 
 @dataclass(frozen=True)
@@ -23,8 +23,8 @@ class SACConfig:
     target_entropy: float = -7.0
 
 
-def input_definition(mode):
-    return ("flat", FLAT_FIELDS) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
+def input_definition(mode, state_dim):
+    return ("flat", flat_fields(state_dim)) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
 
 
 def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
@@ -102,7 +102,7 @@ class SAC:
             {
                 "state_dim": self.state_dim,
                 "mode": self.mode,
-                "input_definition": input_definition(self.mode),
+                "input_definition": input_definition(self.mode, self.state_dim),
                 "sac_config": asdict(self.config),
                 "networks": {
                     name: getattr(self, name).state_dict() for name in ("actor", "q1", "q2", "target1", "target2")
@@ -129,7 +129,8 @@ class SAC:
     def load(cls, path, device, *, restore_rng=False):
         saved = torch.load(path, map_location=device, weights_only=False)
         mode = saved.get("mode", "graph")
-        if saved.get("input_definition", input_definition(mode)) != input_definition(mode):
+        definition = input_definition(mode, saved["state_dim"])
+        if saved.get("input_definition", definition) != definition:
             raise ValueError("Checkpoint observation definition does not match SAC mode")
         agent = cls(saved["state_dim"], device, SACConfig(**saved["sac_config"]), mode=mode)
         for name, state in saved["networks"].items():

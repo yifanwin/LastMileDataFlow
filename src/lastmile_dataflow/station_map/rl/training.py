@@ -15,7 +15,7 @@ import torch
 from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
-from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, FLAT_FIELDS, policy_observation, graph_observation
+from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, flat_fields, policy_observation, graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
 from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, SuccessWindow, TrainingMonitor
@@ -63,6 +63,10 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                     }),
                     "transitions": transitions,
                     "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
+                    **({
+                        "base_xyyaw_world": env.task.fixed_state()[index, :3].cpu().tolist(),
+                        "base_xyyaw_initial": env.task.fixed_reference[index, :3].cpu().tolist(),
+                    } if env.research_config.get("scene", {}).get("fixed_base", False) else {}),
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
@@ -259,7 +263,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             "observation_mode": mode,
             "node_capacity": obs.nodes.shape[1] if mode == "graph" else None,
             "state_dim": obs.arm_task_state.shape[-1] if mode == "graph" else obs.shape[-1],
-            "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else FLAT_FIELDS,
+            "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else flat_fields(obs.shape[-1]),
             "reward_component_names": CONTACT_REWARD_COMPONENTS if contact else REWARD_COMPONENTS,
             "success_protocol": config["success"],
             "stations": env.task.stations,

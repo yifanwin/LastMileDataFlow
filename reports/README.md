@@ -27,6 +27,7 @@
 
 - RL 方块当前成功与奖励口径：[连续保持0.25秒与历史最高抬升奖励](rl-station-map/delivery/33-cube-hold-quarter-second-reward.md)，双指各>0.5 N、最低点距桌面≥1 cm、无支撑接触连续保持0.25 s；位置/旋转/接触/抬升权重为20/5/3/8。本轮仅修改与离线验证，上一轮[训练记录](rl-station-map/delivery/32-cube-clearance-training-launch.md)保留原判定。
 
+- RL 随机站位方块：[物理固定底盘与69D输入](rl-station-map/delivery/36-random-stations-physical-base.md)，每个XY仅正对目标、每回合随机初始化，保留升降控制；本轮仅实现与短程验证。
 - RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
 ## 主题

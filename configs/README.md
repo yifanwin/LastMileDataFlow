@@ -74,3 +74,6 @@ RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `t
 构建直接读取已有场景和标定，不启动新 trial。`low/high`（默认 0.20/0.60，含等号）是参考协议下起点成功率阈值；`region_radius_m`、`region_yaw_tolerance_rad` 是高率站位周围合法恢复区域；`navigation_*` 同执行配置；`local_candidate_radius_m: null` 用整个候选域算 Recovery Ratio；`max_episodes_per_scene: 0` 保留全部合格起点；`horizon`/`wall_timeout_s` 是评测预算。导航使用完整来源房间地面。
 
 运行步骤见 [运行手册](../docs/runbook.md)。
+
+
+RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` 启用 `scene.fixed_base: true` 和 `observation.world_state: true`：底盘物理固定、每回合随机有效XY、每个XY仅正对方块；输入69维，新增底盘世界x/y/yaw与原始米制升降高度。评估默认20个不同站位各1次；旧单站配置保持65维和20回合。命令见[RL运行指南](../reports/rl-station-map/delivery/running.md#随机站位物理固定底盘69d-方块输入)。

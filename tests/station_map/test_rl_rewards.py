@@ -208,7 +208,9 @@ class RewardTests(unittest.TestCase):
         task.collision_free = torch.ones(1, dtype=torch.bool)
         task.collision_time = torch.zeros(1)
         task.height_reference = torch.zeros(1)
-        task.fixed = [0, 1, 2, 3]
+        task.physical_fixed = False
+        task.base_joints = [0, 1, 2]
+        task.lift = [3]
         task.robot = SimpleNamespace(data=SimpleNamespace(joint_pos=torch.zeros(1, 4)))
         task.fixed_reference = torch.zeros(1, 4)
         task.max_drift = torch.zeros(1)

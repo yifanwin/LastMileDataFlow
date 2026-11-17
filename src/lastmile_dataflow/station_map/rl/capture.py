@@ -25,6 +25,8 @@ class RolloutCapture:
         self.mode = "mean" if deterministic else "stochastic"
         if self.selected_slots is None:
             self.selected_slots = list(range(len(stations)))
+        self.mocap_pos = env.sim.data.mocap_pos.clone()
+        self.mocap_quat = env.sim.data.mocap_quat.clone()
         self.frames, self.facts, self.active = [], [], []
         self.sample(env, torch.ones(env.num_envs, dtype=torch.bool, device=env.device))
 
@@ -94,7 +96,12 @@ class RolloutCapture:
             if replay.exists():
                 continue
             states = np.asarray(self.states[i])
-            np.savez_compressed(replay, qpos=states, metrics=np.asarray(self.metrics[i]), dt=env.step_dt)
+            mocap_pos = self.mocap_pos[i].cpu().numpy()
+            mocap_quat = self.mocap_quat[i].cpu().numpy()
+            np.savez_compressed(
+                replay, qpos=states, mocap_pos=mocap_pos, mocap_quat=mocap_quat,
+                metrics=np.asarray(self.metrics[i]), dt=env.step_dt,
+            )
             result = (
                 "success"
                 if row["success"]
@@ -115,6 +122,8 @@ class RolloutCapture:
                 result,
                 settings,
                 env.step_dt,
+                mocap_pos=mocap_pos,
+                mocap_quat=mocap_quat,
             )
             self.videos.append(
                 {
@@ -138,11 +147,15 @@ class EpisodeReplays:
     def initialize(self, env):
         self.qpos = [env.sim.data.qpos.clone()]
         self.qvel = [env.sim.data.qvel.clone()]
+        self.mocap_pos = [env.sim.data.mocap_pos.clone()]
+        self.mocap_quat = [env.sim.data.mocap_quat.clone()]
         self.actions, self.controls = [], []
 
     def sample(self, env, action):
         self.qpos.append(env.sim.data.qpos.clone())
         self.qvel.append(env.sim.data.qvel.clone())
+        self.mocap_pos.append(env.sim.data.mocap_pos.clone())
+        self.mocap_quat.append(env.sim.data.mocap_quat.clone())
         self.actions.append(action.clone())
         self.controls.append(env.sim.data.ctrl.clone())
 
@@ -151,6 +164,8 @@ class EpisodeReplays:
             path,
             qpos=torch.stack([q[index] for q in self.qpos[:steps + 1]]).cpu().numpy(),
             qvel=torch.stack([q[index] for q in self.qvel[:steps + 1]]).cpu().numpy(),
+            mocap_pos=torch.stack([p[index] for p in self.mocap_pos[:steps + 1]]).cpu().numpy(),
+            mocap_quat=torch.stack([q[index] for q in self.mocap_quat[:steps + 1]]).cpu().numpy(),
             action=torch.stack([a[index] for a in self.actions[:steps]]).cpu().numpy(),
             ctrl=torch.stack([c[index] for c in self.controls[:steps]]).cpu().numpy(),
         )

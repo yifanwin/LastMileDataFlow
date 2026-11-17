@@ -221,3 +221,37 @@ PYTHONPATH="$PWD/src" /data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-cri
 ### 2026-11-17T17:53:32.106298+08:00 当前CUDA2–3训练
 
 按用户指令，从头启动当前0.25 s保持协议与新奖励配置。run为 `outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-175136-s0246-cube-hold025-3m-b512-g23`，固定源码 `bcbaaac19a6858856e6d0be3067a5fd1de71a837`；CUDA2–3各128环境，300万健康经验预算、batch512、seed42、无resume。已核查实际采样与更新；[启动记录](34-cube-hold-g23-training-launch.md)。先前CUDA0–3训练已按用户指令停止，旧产物保留。
+
+
+## 随机站位、物理固定底盘、69D 方块输入
+
+使用 `configs/station_map/rl/val103_cube_random_stations_facing.yaml`。该配置从方块周围的有效 XY 网格均匀抽样，每个位置只取正对方块中心的 yaw；Episode 内底盘无 XY/yaw 自由度，机械臂、升降和夹爪保持可控。站位通过地面支撑与 Home 无碰撞检查，不以 IK 或抓取成功预筛选。
+
+`scene.fixed_base: true` 移除三个底盘关节及驱动器，由 mjlab 的固定运动学根节点在 reset 时设置位姿。`observation.world_state: true` 在原65维后追加底盘世界 x、y（米）、yaw（弧度）、升降高度（米），共69维；原归一化升降高度仍保留。旧单站配置继续使用65维。新任务从零训练，不将65维权重作为69维输入直接复用。奖励与连续保持0.25秒的成功协议沿用当前方块任务。
+
+```bash
+# 选卡后替换示例物理 GPU 号；全部从本工作区根目录执行。
+PYTHONPATH="$PWD/src" MUJOCO_GL=disable OMP_NUM_THREADS=1 \
+  .venv/bin/python tests/smoke/rl_fixed_base.py --gpu 0 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<smoke-run>
+
+# 21,024条健康经验，保留20,000条预热，预期8次更新。
+PYTHONPATH="$PWD/src" MUJOCO_GL=disable OMP_NUM_THREADS=1 \
+  .venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cube_random_stations_facing.yaml \
+  --gpu 0 --seed 42 --num-envs 16 --max-transitions 21024 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<train-run>
+
+# 固定seed选择最多20个不同有效站位，每站1次随机策略rollout，保存全部视频。
+PYTHONPATH="$PWD/src" MUJOCO_GL=egl OMP_NUM_THREADS=1 \
+LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  .venv/bin/python scripts/station_map/rl/evaluate.py \
+  --config configs/station_map/rl/val103_cube_random_stations_facing.yaml \
+  --checkpoint outputs/experiments/rl-cube-random-stations/runs/<train-run>/best.pt \
+  --gpu 0 --num-envs 16 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<train-run>/evaluation
+```
+
+评估使用 `evaluation.station_count: 20` 和 `evaluation.rollouts_per_station: 1`，有效池不足20站时全选。`selection.json` 固定站位、动作seed和trial编号；`summary.json` 包含逐站与总体统计，基础设施异常单列。轨迹单独保存 `mocap_pos` / `mocap_quat`，回放同时恢复固定底座位姿与关节状态。旧单站配置仍执行首站20回合。
+
+本轮实际验证和限制见[交付记录](36-random-stations-physical-base.md)。短跑与随机策略评估仅验证实现链路，不作为Actor已学会多站抓取的证据。

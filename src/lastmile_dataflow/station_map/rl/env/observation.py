@@ -50,6 +50,20 @@ FLAT_FIELDS = (
     ("previous_action", 7, 1.0),
 )
 
+WORLD_STATE_FIELDS = (
+    ("base_position_world_xy", 2, 1.0),
+    ("base_yaw_world", 1, 1.0),
+    ("lift_height_m", 1, 1.0),
+)
+
+
+def flat_fields(state_dim):
+    if state_dim == 65:
+        return FLAT_FIELDS
+    if state_dim == 69:
+        return FLAT_FIELDS + WORLD_STATE_FIELDS
+    raise ValueError("Flat observation definition requires 65 or 69 dimensions")
+
 NODE_DIM = 24
 NODE_TYPES = ("goal", "tabletop_obstacle", "ground_obstacle", "container")
 ARM_STATE_FIELDS = (

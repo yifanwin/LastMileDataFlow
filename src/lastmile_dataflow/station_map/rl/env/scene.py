@@ -46,6 +46,7 @@ class RLSceneConfig:
     home: tuple = (0.0, -0.00365045915, 0.0, -2.61799387799, 0.0, 2.74159265359, 0.78539816339)
     lift: float = 0.2
     cube: dict | None = None
+    fixed_base: bool = False
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
@@ -76,6 +77,7 @@ class PreparedRLScene:
     catalog: list
     local_model: dict
     multiccd: bool
+    reference_model: mujoco.MjModel | None = None
 
     def copy_robot(self):
         return self.robot_spec.copy()
@@ -128,18 +130,30 @@ def prepare_rl_scene(config):
             scene_spec.delete(mesh)
 
     robot_spec = load_robot_spec(robot, config.robot_scale)
+    if config.fixed_base:
+        fix_robot_base(robot_spec)
+    robot_joints = {joint.name for joint in robot_spec.joints}
     qpos = {
         local.model.joint(j).name: float(local.data.qpos[local.model.jnt_qposadr[j]])
         for j in range(local.model.njnt)
         if local.model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+        and local.model.joint(j).name in robot_joints
     }
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a]) for a in range(local.model.nu)}
     prepared = PreparedRLScene(
-        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd
+        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd,
+        local.model if config.fixed_base else None,
     )
     local.close()
     sim.close()
     return prepared
+
+
+def fix_robot_base(spec):
+    """Remove planar dynamics; mjlab wraps this articulated robot in a mocap root."""
+    for suffix in ("forward", "side", "yaw"):
+        spec.delete(spec.actuator(ROBOT_NAMESPACE + "mobilebase0_actuator_mobile_" + suffix))
+        spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
 
 
 def replace_with_cube(sim, size_m, mass_kg):
