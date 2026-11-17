@@ -81,7 +81,12 @@ class RewardTests(unittest.TestCase):
             step_collision=torch.ones(n, dtype=torch.bool),
             success=torch.zeros(n, dtype=torch.bool),
             contact_success_paid=torch.zeros(n, dtype=torch.bool),
-            previous_lift_potential=torch.zeros(n),
+            robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[0.04, -0.04]]).repeat(n, 1))),
+            fingers=[0, 1], open_grip=0.08,
+            closing_active=torch.zeros(n, dtype=torch.bool),
+            lift_active=torch.zeros(n, dtype=torch.bool),
+            closing_peak=torch.zeros(n), closing_paid=torch.zeros(n),
+            lift_peak=torch.zeros(n), lift_paid=torch.zeros(n),
             step_contact=torch.zeros(n),
             height_reference=torch.full((n,), 0.77),
             reward_components=torch.zeros(n, len(CONTACT_REWARD_COMPONENTS)),
@@ -100,49 +105,77 @@ class RewardTests(unittest.TestCase):
         task.previous_distance[1] = 0.04
         task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -1., 30., 0.4, 5., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -1., 30., 0., 5., 0.]))
         torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -1., 0., 0., 0., 0.]))
         env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         task.step_contact.zero_()
         reward(env)
         self.assertEqual(float(task.reward_components[:, 3].sum()), 0.0)
         self.assertEqual(float(task.reward_components[:, :2].sum()), 0.0)
-        torch.testing.assert_close(task.reward_components[0, 4:], torch.tensor([0.4, 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0, 4:], torch.zeros(3))
         torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(3))
 
-    def test_contact_reward_gates_and_action_signs(self):
+    def test_closing_uses_actual_progress_with_strict_pose_gate(self):
         env = self.contact_reward_env(
-            [0.02, 0.025, 0.03, 0.01, 0.02, 0.025, 0.02, 0.02],
-            [degrees * torch.pi / 180 for degrees in [20, 25, 0, 45, 46, 20, 20, 20]],
-            [1., 0.5, 1., 1., 1., -1., 0., 0.25],
+            [0.02, 0.03, 0.02, 0.04], [0., 0., 20 * torch.pi / 180, 0.],
+            [0., 1., 1., 1.],
         )
+        reward(env)  # Enter the aligned stage with open fingers.
+        env.task.robot.data.joint_pos *= 0.5
         reward(env)
-        torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([0.8, 0.16, 0., 0., 0., 0., 0., 0.2]))
-        torch.testing.assert_close(env.task.reward_components[:, 5:], torch.zeros(8, 2))
+        torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([1.5, 0., 0., 0.]))
+        env.task.last_action[:, -1] = 1  # A command without actual motion earns nothing.
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, 4], torch.zeros(4))
 
-    def test_contact_events_pay_even_if_final_sample_has_left_stage(self):
+    def test_closing_stage_reentry_no_backpay_and_episode_cap(self):
+        env = self.contact_reward_env([0.02], [0.], [1.])
+        task = env.task
+        total = 0.
+        for near, closing, expected in (
+            (False, 0.2, 0.), (True, 0.2, 0.), (True, 0.5, 0.9),
+            (True, 0.5, 0.), (True, 0.1, 0.), (True, 0.4, 0.),
+            (True, 0.7, 0.6), (False, 0.9, 0.), (True, 0.9, 0.),
+            (True, 1., 0.3), (False, 0., 0.), (True, 0., 0.),
+            (True, 1., 1.2), (False, 0., 0.), (True, 0., 0.), (True, 1., 0.),
+        ):
+            task.goal_error = lambda: (torch.tensor([[0.02 if near else 0.04, 0., 0.]]), torch.zeros(1, 3))
+            task.robot.data.joint_pos[:] = torch.tensor([[0.04, -0.04]]) * (1 - closing)
+            reward(env)
+            value = float(task.reward_components[0, 4])
+            self.assertAlmostEqual(value, expected, places=5)
+            total += value
+        self.assertAlmostEqual(total, 3., places=5)
+
+    def test_contact_event_survives_leaving_stage_before_reward(self):
         env = self.contact_reward_env([0.1], [1.], [0.])
-        env.task.step_contact[:] = 2
+        env.task.step_contact[:] = 1
         env.task.forces.zero_()
         reward(env)
-        self.assertEqual(float(env.task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("grasp")]), 10.)
+        self.assertEqual(float(env.task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("grasp")]), 5.)
 
-    def test_contact_lift_signed_progress_and_release(self):
+    def test_lift_stage_reentry_peak_and_episode_cap(self):
         env = self.contact_reward_env([0.1], [0.8], [0.])
         task = env.task
         height = env.research_config["success"]["lift_m"]
         position = task.poses()[4]
         index = CONTACT_REWARD_COMPONENTS.index("lift")
-        # Height shaping has no pose gate. Update its baseline even without contact.
+        total_progress = 0.
         for progress, both, expected in (
-            (0.5, True, 2.5), (0.25, True, -1.25), (0.75, False, 0.),
-            (0.75, True, 0.), (1.5, True, 1.25), (-0.5, True, -5.),
+            (0.2, False, 0.), (0.3, True, 0.), (0.6, True, 1.5),
+            (0.6, True, 0.), (0.2, True, 0.), (0.5, True, 0.),
+            (0.8, True, 1.), (0.9, False, 0.), (0.9, True, 0.),
+            (1.5, True, 0.5), (0., False, 0.), (-0.5, True, 0.),
+            (1.5, True, 2.), (0., False, 0.), (0., True, 0.), (1., True, 0.),
         ):
             position[:, 2] = task.height_reference + progress * height
             task.forces[:] = float(both)
             total = reward(env)
-            self.assertAlmostEqual(float(task.reward_components[0, index]), expected, places=4)
+            value = float(task.reward_components[0, index])
+            self.assertAlmostEqual(value, expected, places=4)
+            total_progress += value
             torch.testing.assert_close(total, task.reward_components.sum(-1))
+        self.assertAlmostEqual(total_progress, 5., places=4)
 
     def contact_physics_task(self):
         task = TaskState.__new__(TaskState)
@@ -229,7 +262,7 @@ class RewardTests(unittest.TestCase):
         task.sample_physics()
         self.assertTrue(bool(task.success[0]))
 
-    def test_contact_bonus_rearms_only_after_leaving_grasp_stage(self):
+    def test_contact_bonus_once_per_episode_even_after_stage_reentry(self):
         task, _ = self.contact_physics_task()
         dp, dr, forces = torch.zeros(1, 3), torch.zeros(1, 3), torch.ones(1, 2)
         task.goal_error = lambda: (dp, dr)
@@ -245,17 +278,17 @@ class RewardTests(unittest.TestCase):
             (0.02, 0., 1., 1., 1, True),
             (0.02, 0., 0., 0., 1, True),
             (0.02, 0., 1., 1., 1, True),
-            (0.03, 0., 1., 1., 1, False),
-            (0.029, 0., 1., 1., 2, True),
-            (0.02, angle_limit, 1., 1., 2, False),
-            (0.02, angle_limit - 0.001, 1., 1., 3, True),
+            (0.03, 0., 1., 1., 1, True),
+            (0.029, 0., 1., 1., 1, True),
+            (0.02, angle_limit, 1., 1., 1, True),
+            (0.02, angle_limit - 0.001, 1., 1., 1, True),
         ):
             dp[0, 0], dr[0, 0] = distance, angle
             forces[0] = torch.tensor([left_force, right_force])
             task.sample_physics()
             self.assertEqual(float(task.step_contact[0]), events)
             self.assertEqual(bool(task.contact_bonus_paid[0]), paid)
-        # Policy-step boundaries clear the accumulator, not the stage's paid state.
+        # Policy-step boundaries clear the accumulator, not the episode's paid state.
         task.begin_step(torch.zeros(1, 7))
         task.sample_physics()
         self.assertEqual(float(task.step_contact[0]), 0.)

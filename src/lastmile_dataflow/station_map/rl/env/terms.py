@@ -38,6 +38,19 @@ def grasp_events(both, previous_both, paid, progress, peak, near):
     return event, paid | event, new_peak, reward_progress
 
 
+def stage_peak_progress(progress, active, previous_active, peak, paid):
+    """Track a stage-local peak and consume at most one episode of progress."""
+    continuing = active & previous_active
+    new_peak = torch.where(continuing, torch.maximum(peak, progress), progress)
+    increment = torch.minimum(
+        continuing.float() * (new_peak - peak).clamp(min=0), (1 - paid).clamp(min=0)
+    )
+    peak[:] = new_peak
+    previous_active[:] = active
+    paid += increment
+    return increment
+
+
 class TaskState:
     def __init__(self, env):
         self.env = env
@@ -126,7 +139,6 @@ class TaskState:
         self.last_action = torch.zeros(n, 7, device=self.device)
         self.previous_distance = torch.zeros(n, device=self.device)
         self.previous_angle = torch.zeros(n, device=self.device)
-        self.previous_lift_potential = torch.zeros(n, device=self.device)
         self.contact_bonus_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.previous_both = torch.zeros_like(self.contact_bonus_paid)
         self.lift_peak = torch.zeros(n, device=self.device)
@@ -140,6 +152,11 @@ class TaskState:
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
         if self.contact_protocol:
+            self.closing_active = torch.zeros(n, dtype=torch.bool, device=self.device)
+            self.lift_active = torch.zeros_like(self.closing_active)
+            self.closing_peak = torch.zeros(n, device=self.device)
+            self.closing_paid = torch.zeros(n, device=self.device)
+            self.lift_paid = torch.zeros(n, device=self.device)
             # The gripper's local Y axis closes across the cube's local X;
             # local Z points downward for the approach. Columns form a proper rotation.
             self.grasp_position = torch.zeros(n, 3, device=self.device)
@@ -267,7 +284,6 @@ class TaskState:
             dp, dr = self.goal_error()
             cfg = self.env.research_config["reward"]
             near = (dp.norm(dim=-1) < cfg["grasp_distance_m"]) & (dr.norm(dim=-1) < cfg["grasp_angle_rad"])
-            self.contact_bonus_paid &= near
             event = near & both & ~self.contact_bonus_paid
             self.step_contact += event.float()
             self.contact_bonus_paid |= event
@@ -490,7 +506,6 @@ def reset(env, env_ids):
     for name in (
         "elapsed",
         "contact_success_paid",
-        "previous_lift_potential",
         "hold",
         "forces",
         "support",
@@ -514,6 +529,9 @@ def reset(env, env_ids):
         "held_time",
     ):
         getattr(task, name)[ids] = 0
+    if task.contact_protocol:
+        for name in ("closing_active", "lift_active", "closing_peak", "closing_paid", "lift_paid"):
+            getattr(task, name)[ids] = 0
     task.first_contact_time_s[ids] = -1
     task.collision_free[ids] = True
     task.needs_baseline[ids] = True
@@ -532,31 +550,32 @@ def reward(env):
     distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
     if getattr(task, "contact_protocol", False):
         cfg = env.research_config["reward"]
-        gripper_action = task.last_action[:, -1]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
-        distance_gate = ((cfg["grasp_distance_m"] - distance) / (
-            cfg["grasp_distance_m"] - cfg["close_full_distance_m"]
-        )).clamp(0, 1)
-        angle_gate = ((cfg["close_zero_angle_rad"] - angle) / (
-            cfg["close_zero_angle_rad"] - cfg["grasp_angle_rad"]
-        )).clamp(0, 1)
+        near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
+        q = task.robot.data.joint_pos
+        closing = (1 - (q[:, task.fingers[0]] - q[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
+        closing_progress = stage_peak_progress(
+            closing, near, task.closing_active, task.closing_peak, task.closing_paid
+        )
         both = (task.forces > env.research_config["success"]["finger_force_min_n"]).all(-1)
         target_position = task.poses()[4]
         lift = target_position[:, 2] - task.height_reference
         potential = (lift / env.research_config["success"]["lift_m"]).clamp(0, 1)
+        lift_progress = stage_peak_progress(
+            potential, both, task.lift_active, task.lift_peak, task.lift_paid
+        )
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
             -cfg["collision"] * task.step_collision.float(),
             cfg["success"] * success_event.float(),
-            cfg["close"] * distance_gate * angle_gate * gripper_action.clamp(min=0),
+            cfg["close"] * closing_progress,
             cfg["grasp"] * task.step_contact,
-            cfg["lift"] * both * (potential - task.previous_lift_potential),
+            cfg["lift"] * lift_progress,
         ), -1)
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle
-        task.previous_lift_potential[:] = potential
         return task.reward_components.sum(-1)
     cfg = env.research_config["reward"]
     both = (task.forces > P["finger_force_min_n"]).all(-1)

@@ -73,7 +73,7 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
   --max-transitions 200000
 ```
 
-训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。每次日志 checkpoint 保存 latest，并按最近至多 100 条健康、完整、非随机预热回合的未折扣平均回报选择 best；结束时保存最终 latest，再独立加载 best 评估一次。没有合格回合时才以最终模型作为 best。恢复训练保留已有 best 排名及近期回报窗口。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
+训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt` 和 `metrics.jsonl`；首次日志 checkpoint 前没有权重文件。每次日志 checkpoint 保存 latest，并按最近至多 100 条健康、完整、全程非随机预热训练回合的成功率选择 best；不足100回合使用已有回合，成功率严格提高才覆盖，同分保留原best。结束时保存最终 latest，再独立加载 best 评估一次（方块contact协议不执行终点评估）。没有合格回合时才以最终模型作为 best，并标记无评分。恢复训练保留成功率排名及近期成功标记窗口；旧回报排名不转换为成功率。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -191,8 +191,8 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 2026-11-17更新：抓取位置误差除以0.02 m，原始旋转误差除以20°对应的弧度值，不裁剪；奖励仍用原始米和弧度。七项奖励为位置、旋转、碰撞、成功、闭爪、双指接触、抬升，关闭张开奖励；碰撞每策略步最多扣1分。
 
-抓取阶段为严格小于3 cm和20°，每次连续处于该阶段期间，首次双指接触奖励5分；仅松指再接触不重复付奖，离开该阶段后重新进入可再次付奖。事件逐物理子步采集，策略步内多次有效事件累加。闭爪奖励为 `0.8 × max(a_g,0) × clip((0.03-d)/0.01,0,1) × clip((45°-θ)/25°,0,1)`；角度计算使用弧度。抬升奖励为末次物理采样双指接触时 `5 × (Φ_current-Φ_previous)`，Φ仍是相对回合初态高度除以0.0086 m后裁剪到[0,1]的进度，每步均更新上一时刻进度。
+抓取阶段为严格小于3 cm和20°，首次双指同时承力奖励5分，每回合仅一次；离开阶段再进入不恢复资格。事件逐物理子步采集，策略步末结算。闭爪奖励使用实际指间距：`c=clip(1-width/open_grip,0,1)`；抬升进度为 `Φ=clip((z-z_initial)/0.0086,0,1)`。闭爪以对准为有效阶段，抬升以双指同时承力为有效阶段；两者沿用策略步末采样，进入阶段时以当前实际进度重置峰值基准，该次不加分，持续阶段内仅对峰值增量按3和5加权。保持或下降均不加分、不扣分；失去条件再进入不补发此前进度。各阶段共享回合额度，闭爪累计最多3分、抬升最多5分；局部reset仅清除对应环境的阶段状态、峰值、已发额度和接触资格。
 
-训练预算为3,000,000条健康transition，batch_size为512，预热20,000，每128条新增经验更新一次；CUDA0–3各128环境时共512环境。最新改动、验证及新run见[阶段接触奖励与四卡训练](27-cube-stage-contact-b512-training.md)，前一版实现见[归一化与奖励调整](25-cube-normalization-rewards.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务；奖励与batch变化使用新run从头训练。
+训练预算为3,000,000条健康transition，batch_size为512，预热20,000，每128条新增经验更新一次；CUDA0–3各128环境时共512环境。最新改动、验证与四卡训练见[阶段峰值奖励与成功率选模](29-cube-stage-peak-success-best-training.md)，上一轮结果见[阶段接触奖励结果](28-cube-stage-contact-b512-results.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务；奖励与batch变化使用新run从头训练。
 
 沿用物理GPU绑定、EGL与独立Sampler/Learner；设置 `PYTHONPATH` 为本实验工作区的 `src`，并使用已安装完整RL依赖的解释器。本次验证复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-critic/.venv/bin/python`，不安装或下载依赖。无渲染时设 `MUJOCO_GL=disable`；四卡传 `--gpu 0 1 2 3`，运行前仍核查实时占用。无启动、周期或终点站位Q图评估。正式训练须另建run、固定源码版本；本次仅验证1024条健康transition，不执行正式训练或策略成功率验收。

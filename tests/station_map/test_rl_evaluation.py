@@ -200,7 +200,7 @@ class ValidationTests(unittest.TestCase):
                     return {key: value for key in ("actor_loss", "critic_loss", "alpha_loss", "entropy", "alpha")}
 
                 agent.update.side_effect = update
-                saved = {"transitions": 100, "metadata": {"config": config, "best_training_return": {"mean": 2.0} if has_score else None, "recent_episode_returns": [2.0] if has_score else []}}
+                saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"rate": 1.0} if has_score else None, "recent_episode_successes": [True] if has_score else []}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
@@ -220,7 +220,16 @@ class ValidationTests(unittest.TestCase):
                         agent.save.assert_not_called()
                         workers.close.assert_not_called()
                     clock.return_value += 15
-                    return (0, 0, True, SimpleNamespace(reward=torch.zeros(1)), "", 0.0)
+                    index = workers.receive.call_count - 1
+                    episode_flags = [(True, False, True), (False, True, True),
+                                     (False, False, False), (False, False, True)]
+                    episodes = ""
+                    if index < len(episode_flags):
+                        unhealthy, warmup, success = episode_flags[index]
+                        episodes = json.dumps({"event": "episode", "infrastructure_failure": unhealthy,
+                                               "random_warmup": warmup, "success": success,
+                                               "return": 1000. if not success else 1.})
+                    return (index % 2, 0, True, SimpleNamespace(reward=torch.zeros(1)), episodes, 0.0)
 
                 workers.receive.side_effect = receive
                 workers.pause.return_value = []
@@ -248,6 +257,11 @@ class ValidationTests(unittest.TestCase):
                     self.assertTrue((output / "best.pt").is_file())
                 self.assertEqual(sac.load.call_args.args[0], output / "best.pt")
                 self.assertEqual(sac.load.call_count, 2 if resume else 1)
+                metadata = agent.save.call_args.kwargs["metadata"]
+                expected = ([True] if resume and has_score else []) + [False, True]
+                self.assertEqual(metadata["recent_episode_successes"], expected)
+                self.assertEqual(metadata["best_training_success_rate"]["rate"],
+                                 1. if resume and has_score else 0.5)
                 workers.close.assert_called_once()
                 env.close.assert_called_once()
                 self.assertEqual(monitor_class.call_args.kwargs["every_seconds"], 30)
