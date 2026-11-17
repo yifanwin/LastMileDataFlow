@@ -1,6 +1,6 @@
 # 独立并行评估与指定best模型验证
 
-- 状态：active
+- 状态：done
 - 日期：2026-11-17
 - 时间：2026-11-17T15:34:53.410038+08:00
 - 替代：无
@@ -22,4 +22,23 @@ actor-critic的evaluation/SAC/video/sampling局部24项通过。全仓回归356�
 
 ## 真实评估
 
-待运行；结果、耗时、20段视频核查及限制完成后补充。
+- 开始：2026-11-17T15:35:34+08:00；结束：2026-11-17T15:43:45.610258+08:00；核查：2026-11-17T15:45:54.413914+08:00。
+- 执行提交：`057dd5fa9cdca47b0d03582f6cb24b0274db6c3a`；物理GPU0，20环境并行；seed20261109–20261128。运行期间未修改源码。
+- 退出0，总耗时491.071s（约8分11秒）；其中20段视频渲染合计142.422s。没有同条件串行对照，不报告加速倍数。
+- 原始结果：[summary.json](/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-contact/outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-153534-best-parallel20/summary.json)、[trials.jsonl](/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-contact/outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-153534-best-parallel20/trials.jsonl)、[launch.json](/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-contact/outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-153534-best-parallel20/launch.json)。
+- 全部视频：[20回合视频索引](/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-contact/outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-153534-best-parallel20/videos.md)；每回合均有对应状态回放。
+
+| 指标 | 结果 |
+| --- | --- |
+| 总回合 / 健康回合 / 异常回合 | 20 / 20 / 0 |
+| 成功率 | 0/20（0%） |
+| 无非法碰撞成功率 | 0/20（0%） |
+| 整回合无非法碰撞 | 5/20 |
+| 失败分类 | collision_failure 15、control_failure 1、timeout 4 |
+| 平均回合回报 | -11.441552 |
+
+13回合记录到首次双指同子步接触，但仍未满足完整成功判定。失败分类沿用原有优先级；其中collision_failure表示回合不成功且全程曾记录非法碰撞，不单凭这个标签认定碰撞是唯一终止原因。
+
+视频已全部通过FFmpeg实际解码并核对帧数；20份回放各包含steps+1帧，保留终止帧、排除终止后推进，初始qpos逐元素一致，trial/seed/视频/回放/结果一一对应。已抽看第0回合20s处画面，场景与夹爪近景均可见方块。[verification.json](/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-contact/outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-153534-best-parallel20/verification.json)记录核查结果。
+
+本次只说明该best.pt在固定训练场景与初态下的冻结随机Actor表现。该模型保存于470,016条经验，当时best选择窗口只有1个成功回合；训练末尾98/100属于另一训练窗口，不能代替本次模型评估。没有评估latest，也没有测试新站位或新场景。
