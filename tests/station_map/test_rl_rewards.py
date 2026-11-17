@@ -84,9 +84,8 @@ class RewardTests(unittest.TestCase):
             robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[0.04, -0.04]]).repeat(n, 1))),
             fingers=[0, 1], open_grip=0.08,
             closing_active=torch.zeros(n, dtype=torch.bool),
-            lift_active=torch.zeros(n, dtype=torch.bool),
             closing_peak=torch.zeros(n), closing_paid=torch.zeros(n),
-            lift_peak=torch.zeros(n), lift_paid=torch.zeros(n),
+            lift_peak=torch.zeros(n),
             step_contact=torch.zeros(n),
             height_reference=torch.full((n,), 0.77),
             table_height_m=0.75,
@@ -106,8 +105,8 @@ class RewardTests(unittest.TestCase):
         task.previous_distance[1] = 0.04
         task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.1, -1., 30., 0., 5., 0.]))
-        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.1, -1., 0., 0., 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.2, 0.5, -1., 30., 0., 3., 0.]))
+        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.2, -0.5, -1., 0., 0., 0., 0.]))
         env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         task.step_contact.zero_()
         reward(env)
@@ -153,9 +152,9 @@ class RewardTests(unittest.TestCase):
         env.task.step_contact[:] = 1
         env.task.forces.zero_()
         reward(env)
-        self.assertEqual(float(env.task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("grasp")]), 5.)
+        self.assertEqual(float(env.task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("grasp")]), 3.)
 
-    def test_lift_stage_reentry_peak_and_episode_cap(self):
+    def test_lift_episode_peak_survives_release_and_caps_at_eight(self):
         env = self.contact_reward_env([0.1], [0.8], [0.])
         task = env.task
         height = env.research_config["success"]["lift_m"]
@@ -163,11 +162,12 @@ class RewardTests(unittest.TestCase):
         index = CONTACT_REWARD_COMPONENTS.index("lift")
         total_progress = 0.
         for progress, both, expected in (
-            (0.2, False, 0.), (0.3, True, 0.), (0.6, True, 1.5),
+            (0.2, False, 0.), (0.3, True, 2.4), (0.6, True, 2.4),
             (0.6, True, 0.), (0.2, True, 0.), (0.5, True, 0.),
-            (0.8, True, 1.), (0.9, False, 0.), (0.9, True, 0.),
-            (1.5, True, 0.5), (0., False, 0.), (-0.5, True, 0.),
-            (1.5, True, 2.), (0., False, 0.), (0., True, 0.), (1., True, 0.),
+            (0.8, True, 1.6), (1.5, False, 0.), (0.7, True, 0.),
+            (0.9, True, 0.8), (1.5, True, 0.8), (0., False, 0.),
+            (-0.5, True, 0.), (1.5, True, 0.), (0., False, 0.),
+            (0., True, 0.), (1., True, 0.),
         ):
             position[:, 2] = task.height_reference + progress * height
             task.forces[:] = float(both)
@@ -176,7 +176,7 @@ class RewardTests(unittest.TestCase):
             self.assertAlmostEqual(value, expected, places=4)
             total_progress += value
             torch.testing.assert_close(total, task.reward_components.sum(-1))
-        self.assertAlmostEqual(total_progress, 5., places=4)
+        self.assertAlmostEqual(total_progress, 8., places=4)
 
     def contact_physics_task(self):
         task = TaskState.__new__(TaskState)
@@ -219,6 +219,7 @@ class RewardTests(unittest.TestCase):
         task.unhealthy = torch.zeros(1, dtype=torch.bool)
         task.success = torch.zeros(1, dtype=torch.bool)
         task.elapsed = torch.zeros(1, dtype=torch.float64)
+        task.hold = torch.zeros(1, dtype=torch.float64)
         task.first_contact_time_s = torch.full((1,), -1., dtype=torch.float64)
         return task, target_position
 
@@ -237,11 +238,20 @@ class RewardTests(unittest.TestCase):
         task.sample_physics()
         self.assertFalse(bool(task.success[0]))
         task.sample_physics()
-        self.assertTrue(bool(task.success[0]))
-
-        target_position[:, 2] = 0.
+        self.assertFalse(bool(task.success[0]))
+        self.assertAlmostEqual(float(task.hold[0]), 0.002)
+        task.contact_facts = lambda: (torch.ones(1, 2), torch.tensor([False]), torch.zeros(1, 2, dtype=torch.bool))
+        for _ in range(123):
+            task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        self.assertAlmostEqual(float(task.hold[0]), 0.248)
         task.sample_physics()
         self.assertTrue(bool(task.success[0]))
+        target_position[:, 2] = 0.
+        task.contact_facts = lambda: (torch.zeros(1, 2), torch.tensor([False]), torch.zeros(1, 2, dtype=torch.bool))
+        task.sample_physics()
+        self.assertTrue(bool(task.success[0]))
+        self.assertEqual(float(task.hold[0]), 0.)
         self.assertAlmostEqual(float(task.first_contact_time_s[0]), 0.008)
         self.assertTrue(bool(task.step_collision[0]))
         self.assertAlmostEqual(float(task.collision_time[0]), 0.002)
@@ -263,8 +273,52 @@ class RewardTests(unittest.TestCase):
         self.assertFalse(bool(task.success[0]))
         task.unhealthy.zero_()
         task.goal_error = lambda: (torch.ones(1, 3), torch.ones(1, 3))
-        task.sample_physics()
+        for _ in range(125):
+            task.sample_physics()
         self.assertTrue(bool(task.success[0]))
+
+    def test_success_hold_resets_on_each_condition_break_across_policy_steps(self):
+        for interrupted in ("left", "right", "height", "support"):
+            with self.subTest(interrupted=interrupted):
+                task, position = self.contact_physics_task()
+                forces = torch.ones(1, 2)
+                support = torch.tensor([False])
+                task.contact_facts = lambda: (forces, support, torch.zeros(1, 2, dtype=torch.bool))
+                position[:, 2] = 0.011
+                for _ in range(100):
+                    task.sample_physics()
+                self.assertAlmostEqual(float(task.hold[0]), 0.2)
+                task.begin_step(torch.zeros(1, 7))
+                self.assertAlmostEqual(float(task.hold[0]), 0.2)
+                if interrupted in ("left", "right"):
+                    forces[0, 0 if interrupted == "left" else 1] = 0.5
+                elif interrupted == "height":
+                    position[:, 2] = 0.009
+                else:
+                    support[:] = True
+                task.sample_physics()
+                self.assertEqual(float(task.hold[0]), 0.)
+                self.assertFalse(bool(task.success[0]))
+                forces.fill_(1.)
+                support.zero_()
+                position[:, 2] = 0.011
+                for _ in range(124):
+                    task.sample_physics()
+                self.assertFalse(bool(task.success[0]))
+                task.sample_physics()
+                self.assertTrue(bool(task.success[0]))
+
+    def test_cube_support_uses_contact_presence_even_without_normal_force(self):
+        task, _ = self.contact_physics_task()
+        task.finger_addresses = torch.tensor([0, 1])
+        task.support_addresses = torch.tensor([2])
+        task.collision_addresses = torch.tensor([3])
+        # Cube support addresses select native "found", not force magnitude.
+        task.env.sim.data.sensordata = torch.tensor([[1., 1., 1., 0.]])
+        _, support, _ = TaskState.contact_facts(task)
+        self.assertTrue(bool(support[0]))
+        task.env.sim.data.sensordata[0, 2] = 0
+        self.assertFalse(bool(TaskState.contact_facts(task)[1][0]))
 
     def test_tilted_cube_clearance_controls_success_and_lift_reward(self):
         env = self.contact_reward_env([0.1], [0.8], [0.])
@@ -275,19 +329,19 @@ class RewardTests(unittest.TestCase):
         task.poses = lambda: (None, None, None, None, position, tilt)
         # Upright: 0.78 would give 1 cm clearance; tilted: only about 1.7 mm.
         position[:, 2] = 0.78
-        reward(env)  # Enter the lift stage without backpay.
+        reward(env)
         position[:, 2] += 0.002
         reward(env)
-        self.assertAlmostEqual(float(task.reward_components[0, -1]), 1., places=4)
+        self.assertAlmostEqual(float(task.reward_components[0, -1]), 1.6, places=4)
         # Rotation alone can reduce clearance despite unchanged center height.
         position[:, 2] = 0.785
         task.poses = lambda: (None, None, None, None, position, torch.eye(3)[None])
         reward(env)
-        paid = task.lift_paid.clone()
+        peak = task.lift_peak.clone()
         task.poses = lambda: (None, None, None, None, position, tilt)
         reward(env)
         self.assertEqual(float(task.reward_components[0, -1]), 0.)
-        torch.testing.assert_close(task.lift_paid, paid)
+        torch.testing.assert_close(task.lift_peak, peak)
 
         physics, center = self.contact_physics_task()
         physics.contact_facts = lambda: (torch.ones(1, 2), torch.tensor([False]),
@@ -297,6 +351,9 @@ class RewardTests(unittest.TestCase):
         physics.sample_physics()
         self.assertFalse(bool(physics.success[0]))
         center[:, 2] = 0.019
+        for _ in range(124):
+            physics.sample_physics()
+        self.assertFalse(bool(physics.success[0]))
         physics.sample_physics()
         self.assertTrue(bool(physics.success[0]))
 
@@ -316,7 +373,7 @@ class RewardTests(unittest.TestCase):
         reward(env)
         position[:, 2] = 0.775
         reward(env)
-        self.assertAlmostEqual(float(task.reward_components[0, -1]), 2.5, places=4)
+        self.assertAlmostEqual(float(task.reward_components[0, -1]), 4., places=4)
 
     def test_contact_bonus_once_per_episode_even_after_stage_reentry(self):
         task, _ = self.contact_physics_task()

@@ -79,9 +79,12 @@ class TaskState:
         self.model = env.sim.mj_model
         self.robot = env.scene[ROBOT_ENTITY]
         n = env.num_envs
+        self.contact_protocol = env.research_config["success"].get("version") == "rl-pick-contact-v2"
         self.target = self.model.body(env.prepared.target_body).id
         self.finger_addresses = contact_addresses(self.model, ("finger_",), "force", self.device)
-        self.support_addresses = contact_addresses(self.model, ("support_",), "force", self.device)
+        self.support_addresses = contact_addresses(
+            self.model, ("support_",), "found" if self.contact_protocol else "force", self.device
+        )
         self.collision_addresses = contact_addresses(
             self.model, ("environment_", "nonfinger_", "self_collision_"), "found", self.device
         )
@@ -111,7 +114,6 @@ class TaskState:
             - self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint2").range[0]
         )
         self.lift_range = self.model.joint(ROBOT_PREFIX + "mobilebase0_joint_torso_height").range.copy()
-        self.contact_protocol = env.research_config["success"].get("version") == "rl-pick-contact-v2"
         self.graph = None if self.contact_protocol else GeometryObservation(
             self.model,
             self.target,
@@ -177,10 +179,8 @@ class TaskState:
             # Keep that tabletop fixed, independently of each episode's baseline.
             self.table_height_m = float(env.prepared.target_position[2]) - env.research_config["scene"]["cube"]["size_m"] / 2
             self.closing_active = torch.zeros(n, dtype=torch.bool, device=self.device)
-            self.lift_active = torch.zeros_like(self.closing_active)
             self.closing_peak = torch.zeros(n, device=self.device)
             self.closing_paid = torch.zeros(n, device=self.device)
-            self.lift_paid = torch.zeros(n, device=self.device)
             # The gripper's local Y axis closes across the cube's local X;
             # local Z points downward for the approach. Columns form a proper rotation.
             self.grasp_position = torch.zeros(n, 3, device=self.device)
@@ -280,7 +280,8 @@ class TaskState:
     def contact_facts(self):
         values = self.env.sim.data.sensordata
         forces = values[:, self.finger_addresses].clamp(min=0)
-        support = (values[:, self.support_addresses] > P["finger_force_min_n"]).any(-1)
+        support_threshold = 0 if self.contact_protocol else P["finger_force_min_n"]
+        support = (values[:, self.support_addresses] > support_threshold).any(-1)
         return forces, support, values[:, self.collision_addresses] > 0
 
     def sample_physics(self):
@@ -325,8 +326,11 @@ class TaskState:
             first = both & (self.first_contact_time_s < 0)
             self.first_contact_time_s[first] = self.elapsed[first] + self.env.physics_dt
             clearance = target_lift_height(self.env, target_p, target_r)
-            lifted = clearance >= self.env.research_config["success"]["lift_m"]
-            self.success |= both & lifted & ~self.failed & ~self.unhealthy
+            success_cfg = self.env.research_config["success"]
+            lifted = clearance >= success_cfg["lift_m"]
+            held = both & lifted & ~support & ~self.failed & ~self.unhealthy
+            self.hold[:] = torch.where(held, self.hold + self.env.physics_dt, 0.0)
+            self.success |= held & (self.hold >= success_cfg["hold_s"] - 1e-9)
             self.elapsed += self.env.physics_dt
             return
         dp, dr = self.goal_error()
@@ -551,7 +555,7 @@ def reset(env, env_ids):
     ):
         getattr(task, name)[ids] = 0
     if task.contact_protocol:
-        for name in ("closing_active", "lift_active", "closing_peak", "closing_paid", "lift_paid"):
+        for name in ("closing_active", "closing_peak", "closing_paid"):
             getattr(task, name)[ids] = 0
     task.first_contact_time_s[ids] = -1
     task.collision_free[ids] = True
@@ -582,9 +586,10 @@ def reward(env):
         both = finger_contact(env)
         lift = target_lift_height(env)
         potential = (lift / env.research_config["success"]["lift_m"]).clamp(0, 1)
-        lift_progress = stage_peak_progress(
-            potential, both, task.lift_active, task.lift_peak, task.lift_paid
-        )
+        # Only held progress advances the episode peak; release never resets it.
+        peak = torch.where(both, torch.maximum(task.lift_peak, potential), task.lift_peak)
+        lift_progress = peak - task.lift_peak
+        task.lift_peak[:] = peak
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
