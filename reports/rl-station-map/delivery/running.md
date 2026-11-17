@@ -1,4 +1,4 @@
-# 固定底盘 mjlab / SAC 研究入口
+# 固定底盘 mjlab / SAC / PPO 研究入口
 
 - 状态：active
 - 日期：2026-11-17
@@ -48,7 +48,53 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 上游入口运行本地 mjlab 的 YAM lift-cube 环境，验证安装与 stepping，不验证 Panda 抓取。项目 smoke 使用真实 val103 / Cup_30；普通 smoke 检查有限观测与局部 reset，`--scripted` 通过同一套 7D / DLS / 伺服控制，不调用规划器。
 
-## 配置与训练
+## PPO 训练与评估
+
+算法优先级为命令行 `--algorithm`、配置 `algorithm`、默认 `sac`。SAC 沿用原异步采样；PPO 每卡一个同步采样进程，全部采完当前策略版本的 rollout 后，由首卡集中更新 Actor / V，再同步下一轮。每卡环境数由 `--num-envs` 覆盖。
+
+从当前工作区根目录执行，先查询实时 GPU 资源，下方卡号仅为示例：
+
+```bash
+MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+.venv/bin/python scripts/station_map/rl/train.py \
+  --algorithm ppo --config configs/station_map/rl/val103_cube_s0246_facing_ppo.yaml \
+  --gpu 0 1 --seed 42 --output outputs/experiments/cube-ppo/runs/train
+```
+
+原 SAC 配置也可直接增加 `--algorithm ppo`，PPO 使用缺省参数；两个 PPO 示例保留 SAC 参数，因此也可用 `--algorithm sac` 切回 SAC。PPO 不使用 Replay、warmup、alpha、SAC batch_size 或 transitions_per_update。
+
+PPO 参数默认值：
+
+| 字段 | 默认值 |
+| --- | --- |
+| `rollout_steps` / `epochs` / `minibatch_size` | 32 / 5 / 512 |
+| `actor_lr` / `value_lr` | 0.0003 / 0.0003 |
+| `gamma` / `gae_lambda` | 0.999 / 0.95 |
+| `clip_coef` / `value_coef` / `entropy_coef` | 0.2 / 1.0 / 0.0 |
+| `actor_max_grad_norm` / `value_max_grad_norm` | 0.5 / 0.5 |
+| `target_kl` | 0.02 |
+
+每轮仅使用当前版本策略产生的健康样本；先在全局样本上统一标准化优势，再每个 epoch 重新打乱、分 mini-batch 更新，尾批保留。GAE 不跨成功、失败、episode timeout 或异常样本传播，rollout 分段边界用下一状态 V 引导。Actor 与 V 分别裁剪梯度；每个 mini-batch 更新前检查新旧策略 KL，超阈值停止当前及后续 epoch。
+
+run 保存展开默认参数后的 `config.json`、`metrics.jsonl`、TensorBoard、`latest.pt`、`best.pt` 与每40万样本的 `ckpts/`。best 仍按默认30秒窗口的完整健康训练回合成功率选择。PPO 恢复参数、两个优化器、RNG 与更新计数，重新 reset 环境和 rollout；使用 `--resume <latest.pt>`，`--max-transitions` 为累计目标，不做随机预热。
+
+PPO 曲线位于 `ppo/`：actor_loss、value_loss、entropy、minibatch_kl、max_minibatch_kl、global_kl、clip_fraction、explained_variance、actor_grad_norm、value_grad_norm、epochs_completed、minibatches、kl_early_stop，以及累计 kl_early_stops。梯度范数为裁剪前范数；窗口内一般指标取各轮均值，累计停止次数取最新值。奖励分项和成功率仍在 `train/`，运行指标在 `runtime/`，不生成 SAC 的 alpha 曲线。`updates` 表示 rollout 更新轮数，`optimizer_steps` 表示实际完成的 Actor/V 成对 mini-batch 更新次数。
+
+flat 使用已有固定初态20次评估及视频流程：
+
+```bash
+MUJOCO_GL=egl LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+.venv/bin/python scripts/station_map/rl/evaluate.py \
+  --config outputs/experiments/cube-ppo/runs/train/config.json \
+  --checkpoint outputs/experiments/cube-ppo/runs/train/best.pt \
+  --gpu 0 --output outputs/experiments/cube-ppo/runs/train/evaluation
+```
+
+graph 使用 `val103_cup30_s0246_facing_ppo.yaml`，训练结束加载 best 做评估并生成 `station-v.json/png`。也可用 `score.py` 对冻结模型独立打分，再向 `evaluate.py` 传 `--scores <station-v.json>`。PPO 的 `v_mean/v_std` 是各 grasp 初态 V 的等权均值与离散程度，不进行动作采样；评分、排名、相关性和图表均标明 V。SAC 保留原 Q 输出，旧 checkpoint 自动识别为 SAC。独立评估根据 checkpoint 算法选择模型，配置须与 checkpoint 的有效配置一致；训练时仅由 CLI 覆盖算法时，PPO 评估直接使用保存的 `config.json`。
+
+本次实现与短验证见 [PPO 交付报告](36-ppo-integration.md)，不代表正式训练收敛。
+
+## SAC 配置与训练
 
 配置为 `configs/station_map/rl/val103_cup30.yaml`，数据根为 `/data1/wenyifan/lmdf/molmospaces_data`，抓取变换来自该根下的 Cup_30 抓取库固定 row。修改抓取行、奖励、控制或 split 后，作为新的有效配置重新记录。
 

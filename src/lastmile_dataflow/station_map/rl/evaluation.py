@@ -9,11 +9,11 @@ import numpy as np
 import torch
 
 from lastmile_dataflow.utils.figures import plt
-from .station_q import action_sampled_q, select_acceptance_stations, summarize_trials
+from .station_q import action_sampled_q, select_acceptance_stations, summarize_trials, score_key
 from .config import resolve_config
-from .sac.agent import SAC
+from .checkpoint import load_agent
 from .env.observation import REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS
-from .sac.agent import seed_all
+from .checkpoint import seed_all
 from .env.observation import graph_observation, policy_observation
 from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
@@ -29,7 +29,10 @@ def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
 
 @torch.no_grad()
 def station_scores(agent, env, samples, station_ids=None, *, initial_scores=()):
-    rows = [{**s, "q_mean": None, "q_std": None, "K": samples} for s in env.task.stations]
+    kind = "v" if getattr(agent, "algorithm", "sac") == "ppo" else "q"
+    mean_key, std_key = f"{kind}_mean", f"{kind}_std"
+    rows = [{**s, mean_key: None, std_key: None, **({"K": samples} if kind == "q" else {})}
+            for s in env.task.stations]
     cached = {row["station_id"]: row for row in initial_scores}
     rows = [cached.get(row["station_id"], row) for row in rows]
     valid = [i for i, row in enumerate(rows) if row["valid"] and row["station_id"] not in cached
@@ -42,13 +45,17 @@ def station_scores(agent, env, samples, station_ids=None, *, initial_scores=()):
             padded = batch + [batch[-1]] * (env.num_envs - len(batch))
             env.task.requested_grasp_ids = torch.tensor(padded, device=env.device)
             obs = reset_stations(env, [index] * env.num_envs)
-            mean, std = action_sampled_q(agent, obs, samples)
+            if kind == "v":
+                mean = agent.value(obs)
+                std = torch.zeros_like(mean)
+            else:
+                mean, std = action_sampled_q(agent, obs, samples)
             for offset, grasp_id in enumerate(batch):
                 candidate = env.task.grasps[grasp_id]
-                grasp_scores.append(dict(source=candidate["source"], row=candidate["row"], q_mean=float(mean[offset]), q_std=float(std[offset])))
-        average = float(np.mean([g["q_mean"] for g in grasp_scores]))
-        second = np.mean([g["q_std"] ** 2 + g["q_mean"] ** 2 for g in grasp_scores])
-        rows[index].update(q_mean=average, q_std=float(np.sqrt(max(0, second - average ** 2))), grasps=grasp_scores)
+                grasp_scores.append({"source": candidate["source"], "row": candidate["row"], mean_key: float(mean[offset]), std_key: float(std[offset])})
+        average = float(np.mean([g[mean_key] for g in grasp_scores]))
+        second = np.mean([g[std_key] ** 2 + g[mean_key] ** 2 for g in grasp_scores])
+        rows[index].update({mean_key: average, std_key: float(np.sqrt(max(0, second - average ** 2))), "grasps": grasp_scores})
     return rows if station_ids is None else [rows[i] for i in station_ids]
 
 
@@ -246,6 +253,8 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
     analysis, views = output / "analysis", output / "views"
     analysis.mkdir(exist_ok=True)
     views.mkdir(exist_ok=True)
+    kind = "v" if agent.algorithm == "ppo" else "q"
+    key = f"{kind}_mean"
     settings = config["training"]
     seed = config["evaluation"]["seed"]
     fixed_station = config["stations"].get("fixed_station")
@@ -281,12 +290,12 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
 
     with torch.random.fork_rng(devices=[torch.device(env.device).index] if torch.device(env.device).type == "cuda" else []):
         torch.manual_seed(seed)
-        evaluation_progress(progress, transitions, "initial_q", timings)
+        evaluation_progress(progress, transitions, f"initial_{kind}", timings)
         started = time.perf_counter()
         rows = station_scores(agent, env, config["evaluation"]["action_samples"], list(dict.fromkeys(station_ids)))
-        timings["initial_q"] = time.perf_counter() - started
+        timings[f"initial_{kind}"] = time.perf_counter() - started
         values = {r["station_id"]: r for r in rows}
-        selection = [{**row, "q_mean": values[row["station_id"]]["q_mean"]} for row in selection]
+        selection = [{**row, key: values[row["station_id"]][key]} for row in selection]
         trials = []
         requested = station_ids * settings["validation_rollouts_per_station"]
         started = time.perf_counter()
@@ -296,7 +305,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
             evaluation_progress(progress, transitions, "rollouts", timings, len(trials), len(requested))
             on_progress = partial(rollout_progress, path=progress, transitions=transitions,
                                   timings=timings, offset=start, count=len(batch), total=len(requested))
-            result = validation_rollout(agent, env, slots, seed + start, config["sac"]["gamma"],
+            result = validation_rollout(agent, env, slots, seed + start, agent.config.gamma,
                                         on_progress=on_progress)
             trials.extend({**row, "trial": start + i} for i, row in enumerate(result[:len(batch)]))
         timings["rollouts"] = time.perf_counter() - started
@@ -313,7 +322,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
                 # A one-slot evaluation still records both splits.
                 for selected in [slots] if env.num_envs > 1 else [[i] for i in fixed]:
                     validation_rollout(
-                        agent, env, selected, seed, config["sac"]["gamma"], deterministic=deterministic, capture=capture
+                        agent, env, selected, seed, agent.config.gamma, deterministic=deterministic, capture=capture
                     )
             env._video_transitions = transitions
         timings["videos"] = time.perf_counter() - started
@@ -334,7 +343,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
         "videos": [row for capture in captures for row in capture.videos],
         "success_protocol": config["success"],
         "episode_return_mean": float(np.mean([r["episode_return"] for r in healthy])) if healthy else None,
-        "value_success_correlation": summary["q_success_spearman"],
+        "value_success_correlation": summary[f"{kind}_success_spearman"],
     }
     if debug:
         event["debug_stations"] = {policy: stage_summary(rows_) for policy, rows_ in debug.items()}
@@ -344,7 +353,7 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
                 "metrics": event,
                 "stations": summary["stations"],
                 "trials": trials,
-                "q_scores": rows,
+                f"{kind}_scores": rows,
                 "debug_trials": debug,
             },
             indent=2,
@@ -354,12 +363,15 @@ def monitor_validation(agent, env, config, transitions, output, force_video=Fals
         rows,
         summary["stations"],
         views / "station-evaluation.png",
-        q_limits=config["evaluation"]["q_color_limits"],
-        correlation=summary["q_success_spearman"],
+        q_limits=config["evaluation"].get(f"{kind}_color_limits"),
+        correlation=summary[f"{kind}_success_spearman"],
     )
     agent.actor.train()
-    agent.q1.train()
-    agent.q2.train()
+    if agent.algorithm == "ppo":
+        agent.value.train()
+    else:
+        agent.q1.train()
+        agent.q2.train()
     evaluation_progress(progress, transitions, "complete", timings, len(trials), len(requested))
     return (event, rows) if return_scores else event
 
@@ -371,32 +383,38 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
     config = resolve_config(config)
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
-    agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
+    agent, saved = load_agent(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Scoring requires the checkpoint effective configuration")
     if agent.mode == "flat":
-        raise ValueError("Flat contact checkpoints do not have station Q scores; use evaluate instead")
+        raise ValueError("Flat contact checkpoints do not have station scores; use evaluate instead")
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     try:
+        kind = "v" if agent.algorithm == "ppo" else "q"
         rows = station_scores(agent, env, config["evaluation"]["action_samples"])
         result = {
             "checkpoint": str(Path(checkpoint).absolute()),
             "seed": seed,
             "physical_gpu": gpu,
-            "interpretation": "mean over grasps of E[min online Q]; K is action samples per grasp",
+            "score_kind": kind,
+            "interpretation": ("equal grasp mean of state value V" if kind == "v" else
+                               "mean over grasps of E[min online Q]; K is action samples per grasp"),
             "legal_coverage": sum(r["valid"] for r in rows) / len(rows),
             "stations": rows,
         }
-        (output / "station-q.json").write_text(json.dumps(result, indent=2))
-        plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
+        (output / f"station-{kind}.json").write_text(json.dumps(result, indent=2))
+        plot_scores(rows, output / f"station-{kind}.png", config["evaluation"].get(f"{kind}_color_limits"))
         return result
     finally:
         env.close()
 
 
 def plot_scores(rows, path, q_limits):
+    key = score_key(rows)
+    label = "state value V" if key == "v_mean" else "min-Q"
+    limits = q_limits or (None, None)
     legal = [r for r in rows if r["valid"]]
     if not legal:
         return
@@ -404,7 +422,7 @@ def plot_scores(rows, path, q_limits):
     slice_rows = [r for r in rows if r["yaw_offset_rad"] is None or abs(r["yaw_offset_rad"]) < 1e-9]
     best = {}
     for row in legal:
-        if row["xy_id"] not in best or row["q_mean"] > best[row["xy_id"]]["q_mean"]:
+        if row["xy_id"] not in best or row[key] > best[row["xy_id"]][key]:
             best[row["xy_id"]] = row
     (Path(path).parent / "best-yaw.json").write_text(json.dumps(list(best.values()), indent=2))
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
@@ -417,13 +435,13 @@ def plot_scores(rows, path, q_limits):
         points = axis.scatter(
             [r["x"] for r in valid],
             [r["y"] for r in valid],
-            c=[r["q_mean"] for r in valid],
-            vmin=q_limits[0],
-            vmax=q_limits[1],
+            c=[r[key] for r in valid],
+            vmin=limits[0],
+            vmax=limits[1],
             marker="s",
         )
         axis.set(title=title, xlabel="world x (m)", ylabel="world y (m)", aspect="equal")
-        fig.colorbar(points, ax=axis, label="raw min-Q (not success probability)")
+        fig.colorbar(points, ax=axis, label=f"raw {label} (not success probability)")
     fig.savefig(path, dpi=160)
     plt.close(fig)
 
@@ -435,7 +453,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     config = resolve_config(config)
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
-    agent, saved = SAC.load(checkpoint, f"cuda:{VISIBLE_DEVICE}")
+    agent, saved = load_agent(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Evaluation requires the checkpoint effective configuration")
     if agent.mode == "flat":
@@ -443,6 +461,9 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     if scores is None:
         raise ValueError("Graph evaluation requires station scores")
     scored = json.loads(Path(scores).read_text())
+    kind = "v" if agent.algorithm == "ppo" else "q"
+    if scored.get("score_kind", "q") != kind:
+        raise ValueError("Station scores must match the checkpoint algorithm")
     if baseline and saved["transitions"] != 0:
         raise ValueError("The initialization baseline must be an untrained checkpoint")
     if not baseline and str(Path(checkpoint).absolute()) != scored["checkpoint"]:
@@ -460,7 +481,7 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
         raise ValueError("num_envs must be positive")
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=min(num_envs, len(trial_plan)))
     try:
-        trials, _ = run_evaluation_trials(agent, env, trial_plan, config["sac"]["gamma"], output)
+        trials, _ = run_evaluation_trials(agent, env, trial_plan, agent.config.gamma, output)
         summary = summarize_trials(selection, trials, seed=seed)
         summary["policy"] = "initialization_baseline" if baseline else "trained_stochastic_actor"
         summary["checkpoint"] = str(Path(checkpoint).absolute())
@@ -473,8 +494,8 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
             scored["stations"],
             summary["stations"],
             output / "station-evaluation.png",
-            q_limits=config["evaluation"]["q_color_limits"],
-            correlation=summary["q_success_spearman"],
+            q_limits=config["evaluation"].get(f"{kind}_color_limits"),
+            correlation=summary[f"{kind}_success_spearman"],
         )
         return summary
     finally:
@@ -557,7 +578,7 @@ def evaluate_flat(config, agent, checkpoint, gpu, output, seed, *, num_envs):
         station_name = env.task.stations[int(env.task.pool[0])]["station_id"]
         plan = [dict(station_id=station_name, seed=seed + trial, trial=trial) for trial in range(20)]
         (output / "selection.json").write_text(json.dumps(plan, indent=2))
-        trials, videos = run_evaluation_trials(agent, env, plan, config["sac"]["gamma"], output, capture_all=True)
+        trials, videos = run_evaluation_trials(agent, env, plan, agent.config.gamma, output, capture_all=True)
         healthy = [row for row in trials if not row["infrastructure_failure"]]
         successes = sum(row["success"] for row in healthy)
         collision_free_successes = sum(row["success"] and row["collision_free"] for row in healthy)

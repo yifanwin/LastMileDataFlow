@@ -72,7 +72,7 @@ class SACTests(unittest.TestCase):
         torch.testing.assert_close(target, torch.tensor([1.0, 2.6]))
 
     def test_goal_embedding_is_invariant_to_padding_and_node_order(self):
-        from lastmile_dataflow.station_map.rl.sac.networks import GraphEncoder
+        from lastmile_dataflow.station_map.rl.networks import GraphEncoder
 
         obs = observation()
         encoder = GraphEncoder().eval()
@@ -110,7 +110,7 @@ class SACTests(unittest.TestCase):
             self.assertEqual(restored.updates, 1)
 
     def test_saturated_tanh_log_probability_remains_finite(self):
-        from lastmile_dataflow.station_map.rl.sac.networks import Actor
+        from lastmile_dataflow.station_map.rl.networks import Actor
 
         actor = Actor(9)
         with torch.no_grad():
@@ -157,7 +157,7 @@ class SACTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependency group")
 class ActorNoiseTests(unittest.TestCase):
     def test_supplied_noise_is_batched_and_keeps_sampling_contract(self):
-        from lastmile_dataflow.station_map.rl.sac.networks import Actor
+        from lastmile_dataflow.station_map.rl.networks import Actor
 
         torch.manual_seed(5)
         actor = Actor(9)

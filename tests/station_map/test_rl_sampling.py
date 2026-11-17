@@ -31,7 +31,7 @@ def producer(channel, queue, stop):
 class SamplingTests(unittest.TestCase):
     def test_contact_episode_records_seven_rewards_without_old_once_only_bonus(self):
         from lastmile_dataflow.station_map.rl.env.observation import CONTACT_REWARD_COMPONENTS
-        from lastmile_dataflow.station_map.rl.training import record_episodes
+        from lastmile_dataflow.station_map.rl.training_common import record_episodes
 
         task = SimpleNamespace(
             contact_protocol=True, stations=[{"station_id": "S0246"}], station_ids=torch.tensor([0]),

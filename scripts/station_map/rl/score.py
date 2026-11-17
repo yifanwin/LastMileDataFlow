@@ -1,4 +1,4 @@
-"""(c) RL 站位图打分：用冻结的在线双 Critic 给真实站位的初始观测打分。"""
+"""(c) RL 站位图打分：用冻结的 SAC 双 Q 或 PPO V 给真实站位的初始观测打分。"""
 
 import argparse
 import json

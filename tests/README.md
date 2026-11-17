@@ -13,3 +13,5 @@ simplify worktree 可借用主仓库解释器；RL 测试（tests/station_map/te
 真实入口在 smoke/，先查看 --help 并准备资产与权重。curobo_rollout.py 检查指定站位；head_fov.py 检查FOV；multitask.py 检查权重推理；pipeline.py 检查主链。GPU按实时资源选择，使用生产设备映射，禁止直接把GPU编号当作EGL序号。
 
 科研精简按需做局部验证，不新增镜像实现的测试；真实构建、规划、训练、视频和端到端结论分别记录。当前重构验证范围见 ../reports/simplify-refactor/delivery/。
+
+PPO 数值与同步传输测试：`MUJOCO_GL=disable .venv/bin/python -m unittest tests.station_map.test_rl_ppo -v`。覆盖全局优势归一化、GAE、Actor/V 独立裁剪、KL 停止、多个 epoch 与尾批、checkpoint、V 排名和算法分派；真实 GPU 短训练与视频边界见 [PPO 交付报告](../reports/rl-station-map/delivery/36-ppo-integration.md)。

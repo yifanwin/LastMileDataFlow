@@ -29,13 +29,17 @@
 
 - RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
+- RL PPO：[SAC/PPO 开关与同步多卡接入](rl-station-map/delivery/36-ppo-integration.md)，flat/graph、全局优势归一化、Actor/V独立裁剪、KL停止、V评分，已完成单/双卡真实短验证，未做正式训练。
+
+- PPO正式训练：[CUDA0–3 cube 300万样本启动配置](rl-station-map/delivery/37-ppo-cube-g0123-training-launch.md)，实时进度与启动验收记录在对应run。
+
 ## 主题
 
 | 主题 | 内容 | 入口 |
 |---|---|---|
 | `simplify-refactor/` | 两轮精简重构的方案、进度与总结 | [第二轮方案](simplify-refactor/plan/02-further-simplify-plan.md)、[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md) |
 | `project-overview/` | pipeline 总图与站位热图示意 | [pipeline 图](project-overview/delivery/2026-11-02-pipeline-figure.md) |
-| `rl-station-map/` | 固定底盘 SAC 站位图（mjlab 独立环境） | [需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)、[分布式采样方案](rl-station-map/plan/03-distributed-sampling-centralized-learner.md) |
+| `rl-station-map/` | 固定底盘 SAC / PPO 站位图（mjlab 独立环境） | [需求](rl-station-map/requirement/01-fixed-base-sac.md)、[构建方案](rl-station-map/plan/01-implementation.md)、[分布式采样方案](rl-station-map/plan/03-distributed-sampling-centralized-learner.md) |
 | `benchmark/` | lastmile-bench：困难 S0、恢复区域与评测 | [需求](benchmark/requirement/01-lastmile-bench-v0.1.md)、[方案](benchmark/plan/01-lastmile-bench-v0.1.md)、[现状](benchmark/analyze/01-current-status.md) |
 | `curobo-time-optimization/` | PandaOmron 场景构建与 cuRobo 标定加速（GPU 规划/CPU 执行拆分） | [当前需求](curobo-time-optimization/requirement/02-panda-omron-time-optimization.md)、[现状](curobo-time-optimization/analyze/01-current-status.md)、[规划失败分析](curobo-time-optimization/analyze/2026-10-25-planning-failure-analysis.md) |
 | `collision-handling/` | 局部碰撞表示：机器人柱体/底盘球、结构化局部环境 | [需求](collision-handling/requirement/02-local-collision-representation.md)、[方案](collision-handling/plan/04-local-collision-representation.md) |

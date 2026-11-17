@@ -14,3 +14,11 @@ def sampler_entry(physical_gpu, *args):
     from .sampling import sample
 
     sample(*args)
+
+
+def ppo_sampler_entry(physical_gpu, *args):
+    """Bind the physical card before importing the PPO worker."""
+    bind_device(int(physical_gpu))
+    from .ppo.sampling import sample
+
+    sample(*args)

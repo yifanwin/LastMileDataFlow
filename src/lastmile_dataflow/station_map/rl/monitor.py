@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
+from .station_q import score_key
+
 
 DEFAULT_TENSORBOARD_EVERY_SECONDS = 30
 
@@ -47,7 +49,14 @@ class TrainingMonitor:
     def _mean(self, tag, value):
         self.means[tag].add(value)
 
-    def record_update(self, losses):
+    def record_update(self, losses, *, algorithm="sac"):
+        if algorithm == "ppo":
+            for key, value in losses.items():
+                if key == "kl_early_stops":
+                    self.latest[f"ppo/{key}"] = value
+                else:
+                    self._mean(f"ppo/{key}", value)
+            return
         for key, tag in (
             ("actor_loss", "loss/actor"),
             ("critic_loss", "loss/critic"),
@@ -111,10 +120,13 @@ class TrainingMonitor:
 
 def station_evaluation(scores, measured, path, *, q_limits, correlation=None):
     """Max-yaw raw Q map plus actual station-level rollout success scatter."""
+    key = score_key(scores)
+    label = "state value V" if key == "v_mean" else "min-Q"
+    limits = q_limits or (None, None)
     best, representatives = {}, {}
     for row in scores:
         representatives.setdefault(row["xy_id"], row)
-        if row["valid"] and (row["xy_id"] not in best or row["q_mean"] > best[row["xy_id"]]["q_mean"]):
+        if row["valid"] and (row["xy_id"] not in best or row[key] > best[row["xy_id"]][key]):
             best[row["xy_id"]] = row
     invalid = [row for key, row in representatives.items() if key not in best]
     valid = list(best.values())
@@ -123,20 +135,20 @@ def station_evaluation(scores, measured, path, *, q_limits, correlation=None):
     points = axes[0].scatter(
         [r["x"] for r in valid],
         [r["y"] for r in valid],
-        c=[r["q_mean"] for r in valid],
-        vmin=q_limits[0],
-        vmax=q_limits[1],
+        c=[r[key] for r in valid],
+        vmin=limits[0],
+        vmax=limits[1],
         marker="s",
     )
     axes[0].set(title="Critic Value Map (max over yaw)", xlabel="World x (m)", ylabel="World y (m)", aspect="equal")
     axes[0].legend(loc="upper left", fontsize=8)
-    figure.colorbar(points, ax=axes[0], label="Raw min-Q, not success probability")
+    figure.colorbar(points, ax=axes[0], label=f"Raw {label}, not success probability")
     rows = [r for r in measured if r["success_rate"] is not None]
-    axes[1].scatter([r["q_mean"] for r in rows], [r["success_rate"] for r in rows], s=35)
+    axes[1].scatter([r[key] for r in rows], [r["success_rate"] for r in rows], s=35)
     rho = "N/A (constant or insufficient outcomes)" if correlation is None else f"{correlation:.3f}"
     axes[1].set(
         title=f"Value-Success Scatter\nSpearman = {rho}",
-        xlabel="Mean online min-Q at station yaw",
+        xlabel=f"Mean {label} at station yaw",
         ylabel="Measured rollout success rate",
         ylim=(-0.05, 1.05),
     )

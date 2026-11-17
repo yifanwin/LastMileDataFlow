@@ -8,10 +8,10 @@ import time
 import torch
 
 from .devices import VISIBLE_DEVICE
-from .sac.networks import Actor
+from .networks import Actor
 from .sac.replay import Transition
-from .training import record_episodes
-from .sac.agent import seed_all
+from .training_common import record_episodes
+from .checkpoint import seed_all
 from .env.observation import policy_observation
 from .env.observation import REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS
 

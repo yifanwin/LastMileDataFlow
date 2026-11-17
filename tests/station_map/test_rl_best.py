@@ -8,7 +8,7 @@ import unittest
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from lastmile_dataflow.station_map.rl.monitor import SuccessWindow, TrainingMonitor
-from lastmile_dataflow.station_map.rl.training import (
+from lastmile_dataflow.station_map.rl.training_common import (
     flush_training_monitor, save_best_checkpoint, save_periodic_checkpoint,
 )
 

@@ -14,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--scores", help="graph 站位图需要的 score.py station-q.json；flat 接触任务不需要")
+    parser.add_argument("--scores", help="graph 需要的 score.py station-q.json（SAC）或 station-v.json（PPO）；flat 不需要")
     parser.add_argument("--baseline", action="store_true", help="用 initial.pt 评测训练后打分选出的站位")
     parser.add_argument("--gpu", type=int, required=True, help="物理 GPU 编号")
     parser.add_argument("--output", required=True)

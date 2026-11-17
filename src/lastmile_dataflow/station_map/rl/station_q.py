@@ -1,4 +1,4 @@
-"""Online twin-Q scores and station-level empirical ranking statistics."""
+"""SAC twin-Q scoring and shared Q/V station ranking statistics."""
 
 import numpy as np
 import torch
@@ -17,6 +17,10 @@ def action_sampled_q(agent, observation, samples=16):
     return values.mean(1), values.std(1, correction=0)
 
 
+def score_key(rows):
+    return "v_mean" if rows and "v_mean" in rows[0] else "q_mean"
+
+
 def _take(group, candidates, count, selected, used, rng, *, ordered=False):
     candidates = [r for r in candidates if r["station_id"] not in used]
     indices = np.arange(len(candidates)) if ordered else rng.permutation(len(candidates))
@@ -29,7 +33,8 @@ def _take(group, candidates, count, selected, used, rng, *, ordered=False):
 def select_acceptance_stations(rows, config):
     """Save this selection before observing any rollout outcomes."""
     valid = [r for r in rows if r["valid"]]
-    ranked = sorted(valid, key=lambda row: row["q_mean"], reverse=True)
+    key = score_key(rows)
+    ranked = sorted(valid, key=lambda row: row[key], reverse=True)
     rng = np.random.default_rng(config["seed"])
     selected, used = [], set()
     _take("top", ranked, config["top"], selected, used, rng, ordered=True)
@@ -45,6 +50,8 @@ def select_acceptance_stations(rows, config):
 
 def summarize_trials(selection, trials, *, seed):
     rng = np.random.default_rng(seed)
+    value_key = score_key(selection)
+    prefix = value_key[0]
     stations = []
     for row in selection:
         all_rows = [t for t in trials if t["station_id"] == row["station_id"]]
@@ -71,9 +78,9 @@ def summarize_trials(selection, trials, *, seed):
     comparable = [s for s in stations if s["success_rate"] is not None]
 
     def correlation(key):
-        if len(comparable) < 2 or len({s["q_mean"] for s in comparable}) < 2 or len({s[key] for s in comparable}) < 2:
+        if len(comparable) < 2 or len({s[value_key] for s in comparable}) < 2 or len({s[key] for s in comparable}) < 2:
             return None
-        return float(spearmanr([s["q_mean"] for s in comparable], [s[key] for s in comparable]).statistic)
+        return float(spearmanr([s[value_key] for s in comparable], [s[key] for s in comparable]).statistic)
 
     groups = {}
     for group in ("top", "middle", "low", "uniform"):
@@ -89,7 +96,7 @@ def summarize_trials(selection, trials, *, seed):
     return {
         "stations": stations,
         "groups": groups,
-        "q_success_spearman": correlation("success_rate"),
-        "q_return_spearman": correlation("return_mean"),
+        f"{prefix}_success_spearman": correlation("success_rate"),
+        f"{prefix}_return_spearman": correlation("return_mean"),
         "infrastructure_failures": sum(t["infrastructure_failure"] for t in trials),
     }

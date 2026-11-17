@@ -135,7 +135,7 @@ class ValidationTests(unittest.TestCase):
         trial = {"station_id": row["station_id"], "success": True, "collision_free": True,
                  "infrastructure_failure": False, "return": 2.0, "episode_return": 3.0}
         env = SimpleNamespace(num_envs=2, device="cpu", task=SimpleNamespace(stations=[row], pool=[0]))
-        agent = SimpleNamespace(actor=Mock(), q1=Mock(), q2=Mock())
+        agent = SimpleNamespace(algorithm="sac", config=SimpleNamespace(gamma=0.999), actor=Mock(), q1=Mock(), q2=Mock())
         prefix = "lastmile_dataflow.station_map.rl.evaluation."
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             stack.enter_context(patch(prefix + "torch.random.fork_rng", return_value=nullcontext()))
@@ -236,9 +236,10 @@ class ValidationTests(unittest.TestCase):
                 saved = {"transitions": 100, "metadata": {"config": config, "best_training_success_rate": {"metric": score_metric, "rate": 1.0, "count": score_count} if has_score else None}}
                 sac = stack.enter_context(patch(prefix + "SAC", return_value=agent))
                 stack.enter_context(patch(prefix + "CHECKPOINT_EVERY_TRANSITIONS", 103))
+                stack.enter_context(patch("lastmile_dataflow.station_map.rl.training_common.CHECKPOINT_EVERY_TRANSITIONS", 103))
                 sac.load.return_value = agent, saved
                 stack.enter_context(patch(prefix + "seed_all"))
-                stack.enter_context(patch(prefix + "runtime_metadata", return_value={}))
+                stack.enter_context(patch("lastmile_dataflow.station_map.rl.training_common.runtime_metadata", return_value={}))
                 stack.enter_context(patch(prefix + "graph_observation", return_value=observation(1)))
                 stack.enter_context(patch(prefix + "Replay")).return_value.size = 0
                 stack.enter_context(patch(prefix + "torch.cuda.memory_allocated", return_value=0))
@@ -273,7 +274,7 @@ class ValidationTests(unittest.TestCase):
                     self.assertIn("latest.pt", [call.args[0].name for call in agent.save.call_args_list])
                     return {"scope": "train", "transitions": args[3], "healthy_trials": 1, "evaluation_success_rate": 0.0, "episode_return_mean": 1.0}, []
 
-                monitor = stack.enter_context(patch(prefix + "monitor_validation", side_effect=validate))
+                monitor = stack.enter_context(patch("lastmile_dataflow.station_map.rl.training_common.monitor_validation", side_effect=validate))
                 stack.enter_context(patch(prefix + "station_scores", return_value=[]))
                 stack.enter_context(patch(prefix + "plot_scores"))
                 result = train(config, gpus=[0], output=output, seed=42,
@@ -406,7 +407,7 @@ class FlatParallelEvaluationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch(
             "lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env
         ), patch("lastmile_dataflow.station_map.rl.evaluation.run_evaluation_trials", return_value=(rows, [])) as run:
-            result = evaluate_flat(config, SimpleNamespace(), "best.pt", 0, directory, 42, num_envs=20)
+            result = evaluate_flat(config, SimpleNamespace(config=SimpleNamespace(gamma=0.999)), "best.pt", 0, directory, 42, num_envs=20)
             plan = json.loads((Path(directory) / "selection.json").read_text())
         self.assertEqual([r["seed"] for r in plan], list(range(42, 62)))
         self.assertTrue(run.call_args.kwargs["capture_all"])
@@ -421,7 +422,7 @@ class FlatParallelEvaluationTests(unittest.TestCase):
 
         config = {"evaluation": {"seed": 42}}
         with patch("lastmile_dataflow.station_map.rl.evaluation.resolve_config", side_effect=lambda c: c), patch(
-            "lastmile_dataflow.station_map.rl.evaluation.SAC.load", return_value=(SimpleNamespace(mode="flat"), {"metadata": {"config": {}}})
+            "lastmile_dataflow.station_map.rl.evaluation.load_agent", return_value=(SimpleNamespace(mode="flat"), {"metadata": {"config": {}}})
         ) as load, patch("lastmile_dataflow.station_map.rl.evaluation.evaluate_flat") as flat:
             with self.assertRaisesRegex(ValueError, "checkpoint effective configuration"):
                 evaluate(config, checkpoint="best.pt", scores=None, gpu=0, output="unused", num_envs=3)

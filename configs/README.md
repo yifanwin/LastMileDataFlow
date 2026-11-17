@@ -35,6 +35,8 @@
 | `policies/molmobot.yaml`、`pi05_panda_omron.yaml`、`pi05_rby1.yaml` | 策略服务配置 |
 | `lastmile_benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
 | `station_map/rl/val103_cup30.yaml` | RL 站位图研究 |
+| `station_map/rl/val103_cube_s0246_facing_ppo.yaml` | 当前 cube 任务的 PPO 训练，物理和奖励沿用 SAC 配置 |
+| `station_map/rl/val103_cup30_s0246_facing_ppo.yaml` | Cup 图观测 PPO 训练及 V 站位评分 |
 | `station_map/rl/val103_cup30_s0246_y04.yaml` | 固定历史 S0246-y04 世界位姿的单站位 SAC 训练 |
 | `station_map/rl/val103_cup30_s0246_facing.yaml` | S0246 正对 Cup_30，100 万条经验；启动时选择空闲卡，最多 8 卡 |
 
@@ -74,3 +76,5 @@ RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `t
 构建直接读取已有场景和标定，不启动新 trial。`low/high`（默认 0.20/0.60，含等号）是参考协议下起点成功率阈值；`region_radius_m`、`region_yaw_tolerance_rad` 是高率站位周围合法恢复区域；`navigation_*` 同执行配置；`local_candidate_radius_m: null` 用整个候选域算 Recovery Ratio；`max_episodes_per_scene: 0` 保留全部合格起点；`horizon`/`wall_timeout_s` 是评测预算。导航使用完整来源房间地面。
 
 运行步骤见 [运行手册](../docs/runbook.md)。
+
+RL 算法由 `--algorithm {sac,ppo}` 覆盖配置 `algorithm`，缺省为 SAC。PPO 参数集中在 `ppo` 段，缺省值见 `PPOConfig`；示例配置保留 `sac` 与 Replay 字段以便切回 SAC，PPO 不读取这些训练参数。有效 PPO 参数写入 run 的 `config.json`。多卡时 `environment.num_envs` 是每卡环境数，单轮样本上限为 `卡数 × 环境数 × ppo.rollout_steps`。PPO graph 使用 `evaluation.v_color_limits`（可省略自动定色限）；SAC 保留 `q_color_limits`。

@@ -2,14 +2,13 @@
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-import random
 
 import numpy as np
 import torch
 from torch.nn import functional as F
 
-from .networks import Actor, Critic
-from ..env.observation import ARM_STATE_FIELDS, FLAT_FIELDS, NODE_DIM
+from ..networks import Actor, Critic
+from ..checkpoint import input_definition, rng_state, restore_rng_state
 
 
 @dataclass(frozen=True)
@@ -23,15 +22,13 @@ class SACConfig:
     target_entropy: float = -7.0
 
 
-def input_definition(mode):
-    return ("flat", FLAT_FIELDS) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
-
-
 def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
     return reward + gamma * (~terminated).float() * (next_q - alpha * next_log_prob)
 
 
 class SAC:
+    algorithm = "sac"
+
     def __init__(self, state_dim, device, config=SACConfig(), *, mode="graph"):
         if mode not in ("graph", "flat"):
             raise ValueError(f"Unknown SAC mode: {mode}")
@@ -100,6 +97,7 @@ class SAC:
     def save(self, path, *, metadata, transitions):
         torch.save(
             {
+                "algorithm": self.algorithm,
                 "state_dim": self.state_dim,
                 "mode": self.mode,
                 "input_definition": input_definition(self.mode),
@@ -114,20 +112,17 @@ class SAC:
                 "updates": self.updates,
                 "transitions": transitions,
                 "metadata": metadata,
-                "rng": {
-                    "python": random.getstate(),
-                    "numpy": np.random.get_state(),
-                    "torch": torch.get_rng_state(),
-                    "cuda": torch.cuda.get_rng_state(self.device) if self.device.type == "cuda" else None,
-                },
+                "rng": rng_state(self.device),
                 "resume_semantics": "parameter/optimizer warm resume; reset environment and replay",
             },
             path,
         )
 
     @classmethod
-    def load(cls, path, device, *, restore_rng=False):
-        saved = torch.load(path, map_location=device, weights_only=False)
+    def load(cls, path, device, *, restore_rng=False, saved=None):
+        saved = torch.load(path, map_location=device, weights_only=False) if saved is None else saved
+        if saved.get("algorithm", "sac") != "sac":
+            raise ValueError("SAC requires a SAC checkpoint")
         mode = saved.get("mode", "graph")
         if saved.get("input_definition", input_definition(mode)) != input_definition(mode):
             raise ValueError("Checkpoint observation definition does not match SAC mode")
@@ -140,17 +135,5 @@ class SAC:
             agent.log_alpha.copy_(saved["log_alpha"])
         agent.updates = saved["updates"]
         if restore_rng:
-            rng = saved["rng"]
-            random.setstate(rng["python"])
-            np.random.set_state(rng["numpy"])
-            torch.set_rng_state(rng["torch"].cpu())
-            if rng["cuda"] is not None and agent.device.type == "cuda":
-                torch.cuda.set_rng_state(rng["cuda"].cpu(), agent.device)
+            restore_rng_state(saved["rng"], agent.device)
         return agent, saved
-
-
-def seed_all(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
