@@ -24,7 +24,10 @@ REWARD_COMPONENTS = (
     "held",
 )
 
-CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "opening", "closing", "grasp")
+CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing", "grasp", "lift")
+
+GRASP_POSITION_TOLERANCE_M = 0.02
+GRASP_ROTATION_TOLERANCE_RAD = np.deg2rad(20.0)
 
 # The 65D contact-and-lift policy uses base-frame coordinates throughout.
 FLAT_FIELDS = (
@@ -32,8 +35,8 @@ FLAT_FIELDS = (
     ("cube_rotation_columns_6d", 6, 1.0),
     ("cube_size_local", 3, 1.0),
     ("cube_bottom_height_base", 1, 1.0),
-    ("target_position_error_base", 3, 1.0),
-    ("target_rotation_error_base", 3, "pi"),
+    ("target_position_error_base", 3, GRASP_POSITION_TOLERANCE_M),
+    ("target_rotation_error_base", 3, GRASP_ROTATION_TOLERANCE_RAD),
     ("cube_linear_velocity_base", 3, 1.0),
     ("cube_angular_velocity_base", 3, 1.0),
     ("arm_and_lift_q", 8, "arm:3.14; lift:model_lift_range"),

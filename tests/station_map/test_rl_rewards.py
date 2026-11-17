@@ -81,8 +81,13 @@ class RewardTests(unittest.TestCase):
             step_collision=torch.ones(n, dtype=torch.bool),
             success=torch.zeros(n, dtype=torch.bool),
             contact_success_paid=torch.zeros(n, dtype=torch.bool),
+            previous_lift_potential=torch.zeros(n),
+            height_reference=torch.full((n,), 0.77),
             reward_components=torch.zeros(n, len(CONTACT_REWARD_COMPONENTS)),
         )
+        target_position = torch.zeros(n, 3)
+        target_position[:, 2] = task.height_reference
+        task.poses = lambda: (None, None, None, None, target_position, None)
         task.last_action[:, -1] = torch.tensor(actions)
         return SimpleNamespace(task=task, step_dt=0.05, research_config=config)
 
@@ -93,14 +98,14 @@ class RewardTests(unittest.TestCase):
         task.previous_distance[1] = 0.04
         task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -2., 30., 0., 0.025, 0.05]))
-        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -2., 0., 0.01, 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.1, 0.05, -1., 30., 0.025, 0.05, 0.]))
+        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.1, -0.05, -1., 0., 0., 0., 0.]))
         env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         reward(env)
         self.assertEqual(float(task.reward_components[:, 3].sum()), 0.0)
         self.assertEqual(float(task.reward_components[:, :2].sum()), 0.0)
-        torch.testing.assert_close(task.reward_components[0, 4:], torch.tensor([0., 0.025, 0.05]))
-        torch.testing.assert_close(task.reward_components[1, 4:], torch.tensor([0.01, 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0, 4:], torch.tensor([0.025, 0.05, 0.]))
+        torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(3))
 
     def test_contact_reward_gates_and_action_signs(self):
         angle_limit = read_config("configs/station_map/rl/val103_cube_s0246_facing.yaml")["reward"]["grasp_angle_rad"]
@@ -112,13 +117,30 @@ class RewardTests(unittest.TestCase):
         env.task.forces[6, 0] = 1e-6
         reward(env)
         torch.testing.assert_close(env.task.reward_components[:, 4:], torch.tensor([
-            [0., 0., 0.], [0., 0., 0.], [0., 0., 0.05], [0., 0., 0.],
-            [0.02, 0., 0.], [0., 0., 0.05], [0., 0.05, 0.], [0., 0., 0.],
+            [0., 0., 0.], [0., 0., 0.], [0., 0.05, 0.], [0., 0., 0.],
+            [0., 0., 0.], [0., 0.05, 0.], [0.05, 0., 0.], [0., 0., 0.],
         ]))
         # Only the final physical sample counts for shaping, unlike success.
         env.task.forces.zero_()
         reward(env)
-        self.assertEqual(float(env.task.reward_components[:, -1].sum()), 0.)
+        self.assertEqual(float(env.task.reward_components[:, CONTACT_REWARD_COMPONENTS.index("grasp")].sum()), 0.)
+
+    def test_contact_lift_signed_progress_and_release(self):
+        env = self.contact_reward_env([0.1], [0.8], [0.])
+        task = env.task
+        height = env.research_config["success"]["lift_m"]
+        position = task.poses()[4]
+        index = CONTACT_REWARD_COMPONENTS.index("lift")
+        # Height shaping has no pose gate. Update its baseline even without contact.
+        for progress, both, expected in (
+            (0.5, True, 0.5), (0.25, True, -0.25), (0.75, False, 0.),
+            (0.75, True, 0.), (1.5, True, 0.25), (-0.5, True, -1.),
+        ):
+            position[:, 2] = task.height_reference + progress * height
+            task.forces[:] = float(both)
+            total = reward(env)
+            self.assertAlmostEqual(float(task.reward_components[0, index]), expected, places=5)
+            torch.testing.assert_close(total, task.reward_components.sum(-1))
 
     def test_contact_requires_simultaneous_substep_forces_and_latches(self):
         task = TaskState.__new__(TaskState)

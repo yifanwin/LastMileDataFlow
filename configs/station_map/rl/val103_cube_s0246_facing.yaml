@@ -29,14 +29,13 @@ action:
 reward:
   position: 10.0
   rotation: 0.5
-  collision: 2.0
+  collision: 1.0
   success: 30.0
-  open: 0.02
   close: 0.05
   grasp: 0.05
-  open_distance_m: 0.04
+  lift: 1.0
   grasp_distance_m: 0.03
-  grasp_angle_rad: 0.17453292519943295
+  grasp_angle_rad: 0.3490658503988659
 sac:
   gamma: 0.999
   tau: 0.005
@@ -53,7 +52,7 @@ training:
   transitions_per_update: 128
   debug_station_ids: []
   log_every: 10000
-  max_transitions: 1000000
+  max_transitions: 3000000
   tensorboard_every_seconds: 30
   validation_stations: 1
   validation_rollouts_per_station: 16

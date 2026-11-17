@@ -141,6 +141,12 @@ class SACTests(unittest.TestCase):
             restored, _ = SAC.load(path, "cpu")
             torch.testing.assert_close(agent.actor.sample(obs, True)[0], restored.actor.sample(obs, True)[0])
             saved = torch.load(path, weights_only=False)
+            old_scales = {"target_position_error_base": 1., "target_rotation_error_base": "pi"}
+            old_fields = tuple((name, size, old_scales.get(name, scale)) for name, size, scale in FLAT_FIELDS)
+            saved["input_definition"] = ("flat", old_fields)
+            torch.save(saved, path)
+            with self.assertRaisesRegex(ValueError, "observation definition"):
+                SAC.load(path, "cpu")
             saved["state_dim"] = 45
             saved["input_definition"] = ("flat", (("old_contact_input", 45, 1.),))
             torch.save(saved, path)

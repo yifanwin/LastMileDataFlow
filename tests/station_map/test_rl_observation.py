@@ -60,8 +60,8 @@ class GeometryTests(unittest.TestCase):
             "cube_rotation_columns_6d": [1., 0., 0., 0., 1., 0.],
             "cube_size_local": [0.04] * 3,
             "cube_bottom_height_base": [0.98],
-            "target_position_error_base": [0.1, 0.2, 0.3],
-            "target_rotation_error_base": [0.5, -0.25, 0.],
+            "target_position_error_base": [5., 10., 15.],
+            "target_rotation_error_base": [4.5, -2.25, 0.],
             "cube_linear_velocity_base": [0.7, 0.8, 0.9],
             "cube_angular_velocity_base": [1.1, 1.2, 1.3],
             "arm_and_lift_q": [0.] * 7 + [0.5],
@@ -78,6 +78,13 @@ class GeometryTests(unittest.TestCase):
         for name, value in expected.items():
             torch.testing.assert_close(values[name], torch.tensor(value), msg=name)
         self.assertAlmostEqual(float(task.height_reference[0]), 2.)
+        self.assertAlmostEqual(float(task.previous_distance[0]), (0.14 ** 0.5))
+        self.assertAlmostEqual(float(task.previous_angle[0]), torch.pi * (5 ** 0.5) / 4, places=6)
+        # The error norm reaches one at the task tolerance; signs are retained.
+        task.goal_error = lambda: (torch.tensor([[-0.02, 0., 0.]]),
+                                  torch.tensor([[0., torch.pi / 9, 0.]]))
+        normalized = task.flat_state()
+        torch.testing.assert_close(normalized[0, 13:19], torch.tensor([-1., 0., 0., 0., 1., 0.]))
         # A tilted cube's bottom is its lowest corner, not center minus size/2.
         tilt = torch.tensor([[[1., 0., 0.], [0., 2**-0.5, -2**-0.5], [0., 2**-0.5, 2**-0.5]]])
         poses = task.poses()

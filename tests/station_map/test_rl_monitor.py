@@ -47,7 +47,7 @@ class TrainingMonitorTests(unittest.TestCase):
         event = episode(1)
         event.pop("contact_bonus_count")
         event["reward_component_names"] = CONTACT_REWARD_COMPONENTS
-        event["reward_components"] = [0.1, 0.05, -2., 30., 0.02, 0.05, 0.05]
+        event["reward_components"] = [0.1, 0.05, -1., 30., 0.05, 0.05, 0.5]
         with tempfile.TemporaryDirectory() as directory:
             monitor = TrainingMonitor(directory, every_seconds=30)
             monitor.record_episode(event)
@@ -56,6 +56,7 @@ class TrainingMonitorTests(unittest.TestCase):
             for name, value in zip(CONTACT_REWARD_COMPONENTS, event["reward_components"], strict=True):
                 self.assertAlmostEqual(reader.Scalars(f"train/reward/{name}")[0].value, value, places=6)
             self.assertNotIn("train/contact_bonus_count", reader.Tags()["scalars"])
+            self.assertNotIn("train/reward/opening", reader.Tags()["scalars"])
 
     def test_live_interval_means_all_updates_and_healthy_episode_groups(self):
         clock = Mock(return_value=0)

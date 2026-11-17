@@ -4,7 +4,10 @@ import numpy as np
 import torch
 from mjlab.utils.lab_api.math import axis_angle_from_quat, compute_pose_error, quat_from_matrix
 
-from .observation import GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS
+from .observation import (
+    GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
+    GRASP_POSITION_TOLERANCE_M, GRASP_ROTATION_TOLERANCE_RAD,
+)
 from .stations import prepare_stations
 from lastmile_dataflow.operation.grasps import load_grasps, select_grasps
 from lastmile_dataflow.sim.simulation import Simulation
@@ -123,6 +126,7 @@ class TaskState:
         self.last_action = torch.zeros(n, 7, device=self.device)
         self.previous_distance = torch.zeros(n, device=self.device)
         self.previous_angle = torch.zeros(n, device=self.device)
+        self.previous_lift_potential = torch.zeros(n, device=self.device)
         self.contact_bonus_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.previous_both = torch.zeros_like(self.contact_bonus_paid)
         self.lift_peak = torch.zeros(n, device=self.device)
@@ -346,8 +350,8 @@ class TaskState:
             cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
             size,
             cube_position[:, 2:3] - extent[:, 2:3],
-            dp,
-            dr / torch.pi,
+            dp / GRASP_POSITION_TOLERANCE_M,
+            dr / GRASP_ROTATION_TOLERANCE_RAD,
             cube_linear,
             cube_angular,
             q[:, self.arm] / 3.14,
@@ -479,6 +483,7 @@ def reset(env, env_ids):
     for name in (
         "elapsed",
         "contact_success_paid",
+        "previous_lift_potential",
         "hold",
         "forces",
         "support",
@@ -525,17 +530,21 @@ def reward(env):
         task.contact_success_paid |= success_event
         near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
         both = (task.forces > env.research_config["success"]["finger_force_min_n"]).all(-1)
+        target_position = task.poses()[4]
+        lift = target_position[:, 2] - task.height_reference
+        potential = (lift / env.research_config["success"]["lift_m"]).clamp(0, 1)
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
             -cfg["collision"] * task.step_collision.float(),
             cfg["success"] * success_event.float(),
-            cfg["open"] * (distance > cfg["open_distance_m"]) * (-gripper_action).clamp(min=0),
             cfg["close"] * near * gripper_action.clamp(min=0),
             cfg["grasp"] * (near & both),
+            cfg["lift"] * both * (potential - task.previous_lift_potential),
         ), -1)
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle
+        task.previous_lift_potential[:] = potential
         return task.reward_components.sum(-1)
     cfg = env.research_config["reward"]
     both = (task.forces > P["finger_force_min_n"]).all(-1)
