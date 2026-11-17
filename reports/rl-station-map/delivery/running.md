@@ -189,6 +189,10 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 
 当前配置 `configs/station_map/rl/val103_cube_s0246_facing.yaml` 使用 `observation.mode: flat`、65维输入与 `success.version: rl-pick-contact-v2`：双指同子步接触且方块中心相对初态抬升0.0086 m即成功。夹爪动作正值闭爪、负值张开；[旧v1实验](19-cube-contact-single-station.md)的成功仅表示接触。
 
-2026-11-17更新：抓取位置误差除以0.02 m，原始旋转误差除以20°对应的弧度值，不裁剪；奖励仍用原始米和弧度。七项奖励为位置、旋转、碰撞、成功、闭爪、双指接触、抬升，关闭张开奖励；碰撞每策略步最多扣1分，闭爪与接触门限为严格小于3 cm和20°。双指接触时按归一化抬升进度差给予正负奖励。训练预算为3,000,000条健康transition；本次只配置预算，不启动训练。公式及验证见[归一化与奖励调整](25-cube-normalization-rewards.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务，需使用新run从头训练。
+2026-11-17更新：抓取位置误差除以0.02 m，原始旋转误差除以20°对应的弧度值，不裁剪；奖励仍用原始米和弧度。七项奖励为位置、旋转、碰撞、成功、闭爪、双指接触、抬升，关闭张开奖励；碰撞每策略步最多扣1分。
+
+抓取阶段为严格小于3 cm和20°，每次连续处于该阶段期间，首次双指接触奖励5分；仅松指再接触不重复付奖，离开该阶段后重新进入可再次付奖。事件逐物理子步采集，策略步内多次有效事件累加。闭爪奖励为 `0.8 × max(a_g,0) × clip((0.03-d)/0.01,0,1) × clip((45°-θ)/25°,0,1)`；角度计算使用弧度。抬升奖励为末次物理采样双指接触时 `5 × (Φ_current-Φ_previous)`，Φ仍是相对回合初态高度除以0.0086 m后裁剪到[0,1]的进度，每步均更新上一时刻进度。
+
+训练预算为3,000,000条健康transition，batch_size为512，预热20,000，每128条新增经验更新一次；CUDA0–3各128环境时共512环境。最新改动、验证及新run见[阶段接触奖励与四卡训练](27-cube-stage-contact-b512-training.md)，前一版实现见[归一化与奖励调整](25-cube-normalization-rewards.md)。旧45维和旧尺度65维checkpoint均由输入定义检查拒绝加载到新任务；奖励与batch变化使用新run从头训练。
 
 沿用物理GPU绑定、EGL与独立Sampler/Learner；设置 `PYTHONPATH` 为本实验工作区的 `src`，并使用已安装完整RL依赖的解释器。本次验证复用 `/data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-critic/.venv/bin/python`，不安装或下载依赖。无渲染时设 `MUJOCO_GL=disable`；四卡传 `--gpu 0 1 2 3`，运行前仍核查实时占用。无启动、周期或终点站位Q图评估。正式训练须另建run、固定源码版本；本次仅验证1024条健康transition，不执行正式训练或策略成功率验收。

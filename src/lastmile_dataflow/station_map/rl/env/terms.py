@@ -264,6 +264,13 @@ class TaskState:
         both = (self.forces > threshold).all(-1)
         if self.contact_protocol:
             # The same native sensor sample must show force on both fingers.
+            dp, dr = self.goal_error()
+            cfg = self.env.research_config["reward"]
+            near = (dp.norm(dim=-1) < cfg["grasp_distance_m"]) & (dr.norm(dim=-1) < cfg["grasp_angle_rad"])
+            self.contact_bonus_paid &= near
+            event = near & both & ~self.contact_bonus_paid
+            self.step_contact += event.float()
+            self.contact_bonus_paid |= event
             fixed = self.robot.data.joint_pos[:, self.fixed]
             delta = fixed - self.fixed_reference
             drift = delta[:, :2].norm(dim=-1)
@@ -528,7 +535,12 @@ def reward(env):
         gripper_action = task.last_action[:, -1]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
-        near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
+        distance_gate = ((cfg["grasp_distance_m"] - distance) / (
+            cfg["grasp_distance_m"] - cfg["close_full_distance_m"]
+        )).clamp(0, 1)
+        angle_gate = ((cfg["close_zero_angle_rad"] - angle) / (
+            cfg["close_zero_angle_rad"] - cfg["grasp_angle_rad"]
+        )).clamp(0, 1)
         both = (task.forces > env.research_config["success"]["finger_force_min_n"]).all(-1)
         target_position = task.poses()[4]
         lift = target_position[:, 2] - task.height_reference
@@ -538,8 +550,8 @@ def reward(env):
             cfg["rotation"] * (task.previous_angle - angle),
             -cfg["collision"] * task.step_collision.float(),
             cfg["success"] * success_event.float(),
-            cfg["close"] * near * gripper_action.clamp(min=0),
-            cfg["grasp"] * (near & both),
+            cfg["close"] * distance_gate * angle_gate * gripper_action.clamp(min=0),
+            cfg["grasp"] * task.step_contact,
             cfg["lift"] * both * (potential - task.previous_lift_potential),
         ), -1)
         task.previous_distance[:] = distance

@@ -31,11 +31,13 @@ reward:
   rotation: 0.5
   collision: 1.0
   success: 30.0
-  close: 0.05
-  grasp: 0.05
-  lift: 1.0
+  close: 0.8
+  grasp: 5.0
+  lift: 5.0
   grasp_distance_m: 0.03
   grasp_angle_rad: 0.3490658503988659
+  close_full_distance_m: 0.02
+  close_zero_angle_rad: 0.7853981633974483
 sac:
   gamma: 0.999
   tau: 0.005
@@ -46,7 +48,7 @@ sac:
   target_entropy: -7.0
 training:
   periodic_evaluation: false
-  batch_size: 256
+  batch_size: 512
   replay_capacity: 100000
   warmup_min: 20000
   transitions_per_update: 128
