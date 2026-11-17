@@ -9,13 +9,15 @@ from .video import render_rollout
 
 
 class RolloutCapture:
-    def __init__(self, output, transitions, config, representatives=False, *, selected_slots=None):
+    def __init__(self, output, transitions, config, representatives=False, *, selected_slots=None, trial_ids=None, trial_seeds=None):
         self.output = Path(output)
         self.transitions = transitions
         self.config = config
         self.representatives = representatives
         self.selected_slots = selected_slots
         self.videos = []
+        self.trial_ids = trial_ids
+        self.trial_seeds = trial_seeds
 
     def initialize(self, env, stations, seed, deterministic):
         self.stations, self.seed = stations, seed
@@ -77,10 +79,13 @@ class RolloutCapture:
                     continue
             else:
                 categories = {station["split"]}
-                if categories <= selected:
+                if self.trial_ids is None and categories <= selected:
                     continue
             selected.update(categories)
             stem = f"actor-{self.transitions:012d}-{station['split']}-{station['station_id']}-{self.mode}"
+            if self.trial_ids is not None:
+                stem += f"-t{self.trial_ids[i]:03d}"
+            seed = self.seed if self.trial_seeds is None else self.trial_seeds[i]
             replay_dir = self.output / "replays"
             replay_dir.mkdir(exist_ok=True)
             replay = replay_dir / (stem + ".npz")
@@ -96,8 +101,9 @@ class RolloutCapture:
                 else "timeout"
             )
             result += f" collision_free={row['collision_free']}"
-            label = f"{self.transitions} {station['split']} {station['station_id']} seed={self.seed} {self.mode}"
+            label = f"{self.transitions} {station['split']} {station['station_id']} seed={seed} {self.mode}"
             settings = {**self.config["video"], "target_body": env.prepared.target_body}
+            print(f"Rendering {stem} seed={seed}", flush=True)
             video = render_rollout(
                 env.sim.mj_model,
                 states,
@@ -112,7 +118,8 @@ class RolloutCapture:
                 {
                     **video,
                     "replay": str(replay),
-                    "seed": self.seed,
+                    "seed": seed,
+                    **({"trial": self.trial_ids[i]} if self.trial_ids is not None else {}),
                     "result": row,
                     "transitions": self.transitions,
                     "policy": self.mode,
@@ -121,3 +128,27 @@ class RolloutCapture:
             )
             if self.representatives:
                 env._representative_video_categories.update(categories)
+
+
+class EpisodeReplays:
+    """Full policy-step graph replays; transfer one completed trial at a time."""
+
+    def initialize(self, env):
+        self.qpos = [env.sim.data.qpos.clone()]
+        self.qvel = [env.sim.data.qvel.clone()]
+        self.actions, self.controls = [], []
+
+    def sample(self, env, action):
+        self.qpos.append(env.sim.data.qpos.clone())
+        self.qvel.append(env.sim.data.qvel.clone())
+        self.actions.append(action.clone())
+        self.controls.append(env.sim.data.ctrl.clone())
+
+    def save(self, index, steps, path):
+        np.savez_compressed(
+            path,
+            qpos=torch.stack([q[index] for q in self.qpos[:steps + 1]]).cpu().numpy(),
+            qvel=torch.stack([q[index] for q in self.qvel[:steps + 1]]).cpu().numpy(),
+            action=torch.stack([a[index] for a in self.actions[:steps]]).cpu().numpy(),
+            ctrl=torch.stack([c[index] for c in self.controls[:steps]]).cpu().numpy(),
+        )

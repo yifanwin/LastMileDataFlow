@@ -37,10 +37,13 @@ class Actor(nn.Module):
         mu, log_std = self.head(self.encoder(observation)).chunk(2, -1)
         return mu, log_std.clamp(-5, 2)
 
-    def sample(self, observation, deterministic=False):
+    def sample(self, observation, deterministic=False, *, noise=None):
         mu, log_std = self(observation)
         normal = torch.distributions.Normal(mu, log_std.exp())
-        u = mu if deterministic else normal.rsample()
+        if deterministic:
+            u = mu
+        else:
+            u = normal.rsample() if noise is None else mu + log_std.exp() * noise
         action = u.tanh()
         # Stable exact log(1 - tanh(u)^2), including saturated actions.
         correction = 2 * (math.log(2) - u - F.softplus(-2 * u))

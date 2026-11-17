@@ -257,3 +257,51 @@ class ValidationTests(unittest.TestCase):
                 self.assertEqual([p.value for p in reader.Scalars("loss/actor")], [1.0, 2.5])
                 point, = reader.Scalars("evaluation/train/evaluation_success_rate")
                 self.assertEqual((point.step, point.value), (result["transitions"], 0))
+
+
+class ParallelEvaluationTests(unittest.TestCase):
+    def test_trial_streams_ignore_batch_width_and_finished_lanes(self):
+        from lastmile_dataflow.station_map.rl.evaluation import episode_generators, episode_noise
+
+        generators = episode_generators([42, 43], "cpu")
+        single = episode_generators([43], "cpu")
+        for active in ([True, True], [False, True], [False, True]):
+            batch = episode_noise(generators, 7, torch.tensor(active))
+            alone = episode_noise(single, 7, torch.tensor([True]))
+            torch.testing.assert_close(batch[1], alone[0])
+        first = episode_generators([42], "cpu")
+        episode_noise(first, 7, torch.tensor([True]))
+        torch.testing.assert_close(episode_noise(generators, 7, torch.tensor([True, False]))[0],
+                                   episode_noise(first, 7, torch.tensor([True]))[0])
+
+    def test_grasp_selection_follows_trial_seed_when_lanes_are_reordered(self):
+        from lastmile_dataflow.station_map.rl.evaluation import episode_generators, request_episode_grasps
+
+        task = SimpleNamespace(device="cpu", grasp_pools=[[3, 5, 7], [1, 2]])
+        request_episode_grasps(task, [0, 1], episode_generators([42, 43], "cpu"))
+        original = task.requested_grasp_ids.clone()
+        request_episode_grasps(task, [1, 0], episode_generators([43, 42], "cpu"))
+        torch.testing.assert_close(task.requested_grasp_ids, original.flip(0))
+
+    def test_batches_keep_trial_order_and_exclude_padding(self):
+        from lastmile_dataflow.station_map.rl.evaluation import run_evaluation_trials
+
+        env = SimpleNamespace(num_envs=2, task=SimpleNamespace(stations=[{"station_id": "S0246"}]))
+        plan = [dict(station_id="S0246", seed=42 + i, trial=i) for i in range(3)]
+
+        def rollout(agent, env, stations, seed, gamma, **kwargs):
+            for i in reversed(range(2)):
+                kwargs["on_trial"](i, dict(seed=kwargs["trial_seeds"][i], steps=2,
+                                          success=False, failed=False, infrastructure_failure=False))
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "lastmile_dataflow.station_map.rl.evaluation.validation_rollout", side_effect=rollout
+        ) as run, patch("lastmile_dataflow.station_map.rl.evaluation.EpisodeReplays") as replay:
+            rows, videos = run_evaluation_trials(SimpleNamespace(updates=0), env, plan, 0.99, Path(directory))
+            logged = [json.loads(line) for line in (Path(directory) / "trials.jsonl").read_text().splitlines()]
+        self.assertEqual([r["trial"] for r in rows], [0, 1, 2])
+        self.assertEqual([r["trial"] for r in logged], [1, 0, 2])
+        self.assertEqual([r["seed"] for r in rows], [42, 43, 44])
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(replay.return_value.save.call_count, 3)
+        self.assertEqual(videos, [])

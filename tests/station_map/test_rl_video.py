@@ -63,3 +63,49 @@ class VideoSelectionTests(unittest.TestCase):
             self.assertEqual(render.call_count, 1)
             self.assertEqual(env._representative_video_categories, {"success", "collision"})
             self.assertEqual(capture.videos[0]["categories"], ["collision", "success"])
+
+
+class IndependentCaptureTests(unittest.TestCase):
+    def test_all_twenty_trials_at_one_station_have_distinct_videos_and_seeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "views").mkdir()
+            env = SimpleNamespace(task=SimpleNamespace(stations=[{"station_id": "S0246", "split": "train"}]),
+                                  sim=SimpleNamespace(mj_model=None), step_dt=0.05,
+                                  prepared=SimpleNamespace(target_body="cube"))
+            capture = RolloutCapture(output, 100, {"video": {}}, selected_slots=list(range(20)),
+                                     trial_ids=list(range(20)), trial_seeds=list(range(42, 62)))
+            capture.stations, capture.seed, capture.mode = [0] * 20, 42, "stochastic"
+            capture.states = [[np.full(2, i)] for i in range(20)]
+            capture.metrics = [["terminal frame"] for _ in range(20)]
+            row = dict(success=False, collision_free=True, infrastructure_failure=False, failed=False)
+            with patch("lastmile_dataflow.station_map.rl.capture.render_rollout", return_value={}) as render:
+                capture.finish(env, [row] * 20)
+            self.assertEqual(render.call_count, 20)
+            self.assertEqual(len({str(call.args[3]) for call in render.call_args_list}), 20)
+            self.assertEqual([v["seed"] for v in capture.videos], list(range(42, 62)))
+            self.assertEqual([v["trial"] for v in capture.videos], list(range(20)))
+            self.assertEqual(len(list((output / "replays").glob("*.npz"))), 20)
+
+    def test_full_replay_is_cut_at_its_own_terminal_step(self):
+        from lastmile_dataflow.station_map.rl.capture import EpisodeReplays
+
+        data = SimpleNamespace(qpos=torch.zeros(2, 3), qvel=torch.zeros(2, 3), ctrl=torch.zeros(2, 2))
+        env = SimpleNamespace(sim=SimpleNamespace(data=data))
+        replay = EpisodeReplays()
+        replay.initialize(env)
+        for step in (1, 2):
+            data.qpos.fill_(step)
+            data.qvel.fill_(step * 10)
+            data.ctrl.fill_(step * 100)
+            replay.sample(env, torch.full((2, 7), float(step)))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trial.npz"
+            replay.save(0, 1, path)
+            with np.load(path) as saved:
+                self.assertEqual(saved["qpos"].shape, (2, 3))
+                self.assertEqual(saved["qvel"].shape, (2, 3))
+                self.assertEqual(saved["action"].shape, (1, 7))
+                self.assertEqual(saved["ctrl"].shape, (1, 2))
+                self.assertEqual(saved["qpos"][-1, 0], 1)
+                self.assertEqual(saved["ctrl"][-1, 0], 100)

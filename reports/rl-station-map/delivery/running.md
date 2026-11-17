@@ -184,3 +184,8 @@ MUJOCO_GL=disable .venv/bin/python -m unittest \
 正式成功率试验不采集视频；视频专用 stochastic / mean 回合只存选中的站位轨迹，GPU 数据在回合结束后批量转到 CPU 并格式化。原先所有回合中挑首次成功/碰撞代表视频的路径不再默认启用，因此视频本身不保证包含正式试验中首次成功或碰撞。正式试验仍保留完整成功/碰撞等数值结果。
 
 `analysis/evaluation-progress-<transitions>.json` 与 stdout 显示 initial_q / rollouts / videos / complete 阶段和正式试验完成数；评估 JSON 的 `metrics.stage_seconds` 记录初态 Q、正式 rollout 与视频阶段耗时。并行试验记录批次 seed 和全局 trial 编号，固定配置和批量布局可重复；向量化后的随机数顺序与旧串行版不同，不承诺旧 seed 的逐轨迹复现。实际验证见[并行评估交付](18-parallel-evaluation.md)。
+
+
+### 独立评估的并行数
+
+`evaluate.py` 默认最多20个环境并行，使用 `--num-envs N` 覆盖；总试验数和checkpoint配置不变。每回合使用独立seed随机流，输出的 `num_envs` 与 `rng` 记录运行方式。比较checkpoint时使用同一试验清单和seed；旧串行结果的轨迹不保证复现。graph评估保留逐回合完整状态、速度、控制与动作回放。
