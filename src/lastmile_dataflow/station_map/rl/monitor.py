@@ -64,7 +64,9 @@ class TrainingMonitor:
         if event["infrastructure_failure"]:
             return
         values = {key: event[key] for key in
-                  ("return", "steps", "success", "collision_free", "contact_bonus_count") if key in event}
+                  ("return", "steps", "success", "collision_free", "contact_bonus_count",
+                   "out_of_bounds", "max_drift_m", "max_yaw_drift_rad", "max_lift_drift_m",
+                   "max_base_speed_m_s", "max_base_yaw_speed_rad_s") if key in event}
         values.update({f"reward/{name}": value for name, value in zip(
             event.get("reward_component_names", ()), event.get("reward_components", ()), strict=True
         )})

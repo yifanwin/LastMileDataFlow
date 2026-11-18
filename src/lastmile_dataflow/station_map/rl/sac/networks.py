@@ -35,6 +35,7 @@ def mlp(input_dim, output_dim):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim=7, *, mode="graph"):
         super().__init__()
+        self.action_dim = action_dim
         self.encoder = GraphEncoder() if mode == "graph" else FlatEncoder()
         self.head = mlp((128 if mode == "graph" else 0) + state_dim, action_dim * 2)
 
@@ -59,6 +60,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim=7, *, mode="graph"):
         super().__init__()
+        self.action_dim = action_dim
         self.encoder = GraphEncoder() if mode == "graph" else FlatEncoder()
         self.head = mlp((128 if mode == "graph" else 0) + state_dim + action_dim, 1)
 

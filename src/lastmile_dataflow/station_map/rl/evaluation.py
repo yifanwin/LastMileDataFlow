@@ -19,6 +19,7 @@ from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
 from .devices import VISIBLE_DEVICE
 from .env.terms import finger_contact, target_lift_height
+from .env.terms import mobile_episode
 
 
 def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
@@ -110,7 +111,7 @@ def validation_rollout(
         replay.initialize(env)
     while not finished.all():
         active = ~finished
-        sampling = {} if generators is None else {"noise": episode_noise(generators, 7, active)}
+        sampling = {} if generators is None else {"noise": episode_noise(generators, getattr(agent.actor, "action_dim", 7), active)}
         action, _ = agent.actor.sample(obs, deterministic=deterministic, **sampling)
         action[finished] = 0
         observations, reward, terminated, truncated, _ = env.step(action)
@@ -161,6 +162,7 @@ def validation_rollout(
                 "max_lift_m": float(max_lift[index]),
                 "max_hold_s": float(max_hold[index]),
                 "failed": bool(task.failed[index]),
+                **mobile_episode(task, index),
                 "contact_bonus_count": int(task.contact_bonus_paid[index]),
                 "stage_seconds": dict(
                     zip(("Approach", "Pre-grasp", "Grasp", "LIFT"), stage_time[index].cpu().tolist())
@@ -490,6 +492,7 @@ def record_evaluation_trial(index, result, *, plan, log, trials, replay, output)
         result["reason"] = (
             "infrastructure_failure" if result["infrastructure_failure"] else
             "simultaneous_contact" if result["success"] else
+            "out_of_bounds" if result.get("out_of_bounds", False) else
             "collision_failure" if not result["collision_free"] else
             "control_failure" if result["failed"] else "timeout"
         )

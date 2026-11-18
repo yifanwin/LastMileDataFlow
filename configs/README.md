@@ -77,3 +77,7 @@ RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `t
 
 
 RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` 启用 `scene.fixed_base: true` 和 `observation.world_state: true`：底盘物理固定、每回合随机有效XY、每个XY仅正对方块；输入69维，新增底盘世界x/y/yaw与原始米制升降高度。评估默认20个不同站位各1次；旧单站配置保持65维和20回合。命令见[RL运行指南](../reports/rl-station-map/delivery/running.md#随机站位物理固定底盘69d-方块输入)。
+
+该方块配置的 `observation` 同时保存离线评分所需的固定初态数值（静置方块位姿、Home TCP局部位姿、底盘高度、夹爪开度及归一化范围）。`score.py --value-mode soft` 直接读取，无需模板文件或仿真加载；Home关节与升降仍使用原 `scene.home/lift`。这些静态值仅用于初态评分，不替代训练环境中的动态观测。
+
+移动方块配置 `station_map/rl/val103_cube_random_stations_mobile.yaml` 使用 `action.mobile_base: true`、`scene.fixed_base: false`：75维平坦观测、10维动作（TCP6、夹爪1、底盘前后/横移/转向3）；升降继续由臂与升降联合DLS控制。`action.mobile_base` 默认为false，不能与物理固定底盘同时启用。平移合速度和转向命令分别由 `action.base_translation_m_s`、`action.base_yaw_rad_s` 设置（本配置0.2 m/s、0.5 rad/s）。机器人或目标碰撞几何越出目标周围局部裁剪方形即失败，移动本身不再按固定底盘漂移失败。旧固定底盘离线评分仅用于原固定模式。

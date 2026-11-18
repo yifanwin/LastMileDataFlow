@@ -146,6 +146,21 @@ MUJOCO_GL=disable .venv/bin/python scripts/station_map/rl/evaluate.py \
 
 评估先保存 `selection.json`，再保存 trial JSONL、状态 / 动作 NPZ 和统计。独立基线对照仍可使用已有的历史初始化 checkpoint；本训练入口不再自动生成初始化基线。抓取成功、无非法碰撞抓取成功、Q 排序分别判定；不能仅凭图有颜色或 Q 增长通过验收。
 
+### 固定Home方块的离线软价值
+
+正式评分直接读取已有任务YAML中的固定初态和checkpoint，完全绕过仿真导入、模型/场景加载及reset，不要求初态模板文件。共享训练时的69维观测构造。旧默认`--value-mode q`保留graph任务原始min-Q评分。
+
+```bash
+PYTHONPATH="$PWD/src" .venv/bin/python scripts/station_map/rl/score.py \
+  --value-mode soft --gpu 0 --checkpoint <checkpoint.pt> \
+  --output <实验单元>/runs/<run> \
+  --plot <实验单元>/analysis/<run>/station-value.png
+```
+
+GPU按实时空闲情况选择。soft默认配置为`configs/station_map/rl/val103_cube_random_stations_facing.yaml`，可用`--config`指定；固定Home和升降读取scene，固定方块位姿、TCP局部位姿、夹爪及范围直接读取observation中的数值。这些初态已与真实reset三站逐维核对，来源见[720万离线价值图报告](39-offline-soft-station-value.md)。训练环境仍直接读取真实物理状态，不使用这些静态观测数值替代动态观测。
+
+默认K=128、batch size=2048、seed=20261109，可用`--action-samples`、`--batch-size`、`--seed`覆盖。输出`station-value.json`和`samples.npz`，包含[有效站位,样本]排列的action/log_prob/Q1/Q2、[有效站位,69]初始观测、station_ids和alpha。复算：`v=(minimum(q1,q2)-alpha*log_prob).mean(axis=1)`；`v_std`为ddof=1标准差，`v_sem=v_std/sqrt(K)`。无效站位分数为空，图是策略条件软价值。
+
 ## 软件检查
 
 ```bash
@@ -257,3 +272,24 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 评估使用 `evaluation.station_count: 20` 和 `evaluation.rollouts_per_station: 1`，有效池不足20站时全选。`selection.json` 固定站位、动作seed和trial编号；`summary.json` 包含逐站与总体统计，基础设施异常单列。轨迹单独保存 `mocap_pos` / `mocap_quat`，回放同时恢复固定底座位姿与关节状态。旧单站配置仍执行首站20回合。
 
 本轮实际验证和限制见[交付记录](36-random-stations-physical-base.md)。短跑与随机策略评估仅验证实现链路，不作为Actor已学会多站抓取的证据。
+
+## 随机站位移动底盘：75D输入、10D动作
+
+2026-11-18：配置 `configs/station_map/rl/val103_cube_random_stations_mobile.yaml`。`action.mobile_base` 控制Actor是否移动底盘，默认false；启用时须 `scene.fixed_base: false`，使用flat且world_state开启。动作顺序为TCP平移3、TCP旋转3、夹爪1、底盘前后/横移/转向3。平移合速度上限0.2 m/s、转向0.5 rad/s；升降仍由8关节DLS分配，上限0.05 m/s。TCP目标随实测底盘坐标系运动。
+
+保留目标周围2 m半宽方形内的局部场景；机器人或目标任一碰撞几何的世界包围盒越界，回合失败，计入失败分母。初始站位同样检查。观测为75D：上一动作扩展为10D，并追加实际底盘速度3D，按配置速度归一化。移动本身不触发固定底盘漂移失败。世界坐标和底盘速度均由实测状态计算。
+
+```bash
+PYTHONPATH="$PWD/src" LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+  MUJOCO_GL=egl .venv/bin/python tests/smoke/rl_mobile.py \
+  --config configs/station_map/rl/val103_cube_random_stations_mobile.yaml \
+  --gpu 0 --output outputs/experiments/rl-cube-mobile/runs/<control-run>
+
+PYTHONPATH="$PWD/src" LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+  MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cube_random_stations_mobile.yaml \
+  --gpu 0 1 2 3 --max-transitions 10000000 \
+  --output outputs/experiments/rl-cube-mobile/runs/<training-run>
+```
+
+GPU编号仅作命令示例，启动前按实时占用选卡。移动模式从零训练，target_entropy为-10；旧7D checkpoint可加载用于旧模式，不可resume为10D。每30秒监控新增越界回合比例、最大底盘速度/角速度以及底盘与升降位移；episode JSON另含初始/最终底盘姿态及结束速度。保持当前rl-pick-contact-v2的抓取判定和奖励，不增设移动奖励。移动策略的站位价值表示从该初态出发允许移动后的价值，原固定底盘离线score入口不接受此配置。

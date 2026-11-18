@@ -1,14 +1,14 @@
-"""Tensor facts, observations and manager terms for the fixed-base pick task."""
+"""Tensor facts, observations and manager terms for the pick task."""
 
 import numpy as np
 import torch
-from mjlab.utils.lab_api.math import axis_angle_from_quat, compute_pose_error, quat_from_matrix
 
 from .observation import (
     GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
-    GRASP_POSITION_TOLERANCE_M, GRASP_ROTATION_TOLERANCE_RAD,
+    CUBE_GRASP_ROTATION, FlatObservationState, build_flat_observation, pose_goal_error,
 )
 from .stations import prepare_stations, station_mocap_poses
+from .mobile import LocalBoundary
 from lastmile_dataflow.operation.grasps import load_grasps, select_grasps
 from lastmile_dataflow.sim.simulation import Simulation
 from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
@@ -101,6 +101,11 @@ class TaskState:
             ["gripper0_right_finger_joint1", "gripper0_right_finger_joint2"], preserve_order=True
         )
         self.physical_fixed = env.research_config["scene"].get("fixed_base", False)
+        self.mobile_base = env.research_config["action"].get("mobile_base", False)
+        self.boundary = LocalBoundary(
+            self.model, env.prepared.target_body, env.prepared.target_position,
+            env.research_config["scene"]["local_radius_m"], self.device,
+        ) if self.mobile_base else None
         self.base_joints = []
         if not self.physical_fixed:
             self.base_joints, _ = self.robot.find_joints(
@@ -162,7 +167,10 @@ class TaskState:
         self.max_drift = torch.zeros(n, device=self.device)
         self.max_yaw_drift = torch.zeros(n, device=self.device)
         self.max_lift_drift = torch.zeros(n, device=self.device)
-        self.last_action = torch.zeros(n, 7, device=self.device)
+        self.last_action = torch.zeros(n, 10 if self.mobile_base else 7, device=self.device)
+        self.out_of_bounds = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.max_base_speed = torch.zeros(n, device=self.device)
+        self.max_base_yaw_speed = torch.zeros(n, device=self.device)
         self.previous_distance = torch.zeros(n, device=self.device)
         self.previous_angle = torch.zeros(n, device=self.device)
         self.contact_bonus_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
@@ -188,7 +196,7 @@ class TaskState:
             # local Z points downward for the approach. Columns form a proper rotation.
             self.grasp_position = torch.zeros(n, 3, device=self.device)
             self.grasp_rotation = torch.tensor(
-                [[0., 1., 0.], [1., 0., 0.], [0., 0., -1.]], device=self.device
+                CUBE_GRASP_ROTATION, device=self.device
             ).expand(n, -1, -1).clone()
             self.grasp_ids = torch.zeros(n, dtype=torch.long, device=self.device)
             return
@@ -233,12 +241,7 @@ class TaskState:
         return tcp_p, tcp_r, base_p, base_r, target_p, target_r
 
     def goal_error(self, approach_offset_m=0.0):
-        tcp_p, tcp_r, _, base_r, target_p, target_r = self.poses()
-        goal_p = target_p + torch.einsum("bij,bj->bi", target_r, self.grasp_position)
-        goal_r = target_r @ self.grasp_rotation
-        goal_p = goal_p + approach_offset_m * goal_r[:, :, 2]
-        dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
-        return torch.einsum("bji,bj->bi", base_r, dp), torch.einsum("bji,bj->bi", base_r, dr)
+        return pose_goal_error(self.poses(), self.grasp_position, self.grasp_rotation, approach_offset_m)
 
     def tcp_velocity(self):
         action = self.env.action_manager.get_term("tcp")
@@ -292,6 +295,18 @@ class TaskState:
             base = q[:, self.base_joints]
         return torch.cat((base, q[:, self.lift]), -1)
 
+    def base_velocity(self):
+        """Measured velocity at base_site, expressed in the base frame."""
+        data = self.env.sim.data
+        body = int(self.model.site_bodyid[self.base])
+        motion = data.cvel[:, body]
+        root = int(self.model.body_rootid[body])
+        position = data.site_xpos[:, self.base]
+        linear = motion[:, 3:] + torch.cross(motion[:, :3], position - data.subtree_com[:, root], dim=-1)
+        rotation = data.site_xmat[:, self.base].reshape(-1, 3, 3)
+        local = torch.einsum("bji,bj->bi", rotation, linear)
+        return torch.cat((local[:, :2], motion[:, 2:3]), -1)
+
     def record_base_drift(self):
         delta = self.fixed_state() - self.fixed_reference
         drift = delta[:, :2].norm(dim=-1)
@@ -299,6 +314,12 @@ class TaskState:
         self.max_drift = torch.maximum(self.max_drift, drift)
         self.max_yaw_drift = torch.maximum(self.max_yaw_drift, yaw)
         self.max_lift_drift = torch.maximum(self.max_lift_drift, delta[:, 3].abs())
+        if getattr(self, "mobile_base", False):
+            velocity = self.base_velocity()
+            self.max_base_speed = torch.maximum(self.max_base_speed, velocity[:, :2].norm(dim=-1))
+            self.max_base_yaw_speed = torch.maximum(self.max_base_yaw_speed, velocity[:, 2].abs())
+            self.out_of_bounds |= self.boundary.outside(self.env.sim.data)
+            return self.out_of_bounds
         translation_limit = 1e-6 if self.physical_fixed else P["base_translation_m"]
         yaw_limit = 1e-6 if self.physical_fixed else P["base_yaw_rad"]
         return (drift > translation_limit) | (yaw > yaw_limit)
@@ -350,6 +371,8 @@ class TaskState:
             held = both & lifted & ~support & ~self.failed & ~self.unhealthy
             self.hold[:] = torch.where(held, self.hold + self.env.physics_dt, 0.0)
             self.success |= held & (self.hold >= success_cfg["hold_s"] - 1e-9)
+            if getattr(self, "mobile_base", False):
+                self.success &= ~self.out_of_bounds
             self.elapsed += self.env.physics_dt
             return
         dp, dr = self.goal_error()
@@ -398,38 +421,29 @@ class TaskState:
         self.height_reference[self.needs_baseline] = cube_p[self.needs_baseline, 2]
         self.needs_baseline.zero_()
         q, v = self.robot.data.joint_pos, self.robot.data.joint_vel
-        cube_local_r = base_r.transpose(-1, -2) @ cube_r
-        tcp_local_r = base_r.transpose(-1, -2) @ tcp_r
         linear, angular = self.tcp_velocity()
         cube_linear, cube_angular = self.target_velocity()
-        cube_position = torch.einsum("bji,bj->bi", base_r, cube_p - base_p)
-        size = torch.full((self.env.num_envs, 3), self.env.research_config["scene"]["cube"]["size_m"], device=self.device)
-        extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
-        state = torch.cat((
-            cube_position,
-            cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
-            size,
-            cube_position[:, 2:3] - extent[:, 2:3],
-            dp / GRASP_POSITION_TOLERANCE_M,
-            dr / GRASP_ROTATION_TOLERANCE_RAD,
-            cube_linear,
-            cube_angular,
-            q[:, self.arm] / 3.14,
-            (q[:, self.lift] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
-            v[:, self.arm] / 3.0,
-            v[:, self.lift] / 0.05,
-            torch.einsum("bji,bj->bi", base_r, tcp_p - base_p),
-            tcp_local_r[:, :, :2].transpose(-1, -2).flatten(1),
-            linear,
-            angular,
-            ((q[:, self.fingers[0]] - q[:, self.fingers[1]]) / self.open_grip)[:, None],
-            ((v[:, self.fingers[0]] - v[:, self.fingers[1]]) / 0.2)[:, None],
-            self.last_action,
-        ), -1).float()
-        if self.env.research_config.get("observation", {}).get("world_state", False):
-            yaw = torch.atan2(base_r[:, 1, 0], base_r[:, 0, 0])[:, None]
-            state = torch.cat((state, base_p[:, :2], yaw, q[:, self.lift]), -1)
-        return state
+        state = FlatObservationState(
+            poses=(tcp_p, tcp_r, base_p, base_r, cube_p, cube_r),
+            position_error=dp, rotation_error=dr,
+            arm_q=q[:, self.arm], lift_q=q[:, self.lift],
+            arm_qdot=v[:, self.arm], lift_qdot=v[:, self.lift],
+            cube_linear=cube_linear, cube_angular=cube_angular,
+            tcp_linear=linear, tcp_angular=angular,
+            gripper_width=(q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None],
+            gripper_velocity=(v[:, self.fingers[0]] - v[:, self.fingers[1]])[:, None],
+            last_action=self.last_action,
+            base_velocity=(self.base_velocity() / torch.tensor([
+                self.env.research_config["action"]["base_translation_m_s"],
+                self.env.research_config["action"]["base_translation_m_s"],
+                self.env.research_config["action"]["base_yaw_rad_s"],
+            ], device=self.device)) if getattr(self, "mobile_base", False) else None,
+        )
+        return build_flat_observation(
+            state, cube_size=self.env.research_config["scene"]["cube"]["size_m"],
+            lift_range=self.lift_range, open_grip=self.open_grip,
+            world_state=self.env.research_config.get("observation", {}).get("world_state", False),
+        )
 
     def observation_state(self):
         tcp_p, tcp_r, base_p, base_r, target_p, target_r = self.poses()
@@ -564,6 +578,9 @@ def reset(env, env_ids):
         "max_yaw_drift",
         "max_lift_drift",
         "last_action",
+        "out_of_bounds",
+        "max_base_speed",
+        "max_base_yaw_speed",
         "reward_components",
         "contact_bonus_paid",
         "previous_both",
@@ -664,3 +681,15 @@ def terminated(env):
 
 def timeout(env):
     return env.episode_length_buf >= env.max_episode_length
+
+def mobile_episode(task, index):
+    if not getattr(task, "mobile_base", False):
+        return {}
+    return {
+        "out_of_bounds": bool(task.out_of_bounds[index]),
+        "max_base_speed_m_s": float(task.max_base_speed[index]),
+        "max_base_yaw_speed_rad_s": float(task.max_base_yaw_speed[index]),
+        "base_xyyaw_world": task.fixed_state()[index, :3].cpu().tolist(),
+        "base_xyyaw_initial": task.fixed_reference[index, :3].cpu().tolist(),
+        "base_velocity_body": task.base_velocity()[index].cpu().tolist(),
+    }

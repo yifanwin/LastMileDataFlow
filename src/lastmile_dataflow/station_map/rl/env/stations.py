@@ -15,6 +15,7 @@ from lastmile_dataflow.scenes.tasks import disk_samples
 from lastmile_dataflow.sim.placement import robot_contacts, place_frozen_station
 from lastmile_dataflow.operation.protocol import SimulationState
 from .scene import ENTITY_PREFIX, RLSceneConfig
+from .mobile import LocalBoundary
 from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 
 
@@ -95,6 +96,17 @@ def prepare_stations(model, prepared, config):
     mujoco.mj_forward(reference, sim.data)
     initial_qpos = map_joint_positions(reference, sim.data.qpos, model)
     rows = check_stations(sim, config["stations"])
+    if config["action"].get("mobile_base", False):
+        boundary = LocalBoundary(reference, prepared.target_body, prepared.target_position, scene.local_radius_m, "cpu")
+        for row in rows:
+            if not row["valid"]:
+                continue
+            initial = deepcopy(robot_config.initial)
+            initial["base_xyyaw"] = [row[key] for key in ("x", "y", "yaw")]
+            sim.robot.initialize(initial)
+            mujoco.mj_forward(reference, sim.data)
+            if boundary.outside(sim.data).item():
+                row.update(valid=False, invalid_reason="outside_local_bounds")
     sim.close()
     if config["stations"].get("fixed_station") and not rows[0]["valid"]:
         raise ValueError(f"Fixed station {rows[0]['station_id']} is invalid: {rows[0]['invalid_reason']}")

@@ -15,6 +15,7 @@ import torch
 from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
+from .env.terms import mobile_episode
 from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, flat_fields, policy_observation, graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
@@ -67,6 +68,7 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                         "base_xyyaw_world": env.task.fixed_state()[index, :3].cpu().tolist(),
                         "base_xyyaw_initial": env.task.fixed_reference[index, :3].cpu().tolist(),
                     } if env.research_config.get("scene", {}).get("fixed_base", False) else {}),
+                    **mobile_episode(env.task, index),
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
@@ -262,6 +264,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             "transition_limit": max_transitions or settings["max_transitions"],
             "observation_mode": mode,
             "node_capacity": obs.nodes.shape[1] if mode == "graph" else None,
+            "action_dim": env.action_manager.total_action_dim,
             "state_dim": obs.arm_task_state.shape[-1] if mode == "graph" else obs.shape[-1],
             "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else flat_fields(obs.shape[-1]),
             "reward_component_names": CONTACT_REWARD_COMPONENTS if contact else REWARD_COMPONENTS,
@@ -288,7 +291,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 if previous_best.resolve() != (output / "best.pt").resolve():
                     shutil.copyfile(previous_best, output / "best.pt")
         else:
-            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode)
+            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode, action_dim=metadata["action_dim"])
             transitions = 0
         same_output = resume is not None and resume_output.resolve() == output.resolve()
         monitor = TrainingMonitor(
@@ -296,7 +299,8 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
             purge_step=transitions if same_output else None,
         )
-        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu())
+        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu(),
+                        action_dim=metadata["action_dim"])
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]

@@ -28,6 +28,7 @@
 - RL 方块当前成功与奖励口径：[连续保持0.25秒与历史最高抬升奖励](rl-station-map/delivery/33-cube-hold-quarter-second-reward.md)，双指各>0.5 N、最低点距桌面≥1 cm、无支撑接触连续保持0.25 s；位置/旋转/接触/抬升权重为20/5/3/8。本轮仅修改与离线验证，上一轮[训练记录](rl-station-map/delivery/32-cube-clearance-training-launch.md)保留原判定。
 
 - RL 随机站位方块：[物理固定底盘与69D输入](rl-station-map/delivery/36-random-stations-physical-base.md)，每个XY仅正对目标、每回合随机初始化，保留升降控制；本轮仅实现与短程验证。
+- RL 站位软价值：[720万checkpoint离线价值图](rl-station-map/delivery/39-offline-soft-station-value.md)，三站69维核对通过，96个有效站位各128动作，正式评分无需加载仿真场景。
 - RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
 ## 主题
@@ -61,3 +62,7 @@
 - RL 方块阶段峰值与成功率选模：[奖励调整及四卡训练](rl-station-map/delivery/29-cube-stage-peak-success-best-training.md)，已完成300万经验/23,281次更新；末50万训练成功率96.80%、末100回合98/100，但末100回合无碰撞成功0/100；best锁定于早期1/1窗口，尚无独立checkpoint评估。
 
 - RL 方块当前训练：[CUDA2–3连续保持0.25秒训练](rl-station-map/delivery/34-cube-hold-g23-training-launch.md)，从头300万健康经验、各128环境、batch512，实际采样与学习更新已核查；此前四卡训练已停止。
+
+- [可配置移动底盘与升降协同训练](rl-station-map/delivery/40-mobile-base-training.md)：10D动作、75D观测、局部边界、真实控制与训练启动记录。
+
+- RL 最低软价值站位：[S0091-y00五次操作视频](rl-station-map/delivery/41-lowest-value-station-five-rollouts.md)，720万checkpoint，成功5/5、无碰撞成功2/5。

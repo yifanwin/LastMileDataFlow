@@ -24,6 +24,41 @@ scene:
 observation:
   mode: flat
   world_state: true
+  # 固定Home初态：三站reset逐维核对通过；离线评分直接读取，不加载仿真。
+  base_height: 0.0
+  tcp_position_base:
+  - 0.6020712852478027
+  - 6.378371608661837e-09
+  - 0.981444776058197
+  tcp_rotation_base:
+  - - -0.0004887073300778866
+    - 0.9919145107269287
+    - 0.126906156539917
+  - - 0.9999997615814209
+    - 0.0004927359404973686
+    - -1.4578006357623963e-07
+  - - -6.267490971367806e-05
+    - 0.1269061416387558
+    - -0.991914689540863
+  cube_position_world:
+  - 7.313459396362305
+  - 2.098811388015747
+  - 0.7702707648277283
+  cube_rotation_world:
+  - - 1.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 1.0
+  gripper_width: 0.07199999690055847
+  lift_range:
+  - 0.0
+  - 0.3059999942779541
+  open_grip: 0.07199999690055847
 mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
 environment:
   num_envs: 128

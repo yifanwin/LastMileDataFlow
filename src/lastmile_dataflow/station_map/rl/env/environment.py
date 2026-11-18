@@ -19,6 +19,7 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from .scene import ENTITY_PREFIX, ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig, prepare_rl_scene
 from lastmile_dataflow.robots.interface import ROBOT_NAMESPACE
 from .dls import BaseFrameDLSCfg
+from .mobile import MobileBaseCfg
 from . import terms
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS
 from .terms import TaskState
@@ -125,6 +126,10 @@ class StationEnv(ManagerBasedRlEnv):
             for key, value in config["success"].items():
                 if RL_PICK_THRESHOLDS[key] != value:
                     raise ValueError("RL success configuration must match the named protocol")
+        mobile = config["action"].get("mobile_base", False)
+        if mobile and (config["scene"].get("fixed_base", False) or not contact_protocol
+                       or not config.get("observation", {}).get("world_state", False)):
+            raise ValueError("Mobile base requires a dynamic base and flat contact observations with world_state")
         self.research_config = config
         self.prepared = prepare_rl_scene(RLSceneConfig(**config["scene"]))
         self.task = None
@@ -186,6 +191,7 @@ class StationEnv(ManagerBasedRlEnv):
                     frame_type="site",
                     frame_name="gripper0_right_grip_site",
                     base_site=ROBOT_PREFIX + "base_site",
+                    moving_base=mobile,
                     delta_pos_scale=action["translation_m"],
                     delta_ori_scale=action["rotation_rad"],
                     damping=action["damping"],
@@ -193,6 +199,11 @@ class StationEnv(ManagerBasedRlEnv):
                     joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
                 ),
                 "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol),
+                **({"base": MobileBaseCfg(
+                    entity_name=ROBOT_ENTITY,
+                    translation_m_s=action["base_translation_m_s"],
+                    yaw_rad_s=action["base_yaw_rad_s"],
+                )} if mobile else {}),
             },
             observations={
                 "policy": ObservationGroupCfg(

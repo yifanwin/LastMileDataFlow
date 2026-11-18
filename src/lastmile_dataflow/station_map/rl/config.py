@@ -19,3 +19,11 @@ def resolve_config(config):
             "spacing_m": radius / 4,
         },
     }
+
+
+ACTION_FIELDS = ("tcp_dx", "tcp_dy", "tcp_dz", "tcp_rx", "tcp_ry", "tcp_rz", "gripper")
+BASE_ACTION_FIELDS = ("base_forward", "base_side", "base_yaw")
+
+
+def action_fields(action_dim):
+    return ACTION_FIELDS + BASE_ACTION_FIELDS if action_dim == 10 else ACTION_FIELDS

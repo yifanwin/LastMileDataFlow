@@ -4,8 +4,7 @@ from dataclasses import dataclass, fields
 
 import torch
 import numpy as np
-
-from .scene import ENTITY_PREFIX
+from mjlab.utils.lab_api.math import compute_pose_error, quat_from_matrix
 
 
 REWARD_COMPONENTS = (
@@ -25,6 +24,8 @@ REWARD_COMPONENTS = (
 )
 
 CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing", "grasp", "lift")
+
+CUBE_GRASP_ROTATION = ((0., 1., 0.), (1., 0., 0.), (0., 0., -1.))
 
 GRASP_POSITION_TOLERANCE_M = 0.02
 GRASP_ROTATION_TOLERANCE_RAD = np.deg2rad(20.0)
@@ -62,7 +63,79 @@ def flat_fields(state_dim):
         return FLAT_FIELDS
     if state_dim == 69:
         return FLAT_FIELDS + WORLD_STATE_FIELDS
-    raise ValueError("Flat observation definition requires 65 or 69 dimensions")
+    if state_dim == 75:
+        return FLAT_FIELDS[:-1] + (("previous_action", 10, 1.0),) + WORLD_STATE_FIELDS + (
+            ("base_linear_velocity_body_xy", 2, "action.base_translation_m_s"),
+            ("base_yaw_velocity", 1, "action.base_yaw_rad_s"),
+        )
+    raise ValueError("Flat observation definition requires 65, 69 or 75 dimensions")
+
+
+@dataclass
+class FlatObservationState:
+    """Physical tensors consumed by the shared training/offline observation builder."""
+
+    poses: tuple[torch.Tensor, ...]  # TCP, base, cube; position then rotation for each.
+    position_error: torch.Tensor
+    rotation_error: torch.Tensor
+    arm_q: torch.Tensor
+    lift_q: torch.Tensor
+    arm_qdot: torch.Tensor
+    lift_qdot: torch.Tensor
+    cube_linear: torch.Tensor
+    cube_angular: torch.Tensor
+    tcp_linear: torch.Tensor
+    tcp_angular: torch.Tensor
+    gripper_width: torch.Tensor
+    gripper_velocity: torch.Tensor
+    last_action: torch.Tensor
+    base_velocity: torch.Tensor | None = None
+
+
+def pose_goal_error(poses, grasp_position, grasp_rotation, approach_offset_m=0.0):
+    tcp_p, tcp_r, _, base_r, target_p, target_r = poses
+    goal_p = target_p + torch.einsum("bij,bj->bi", target_r, grasp_position)
+    goal_r = target_r @ grasp_rotation
+    goal_p = goal_p + approach_offset_m * goal_r[:, :, 2]
+    dp, dr = compute_pose_error(tcp_p, quat_from_matrix(tcp_r), goal_p, quat_from_matrix(goal_r))
+    return torch.einsum("bji,bj->bi", base_r, dp), torch.einsum("bji,bj->bi", base_r, dr)
+
+
+def build_flat_observation(state, *, cube_size, lift_range, open_grip, world_state):
+    """Keep field order, coordinates and scales identical for training and scoring."""
+    tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = state.poses
+    cube_local_r = base_r.transpose(-1, -2) @ cube_r
+    tcp_local_r = base_r.transpose(-1, -2) @ tcp_r
+    cube_position = torch.einsum("bji,bj->bi", base_r, cube_p - base_p)
+    size = torch.full_like(cube_position, cube_size)
+    extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
+    observation = torch.cat((
+        cube_position,
+        cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
+        size,
+        cube_position[:, 2:3] - extent[:, 2:3],
+        state.position_error / GRASP_POSITION_TOLERANCE_M,
+        state.rotation_error / GRASP_ROTATION_TOLERANCE_RAD,
+        state.cube_linear,
+        state.cube_angular,
+        state.arm_q / 3.14,
+        (state.lift_q - lift_range[0]) / (lift_range[1] - lift_range[0]),
+        state.arm_qdot / 3.0,
+        state.lift_qdot / 0.05,
+        torch.einsum("bji,bj->bi", base_r, tcp_p - base_p),
+        tcp_local_r[:, :, :2].transpose(-1, -2).flatten(1),
+        state.tcp_linear,
+        state.tcp_angular,
+        state.gripper_width / open_grip,
+        state.gripper_velocity / 0.2,
+        state.last_action,
+    ), -1).float()
+    if world_state:
+        yaw = torch.atan2(base_r[:, 1, 0], base_r[:, 0, 0])[:, None]
+        observation = torch.cat((observation, base_p[:, :2], yaw, state.lift_q), -1)
+    if state.base_velocity is not None:
+        observation = torch.cat((observation, state.base_velocity), -1)
+    return observation
 
 NODE_DIM = 24
 NODE_TYPES = ("goal", "tabletop_obstacle", "ground_obstacle", "container")
@@ -155,7 +228,7 @@ class GeometryObservation:
             b = int(model.geom_bodyid[g])
             name = model.body(b).name
             if (
-                ENTITY_PREFIX in name
+                "robot/" in name  # mjlab entity prefix; independent of scene loading.
                 or model.body_rootid[b] == target_root
                 or not (model.geom_contype[g] or model.geom_conaffinity[g])
                 or model.geom_type[g] == mujoco.mjtGeom.mjGEOM_PLANE

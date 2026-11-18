@@ -26,7 +26,8 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
         mode = config.get("observation", {}).get("mode", "graph")
         obs = policy_observation(observations, mode)
         state_dim = obs.shape[-1] if mode == "flat" else obs.arm_task_state.shape[-1]
-        actor = Actor(state_dim, mode=mode).to(env.device)
+        action_dim = env.action_manager.total_action_dim
+        actor = Actor(state_dim, action_dim, mode=mode).to(env.device)
         version, random_actions, paused = 0, True, False
         random_episodes = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         returns = torch.zeros(env.num_envs, device=env.device)
@@ -52,7 +53,7 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     paused = False
             with torch.no_grad():
                 action = (
-                    torch.rand(env.num_envs, 7, device=env.device) * 2 - 1 if random_actions else actor.sample(obs)[0]
+                    torch.rand(env.num_envs, action_dim, device=env.device) * 2 - 1 if random_actions else actor.sample(obs)[0]
                 )
                 observations, reward, terminated, truncated, _ = env.step(action)
                 nxt = policy_observation(observations, mode)
