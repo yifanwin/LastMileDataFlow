@@ -114,14 +114,14 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
 |---|---|
 | `loss/actor`、`loss/critic`、`loss/alpha`、`policy/entropy` | 当前时间区间内全部梯度更新的均值；Entropy 为 `-E[logπ]`，单位 nats，可为负数 |
 | `policy/alpha` | 区间内最新 Alpha |
-| `train_interval/` | 当前刷新区间内健康完整且无随机预热动作的回合：success、return、steps、collision_free、contact_bonus_count 均值；episode_count、success_count 为区间完成数和成功数 |
-| `train/` | 全部 Sampler 按 Learner 收到事件的顺序合并，最近至多 100 个合格回合的上述均值；episode_count、success_count 为窗口实际数量和成功数 |
-| `train_interval/reward/`、`train/reward/` | 分别为区间与最近 100 回合的各项累计奖励均值；分项按 episode 的 reward_component_names 写入 |
+| `train/` | 全部 Sampler 按 Learner 收到事件的顺序合并，最近至多 100 个健康完整、无随机预热动作的回合：success、return、steps、collision_free、contact_bonus_count 均值；episode_count 为窗口实际数量 |
+| `mobile/` | 同一窗口的底盘指标均值：max_drift_m、max_yaw_drift_rad、max_lift_drift_m，移动底盘另有 out_of_bounds、max_base_speed_m_s、max_base_yaw_speed_rad_s |
+| `reward/` | 同一窗口的各项累计奖励均值；分项按 episode 的 reward_component_names 写入 |
 | `warmup/`、`warmup/reward/` | 含随机预热动作的健康完整回合，维持区间均值，不进入 train 窗口 |
 | `runtime/` | 最新吞吐、累计更新次数、Replay 大小、版本滞后、队列阻塞及内存；吞吐为本次进程启动后的累计健康经验 / 已用时间 |
 | `evaluation/<scope>/` | 实际评估的成功率、未折扣回报、trial 数、相关性及耗时；scope 使用实际的 train 或 fixed_station，debug 阶段统计保留策略分组 |
 
-空区间的 train_interval/episode_count 和 success_count 写零，不写回合均值；train 保留已有窗口并继续展示，但不重复参与选模。没有更新时不补 loss，首次合格回合之前不写 train 均值；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
+train、mobile、reward 每次刷新按已有窗口继续展示；区间内没有新合格回合时不重复参与选模。没有更新时不补 loss，首次合格回合之前不写 train 均值；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
 
 `metrics.jsonl` 仍保存 learner、episode、evaluation 等原始记录；`training.log_every` 仍按 transitions 决定 learner JSON 和 checkpoint 的频率。JSON 中 learner 的 loss 保持原有的最后一次更新值，TensorBoard 展示区间内全部更新的均值。
 

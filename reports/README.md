@@ -13,6 +13,8 @@
 
 ## 当前状态
 
+- 抓取候选：[全量 FPS 与 Cup_30 16位姿图](rl-station-map/delivery/full-corpus-grasp-fps.md)，cuRobo/RL 共用固定种子的全量筛选；真实数据三处一致，未执行轨迹规划或训练。
+
 - 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。
 - RL 站位图：旧协议仍在研究，学习策略尚无成功；独立的[方块双指接触单站位实验](rl-station-map/delivery/19-cube-contact-single-station.md)正在验证，不能把 DLS 物理接触当作策略成功；算法与训练主链见[算法与训练 pipeline](rl-station-map/delivery/algorithm-training-pipeline.md)，运行见[运行指南](rl-station-map/delivery/running.md)，接手见[训练接手与结果汇总](rl-station-map/delivery/05-training-handover.md)。
 - lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
@@ -28,6 +30,9 @@
 - RL 方块当前成功与奖励口径：[连续保持0.25秒与历史最高抬升奖励](rl-station-map/delivery/33-cube-hold-quarter-second-reward.md)，双指各>0.5 N、最低点距桌面≥1 cm、无支撑接触连续保持0.25 s；位置/旋转/接触/抬升权重为20/5/3/8。本轮仅修改与离线验证，上一轮[训练记录](rl-station-map/delivery/32-cube-clearance-training-launch.md)保留原判定。
 
 - RL 随机站位方块：[物理固定底盘与69D输入](rl-station-map/delivery/36-random-stations-physical-base.md)，每个XY仅正对目标、每回合随机初始化，保留升降控制；本轮仅实现与短程验证。
+- RL 方块跨场景候选：[原始目标选择与三个扩展任务](rl-station-map/analyze/44-cube-scene-target-selection.md)，继续用相同方块，选择 val3/Cup_12、val29/Cup_28、val2/Cup_12 的原始摆放位置，已完成 CPU 支撑、静置及初始站位检查，未验证抓取成功。
+- RL val3 方块：[500万条随机站位训练启动](rl-station-map/delivery/45-val3-cube-random-stations-5m-training.md)、[结果与TensorBoard](rl-station-map/delivery/46-val3-cube-5m-results.md)，完成38,906次更新；训练期中期成功约83%，最后50万降至42.6%；后续独立验证见下。
+- RL val3 独立验证：[166.9万与400万checkpoint质量图及各5次视频](rl-station-map/delivery/47-val3-two-checkpoint-evaluation.md)，成功分别4/5、5/5，无碰撞成功分别4/5、3/5；16站软价值图、全部10个视频均已核查。
 - RL 站位软价值：[720万checkpoint离线价值图](rl-station-map/delivery/39-offline-soft-station-value.md)，三站69维核对通过，96个有效站位各128动作，正式评分无需加载仿真场景。
 - RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
@@ -66,3 +71,5 @@
 - [可配置移动底盘与升降协同训练](rl-station-map/delivery/40-mobile-base-training.md)：10D动作、75D观测、局部边界、真实控制与训练启动记录。
 
 - RL 最低软价值站位：[S0091-y00五次操作视频](rl-station-map/delivery/41-lowest-value-station-five-rollouts.md)，720万checkpoint，成功5/5、无碰撞成功2/5。
+
+- RL 最高软价值站位：[S0078-y00五次操作视频](rl-station-map/delivery/42-highest-value-station-five-rollouts.md)，720万checkpoint，成功4/5、无碰撞成功3/5。

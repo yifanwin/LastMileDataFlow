@@ -242,7 +242,7 @@ def _pinch_grasps(task, pinch_inset_m, empty_sources):
     return result
 
 
-def grasp_candidates(task, assets_dir, max_rows=1024, pinch_inset_m=0.020, *, allow_fallback=True):
+def grasp_candidates(task, assets_dir, max_rows=None, pinch_inset_m=0.020, *, allow_fallback=True):
     """Read asset grasp poses, or generate bbox pinch poses without modifying assets."""
     asset = task["asset_id"]
     if Path(asset).name != asset or asset in (".", ".."):

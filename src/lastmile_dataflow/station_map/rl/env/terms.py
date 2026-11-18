@@ -9,10 +9,7 @@ from .observation import (
 )
 from .stations import prepare_stations, station_mocap_poses
 from .mobile import LocalBoundary
-from lastmile_dataflow.operation.grasps import load_grasps, select_grasps
-from lastmile_dataflow.sim.simulation import Simulation
-from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
-from copy import deepcopy
+from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, select_grasps
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 
@@ -213,22 +210,17 @@ class TaskState:
         self.requested_grasp_ids = None
         self.grasp_position = torch.zeros(n, 3, device=self.device)
         self.grasp_rotation = torch.eye(3, device=self.device).repeat(n, 1, 1)
-        sim = Simulation(self.model, scene_config.robot_config(entity=True), env.prepared.catalog, env.prepared.target_body)
-        self.grasp_pools = []
-        identities = {id(c): i for i, c in enumerate(self.grasps)}
-        settled_qpos = self.initial_qpos.cpu().numpy()
         local_poses = np.array([c["pose_local"] for c in self.grasps])
-        for station in self.stations:
-            initial = deepcopy(scene_config.robot_config(entity=True).initial)
-            initial["base_xyyaw"] = [station[k] for k in ("x", "y", "yaw")]
-            sim.data.qpos[:] = settled_qpos
-            sim.robot.initialize(initial)
-            world = body_pose(sim, self.target) @ local_poses
-            pool = select_grasps(self.grasps, world, tcp_pose(sim, sim.robot.arms[0])[:3, 3], 16, grasp.get("fps_position_scale_m", 0.1), grasp.get("fps_rotation_scale_rad", np.pi / 2))
-            self.grasp_pools.append([identities[id(c)] for c in pool])
-        sim.close()
-        self.grasp_pool_counts = torch.tensor([len(p) for p in self.grasp_pools], device=self.device)
-        self.grasp_pool_table = torch.tensor([p + [p[-1]] * (16 - len(p)) for p in self.grasp_pools], device=self.device)
+        pool = select_grasps(
+            self.grasps, local_poses, grasp.get("fps_count", DEFAULT_FPS_COUNT),
+            grasp.get("fps_position_scale_m", 0.1), grasp.get("fps_rotation_scale_rad", np.pi / 2),
+            seed=grasp.get("fps_seed", DEFAULT_FPS_SEED),
+        )
+        identities = {id(c): i for i, c in enumerate(self.grasps)}
+        pool_ids = [identities[id(c)] for c in pool]
+        self.grasp_pools = [pool_ids for _ in self.stations]
+        self.grasp_pool_counts = torch.full((len(self.stations),), len(pool_ids), device=self.device)
+        self.grasp_pool_table = torch.tensor([pool_ids for _ in self.stations], device=self.device)
 
     def poses(self):
         data = self.env.sim.data

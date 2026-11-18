@@ -21,10 +21,8 @@ from .context import planner_options
 from lastmile_dataflow.sim.simulation import OperationFailure
 
 
-def _candidate_score(sim, reference, method, candidate):
+def _candidate_score(sim, reference, candidate):
     goal = body_pose(sim, sim.model.body(candidate["body"]).id) @ candidate["pose_local"]
-    if method == "tcp_distance":
-        return float(np.linalg.norm(goal[:3, 3] - reference))
     vector = goal[:3, 3] - np.r_[reference[:2], goal[2, 3]]
     return float(np.dot(goal[:3, 2], vector) / max(np.linalg.norm(vector), 1e-9))
 
@@ -37,10 +35,14 @@ def candidate_pool(sim, config, candidates, seed, forced):
             raise ValueError("missing winning grasp")
         return pool[: config.max_grasp_candidates]
     method = config.grasp_candidate_order
-    reference = tcp_pose(sim, sim.robot.arms[0])[:3, 3] if method == "tcp_distance" else sim.robot.base_pose()
-    score = partial(_candidate_score, sim, reference, method)
-    if method == "tcp_distance":
-        return select_grasps(candidates, [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates], reference, config.max_grasp_candidates, config.grasp_fps_position_scale_m, config.grasp_fps_rotation_scale_rad)
+    if method == "fps":
+        poses = [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates]
+        return select_grasps(
+            candidates, poses, config.max_grasp_candidates,
+            config.grasp_fps_position_scale_m, config.grasp_fps_rotation_scale_rad,
+            seed=config.grasp_fps_seed,
+        )
+    score = partial(_candidate_score, sim, sim.robot.base_pose())
     pool = sorted(candidates, key=score, reverse=True)[: max(config.max_grasp_candidates * 8, 16)]
     return [pool[i] for i in rng.permutation(len(pool))[: config.max_grasp_candidates]]
 

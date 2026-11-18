@@ -1,7 +1,7 @@
 # 运行手册
 
 - 状态：active
-- 日期：2026-11-12
+- 日期：2026-11-18
 - 替代：无
 - 关联：../reports/simplify-refactor/plan/01-refactor-plan.md
 
@@ -10,6 +10,7 @@
 ```bash
 source .venv/bin/activate   # 渲染需要的 libEGL.so.1 在激活时接上
 PY=.venv/bin/python
+export PYTHONPATH="$PWD/src"  # 当前工作区源码，避免 .pth 指向其他工作区
 nvidia-smi
 ```
 
@@ -63,6 +64,27 @@ $PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/r
 ## 6. RL 站位图
 
 保持独立 RL 环境，使用 scripts/station_map/rl/ 下的 train.py、score.py、evaluate.py；先查看 --help。`--gpu` 填物理卡号，train.py 可给多张（每张一个 Sampler，第一张同时放 Learner），原来的 `--gpus 0,5` 写成 `--gpu 0 5`。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
+
+### 全量抓取 FPS
+
+读取抓取库的 RL 任务默认从全部有效位姿中 FPS 选 16 个，首点使用独立固定种子 42；所有站位共用一组，每个 episode 均匀随机选一个并在 episode 内固定。默认距离尺度为 0.10 m / π/2；不参考 Home TCP，不做最近 64 个预筛选，也不默认截断为 1024 行。Cube 解析抓取分支不读取抓取库。
+
+在 RL YAML 的 `grasp` 段覆盖 `fps_count`、`fps_seed` 即可调整数量与种子；`fps_position_scale_m`、`fps_rotation_scale_rad` 调整距离尺度。cuRobo 配置使用 `grasp_candidate_order: fps`、`max_grasp_candidates`、`grasp_fps_seed`，仍规划整池；旧 `tcp_distance` 值已替换为 `fps`，`facing` 模式保留。相同位姿库、顺序、参数与种子生成相同候选池。
+
+从仓库根目录生成 Cup_30 的全部 16 个抓取叠加图（静态出图，不使用 GPU）：
+
+```bash
+MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/visualize_grasps.py \
+  --scene /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103.xml \
+  --metadata /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103_metadata.json \
+  --target Cup_30 \
+  --robot-config configs/robots/panda_omron.yaml --robot-scale 0.9 \
+  --grasps /data1/wenyifan/lmdf/molmospaces_data/mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz \
+  --roll-rad 1.5707963267948966 \
+  --output outputs/experiments/grasp-fps-all/runs/val103-cup30-grippers
+```
+
+数量和首点种子可通过 `--count`、`--seed` 覆盖。输出全部16个原生Panda夹爪与杯子的叠加图 `grasps.png`、逐个位姿的4×4图 `individual-grasps.png`、`selection.json` 与 `selected-grasps.npz`；NPZ 位姿在目标 body 局部坐标系中，已包含 `--roll-rad`。图中杯子和16个 TCP 位姿统一映射到场景世界坐标，显示时仅减去杯子原点平移；夹爪使用原生visual mesh，双指全开，按模型测得的root-to-TCP变换放置；`--robot-config` 指定Panda配置，`--robot-scale` 与RL场景一致。NPZ 另存 `world_transforms` 和 `object_world`，便于核对映射；图片不代表可达性验证。场景 XML 使用原输入路径，保留符号链接所在目录的资产解析语义。
 
 ## 7. 渲染与失败结果
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 
 from lastmile_dataflow.utils.io import read_config
+from .grasps import DEFAULT_FPS_SEED
 
 # Fixed execution contract; written into results, not configurable.
 PLANNER_BACKEND = "curobo_v2_v080"
@@ -22,7 +23,7 @@ _POSITIVE_INTS = (
     "width",
     "height",
 )
-_NONNEGATIVE_INTS = ("seed", "operation_retries")
+_NONNEGATIVE_INTS = ("seed", "operation_retries", "grasp_fps_seed")
 _POSITIVE = (
     "grasp_fps_position_scale_m",
     "grasp_fps_rotation_scale_rad",
@@ -88,6 +89,7 @@ class ExecutionConfig:
     num_ik_seeds: int = 32
     num_trajopt_seeds: int = 4
     time_dilation: float = 0.5
+    grasp_fps_seed: int = DEFAULT_FPS_SEED
     grasp_fps_position_scale_m: float = 0.1
     grasp_fps_rotation_scale_rad: float = math.pi / 2
     approach_offset_m: float = 0.0
@@ -114,7 +116,7 @@ class ExecutionConfig:
             raise ValueError("invalid head FOV margin")
         if not math.isfinite(self.head_fov_weight) or self.head_fov_weight <= 0:
             raise ValueError("invalid head FOV weight")
-        if self.grasp_candidate_order not in ("facing", "tcp_distance"):
+        if self.grasp_candidate_order not in ("facing", "fps"):
             raise ValueError("unknown grasp candidate order")
         if (
             not math.isfinite(self.grasp_roll_rad)

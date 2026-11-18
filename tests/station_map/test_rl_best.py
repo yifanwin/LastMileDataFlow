@@ -52,7 +52,6 @@ class BestTests(unittest.TestCase):
                 self.assertEqual([p.step for p in points], [20, 30, 40, 50, 60])
                 for point, expected in zip(points, [0.5, 0.5, 0.5, 0.4, 1], strict=True):
                     self.assertAlmostEqual(point.value, expected)
-                self.assertEqual([p.step for p in reader.Scalars("train_interval/success")], [20, 40, 50, 60])
             finally:
                 monitor.close(70)
 

@@ -33,3 +33,5 @@ Run：`/home/wenyifan/.codex/worktrees/rl-cube-random-stations/LastMileDataFlow/
 视频文件名前缀56094是更新数，不是transition数。trials中沿用既有reason="simultaneous_contact"标签，但实际success仍为上述完整抬升与保持协议，以success、max_lift_m、max_hold_s共同核对。
 
 本次只验证最低价值站位的5次实际表现，不能据此推出全站位成功率或价值排序与成功率的相关性。
+
+后续碰撞对象核查见[最低价值站位碰撞分析](../analyze/43-lowest-value-station-collisions.md)。

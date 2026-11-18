@@ -1,6 +1,7 @@
 """Resolve robot-relative station sampling into the recorded run configuration."""
 
 from lastmile_dataflow.utils.io import read_config
+from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED
 
 
 def resolve_config(config):
@@ -10,8 +11,11 @@ def resolve_config(config):
     radius = robot["base_radius_m"]
     if reach <= 0 or radius <= 0:
         raise ValueError("Robot arm_working_reach_m and base_radius_m must be positive")
+    resolved = dict(config)
+    if "grasp" in config:
+        resolved["grasp"] = {"fps_count": DEFAULT_FPS_COUNT, "fps_seed": DEFAULT_FPS_SEED, **config["grasp"]}
     return {
-        **config,
+        **resolved,
         "stations": {
             **settings,
             "base_radius_m": radius,
