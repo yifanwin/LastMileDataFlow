@@ -23,3 +23,5 @@ actor-critic：31 项相关离线测试通过（monitor、best、evaluation、sa
 仅更新后续启动或恢复的训练；未重启正在运行的任务，未修改历史日志、权重或运行产物。未执行长期训练或真实 GPU rollout。
 
 2026-11-17 23:34:15 +0800：rl-ppo 合并完成；51 项相关离线测试通过，新增流程验证确认滚动成功率在 PPO 更新前选择产生回合的策略，更新后刷新 PPO loss；保留 ppo 指标与 Q/V 评分差异。
+
+2026-11-18 14:21:27 +0800：rl-ppo 同步精简 TensorBoard 分组：去掉 `train_interval/*` 和全部 `*/success_count`；最近 100 回合窗口拆成 `train/`、`mobile/`（新增记录 max_drift_m、max_yaw_drift_rad、max_lift_drift_m）、`reward/`；`ppo/`、`warmup/` 不变，选模口径不变。monitor、best、evaluation、ppo 共 36 项离线测试通过。

@@ -280,7 +280,6 @@ class PPOTests(unittest.TestCase):
             self.assertEqual(selected, [(1, 0, 0, 1), (2, 1, 0.5, 2)])
             self.assertEqual(agent.update.call_count, 2)
             reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
-            self.assertEqual([p.value for p in reader.Scalars("train_interval/success")], [0, 1])
             self.assertEqual([p.value for p in reader.Scalars("train/success")][:2], [0, 0.5])
             self.assertEqual([p.value for p in reader.Scalars("ppo/actor_loss")], [1, 2])
             workers.close.assert_called_once()

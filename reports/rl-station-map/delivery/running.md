@@ -78,7 +78,7 @@ PPO 参数默认值：
 
 run 保存展开默认参数后的 `config.json`、`metrics.jsonl`、TensorBoard、`latest.pt`、`best.pt` 与每40万样本的 `ckpts/`。best 按 train/success 最近最多100个完整健康训练回合的成功率选择，每30秒刷新；不足100回合使用实际数量。PPO 恢复参数、两个优化器、RNG 与更新计数，重新 reset 环境和 rollout；使用 `--resume <latest.pt>`，`--max-transitions` 为累计目标，不做随机预热。
 
-PPO 曲线位于 `ppo/`：actor_loss、value_loss、entropy、minibatch_kl、max_minibatch_kl、global_kl、clip_fraction、explained_variance、actor_grad_norm、value_grad_norm、epochs_completed、minibatches、kl_early_stop，以及累计 kl_early_stops。梯度范数为裁剪前范数；窗口内一般指标取各轮均值，累计停止次数取最新值。奖励分项和成功率按30秒区间写入 `train_interval/`，按最近100回合写入 `train/`，运行指标在 `runtime/`，不生成 SAC 的 alpha 曲线。`updates` 表示 rollout 更新轮数，`optimizer_steps` 表示实际完成的 Actor/V 成对 mini-batch 更新次数。
+PPO 曲线位于 `ppo/`：actor_loss、value_loss、entropy、minibatch_kl、max_minibatch_kl、global_kl、clip_fraction、explained_variance、actor_grad_norm、value_grad_norm、epochs_completed、minibatches、kl_early_stop，以及累计 kl_early_stops。梯度范数为裁剪前范数；窗口内一般指标取各轮均值，累计停止次数取最新值。成功率等回合指标按最近100回合写入 `train/`，底盘漂移写入 `mobile/`，奖励分项写入 `reward/`，运行指标在 `runtime/`，不生成 SAC 的 alpha 曲线。`updates` 表示 rollout 更新轮数，`optimizer_steps` 表示实际完成的 Actor/V 成对 mini-batch 更新次数。
 
 flat 使用已有固定初态20次评估及视频流程：
 
@@ -160,14 +160,14 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
 |---|---|
 | `loss/actor`、`loss/critic`、`loss/alpha`、`policy/entropy` | 当前时间区间内全部梯度更新的均值；Entropy 为 `-E[logπ]`，单位 nats，可为负数 |
 | `policy/alpha` | 区间内最新 Alpha |
-| `train_interval/` | 当前刷新区间内健康完整且无随机预热动作的回合：success、return、steps、collision_free、contact_bonus_count 均值；episode_count、success_count 为区间完成数和成功数 |
-| `train/` | 全部 Sampler 按 Learner 收到事件的顺序合并，最近至多 100 个合格回合的上述均值；episode_count、success_count 为窗口实际数量和成功数 |
-| `train_interval/reward/`、`train/reward/` | 分别为区间与最近 100 回合的各项累计奖励均值；分项按 episode 的 reward_component_names 写入 |
+| `train/` | 全部 Sampler 按 Learner 收到事件的顺序合并，最近至多 100 个健康完整、无随机预热动作的回合：success、return、steps、collision_free、contact_bonus_count 均值；episode_count 为窗口实际数量 |
+| `mobile/` | 同一窗口的底盘指标均值：max_drift_m、max_yaw_drift_rad、max_lift_drift_m，移动底盘另有 out_of_bounds、max_base_speed_m_s、max_base_yaw_speed_rad_s |
+| `reward/` | 同一窗口的各项累计奖励均值；分项按 episode 的 reward_component_names 写入 |
 | `warmup/`、`warmup/reward/` | 含随机预热动作的健康完整回合，维持区间均值，不进入 train 窗口 |
 | `runtime/` | 最新吞吐、累计更新次数、Replay 大小、版本滞后、队列阻塞及内存；吞吐为本次进程启动后的累计健康经验 / 已用时间 |
 | `evaluation/<scope>/` | 实际评估的成功率、未折扣回报、trial 数、相关性及耗时；scope 使用实际的 train 或 fixed_station，debug 阶段统计保留策略分组 |
 
-空区间的 train_interval/episode_count 和 success_count 写零，不写回合均值；train 保留已有窗口并继续展示，但不重复参与选模。没有更新时不补 loss，首次合格回合之前不写 train 均值；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
+train、mobile、reward 每次刷新按已有窗口继续展示；区间内没有新合格回合时不重复参与选模。没有更新时不补 loss，首次合格回合之前不写 train 均值；不可计算的相关性不写入。训练结束和评估前补写剩余区间，评估完成立即刷新评估指标，退出时关闭 writer。
 
 `metrics.jsonl` 仍保存 learner、episode、evaluation 等原始记录；`training.log_every` 仍按 transitions 决定 learner JSON 和 checkpoint 的频率。JSON 中 learner 的 loss 保持原有的最后一次更新值，TensorBoard 展示区间内全部更新的均值。
 

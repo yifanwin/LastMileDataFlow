@@ -16,6 +16,17 @@ from .station_q import score_key
 
 
 DEFAULT_TENSORBOARD_EVERY_SECONDS = 30
+MOBILE_KEYS = frozenset((
+    "max_drift_m", "max_yaw_drift_rad", "max_lift_drift_m",
+    "out_of_bounds", "max_base_speed_m_s", "max_base_yaw_speed_rad_s",
+))
+
+
+def rolling_tag(key):
+    """reward/* and mobile/* are top-level groups; other episode metrics go under train/."""
+    if key.startswith("reward/"):
+        return key
+    return f"mobile/{key}" if key in MOBILE_KEYS else f"train/{key}"
 
 
 @dataclass
@@ -35,7 +46,7 @@ class _Mean:
 
 
 class TrainingMonitor:
-    """Learner-owned interval and last-100-episode training statistics."""
+    """Learner-owned interval losses/runtime and last-100-episode training statistics."""
 
     def __init__(self, output, *, every_seconds, purge_step=None):
         if not every_seconds > 0:
@@ -47,7 +58,6 @@ class TrainingMonitor:
         self.latest: dict[str, float | Tensor] = {}
         self.episodes: deque[dict[str, float]] = deque(maxlen=100)
         self.interval_episodes = 0
-        self.interval_successes = 0
 
     def _mean(self, tag, value):
         self.means[tag].add(value)
@@ -73,7 +83,8 @@ class TrainingMonitor:
         if event["infrastructure_failure"]:
             return
         values = {key: event[key] for key in
-                  ("return", "steps", "success", "collision_free", "contact_bonus_count") if key in event}
+                  ("return", "steps", "success", "collision_free", "contact_bonus_count", *MOBILE_KEYS)
+                  if key in event}
         values.update({f"reward/{name}": value for name, value in zip(
             event.get("reward_component_names", ()), event.get("reward_components", ()), strict=True
         )})
@@ -83,9 +94,6 @@ class TrainingMonitor:
             return
         self.episodes.append(values)
         self.interval_episodes += 1
-        self.interval_successes += int(event["success"])
-        for key, value in values.items():
-            self._mean(f"train_interval/{key}", value)
 
     def record_runtime(self, event):
         self.latest.update({
@@ -101,21 +109,18 @@ class TrainingMonitor:
             self.writer.add_scalar(tag, float(mean.total / mean.count), transitions)
         for tag, value in self.latest.items():
             self.writer.add_scalar(tag, float(value), transitions)
-        self.writer.add_scalar("train_interval/episode_count", self.interval_episodes, transitions)
-        self.writer.add_scalar("train_interval/success_count", self.interval_successes, transitions)
         rolling: dict[str, _Mean] = defaultdict(_Mean)
         for episode in self.episodes:
             for key, value in episode.items():
                 rolling[key].add(value)
         for key, mean in rolling.items():
-            self.writer.add_scalar(f"train/{key}", float(mean.total / mean.count), transitions)
+            self.writer.add_scalar(rolling_tag(key), float(mean.total / mean.count), transitions)
         count = len(self.episodes)
         successes = sum(episode["success"] for episode in self.episodes)
         self.writer.add_scalar("train/episode_count", count, transitions)
-        self.writer.add_scalar("train/success_count", successes, transitions)
         window = SuccessWindow(successes / count, count) if self.interval_episodes else None
         self.writer.flush()
-        self.interval_episodes = self.interval_successes = 0
+        self.interval_episodes = 0
         self.means.clear()
         self.latest.clear()
         self.last_flush = now

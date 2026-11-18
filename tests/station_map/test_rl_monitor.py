@@ -54,9 +54,9 @@ class TrainingMonitorTests(unittest.TestCase):
             monitor.close(128)
             reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
             for name, value in zip(CONTACT_REWARD_COMPONENTS, event["reward_components"], strict=True):
-                self.assertAlmostEqual(reader.Scalars(f"train/reward/{name}")[0].value, value, places=6)
+                self.assertAlmostEqual(reader.Scalars(f"reward/{name}")[0].value, value, places=6)
             self.assertNotIn("train/contact_bonus_count", reader.Tags()["scalars"])
-            self.assertNotIn("train/reward/opening", reader.Tags()["scalars"])
+            self.assertNotIn("reward/opening", reader.Tags()["scalars"])
 
     def test_live_interval_means_all_updates_and_healthy_episode_groups(self):
         clock = Mock(return_value=0)
@@ -88,7 +88,7 @@ class TrainingMonitorTests(unittest.TestCase):
                     "runtime/updates": 2, "runtime/replay_size": 128,
                 }
                 for name in episode(1)["reward_component_names"]:
-                    expected[f"train/reward/{name}"] = 4
+                    expected[f"reward/{name}"] = 4
                     expected[f"warmup/reward/{name}"] = 10
                 for tag, value in expected.items():
                     point, = reader.Scalars(tag)
@@ -109,7 +109,8 @@ class TrainingMonitorTests(unittest.TestCase):
             points = reader.Reload().Scalars("loss/actor")
             self.assertEqual([(p.step, p.value) for p in points], [(256, 3), (640, 8)])
             self.assertAlmostEqual(reader.Scalars("train/return")[-1].value, 20 / 3, places=5)
-            self.assertEqual(reader.Scalars("train_interval/return")[-1].value, 12)
+            tags = reader.Tags()["scalars"]
+            self.assertFalse([tag for tag in tags if tag.startswith("train_interval/") or tag.endswith("success_count")])
 
     def test_interval_resets_while_rolling_window_evicts_oldest_episode(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -127,14 +128,9 @@ class TrainingMonitorTests(unittest.TestCase):
                 self.assertEqual((second.rate, second.count), (1, 100))
                 self.assertIsNone(monitor.flush(102, force=True))
                 reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
-                self.assertEqual([p.value for p in reader.Scalars("train_interval/episode_count")], [100, 1, 0])
-                self.assertEqual([p.value for p in reader.Scalars("train_interval/success_count")], [99, 1, 0])
                 self.assertEqual([p.value for p in reader.Scalars("train/episode_count")], [100] * 3)
-                self.assertEqual([p.value for p in reader.Scalars("train/success_count")], [99, 100, 100])
                 self.assertAlmostEqual(reader.Scalars("train/return")[-1].value, 2.02, places=5)
-                self.assertAlmostEqual(reader.Scalars("train/reward/position")[-1].value, 2.02, places=5)
-                self.assertEqual([p.step for p in reader.Scalars("train_interval/return")], [100, 101])
-                self.assertEqual(reader.Scalars("train_interval/reward/position")[-1].value, 4)
+                self.assertAlmostEqual(reader.Scalars("reward/position")[-1].value, 2.02, places=5)
             finally:
                 monitor.close(102)
 
@@ -146,11 +142,24 @@ class TrainingMonitorTests(unittest.TestCase):
                 monitor.record_episode(episode(4))
                 monitor.flush(2, force=True)
                 reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
-                self.assertEqual(reader.Scalars("train/reward/position")[0].value, 4)
+                self.assertEqual(reader.Scalars("reward/position")[0].value, 4)
                 self.assertEqual(reader.Scalars("train/episode_count")[0].value, 2)
                 self.assertEqual(reader.Scalars("train/success")[0].value, 0.5)
             finally:
                 monitor.close(2)
+
+    def test_mobile_metrics_use_mobile_group(self):
+        event = episode(1) | {"max_drift_m": 0.2, "max_base_speed_m_s": 0.3, "out_of_bounds": False}
+        with tempfile.TemporaryDirectory() as directory:
+            monitor = TrainingMonitor(directory, every_seconds=30)
+            monitor.record_episode(event)
+            monitor.close(8)
+            reader = EventAccumulator(str(Path(directory) / "tensorboard")).Reload()
+            self.assertAlmostEqual(reader.Scalars("mobile/max_drift_m")[0].value, 0.2, places=6)
+            self.assertAlmostEqual(reader.Scalars("mobile/max_base_speed_m_s")[0].value, 0.3, places=6)
+            self.assertEqual(reader.Scalars("mobile/out_of_bounds")[0].value, 0)
+            self.assertEqual(reader.Scalars("train/collision_free")[0].value, 1)
+            self.assertNotIn("train/max_drift_m", reader.Tags()["scalars"])
 
     def test_evaluation_is_immediate_scoped_and_skips_unknown_values(self):
         with tempfile.TemporaryDirectory() as directory:
