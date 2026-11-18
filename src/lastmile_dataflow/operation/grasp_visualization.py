@@ -1,7 +1,6 @@
 """Plot a full-corpus FPS pool against the target's actual visual mesh."""
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import mujoco
 import numpy as np
@@ -9,50 +8,12 @@ from matplotlib.colors import LightSource
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import proj3d
 
-from lastmile_dataflow.robots.registry import load_robot_config, load_robot_spec
-from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 from lastmile_dataflow.sim.model.mjcf import load_spec
 from lastmile_dataflow.sim.source import SceneSource, instance_catalog, resolve_target
 from lastmile_dataflow.utils.figures import plt, save_figure
 from lastmile_dataflow.utils.io import write_json
-from .grasps import load_grasps, select_grasps
-
-
-def _visual_triangles(model, data, target):
-    bodies = descendants(model, target)
-    rotation = data.xmat[target].reshape(3, 3)
-    sim = SimpleNamespace(model=model, data=data)
-    triangles = []
-    for geom in range(model.ngeom):
-        if (int(model.geom_bodyid[geom]) not in bodies
-                or model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_MESH
-                or model.geom_contype[geom] or model.geom_conaffinity[geom]):
-            continue
-        mesh = int(model.geom_dataid[geom])
-        start, count = int(model.mesh_faceadr[mesh]), int(model.mesh_facenum[mesh])
-        vertices = (geom_points(sim, geom) - data.xpos[target]) @ rotation
-        triangles.append(vertices[model.mesh_face[start:start + count]])
-    if not triangles:
-        raise ValueError("Target has no visual mesh triangles")
-    return np.concatenate(triangles)
-
-
-def _panda_gripper_triangles(config, scale):
-    """Native open Panda Hand mesh in its measured grip-site coordinate frame."""
-    model = load_robot_spec(load_robot_config(config), scale=scale).compile()
-    data = mujoco.MjData(model)
-    for suffix, endpoint in ((1, 1), (2, 0)):
-        joint = model.joint(f"robot_0/gripper0_right_finger_joint{suffix}").id
-        data.qpos[model.jnt_qposadr[joint]] = model.jnt_range[joint, endpoint]
-    mujoco.mj_forward(model, data)
-    root = model.body("robot_0/gripper0_right_right_gripper").id
-    site = model.site("robot_0/gripper0_right_grip_site").id
-    root_world, tcp_world = np.eye(4), np.eye(4)
-    root_world[:3, :3], root_world[:3, 3] = data.xmat[root].reshape(3, 3), data.xpos[root]
-    tcp_world[:3, :3], tcp_world[:3, 3] = data.site_xmat[site].reshape(3, 3), data.site_xpos[site]
-    root_to_tcp = np.linalg.inv(root_world) @ tcp_world
-    triangles = _visual_triangles(model, data, root)
-    return (triangles - root_to_tcp[:3, 3]) @ root_to_tcp[:3, :3], root_to_tcp
+from .grasps import load_grasps, select_grasps, sample_grasps
+from .grasp_geometry import visual_triangles, panda_hand
 
 
 def _scene_mapping(triangles, poses, object_world):
@@ -61,7 +22,7 @@ def _scene_mapping(triangles, poses, object_world):
     return world_triangles, object_world @ poses
 
 
-def _plot_pool(triangles, poses, gripper, rows, target, total, seed, output):
+def _plot_pool(triangles, poses, gripper, rows, target, total, seed, output, sampling):
     figure = plt.figure(figsize=(14, 10), facecolor="white")
     axes = figure.add_axes([0.01, 0.12, 0.76, 0.75], projection="3d", computed_zorder=False)
     axes.add_collection3d(Poly3DCollection(
@@ -113,7 +74,7 @@ def _plot_pool(triangles, poses, gripper, rows, target, total, seed, output):
                       arrowprops=dict(arrowstyle="-", color=color, linewidth=0.8), zorder=5)
     figure.suptitle(f"val103 / {target}: {len(poses)} native Panda grippers on the cup",
                    fontsize=19, weight="bold", y=0.96)
-    figure.text(0.5, 0.9, f"{total} valid source poses  |  FPS seed: {seed}  |  actual scene orientation",
+    figure.text(0.5, 0.9, f"{total} library poses  |  {sampling} seed: {seed}  |  actual scene orientation",
                 ha="center", fontsize=12, color="#455364")
     legend = figure.add_axes([0.78, 0.18, 0.21, 0.65])
     legend.axis("off")
@@ -157,7 +118,7 @@ def _plot_individual(triangles, poses, gripper, rows, target, output):
 
 
 def visualize_grasps(scene, metadata, target, grasps, output, *, count, seed,
-                     position_scale_m, rotation_scale_rad, roll_rad, robot_config, robot_scale):
+                     position_scale_m, rotation_scale_rad, roll_rad, robot_config, robot_scale, sampling):
     """Save the figure and exact selected TCP poses; no simulation stepping or planning."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -168,8 +129,11 @@ def visualize_grasps(scene, metadata, target, grasps, output, *, count, seed,
     source = SceneSource("grasp-visualization", str(scene), str(metadata))
     target_id = resolve_target(model, instance_catalog(model, source), target)
     candidates = load_grasps(grasps, model.body(target_id).name)
-    pool = select_grasps(candidates, [c["pose_local"] for c in candidates], count,
-                         position_scale_m, rotation_scale_rad, seed=seed)
+    if sampling == "uniform":
+        pool = sample_grasps(candidates, count, seed=seed)
+    else:
+        pool = select_grasps(candidates, [c["pose_local"] for c in candidates], count,
+                             position_scale_m, rotation_scale_rad, seed=seed)
     if not pool:
         raise ValueError("No valid corpus grasps")
     poses = np.array([c["pose_local"] for c in pool])
@@ -177,7 +141,7 @@ def visualize_grasps(scene, metadata, target, grasps, output, *, count, seed,
                      [np.sin(roll_rad), np.cos(roll_rad), 0], [0, 0, 1]])
     poses[:, :3, :3] = poses[:, :3, :3] @ roll
     rows = [c["row"] for c in pool]
-    triangles = _visual_triangles(model, data, target_id)
+    triangles = visual_triangles(model, data, target_id)
     object_world = np.eye(4)
     object_world[:3, :3] = data.xmat[target_id].reshape(3, 3)
     object_world[:3, 3] = data.xpos[target_id]
@@ -185,17 +149,18 @@ def visualize_grasps(scene, metadata, target, grasps, output, *, count, seed,
     # Center the view at the cup without changing world-axis orientation or scale.
     plot_poses = world_poses.copy()
     plot_poses[:, :3, 3] -= object_world[:3, 3]
-    gripper, root_to_tcp = _panda_gripper_triangles(robot_config, robot_scale)
+    hand = panda_hand(robot_config, robot_scale)
+    gripper, root_to_tcp = hand.triangles, hand.root_to_tcp
     plot_triangles = world_triangles - object_world[:3, 3]
     figure = _plot_pool(plot_triangles, plot_poses, gripper, rows,
-                        target, len(candidates), seed, output / "grasps.png")
+                        target, len(candidates), seed, output / "grasps.png", sampling)
     _plot_individual(plot_triangles, plot_poses, gripper, rows, target, output / "individual-grasps.png")
     np.savez(output / "selected-grasps.npz", transforms=poses, world_transforms=world_poses,
              object_world=object_world, source_rows=rows, root_to_tcp=root_to_tcp,
              gripper_root_world=world_poses @ np.linalg.inv(root_to_tcp))
     write_json(output / "selection.json", dict(
         scene=str(scene), metadata=str(metadata), target=target, target_body=model.body(target_id).name,
-        grasps=str(grasps), valid_count=len(candidates), count=count, seed=seed,
+        grasps=str(grasps), valid_count=len(candidates), count=count, seed=seed, sampling=sampling,
         position_scale_m=position_scale_m, rotation_scale_rad=rotation_scale_rad, roll_rad=roll_rad,
         source_rows=rows, frame="target_body_local", transforms_include_roll=True,
         plot_frame="world_axes_relative_to_target_origin", object_world=object_world.tolist(),

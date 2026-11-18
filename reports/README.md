@@ -36,6 +36,8 @@
 - RL 站位软价值：[720万checkpoint离线价值图](rl-station-map/delivery/39-offline-soft-station-value.md)，三站69维核对通过，96个有效站位各128动作，正式评分无需加载仿真场景。
 - RL checkpoint：best 与 TensorBoard 默认30秒窗口的成功率同步比较，每40万健康transition在 `ckpts/` 独立保留完整权重；见[实现与验证](rl-station-map/delivery/35-tensorboard-best-periodic-checkpoints.md)。已有训练进程继续使用启动时逻辑。
 
+- Cup_30抓取候选：[物体级射线预处理与运行前抽样](rl-station-map/delivery/cup30-grasp-preprocessing.md)，1000→564→FPS128，训练/标定默认均匀抽16；仅验证静态几何与消费接口。
+
 ## 主题
 
 | 主题 | 内容 | 入口 |

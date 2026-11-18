@@ -1,7 +1,5 @@
 """Native grasp planning and semantic physical execution; no scene resets."""
 
-from ..grasps import select_grasps
-
 import copy
 from dataclasses import dataclass, replace
 from functools import partial
@@ -12,7 +10,8 @@ import numpy as np
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 from lastmile_dataflow.planning.result import GRASP_APPROACH_DISTANCE_M
 from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
-from lastmile_dataflow.utils.io import write_json
+from lastmile_dataflow.utils.io import repo_path, write_json
+from ..grasps import load_grasps, sample_grasps, select_grasps
 from ..config import PLANNER_BACKEND
 from lastmile_dataflow.planning.curobo.tracing import NATIVE_MAX_ATTEMPTS
 from ..outcomes.task import PickMonitor, evaluate_open
@@ -30,10 +29,21 @@ def _candidate_score(sim, reference, candidate):
 def candidate_pool(sim, config, candidates, seed, forced):
     rng = np.random.default_rng(seed)
     if forced:
-        pool = [c for c in candidates if c["row"] == forced["grasp_row"] and c["source"] == forced["grasp_source"]]
+        pool = [c for c in candidates if c["row"] == forced["grasp_row"]
+                and Path(c["source"]).resolve() == Path(forced["grasp_source"]).resolve()]
         if not pool:
             raise ValueError("missing winning grasp")
         return pool[: config.max_grasp_candidates]
+    preprocessed = None
+    if candidates:
+        asset = Path(candidates[0]["source"]).parent.name
+        preprocessed = config.grasp_preprocessed_paths.get(asset)
+        if preprocessed:
+            candidates = load_grasps(repo_path(preprocessed), candidates[0]["body"])
+            if not candidates:
+                raise ValueError("No valid preprocessed grasps")
+    if preprocessed:
+        return sample_grasps(candidates, config.max_grasp_candidates, seed=config.grasp_sample_seed)
     method = config.grasp_candidate_order
     if method == "fps":
         poses = [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates]

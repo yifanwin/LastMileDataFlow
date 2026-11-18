@@ -1,9 +1,9 @@
 """Execution parameters and the shared robot/camera/backend profile."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
-from lastmile_dataflow.utils.io import read_config
+from lastmile_dataflow.utils.io import read_config, repo_path
 from .grasps import DEFAULT_FPS_SEED
 
 # Fixed execution contract; written into results, not configurable.
@@ -23,7 +23,7 @@ _POSITIVE_INTS = (
     "width",
     "height",
 )
-_NONNEGATIVE_INTS = ("seed", "operation_retries", "grasp_fps_seed")
+_NONNEGATIVE_INTS = ("seed", "operation_retries", "grasp_fps_seed", "grasp_sample_seed")
 _POSITIVE = (
     "grasp_fps_position_scale_m",
     "grasp_fps_rotation_scale_rad",
@@ -92,6 +92,8 @@ class ExecutionConfig:
     grasp_fps_seed: int = DEFAULT_FPS_SEED
     grasp_fps_position_scale_m: float = 0.1
     grasp_fps_rotation_scale_rad: float = math.pi / 2
+    grasp_preprocessed_paths: dict[str, str] = field(default_factory=dict)
+    grasp_sample_seed: int = DEFAULT_FPS_SEED
     approach_offset_m: float = 0.0
     export_figures: bool = True
     seed: int = 42
@@ -159,7 +161,12 @@ def _check(key, ok):
 
 
 def load_execution_config(path):
-    return ExecutionConfig(**read_config(path, repo_fields=("policy_config",)))
+    config = read_config(path, repo_fields=("policy_config",))
+    if "grasp_preprocessed_paths" in config:
+        config["grasp_preprocessed_paths"] = {
+            asset: repo_path(value) for asset, value in config["grasp_preprocessed_paths"].items()
+        }
+    return ExecutionConfig(**config)
 
 
 @dataclass(frozen=True)

@@ -20,6 +20,7 @@
 - 含数据输入的配置显式填写 `data_root`（当前统一为 `/data1/wenyifan/lmdf/molmospaces_data`）；数据、权重、tokenizer 路径相对 `data_root`。
 - 配置文件和解释器路径（`robot_config`、`policy_config`、`python`）相对仓库根目录，也可写绝对路径。不是相对 YAML 所在目录。
 - 命令行路径按当前调用目录解释。
+- RL `grasp.preprocessed_path`及cuRobo `grasp_preprocessed_paths`中的离线库路径相对仓库根目录，也可写绝对路径。
 
 ## 文件
 
@@ -81,3 +82,11 @@ RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` �
 该方块配置的 `observation` 同时保存离线评分所需的固定初态数值（静置方块位姿、Home TCP局部位姿、底盘高度、夹爪开度及归一化范围）。`score.py --value-mode soft` 直接读取，无需模板文件或仿真加载；Home关节与升降仍使用原 `scene.home/lift`。这些静态值仅用于初态评分，不替代训练环境中的动态观测。
 
 移动方块配置 `station_map/rl/val103_cube_random_stations_mobile.yaml` 使用 `action.mobile_base: true`、`scene.fixed_base: false`：75维平坦观测、10维动作（TCP6、夹爪1、底盘前后/横移/转向3）；升降继续由臂与升降联合DLS控制。`action.mobile_base` 默认为false，不能与物理固定底盘同时启用。平移合速度和转向命令分别由 `action.base_translation_m_s`、`action.base_yaw_rad_s` 设置（本配置0.2 m/s、0.5 rad/s）。机器人或目标碰撞几何越出目标周围局部裁剪方形即失败，移动本身不再按固定底盘漂移失败。旧固定底盘离线评分仅用于原固定模式。
+
+## 物体级抓取预处理库
+
+三个Cup_30 RL配置使用`grasp.preprocessed_path`，不再设置原始`path`和运行时FPS参数。`sample_count`默认16、`sample_seed`默认42；它们控制从最多128条的离线库均匀无放回抽样。原始库分支仍用`fps_count`/`fps_seed`。
+
+Panda cuRobo配置的`grasp_preprocessed_paths`按资产名（如Cup_30）映射到离线NPZ，`max_grasp_candidates`控制抽样数量、`grasp_sample_seed`默认42；未配置资产保持原筛选方式。生成命令见[运行指南](../docs/runbook.md#cup_30-物体级抓取库)。
+
+离线NPZ包含未加roll的物体局部`transforms`、原始`source_rows`和`source`。射线检测使用的roll、机器人缩放、分辨率、阈值、FPS参数也保存在产物中；更换物体尺寸或夹爪约定需要重新生成。库不验证场景中的可达性、碰撞和动力学成功。

@@ -9,7 +9,8 @@ from .observation import (
 )
 from .stations import prepare_stations, station_mocap_poses
 from .mobile import LocalBoundary
-from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, select_grasps
+from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, sample_grasps, select_grasps
+from lastmile_dataflow.utils.io import repo_path
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 
@@ -197,9 +198,16 @@ class TaskState:
             ).expand(n, -1, -1).clone()
             self.grasp_ids = torch.zeros(n, dtype=torch.long, device=self.device)
             return
+        self.prepare_corpus_grasps()
+
+    def prepare_corpus_grasps(self):
+        """Load the object library once and fix a shared runtime subset for all stations."""
+        env, n = self.env, self.env.num_envs
         scene_config = RLSceneConfig(**env.research_config["scene"])
         grasp = env.research_config["grasp"]
-        self.grasps = load_grasps(scene_config.asset(grasp["path"]), env.prepared.target_body)
+        path = (repo_path(grasp["preprocessed_path"]) if grasp.get("preprocessed_path")
+                else scene_config.asset(grasp["path"]))
+        self.grasps = load_grasps(path, env.prepared.target_body)
         if not self.grasps:
             raise ValueError("No valid corpus grasps")
         angle = grasp["roll_rad"]
@@ -210,12 +218,15 @@ class TaskState:
         self.requested_grasp_ids = None
         self.grasp_position = torch.zeros(n, 3, device=self.device)
         self.grasp_rotation = torch.eye(3, device=self.device).repeat(n, 1, 1)
-        local_poses = np.array([c["pose_local"] for c in self.grasps])
-        pool = select_grasps(
-            self.grasps, local_poses, grasp.get("fps_count", DEFAULT_FPS_COUNT),
-            grasp.get("fps_position_scale_m", 0.1), grasp.get("fps_rotation_scale_rad", np.pi / 2),
-            seed=grasp.get("fps_seed", DEFAULT_FPS_SEED),
-        )
+        if grasp.get("preprocessed_path"):
+            pool = sample_grasps(self.grasps, grasp.get("sample_count", DEFAULT_FPS_COUNT),
+                                 seed=grasp.get("sample_seed", DEFAULT_FPS_SEED))
+        else:
+            pool = select_grasps(
+                self.grasps, [c["pose_local"] for c in self.grasps], grasp.get("fps_count", DEFAULT_FPS_COUNT),
+                grasp.get("fps_position_scale_m", 0.1), grasp.get("fps_rotation_scale_rad", np.pi / 2),
+                seed=grasp.get("fps_seed", DEFAULT_FPS_SEED),
+            )
         identities = {id(c): i for i, c in enumerate(self.grasps)}
         pool_ids = [identities[id(c)] for c in pool]
         self.grasp_pools = [pool_ids for _ in self.stations]

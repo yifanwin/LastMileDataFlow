@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--robot-scale", type=float, default=0.9)
     parser.add_argument("--grasps", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--sampling", choices=("fps", "uniform"), default="fps")
     parser.add_argument("--count", type=int, default=DEFAULT_FPS_COUNT)
     parser.add_argument("--seed", type=int, default=DEFAULT_FPS_SEED)
     parser.add_argument("--position-scale-m", type=float, default=0.1)
@@ -27,7 +28,7 @@ def main():
         args.scene, args.metadata, args.target, args.grasps, args.output,
         count=args.count, seed=args.seed, position_scale_m=args.position_scale_m,
         rotation_scale_rad=args.rotation_scale_rad, roll_rad=args.roll_rad,
-        robot_config=args.robot_config, robot_scale=args.robot_scale,
+        robot_config=args.robot_config, robot_scale=args.robot_scale, sampling=args.sampling,
     )
     print(result)
 

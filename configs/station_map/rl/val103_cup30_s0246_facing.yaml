@@ -12,10 +12,8 @@ scene:
   robot_scale: 0.9
 mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
 grasp:
-  path: mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz
+  preprocessed_path: outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-fps128/grasps.npz
   roll_rad: 1.5707963267948966
-  fps_position_scale_m: 0.1
-  fps_rotation_scale_rad: 1.5707963267948966
 environment:
   num_envs: 128
   decimation: 25

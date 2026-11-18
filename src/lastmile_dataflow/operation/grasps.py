@@ -4,15 +4,20 @@ import numpy as np
 
 DEFAULT_FPS_COUNT = 16
 DEFAULT_FPS_SEED = 42
+DEFAULT_PREPROCESSED_COUNT = 128
 
 
 def load_grasps(path, body, max_rows=None):
     with np.load(path, allow_pickle=False) as source:
         poses = source["transforms"]
+        source_rows = source["source_rows"] if "source_rows" in source else np.arange(len(poses))
+        source_path = str(source["source"].item()) if "source" in source else str(path)
     if poses.size == 0:
         return []
     if poses.ndim != 3 or poses.shape[1:] != (4, 4):
         raise ValueError("invalid grasp shape")
+    if source_rows.shape != (len(poses),):
+        raise ValueError("invalid grasp source rows")
     result = []
     rows = range(len(poses)) if max_rows is None else np.linspace(0, len(poses) - 1, min(max_rows, len(poses)), dtype=int)
     for row in rows:
@@ -23,8 +28,16 @@ def load_grasps(path, body, max_rows=None):
         if np.max(np.abs(singular - 1)) > 0.02 or np.linalg.det(pose[:3, :3]) <= 0:
             continue
         pose[:3, :3] = u @ v
-        result.append(dict(pose_local=pose, body=body, source=str(path), row=int(row)))
+        result.append(dict(pose_local=pose, body=body, source=source_path, row=int(source_rows[row])))
     return result
+
+
+def sample_grasps(candidates, count, *, seed):
+    """Uniform subset without replacement, shared by training and calibration."""
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise ValueError("Grasp sample count must be a positive integer")
+    indices = np.random.default_rng(seed).choice(len(candidates), min(count, len(candidates)), replace=False)
+    return [candidates[i] for i in indices]
 
 
 def select_grasps(candidates, poses, count=DEFAULT_FPS_COUNT, position_scale_m=0.1,

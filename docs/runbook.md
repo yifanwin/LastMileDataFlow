@@ -65,9 +65,32 @@ $PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/r
 
 保持独立 RL 环境，使用 scripts/station_map/rl/ 下的 train.py、score.py、evaluate.py；先查看 --help。`--gpu` 填物理卡号，train.py 可给多张（每张一个 Sampler，第一张同时放 Learner），原来的 `--gpus 0,5` 写成 `--gpu 0 5`。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
 
-### 全量抓取 FPS
+### Cup_30 物体级抓取库
 
-读取抓取库的 RL 任务默认从全部有效位姿中 FPS 选 16 个，首点使用独立固定种子 42；所有站位共用一组，每个 episode 均匀随机选一个并在 episode 内固定。默认距离尺度为 0.10 m / π/2；不参考 Home TCP，不做最近 64 个预筛选，也不默认截断为 1024 行。Cube 解析抓取分支不读取抓取库。
+当前三个 Cup_30 RL 配置及 Panda cuRobo 配置使用同一物体级预处理库：21×21指腹间配对射线命中杯体至少30%（133/441），再FPS最多128条。杯壁也计入，不使用5mm杯沿限制。库中的位姿相对物体，未叠加roll；同一资产、相同尺寸、相同夹爪及缩放可跨场景复用。可达性、场景碰撞和轨迹仍在各场景检查。
+
+先离线生成库（CPU静态查询，无动力学；重新生成时使用新的run目录）：
+
+```bash
+MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/preprocess_grasps.py \
+  --scene /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103.xml \
+  --metadata /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103_metadata.json \
+  --target Cup_30 \
+  --grasps /data1/wenyifan/lmdf/molmospaces_data/mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz \
+  --robot-config configs/robots/panda_omron.yaml --robot-scale 0.9 \
+  --roll-rad 1.5707963267948966 --resolution 21 --min-hit-ratio 0.3 --fps-count 128 \
+  --output outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-fps128
+```
+
+RL的`grasp.preprocessed_path`指向生成的`grasps.npz`，路径相对仓库根目录。`grasp.sample_count`（默认16）和`grasp.sample_seed`（默认42）控制训练/评估开始前的均匀无放回抽样，不再FPS；所有站位共用该子集，episode再从中均匀选一条并固定。
+
+cuRobo用`grasp_preprocessed_paths: {Cup_30: <文件路径>}`按物体资产选择库，以`max_grasp_candidates`和`grasp_sample_seed`控制同样的抽样；每次试验使用相同子集，规划整池。相同库、数量和seed与RL得到相同行号。产物缺失时需先预处理，不自动回退。库不保存场景实例body名，加载时绑定当前目标。
+
+当前库适用于Panda缩放0.9、局部Z +π/2。改变物体尺寸、夹爪、缩放或roll后重新预处理。生成抽样图时，沿用下方可视化命令，把`--grasps`改为预处理NPZ，并加`--sampling uniform --count 16 --seed 42`。
+
+### 原始抓取库 FPS
+
+未配置预处理库的 RL 任务默认从全部有效位姿中 FPS 选 16 个，首点使用独立固定种子 42；所有站位共用一组，每个 episode 均匀随机选一个并在 episode 内固定。默认距离尺度为 0.10 m / π/2；不参考 Home TCP，不做最近 64 个预筛选，也不默认截断为 1024 行。Cube 解析抓取分支不读取抓取库。
 
 在 RL YAML 的 `grasp` 段覆盖 `fps_count`、`fps_seed` 即可调整数量与种子；`fps_position_scale_m`、`fps_rotation_scale_rad` 调整距离尺度。cuRobo 配置使用 `grasp_candidate_order: fps`、`max_grasp_candidates`、`grasp_fps_seed`，仍规划整池；旧 `tcp_distance` 值已替换为 `fps`，`facing` 模式保留。相同位姿库、顺序、参数与种子生成相同候选池。
 
