@@ -23,3 +23,5 @@ actor-critic：31 项相关离线测试通过（monitor、best、evaluation、sa
 仅更新后续启动或恢复的训练；未重启正在运行的任务，未修改历史日志、权重或运行产物。未执行长期训练或真实 GPU rollout。
 
 2026-11-17 23:32:44 +0800：rl-cube-random-stations 合并完成；41 项相关离线测试通过，保留物理固定底盘、多站位与 69D 输入代码，以及用户已有未提交报告和未跟踪文件。
+
+2026-11-18 14:19:34 +0800：rl-cube-random-stations 精简 TensorBoard 分组：去掉 `train_interval/*` 和全部 `*/success_count`；最近 100 回合窗口拆成 `train/`（success、return、steps、collision_free、contact_bonus_count、episode_count）、`mobile/`（底盘漂移和速度）、`reward/`（奖励分项）；`warmup/` 不变，选模口径不变。monitor、best、evaluation 共 25 项离线测试通过。
