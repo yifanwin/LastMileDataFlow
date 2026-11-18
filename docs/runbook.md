@@ -88,6 +88,36 @@ cuRobo用`grasp_preprocessed_paths: {Cup_30: <文件路径>}`按物体资产选�
 
 当前库适用于Panda缩放0.9、局部Z +π/2。改变物体尺寸、夹爪、缩放或roll后重新预处理。生成抽样图时，沿用下方可视化命令，把`--grasps`改为预处理NPZ，并加`--sampling uniform --count 16 --seed 42`。
 
+### 真实杯子随机站位 SAC
+
+从 `rl-cup-random-stations` 工作区运行。使用本工作区源码和研究环境的图形动态库：
+
+```bash
+export PYTHONPATH="$PWD/src"
+export MUJOCO_GL=egl
+export LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+.venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cup30_random_stations_facing.yaml \
+  --gpu 0 1 2 3 --seed 42 \
+  --output outputs/experiments/rl-cup-random-stations/runs/<新run>
+```
+
+GPU编号按实时负载选择。配置为800万条健康经验、每卡128环境、batch512、预热20,000、每128条更新一次。每回合随机选择正对目标的有效站位和16条子集中的一个候选，底盘物理固定、机械臂从Home开始，候选回合内固定。`grasp.preprocessed_path`引用已有128条库，`sample_count: 16`和`sample_seed: 42`明确控制均匀无放回抽样；所有进程共享同一子集。更换物体前先离线预处理，不允许真实物体接触训练回退到原始库。
+
+69维观测使用真实碰撞几何的局部尺寸及最低点，候选误差随物体姿态更新。成功要求同一物理子步双指法向力各>0.5 N、碰撞几何最低点离原桌面≥1 cm、无支撑接触，连续保持0.25 s。训练采用当前方块接触抬升奖励，关闭周期评估；`grasp-subset.json`和checkpoint记录实际子集，episode记录原始抓取row。
+
+训练结束后独立评估 `best.pt`（完整100个健康非预热回合窗口的训练成功率选择）：
+
+```bash
+.venv/bin/python scripts/station_map/rl/evaluate.py \
+  --config configs/station_map/rl/val103_cup30_random_stations_facing.yaml \
+  --checkpoint outputs/experiments/rl-cup-random-stations/runs/<run>/best.pt \
+  --gpu 0 --num-envs 20 \
+  --output outputs/experiments/rl-cup-random-stations/runs/<run>/evaluation
+```
+
+默认20个随机有效站位各一次，trial种子为 `evaluation.seed + trial_index`，独立选择候选和动作，保存每次视频与回放。普通失败不重试，分别统计成功和无碰撞成功，基础设施异常单列。现有无仿真soft-Q入口仍仅支持方块。
+
 ### 原始抓取库 FPS
 
 未配置预处理库的 RL 任务默认从全部有效位姿中 FPS 选 16 个，首点使用独立固定种子 42；所有站位共用一组，每个 episode 均匀随机选一个并在 episode 内固定。默认距离尺度为 0.10 m / π/2；不参考 Home TCP，不做最近 64 个预筛选，也不默认截断为 1024 行。Cube 解析抓取分支不读取抓取库。

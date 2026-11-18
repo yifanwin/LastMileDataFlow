@@ -111,6 +111,8 @@ class RolloutCapture:
             )
             result += f" collision_free={row['collision_free']}"
             label = f"{self.transitions} {station['split']} {station['station_id']} seed={seed} {self.mode}"
+            if "grasp_row" in row:
+                label += f" grasp_row={row['grasp_row']}"
             settings = {**self.config["video"], "target_body": env.prepared.target_body}
             print(f"Rendering {stem} seed={seed}", flush=True)
             video = render_rollout(

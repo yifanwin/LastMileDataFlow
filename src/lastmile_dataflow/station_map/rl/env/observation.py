@@ -58,7 +58,10 @@ WORLD_STATE_FIELDS = (
 )
 
 
-def flat_fields(state_dim):
+def flat_fields(state_dim, *, real_object=False):
+    if real_object:
+        return tuple((name.replace("cube_", "target_"), dim, scale)
+                     for name, dim, scale in flat_fields(state_dim))
     if state_dim == 65:
         return FLAT_FIELDS
     if state_dim == 69:
@@ -101,19 +104,25 @@ def pose_goal_error(poses, grasp_position, grasp_rotation, approach_offset_m=0.0
     return torch.einsum("bji,bj->bi", base_r, dp), torch.einsum("bji,bj->bi", base_r, dr)
 
 
-def build_flat_observation(state, *, cube_size, lift_range, open_grip, world_state):
+def build_flat_observation(state, *, cube_size=None, target_size=None, target_bottom_height=None,
+                           lift_range, open_grip, world_state):
     """Keep field order, coordinates and scales identical for training and scoring."""
     tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = state.poses
     cube_local_r = base_r.transpose(-1, -2) @ cube_r
     tcp_local_r = base_r.transpose(-1, -2) @ tcp_r
     cube_position = torch.einsum("bji,bj->bi", base_r, cube_p - base_p)
-    size = torch.full_like(cube_position, cube_size)
-    extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
+    if target_size is None:
+        size = torch.full_like(cube_position, cube_size)
+        extent = torch.einsum("bij,bj->bi", cube_local_r.abs(), size / 2)
+        bottom = cube_position[:, 2:3] - extent[:, 2:3]
+    else:
+        size = target_size.expand_as(cube_position)
+        bottom = target_bottom_height[:, None] - base_p[:, 2:3]
     observation = torch.cat((
         cube_position,
         cube_local_r[:, :, :2].transpose(-1, -2).flatten(1),
         size,
-        cube_position[:, 2:3] - extent[:, 2:3],
+        bottom,
         state.position_error / GRASP_POSITION_TOLERANCE_M,
         state.rotation_error / GRASP_ROTATION_TOLERANCE_RAD,
         state.cube_linear,

@@ -94,7 +94,7 @@ def score_soft(config, *, checkpoint, gpu, output, samples, batch_size, seed, pl
     effective = saved["metadata"]["config"]
     if config["scene"] != effective["scene"]:
         raise ValueError("Task scene and Home configuration must match the checkpoint")
-    if agent.mode != "flat" or agent.state_dim != 69 or not effective["scene"].get("fixed_base"):
+    if agent.mode != "flat" or agent.state_dim != 69 or not effective["scene"].get("fixed_base") or not effective["scene"].get("cube"):
         raise ValueError("Offline soft scoring requires a fixed-base 69D flat cube checkpoint")
     if samples < 2 or batch_size < 1:
         raise ValueError("Need at least two action samples and a positive batch size")

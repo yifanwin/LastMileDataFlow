@@ -19,7 +19,7 @@ from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
 from .devices import VISIBLE_DEVICE
 from .env.terms import finger_contact, target_lift_height
-from .env.terms import mobile_episode
+from .env.terms import mobile_episode, grasp_episode
 
 
 def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
@@ -87,7 +87,7 @@ def validation_rollout(
     torch.manual_seed(seed)
     generators = episode_generators(trial_seeds, env.device) if trial_seeds is not None else None
     mode = getattr(agent, "mode", "graph")
-    if generators is not None and mode == "graph":
+    if generators is not None and hasattr(env.task, "grasp_pool_table"):
         request_episode_grasps(env.task, station_ids, generators)
     obs = reset_stations(env, station_ids, mode=mode)
     finished = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
@@ -163,6 +163,7 @@ def validation_rollout(
                 "max_hold_s": float(max_hold[index]),
                 "failed": bool(task.failed[index]),
                 **mobile_episode(task, index),
+                **grasp_episode(task, index),
                 "contact_bonus_count": int(task.contact_bonus_paid[index]),
                 "stage_seconds": dict(
                     zip(("Approach", "Pre-grasp", "Grasp", "LIFT"), stage_time[index].cpu().tolist())
@@ -173,9 +174,6 @@ def validation_rollout(
             if mode == "flat":
                 first_contact = float(task.first_contact_time_s[index])
                 records[index]["first_simultaneous_contact_s"] = first_contact if first_contact >= 0 else None
-            else:
-                grasp = task.grasps[int(task.grasp_ids[index])]
-                records[index].update(grasp_source=grasp["source"], grasp_row=grasp["row"])
             if on_trial is not None:
                 on_trial(index, records[index])
         finished |= first_done

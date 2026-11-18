@@ -1,5 +1,8 @@
 """Tensor facts, observations and manager terms for the pick task."""
 
+from types import SimpleNamespace
+
+import mujoco
 import numpy as np
 import torch
 
@@ -13,6 +16,7 @@ from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SE
 from lastmile_dataflow.utils.io import repo_path
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
+from lastmile_dataflow.sim.model.geometry import body_points
 
 
 def contact_addresses(model, prefixes, field, device):
@@ -39,15 +43,29 @@ def finger_contact(env):
 
 
 def target_lift_height(env, target_position=None, target_rotation=None):
-    """Cube clearance above its original tabletop; legacy tasks use center rise."""
+    """Collision-bottom clearance above the original tabletop; legacy tasks use center rise."""
     task = env.task
     if getattr(task, "contact_protocol", False):
         if target_position is None:
             *_, target_position, target_rotation = task.poses()
+        if hasattr(task, "target_points"):
+            return target_bottom_height(task, target_position, target_rotation) - task.table_height_m
         half = env.research_config["scene"]["cube"]["size_m"] / 2
         extent_z = half * target_rotation[:, 2, :].abs().sum(-1)
         return target_position[:, 2] - extent_z - task.table_height_m
     return env.sim.data.xpos[:, task.target, 2] - task.height_reference
+
+
+def target_bottom_height(task, position, rotation):
+    """Lowest collision vertex in world Z, including object-frame offsets."""
+    return position[:, 2] + (rotation[:, 2, :] @ task.target_points.T).amin(-1)
+
+
+def grasp_episode(task, index):
+    if not hasattr(task, "grasps"):
+        return {}
+    candidate = task.grasps[int(task.grasp_ids[index])]
+    return {"grasp_source": candidate["source"], "grasp_row": candidate["row"]}
 
 
 def grasp_events(both, previous_both, paid, progress, peak, near):
@@ -184,12 +202,19 @@ class TaskState:
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
         if self.contact_protocol:
-            # Cube creation places an upright box directly on the physical support.
-            # Keep that tabletop fixed, independently of each episode's baseline.
-            self.table_height_m = float(env.prepared.target_position[2]) - env.research_config["scene"]["cube"]["size_m"] / 2
+            # Keep the physical tabletop fixed independently of each episode baseline.
+            cube = env.research_config["scene"].get("cube")
+            if cube is not None:
+                self.table_height_m = float(env.prepared.target_position[2]) - cube["size_m"] / 2
+            else:
+                self.table_height_m = env.prepared.support_height_m
+                self.prepare_target_geometry()
             self.closing_active = torch.zeros(n, dtype=torch.bool, device=self.device)
             self.closing_peak = torch.zeros(n, device=self.device)
             self.closing_paid = torch.zeros(n, device=self.device)
+            if cube is None:
+                self.prepare_corpus_grasps()
+                return
             # The gripper's local Y axis closes across the cube's local X;
             # local Z points downward for the approach. Columns form a proper rotation.
             self.grasp_position = torch.zeros(n, 3, device=self.device)
@@ -200,11 +225,22 @@ class TaskState:
             return
         self.prepare_corpus_grasps()
 
+    def prepare_target_geometry(self):
+        data = mujoco.MjData(self.model)
+        data.qpos[:] = self.initial_qpos.cpu().numpy()
+        mujoco.mj_forward(self.model, data)
+        points = body_points(SimpleNamespace(model=self.model, data=data), self.target)
+        local = (points - data.xpos[self.target]) @ data.xmat[self.target].reshape(3, 3)
+        self.target_points = torch.tensor(np.unique(local, axis=0), device=self.device, dtype=torch.float32)
+        self.target_size = self.target_points.amax(0) - self.target_points.amin(0)
+
     def prepare_corpus_grasps(self):
         """Load the object library once and fix a shared runtime subset for all stations."""
         env, n = self.env, self.env.num_envs
         scene_config = RLSceneConfig(**env.research_config["scene"])
         grasp = env.research_config["grasp"]
+        if getattr(self, "contact_protocol", False) and not grasp.get("preprocessed_path"):
+            raise ValueError("Real-object contact training requires grasp.preprocessed_path")
         path = (repo_path(grasp["preprocessed_path"]) if grasp.get("preprocessed_path")
                 else scene_config.asset(grasp["path"]))
         self.grasps = load_grasps(path, env.prepared.target_body)
@@ -442,8 +478,13 @@ class TaskState:
                 self.env.research_config["action"]["base_yaw_rad_s"],
             ], device=self.device)) if getattr(self, "mobile_base", False) else None,
         )
+        geometry = (
+            {"target_size": self.target_size, "target_bottom_height": target_bottom_height(self, cube_p, cube_r)}
+            if hasattr(self, "target_points")
+            else {"cube_size": self.env.research_config["scene"]["cube"]["size_m"]}
+        )
         return build_flat_observation(
-            state, cube_size=self.env.research_config["scene"]["cube"]["size_m"],
+            state, **geometry,
             lift_range=self.lift_range, open_grip=self.open_grip,
             world_state=self.env.research_config.get("observation", {}).get("world_state", False),
         )
@@ -548,7 +589,7 @@ def reset(env, env_ids):
     )
     task.requested_station_ids = None
     task.station_ids[ids] = selected
-    if not task.contact_protocol:
+    if hasattr(task, "grasp_pool_table"):
         reset_grasp_targets(task, selected, ids)
     env.sim.data.qpos[ids] = task.initial_qpos
     env.sim.data.qvel[ids] = 0

@@ -13,6 +13,8 @@
 
 ## 当前状态
 
+- Cup_30真实物体RL：[随机站位接触抬升训练](rl-station-map/delivery/cup30-random-stations-training.md)，沿用方块协议、69D输入和预处理128→16候选；真实验证及正式训练状态见报告。
+
 - 抓取候选：[全量 FPS 与 Cup_30 16位姿图](rl-station-map/delivery/full-corpus-grasp-fps.md)，cuRobo/RL 共用固定种子的全量筛选；真实数据三处一致，未执行轨迹规划或训练。
 
 - 精简重构：第一轮见[最终总结](simplify-refactor/delivery/10-final-summary.md)（回归未全绿，RGB 严格一致性未通过）；第二轮及按 pipeline 的目录分层见[第二轮总结](simplify-refactor/delivery/12-second-pass-summary.md)，迁移后只做了最小规模的可运行验证；配置、脚本和报告的整理见[第 13 号记录](simplify-refactor/delivery/13-configs-scripts-reports.md)。

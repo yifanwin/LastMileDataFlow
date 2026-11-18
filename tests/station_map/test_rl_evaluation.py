@@ -243,6 +243,8 @@ class ValidationTests(unittest.TestCase):
                 stack.enter_context(patch(prefix + "Replay")).return_value.size = 0
                 stack.enter_context(patch(prefix + "torch.cuda.memory_allocated", return_value=0))
                 env = Mock(device="cpu")
+                env.task.grasps = []
+                env.task.grasp_pools = [[]]
                 env.reset.return_value = ({}, {})
                 stack.enter_context(patch("lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env))
                 workers = stack.enter_context(patch(prefix + "Samplers")).return_value

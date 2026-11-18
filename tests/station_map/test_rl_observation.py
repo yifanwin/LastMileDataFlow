@@ -162,3 +162,47 @@ class GeometryTests(unittest.TestCase):
         yaw = torch.tensor([[[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]])
         changed = geometry.compute(tensors(), base, yaw)
         torch.testing.assert_close(changed[0, 0, 4:7], torch.tensor([0.0, -0.2, 0.8]))
+
+
+class RealObjectGeometryTests(unittest.TestCase):
+    def test_offset_mesh_and_child_collision_geometry_match_mujoco_when_tilted(self):
+        from lastmile_dataflow.station_map.rl.env.terms import target_bottom_height
+        from lastmile_dataflow.sim.model.geometry import body_points
+        model = mujoco.MjModel.from_xml_string("""<mujoco>
+          <asset><mesh name="tetra" vertex="0 0 0  .04 0 0  0 .03 0  0 0 .08"/></asset>
+          <worldbody><body name="target" pos="1 2 3"><freejoint/>
+            <geom type="mesh" mesh="tetra" pos=".02 -.03 -.07"/>
+            <body pos="-.04 0 0"><geom type="box" size=".01 .02 .03"/></body>
+            <geom type="box" size="1 1 1" contype="0" conaffinity="0" mass="0"/>
+          </body></worldbody></mujoco>""")
+        data = mujoco.MjData(model)
+        task = TaskState.__new__(TaskState)
+        task.model, task.device, task.target = model, "cpu", model.body("target").id
+        task.initial_qpos = torch.tensor(data.qpos.copy(), dtype=torch.float32)
+        task.prepare_target_geometry()
+        self.assertTrue((task.target_size < .2).all())  # Visual-only box is excluded.
+        for quaternion in ([1., 0., 0., 0.], [0.9238795325, 0., 0.3826834324, 0.], [0., 1., 0., 0.]):
+            data.qpos[3:7] = quaternion
+            mujoco.mj_forward(model, data)
+            points = body_points(SimpleNamespace(model=model, data=data), task.target)
+            position = torch.tensor(data.xpos[task.target][None], dtype=torch.float32)
+            rotation = torch.tensor(data.xmat[task.target].reshape(1, 3, 3), dtype=torch.float32)
+            lowest = target_bottom_height(task, position, rotation)
+            self.assertAlmostEqual(float(lowest), points[:, 2].min(), places=6)
+
+    def test_real_object_builder_preserves_69d_and_uses_exact_bottom(self):
+        from lastmile_dataflow.station_map.rl.env.observation import FlatObservationState, build_flat_observation, flat_fields
+        identity, zero = torch.eye(3)[None], torch.zeros(1, 3)
+        state = FlatObservationState(
+            poses=(zero, identity, zero, identity, zero, identity),
+            position_error=zero, rotation_error=zero,
+            arm_q=torch.zeros(1, 7), lift_q=torch.zeros(1, 1),
+            arm_qdot=torch.zeros(1, 7), lift_qdot=torch.zeros(1, 1),
+            cube_linear=zero, cube_angular=zero, tcp_linear=zero, tcp_angular=zero,
+            gripper_width=torch.zeros(1, 1), gripper_velocity=torch.zeros(1, 1), last_action=torch.zeros(1, 7))
+        obs = build_flat_observation(state, target_size=torch.tensor([.04, .06, .1]),
+                                     target_bottom_height=torch.tensor([-.07]), lift_range=[0, 1],
+                                     open_grip=.08, world_state=True)
+        self.assertEqual(obs.shape, (1, 69))
+        torch.testing.assert_close(obs[0, 9:13], torch.tensor([.04, .06, .1, -.07]))
+        self.assertEqual(flat_fields(69, real_object=True)[0][0], "target_position_base")

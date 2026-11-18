@@ -78,6 +78,7 @@ class PreparedRLScene:
     local_model: dict
     multiccd: bool
     reference_model: mujoco.MjModel | None = None
+    support_height_m: float | None = None
 
     def copy_robot(self):
         return self.robot_spec.copy()
@@ -110,6 +111,7 @@ def prepare_rl_scene(config):
     )
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
+    support_height = target_support_height(sim, sim.data.xpos[sim.target_id, None, :2])
     if config.cube is not None:
         cube = config.cube
         if set(cube) != {"size_m", "mass_kg"} or cube["size_m"] <= 0 or cube["mass_kg"] <= 0:
@@ -142,7 +144,7 @@ def prepare_rl_scene(config):
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a]) for a in range(local.model.nu)}
     prepared = PreparedRLScene(
         scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd,
-        local.model if config.fixed_base else None,
+        local.model if config.fixed_base else None, support_height,
     )
     local.close()
     sim.close()
@@ -156,23 +158,28 @@ def fix_robot_base(spec):
         spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
 
 
-def replace_with_cube(sim, size_m, mass_kg):
-    """Replace the source cup in memory on its original dining-table support."""
+def target_support_height(sim, xy):
+    """Read the target's original physical tabletop from its scene parent."""
     target = sim.model.body(sim.target_id).name
     entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
     support = next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+    regions = []
+    for region in extract_regions(sim, support):
+        points = np.column_stack((xy, np.full(len(xy), region.height)))
+        if region.contains(points, tolerance=-0.002) and support_rays(sim, sim.target_id, region, points):
+            regions.append(region)
+    if not regions:
+        raise ValueError(f"No physical support at original {target} XY")
+    return max(region.height for region in regions)
+
+
+def replace_with_cube(sim, size_m, mass_kg):
+    """Replace the source cup in memory on its original dining-table support."""
+    target = sim.model.body(sim.target_id).name
     xy = sim.data.xpos[sim.target_id, :2].copy()
     half = size_m / 2
-    # Select the original static tabletop, not a bounding box or the source cup bottom.
     corners = xy + np.array([[-half, -half], [-half, half], [half, -half], [half, half]])
-    regions = [
-        region for region in extract_regions(sim, support)
-        if region.contains(np.column_stack((corners, np.full(4, region.height))), tolerance=-0.002)
-        and support_rays(sim, sim.target_id, region, np.column_stack((corners, np.full(4, region.height))))
-    ]
-    if not regions:
-        raise ValueError(f"No physical support for cube at original {target} XY")
-    height = max(region.height for region in regions)
+    height = target_support_height(sim, corners)
     spec = sim.spec.copy()
     spec.delete(spec.body(target))
     body = spec.worldbody.add_body(name="RL_Cube", pos=[*xy, height + half])

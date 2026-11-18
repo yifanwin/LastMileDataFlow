@@ -90,3 +90,6 @@ RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` �
 Panda cuRobo配置的`grasp_preprocessed_paths`按资产名（如Cup_30）映射到离线NPZ，`max_grasp_candidates`控制抽样数量、`grasp_sample_seed`默认42；未配置资产保持原筛选方式。生成命令见[运行指南](../docs/runbook.md#cup_30-物体级抓取库)。
 
 离线NPZ包含未加roll的物体局部`transforms`、原始`source_rows`和`source`。射线检测使用的roll、机器人缩放、分辨率、阈值、FPS参数也保存在产物中；更换物体尺寸或夹爪约定需要重新生成。库不验证场景中的可达性、碰撞和动力学成功。
+
+
+真实杯子接触抬升训练使用 `station_map/rl/val103_cup30_random_stations_facing.yaml`：预处理库路径、运行前抽样数量16和seed42在 `grasp` 显式指定。每回合随机有效站位及一个候选，底盘固定，使用当前方块接触抬升协议；旧Cup图观测配置保持原协议。启动步骤见 `docs/runbook.md`。

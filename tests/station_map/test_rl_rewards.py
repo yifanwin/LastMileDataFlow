@@ -428,3 +428,31 @@ class RewardTests(unittest.TestCase):
         start, _, _, duration = update_hold_window(*args, xp=torch, thresholds=RL_PICK_THRESHOLDS)
         self.assertEqual(float(start), -1.0)
         self.assertEqual(float(duration), 0.0)
+
+
+class RealObjectContactTests(unittest.TestCase):
+    contact_physics_task = RewardTests.contact_physics_task
+    def test_real_object_uses_lowest_vertex_and_continuous_hold(self):
+        task, position = self.contact_physics_task()
+        task.env.research_config["scene"].pop("cube")
+        task.target_points = torch.tensor([[0., 0., -0.06], [0.03, 0., 0.02]])
+        task.table_height_m = 0.75
+        position[:, 2] = 0.811  # Center rose, but the bottom clears by only 1 mm.
+        forces = torch.ones(1, 2)
+        support = torch.tensor([False])
+        task.contact_facts = lambda: (forces, support, torch.zeros(1, 2, dtype=torch.bool))
+        for _ in range(125):
+            task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        position[:, 2] = 0.821
+        for _ in range(100):
+            task.sample_physics()
+        forces[0, 1] = 0.5
+        task.sample_physics()
+        self.assertEqual(float(task.hold[0]), 0.)
+        forces.fill_(1.)
+        for _ in range(124):
+            task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        task.sample_physics()
+        self.assertTrue(bool(task.success[0]))
