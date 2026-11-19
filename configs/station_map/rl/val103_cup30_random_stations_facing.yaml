@@ -135,7 +135,7 @@ video:
   width: 640
   height: 480
 grasp:
-  preprocessed_path: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cup-close-lateral/outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-sym-fps128/grasps.npz
+  preprocessed_path: outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-sym-fps128/grasps.npz
   sample_count: 16
   sample_seed: 42
   roll_rad: 1.5707963267948966
