@@ -79,9 +79,19 @@ class PPOTests(unittest.TestCase):
         next_values = torch.ones_like(rewards) * 4
         done = torch.tensor([[False, False], [True, True], [False, False]])
         valid = torch.tensor([[True, True], [True, False], [True, True]])
-        advantage, returns = gae(rewards, values, next_values, done, valid, 0.5, 1.)
+        advantage, returns = gae(rewards, values, next_values, done, done, valid, 0.5, 1.)
         torch.testing.assert_close(advantage, torch.tensor([[4., 12.], [2., 0.], [5., 32.]]))
         torch.testing.assert_close(returns, advantage)
+
+    def test_gae_time_limit_bootstraps_but_still_ends_the_episode(self):
+        rewards = torch.tensor([[1.], [2.], [3.]])
+        values = torch.zeros_like(rewards)
+        next_values = torch.ones_like(rewards) * 4
+        done = torch.tensor([[False], [True], [False]])
+        valid = torch.ones_like(done)
+        advantage, _ = gae(rewards, values, next_values, torch.zeros_like(done), done, valid, 0.5, 1.)
+        # Truncated step keeps 2 + 0.5*4; the next episode's advantage does not leak back.
+        torch.testing.assert_close(advantage, torch.tensor([[5.], [4.], [5.]]))
 
     def test_global_normalization_uses_all_valid_workers_once_and_preserves_targets(self):
         agent = PPO(4, "cpu", PPOConfig(epochs=2, minibatch_size=3, target_kl=100), mode="flat")

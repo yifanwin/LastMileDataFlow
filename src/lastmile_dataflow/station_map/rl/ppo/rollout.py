@@ -22,12 +22,13 @@ def normalize_advantages(advantages):
     return (advantages - advantages.mean()) / (advantages.std(correction=0) + 1e-8)
 
 
-def gae(rewards, values, next_values, done, valid, gamma, gae_lambda):
-    """Time-major tensors; invalid steps and episode ends break the recursion."""
+def gae(rewards, values, next_values, terminated, done, valid, gamma, gae_lambda):
+    """Time-major tensors; only true terminals drop the bootstrap (time limits keep it),
+    while every episode end and invalid step breaks the recursion."""
     advantages = torch.zeros_like(rewards)
     carry = torch.zeros_like(rewards[0])
     for t in reversed(range(len(rewards))):
-        delta = rewards[t] + gamma * torch.where(done[t], 0., next_values[t]) - values[t]
+        delta = rewards[t] + gamma * torch.where(terminated[t], 0., next_values[t]) - values[t]
         carry = torch.where(valid[t], delta + gamma * gae_lambda * (~done[t]) * carry, 0.)
         advantages[t] = carry
     return advantages, advantages + values

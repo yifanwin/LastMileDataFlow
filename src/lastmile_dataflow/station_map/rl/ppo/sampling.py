@@ -40,7 +40,7 @@ def sample(config, seed, num_envs, channel):
             version, actor_state, value_state, quota = payload
             actor.load_state_dict(actor_state)
             value.load_state_dict(value_state)
-            observations_saved, raws, logs, values, rewards, next_values, dones, masks = ([] for _ in range(8))
+            observations_saved, raws, logs, values, rewards, next_values, terminals, dones, masks = ([] for _ in range(9))
             episodes = io.StringIO()
             used = 0
             with torch.no_grad():
@@ -60,6 +60,7 @@ def sample(config, seed, num_envs, channel):
                     values.append(old_value)
                     rewards.append(reward.clone())
                     next_values.append(value(nxt))
+                    terminals.append((terminated | env.task.unhealthy).clone())
                     dones.append(done.clone())
                     masks.append(valid.clone())
                     returns += reward
@@ -81,7 +82,7 @@ def sample(config, seed, num_envs, channel):
                 mask = torch.stack(masks)
                 advantages, targets = gae(
                     torch.stack(rewards), torch.stack(values), torch.stack(next_values),
-                    torch.stack(dones), mask, cfg.gamma, cfg.gae_lambda,
+                    torch.stack(terminals), torch.stack(dones), mask, cfg.gamma, cfg.gae_lambda,
                 )
                 flat_mask = mask.flatten()
                 batch = RolloutBatch(
