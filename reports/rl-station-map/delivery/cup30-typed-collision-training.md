@@ -40,3 +40,9 @@ outputs/experiments/rl-cup-collision-types/runs/20261119-141815-cup30-typedcoll-
 用户批准：杯子掉落或被撞下桌时一次性罚 −20，按真终止处理（reward.drop_penalty、drop_height_m，未配置时为 0 和原阈值 0.3 m，其他配置行为不变）；罚分计入 collision 分量，回合日志新增 dropped。
 
 验证：RL 测试 143 项通过（新增掉落罚分测试）；GPU 冒烟把 4/8 个环境的杯子下移 0.5 m，这 4 个 dropped、真终止、collision 分量 −20，其余不受影响；oracle 先到预抓取位再下探 64/64 成功、0 掉落。未启动训练。
+
+## 分支与工作区合并（2026-11-19T20:50+08:00）
+
+按用户要求把 rl-cup 系列合并为分支 codex/rl-cup，工作区 .worktrees/rl-cup（由 rl-cup-collision-types 移动而来）。合并了 codex/rl-cup-close-lateral（含 bef83aa 回落排查记录）、codex/rl-cup-diagnosis 与 codex/rl-cup-random-stations（d4786ed，与已有的 29c5009 为同一修复）。删除上述分支及 rl-cup-close-lateral、rl-cup-random-stations 工作区；各工作区 outputs/experiments 下的实验产物（grasp-fps-all、rl-cup-random-stations、rl-cup-diagnosis、rl-cup-symmetry、rl-cup-close-lateral）已移入本工作区，索引见 outputs/README.md。Cup_30 配置的候选库路径改为仓库相对路径。
+
+原 rl-cup-random-stations 工作区里的 .venv 只是指向 .worktrees/actor-critic/.venv 的符号链接；本工作区已有同样的 .venv 链接，之后用 .worktrees/rl-cup/.venv/bin/python 运行（旧 run 的 launch.json 中记录的旧路径已失效，仅作历史记录）。合并后 RL 测试 143 项、抓取相关 11 项通过。
