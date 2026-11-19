@@ -1,4 +1,4 @@
-"""Offline object-local grasp filtering by paired finite pad rays, followed by FPS."""
+"""Offline object-local grasp filtering by paired pad rays and hand clearance, followed by FPS."""
 
 import csv
 from datetime import datetime, timezone
@@ -65,9 +65,38 @@ def paired_ray_hits(model, data, meshes, starts, ends, valid):
     return hits
 
 
+HAND_GEOM = "robot_0/gripper0_right_hand_collision"
+PROBE = "grasp_check_hand"
+
+
+def add_hand_probe(spec, hand):
+    """Copy the non-finger hand collision mesh onto a mocap body whose frame is the TCP."""
+    model, data = hand.model, hand.data
+    geom = model.geom(HAND_GEOM).id
+    mesh = int(model.geom_dataid[geom])
+    start, count = int(model.mesh_vertadr[mesh]), int(model.mesh_vertnum[mesh])
+    tcp_rotation = data.site_xmat[hand.site].reshape(3, 3)
+    position = tcp_rotation.T @ (data.geom_xpos[geom] - data.site_xpos[hand.site])
+    quat = np.empty(4)
+    mujoco.mju_mat2Quat(quat, (tcp_rotation.T @ data.geom_xmat[geom].reshape(3, 3)).ravel())
+    spec.add_mesh(name=PROBE, uservert=model.mesh_vert[start:start + count].ravel().tolist())
+    body = spec.worldbody.add_body(name=PROBE, mocap=True)
+    body.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=PROBE, pos=position, quat=quat,
+                  contype=0, conaffinity=0, group=5)
+
+
+def hand_clearance(model, data, probe, targets, goal, distmax):
+    """Signed MuJoCo distance between the hand mesh at a TCP pose and target collision geoms."""
+    data.mocap_pos[model.body_mocapid[probe]] = goal[:3, 3]
+    mujoco.mju_mat2Quat(data.mocap_quat[model.body_mocapid[probe]], goal[:3, :3].ravel())
+    mujoco.mj_kinematics(model, data)
+    hand = int(np.flatnonzero(model.geom_bodyid == probe)[0])
+    return min(mujoco.mj_geomDistance(model, data, hand, g, distmax, None) for g in targets)
+
+
 def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, robot_scale,
                       roll_rad, resolution, min_hit_ratio, fps_count, fps_seed,
-                      position_scale_m, rotation_scale_rad):
+                      position_scale_m, rotation_scale_rad, hand_clearance_m):
     """Write an object-local library; the input scene only supplies object geometry."""
     if resolution < 2 or not 0 <= min_hit_ratio <= 1:
         raise ValueError("Require resolution >= 2 and min_hit_ratio in [0, 1]")
@@ -76,11 +105,16 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
     config = dict(scene=scene, metadata=metadata, target=target, grasps=grasps,
                   robot_config=robot_config, robot_scale=robot_scale, roll_rad=roll_rad,
                   resolution=resolution, min_hit_ratio=min_hit_ratio, fps_count=fps_count,
-                  fps_seed=fps_seed, position_scale_m=position_scale_m, rotation_scale_rad=rotation_scale_rad)
+                  fps_seed=fps_seed, position_scale_m=position_scale_m, rotation_scale_rad=rotation_scale_rad,
+                  hand_clearance_m=hand_clearance_m)
     output = create_run(output, config)
-    model = load_spec(scene).compile()
+    hand = panda_hand(robot_config, robot_scale)
+    spec = load_spec(scene)
+    add_hand_probe(spec, hand)
+    model = spec.compile()
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
+    probe = model.body(PROBE).id
     source = SceneSource("grasp-preprocessing", scene, metadata)
     body = resolve_target(model, instance_catalog(model, source), target)
     bodies = descendants(model, body)
@@ -89,7 +123,8 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
               and not (model.geom_contype[g] or model.geom_conaffinity[g])]
     if not meshes:
         raise ValueError("Target has no visual mesh")
-    hand = panda_hand(robot_config, robot_scale)
+    targets = [g for g in range(model.ngeom) if model.geom_bodyid[g] in bodies
+               and (model.geom_contype[g] or model.geom_conaffinity[g])]
     starts, ends, valid = pad_rays(hand, resolution)
     candidates = load_grasps(grasps, model.body(body).name)
     object_world = np.eye(4)
@@ -104,9 +139,10 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
         world_starts = starts @ goal[:3, :3].T + goal[:3, 3]
         world_ends = ends @ goal[:3, :3].T + goal[:3, 3]
         count = int(paired_ray_hits(model, data, meshes, world_starts, world_ends, valid).sum())
-        keep = count >= required
-        measurements.append(dict(source_row=candidate["row"], paired_hits=count,
-                                 rays=len(starts), hit_ratio=count / len(starts), accepted=keep))
+        distance = hand_clearance(model, data, probe, targets, goal, hand_clearance_m + 0.01)
+        keep = count >= required and distance >= hand_clearance_m
+        measurements.append(dict(source_row=candidate["row"], paired_hits=count, rays=len(starts),
+                                 hit_ratio=count / len(starts), hand_distance_m=distance, accepted=keep))
         if keep:
             accepted.append(candidate)
         if (index + 1) % 100 == 0:
@@ -116,9 +152,11 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
     np.savez(output / "grasps.npz", transforms=np.array([c["pose_local"] for c in pool]).reshape(-1, 4, 4),
              source_rows=np.array([c["row"] for c in pool], dtype=int), source=str(Path(grasps).resolve()),
              robot_scale=robot_scale, roll_rad=roll_rad, resolution=resolution,
-             min_hit_ratio=min_hit_ratio, fps_count=fps_count, fps_seed=fps_seed)
+             min_hit_ratio=min_hit_ratio, fps_count=fps_count, fps_seed=fps_seed,
+             hand_clearance_m=hand_clearance_m)
     with (output / "checks.csv").open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=("source_row", "paired_hits", "rays", "hit_ratio", "accepted"))
+        writer = csv.DictWriter(stream, fieldnames=("source_row", "paired_hits", "rays", "hit_ratio",
+                                                    "hand_distance_m", "accepted"))
         writer.writeheader()
         writer.writerows(measurements)
     summary = dict(time=datetime.now(timezone.utc).isoformat(), valid_count=len(candidates),
@@ -126,6 +164,7 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
                    source_rows=[c["row"] for c in pool], target_body=model.body(body).name,
                    frame="target_body_local", transforms_include_roll=False,
                    pad_endpoint_valid_count=int(valid.sum()), elapsed_s=time.monotonic() - started,
-                   scope="target visual mesh only; no scene obstacles, reachability or dynamics")
+                   scope="pad rays on target visual mesh; open-hand palm clearance to target collision geoms; "
+                         "no scene obstacles, reachability or dynamics")
     write_json(output / "summary.json", summary)
     return summary

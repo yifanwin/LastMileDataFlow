@@ -68,6 +68,34 @@ def grasp_episode(task, index):
     return {"grasp_source": candidate["source"], "grasp_row": candidate["row"]}
 
 
+def pregrasp_stage(task, dp, angle, cfg, *, advance):
+    """Position error and potential distance to the current target: pregrasp, then grasp.
+
+    The pregrasp keeps the grasp orientation and lies offset metres back along the approach
+    axis. Adding the offset to its distance keeps the potential continuous at the latched switch.
+    After the switch, ``descent_lateral_weight`` scales the error perpendicular to the approach
+    axis so that drifting sideways while descending costs more than the axial remainder.
+    """
+    offset = cfg.get("pregrasp_offset_m")
+    if not offset:
+        return dp, dp.norm(dim=-1)
+    pdp, _ = task.goal_error(-offset)
+    if advance:
+        task.pregrasp_reached |= (
+            (pdp.norm(dim=-1) < cfg["pregrasp_tolerance_m"]) & (angle < cfg["pregrasp_tolerance_rad"])
+        )
+    reached = task.pregrasp_reached
+    grasp_distance = dp.norm(dim=-1)
+    weight = cfg.get("descent_lateral_weight")
+    if weight:
+        axis = task.approach_axis()
+        axial = (dp * axis).sum(-1)
+        lateral = (dp - axial[:, None] * axis).norm(dim=-1)
+        grasp_distance = torch.sqrt(axial ** 2 + (weight * lateral) ** 2)
+    return (torch.where(reached[:, None], dp, pdp),
+            torch.where(reached, grasp_distance, pdp.norm(dim=-1) + offset))
+
+
 def grasp_events(both, previous_both, paid, progress, peak, near):
     event = ~previous_both & both & ~paid & near
     new_peak = torch.maximum(peak, progress)
@@ -200,6 +228,7 @@ class TaskState:
             n, len(CONTACT_REWARD_COMPONENTS if self.contact_protocol else REWARD_COMPONENTS), device=self.device
         )
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.pregrasp_reached = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
         if self.contact_protocol:
             # Keep the physical tabletop fixed independently of each episode baseline.
@@ -278,6 +307,12 @@ class TaskState:
         target_p = data.xpos[:, self.target]
         target_r = data.xmat[:, self.target].reshape(-1, 3, 3)
         return tcp_p, tcp_r, base_p, base_r, target_p, target_r
+
+    def approach_axis(self):
+        """Grasp approach axis (goal TCP local Z) in the base frame."""
+        _, _, _, base_r, _, target_r = self.poses()
+        axis = (target_r @ self.grasp_rotation)[:, :, 2]
+        return torch.einsum("bji,bj->bi", base_r, axis)
 
     def goal_error(self, approach_offset_m=0.0):
         return pose_goal_error(self.poses(), self.grasp_position, self.grasp_rotation, approach_offset_m)
@@ -454,7 +489,8 @@ class TaskState:
         """Return base-frame state, optionally followed by world XY/yaw and lift metres."""
         tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = self.poses()
         dp, dr = self.goal_error()
-        distance, angle = dp.norm(dim=-1), dr.norm(dim=-1)
+        angle = dr.norm(dim=-1)
+        dp, distance = pregrasp_stage(self, dp, angle, self.env.research_config["reward"], advance=False)
         self.previous_distance[self.needs_baseline] = distance[self.needs_baseline]
         self.previous_angle[self.needs_baseline] = angle[self.needs_baseline]
         self.height_reference[self.needs_baseline] = cube_p[self.needs_baseline, 2]
@@ -632,6 +668,7 @@ def reset(env, env_ids):
         "step_contact",
         "step_lift",
         "held_time",
+        "pregrasp_reached",
     ):
         getattr(task, name)[ids] = 0
     if task.contact_protocol:
@@ -658,10 +695,14 @@ def reward(env):
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
         near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
+        _, distance = pregrasp_stage(task, dp, angle, cfg, advance=True)
         q = task.robot.data.joint_pos
         closing = (1 - (q[:, task.fingers[0]] - q[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
+        # Optionally pay closing only once a finger presses the target, not for empty closing.
+        touched = (task.forces > env.research_config["success"]["finger_force_min_n"]).any(-1)
+        closing_stage = near & touched if cfg.get("closing_requires_contact") else near
         closing_progress = stage_peak_progress(
-            closing, near, task.closing_active, task.closing_peak, task.closing_paid
+            closing, closing_stage, task.closing_active, task.closing_peak, task.closing_paid
         )
         both = finger_contact(env)
         lift = target_lift_height(env)

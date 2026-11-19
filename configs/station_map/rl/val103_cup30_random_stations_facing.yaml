@@ -45,6 +45,15 @@ reward:
   lift: 8.0
   grasp_distance_m: 0.03
   grasp_angle_rad: 0.3490658503988659
+  # Position potential targets the pregrasp (grasp pose moved back along the approach axis)
+  # until it is reached within distance/angle, then the grasp pose; the switch is latched.
+  pregrasp_offset_m: 0.1
+  pregrasp_tolerance_m: 0.02
+  pregrasp_tolerance_rad: 0.17453292519943295
+  # After the switch, sideways error counts this many times its distance.
+  descent_lateral_weight: 3.0
+  # Closing is paid only while at least one finger force exceeds success.finger_force_min_n.
+  closing_requires_contact: true
 sac:
   gamma: 0.999
   tau: 0.005
@@ -97,7 +106,7 @@ video:
   width: 640
   height: 480
 grasp:
-  preprocessed_path: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cube-random-stations/outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-fps128/grasps.npz
+  preprocessed_path: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/rl-cup-diagnosis/outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-fps128/grasps.npz
   sample_count: 16
   sample_seed: 42
   roll_rad: 1.5707963267948966
