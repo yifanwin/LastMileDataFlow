@@ -18,6 +18,20 @@ from lastmile_dataflow.utils.io import read_config
 
 
 class StationGeometryTests(unittest.TestCase):
+    def test_grasp_defaults_are_recorded_and_overrides_preserved(self):
+        config = read_config("configs/station_map/rl/val103_cup30.yaml")
+        resolved = resolve_config(config)
+        self.assertEqual(resolved["grasp"]["sample_count"], 16)
+        self.assertEqual(resolved["grasp"]["sample_seed"], 42)
+        self.assertNotIn("sample_count", config["grasp"])
+        self.assertNotIn("fps_count", resolved["grasp"])
+        config["grasp"].update(sample_count=23, sample_seed=7)
+        resolved = resolve_config(config)
+        self.assertEqual(resolved["grasp"]["sample_count"], 23)
+        self.assertEqual(resolved["grasp"]["sample_seed"], 7)
+        config["grasp"] = {"path": "raw.npz", "roll_rad": 0}
+        self.assertEqual(resolve_config(config)["grasp"]["fps_count"], 16)
+
     def test_robot_dimensions_change_the_sampling_lattice(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "robot.yaml"

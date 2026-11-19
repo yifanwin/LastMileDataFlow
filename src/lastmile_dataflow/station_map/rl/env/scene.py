@@ -46,6 +46,7 @@ class RLSceneConfig:
     home: tuple = (0.0, -0.00365045915, 0.0, -2.61799387799, 0.0, 2.74159265359, 0.78539816339)
     lift: float = 0.2
     cube: dict | None = None
+    fixed_base: bool = False
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
@@ -76,6 +77,9 @@ class PreparedRLScene:
     catalog: list
     local_model: dict
     multiccd: bool
+    reference_model: mujoco.MjModel | None = None
+    support_height_m: float | None = None
+    support_body: str | None = None
 
     def copy_robot(self):
         return self.robot_spec.copy()
@@ -108,6 +112,8 @@ def prepare_rl_scene(config):
     )
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
+    support_height = target_support_height(sim, sim.data.xpos[sim.target_id, None, :2])
+    support = target_support_body(sim)
     if config.cube is not None:
         cube = config.cube
         if set(cube) != {"size_m", "mass_kg"} or cube["size_m"] <= 0 or cube["mass_kg"] <= 0:
@@ -128,37 +134,60 @@ def prepare_rl_scene(config):
             scene_spec.delete(mesh)
 
     robot_spec = load_robot_spec(robot, config.robot_scale)
+    if config.fixed_base:
+        fix_robot_base(robot_spec)
+    robot_joints = {joint.name for joint in robot_spec.joints}
     qpos = {
         local.model.joint(j).name: float(local.data.qpos[local.model.jnt_qposadr[j]])
         for j in range(local.model.njnt)
         if local.model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+        and local.model.joint(j).name in robot_joints
     }
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a]) for a in range(local.model.nu)}
     prepared = PreparedRLScene(
-        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd
+        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd,
+        local.model if config.fixed_base else None, support_height, support,
     )
     local.close()
     sim.close()
     return prepared
 
 
+def fix_robot_base(spec):
+    """Remove planar dynamics; mjlab wraps this articulated robot in a mocap root."""
+    for suffix in ("forward", "side", "yaw"):
+        spec.delete(spec.actuator(ROBOT_NAMESPACE + "mobilebase0_actuator_mobile_" + suffix))
+        spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
+
+
+def target_support_body(sim):
+    """MJCF body of the scene instance the target originally stands on."""
+    target = sim.model.body(sim.target_id).name
+    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
+    return next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+
+
+def target_support_height(sim, xy):
+    """Read the target's original physical tabletop from its scene parent."""
+    target = sim.model.body(sim.target_id).name
+    support = target_support_body(sim)
+    regions = []
+    for region in extract_regions(sim, support):
+        points = np.column_stack((xy, np.full(len(xy), region.height)))
+        if region.contains(points, tolerance=-0.002) and support_rays(sim, sim.target_id, region, points):
+            regions.append(region)
+    if not regions:
+        raise ValueError(f"No physical support at original {target} XY")
+    return max(region.height for region in regions)
+
+
 def replace_with_cube(sim, size_m, mass_kg):
     """Replace the source cup in memory on its original dining-table support."""
     target = sim.model.body(sim.target_id).name
-    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
-    support = next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
     xy = sim.data.xpos[sim.target_id, :2].copy()
     half = size_m / 2
-    # Select the original static tabletop, not a bounding box or the source cup bottom.
     corners = xy + np.array([[-half, -half], [-half, half], [half, -half], [half, half]])
-    regions = [
-        region for region in extract_regions(sim, support)
-        if region.contains(np.column_stack((corners, np.full(4, region.height))), tolerance=-0.002)
-        and support_rays(sim, sim.target_id, region, np.column_stack((corners, np.full(4, region.height))))
-    ]
-    if not regions:
-        raise ValueError(f"No physical support for cube at original {target} XY")
-    height = max(region.height for region in regions)
+    height = target_support_height(sim, corners)
     spec = sim.spec.copy()
     spec.delete(spec.body(target))
     body = spec.worldbody.add_body(name="RL_Cube", pos=[*xy, height + half])

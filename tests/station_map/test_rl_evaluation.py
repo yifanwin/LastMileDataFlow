@@ -244,6 +244,8 @@ class ValidationTests(unittest.TestCase):
                 stack.enter_context(patch(prefix + "Replay")).return_value.size = 0
                 stack.enter_context(patch(prefix + "torch.cuda.memory_allocated", return_value=0))
                 env = Mock(device="cpu")
+                env.task.grasps = []
+                env.task.grasp_pools = [[]]
                 env.reset.return_value = ({}, {})
                 stack.enter_context(patch("lastmile_dataflow.station_map.rl.env.environment.StationEnv", return_value=env))
                 workers = stack.enter_context(patch(prefix + "Samplers")).return_value
@@ -399,7 +401,7 @@ class FlatParallelEvaluationTests(unittest.TestCase):
         from lastmile_dataflow.station_map.rl.evaluation import evaluate_flat
 
         env = SimpleNamespace(num_envs=20, task=SimpleNamespace(pool=[0], stations=[{"station_id": "S0246"}]), close=Mock())
-        rows = [dict(trial=i, seed=42+i, success=i < 10, collision_free=i < 8,
+        rows = [dict(station_id="S0246", trial=i, seed=42+i, success=i < 10, collision_free=i < 8,
                      infrastructure_failure=i >= 18, first_simultaneous_contact_s=0.2,
                      reason="infrastructure_failure" if i >= 18 else "simultaneous_contact" if i < 10 else "timeout")
                 for i in range(20)]
@@ -416,6 +418,27 @@ class FlatParallelEvaluationTests(unittest.TestCase):
         self.assertEqual(result["success_rate"], 10 / 18)
         self.assertEqual(result["collision_free_success_rate"], 8 / 18)
         env.close.assert_called_once()
+
+    def test_multistation_plan_is_seeded_distinct_and_uses_only_valid_pool(self):
+        from lastmile_dataflow.station_map.rl.evaluation import flat_trial_plan, flat_trial_summary
+
+        task = SimpleNamespace(pool=torch.arange(0, 50, 2),
+                               stations=[{"station_id": f"S{i}"} for i in range(50)])
+        settings = {"station_count": 20, "rollouts_per_station": 1}
+        plan = flat_trial_plan(task, settings, 42)
+        self.assertEqual(plan, flat_trial_plan(task, settings, 42))
+        self.assertEqual(len({r["station_id"] for r in plan}), 20)
+        self.assertTrue(all(int(r["station_id"][1:]) % 2 == 0 for r in plan))
+        self.assertEqual([r["seed"] for r in plan], list(range(42, 62)))
+        task.pool = torch.tensor([0, 2])
+        self.assertEqual(len(flat_trial_plan(task, settings, 42)), 2)
+        rows = [dict(success=True, collision_free=True, infrastructure_failure=False,
+                     first_simultaneous_contact_s=0.2, reason="simultaneous_contact"),
+                dict(success=False, collision_free=False, infrastructure_failure=True,
+                     reason="infrastructure_failure")]
+        summary = flat_trial_summary(rows)
+        self.assertEqual(summary["healthy_trials"], 1)
+        self.assertEqual(summary["success_rate"], 1.)
 
     def test_parallel_override_keeps_checkpoint_configuration_check(self):
         from lastmile_dataflow.station_map.rl.evaluation import evaluate

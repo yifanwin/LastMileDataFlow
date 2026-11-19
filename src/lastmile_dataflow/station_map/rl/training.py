@@ -20,7 +20,8 @@ from .config import resolve_config
 from .ppo.training import train_ppo
 from .training_common import (
     CHECKPOINT_EVERY_TRANSITIONS, training_metadata, restore_best_checkpoint,
-    flush_training_monitor, save_best_checkpoint, save_periodic_checkpoint, validation_checkpoint,
+    flush_training_monitor, record_grasp_subset, save_best_checkpoint, save_periodic_checkpoint,
+    validation_checkpoint,
 )
 import pickle
 from queue import Empty
@@ -156,15 +157,18 @@ def train_sac(config, *, gpus, output, seed, resume=None, max_transitions=None, 
             transitions = saved["transitions"]
             resume_output = restore_best_checkpoint(saved, resume, output, metadata)
         else:
-            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode)
+            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode, action_dim=metadata["action_dim"])
             transitions = 0
         same_output = resume is not None and resume_output.resolve() == output.resolve()
         monitor = TrainingMonitor(
             output,
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
             purge_step=transitions if same_output else None,
+            best_checkpoint=settings.get("best_checkpoint"),
         )
-        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu())
+        record_grasp_subset(env, output, metadata)
+        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu(),
+                        action_dim=metadata["action_dim"])
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]

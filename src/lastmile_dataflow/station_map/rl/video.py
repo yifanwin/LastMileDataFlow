@@ -13,9 +13,12 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
-def render_rollout(model, states, metrics, path, label, result, settings, dt):
+def render_rollout(model, states, metrics, path, label, result, settings, dt, *, mocap_pos=None, mocap_quat=None):
     started = time.perf_counter()
     data = mujoco.MjData(model)
+    if mocap_pos is not None:
+        data.mocap_pos[:] = mocap_pos
+        data.mocap_quat[:] = mocap_quat
     width, height = settings["width"], settings["height"]
     model.vis.global_.offwidth = max(model.vis.global_.offwidth, width)
     model.vis.global_.offheight = max(model.vis.global_.offheight, height)

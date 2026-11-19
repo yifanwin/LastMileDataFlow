@@ -19,6 +19,7 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from .scene import ENTITY_PREFIX, ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig, prepare_rl_scene
 from lastmile_dataflow.robots.interface import ROBOT_NAMESPACE
 from .dls import BaseFrameDLSCfg
+from .mobile import MobileBaseCfg
 from . import terms
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS
 from .terms import TaskState
@@ -76,10 +77,32 @@ def contact_sensor(name, primary, secondary=None):
     )
 
 
-def build_sensors(prepared):
+def typed_contact_sensors(prepared, target, robot):
+    """Pads, finger bodies with normals, finger pair and table contacts for typed collision penalties."""
+    fingers = [ContactMatch(mode="subtree", pattern=ROBOT_PREFIX + f"gripper0_right_{side}finger")
+               for side in ("left", "right")]
+    table = ContactMatch(mode="subtree", pattern=prepared.support_body)
+    sensors = [contact_sensor("fpair", fingers[0], fingers[1]),
+               contact_sensor("table_robot", robot, table)]
+    for index in (0, 1):
+        geom = ROBOT_PREFIX + f"gripper0_right_finger{index + 1}"
+        sensors += [
+            contact_sensor(f"pad_{index}", ContactMatch(mode="geom", pattern=geom + "_pad_collision"), target),
+            ContactSensorCfg(name=f"fmesh_{index}", primary=ContactMatch(mode="geom", pattern=geom + "_collision"),
+                             secondary=target, fields=("found", "normal"), reduce="maxforce"),
+            contact_sensor(f"ftable_{index}", fingers[index], table),
+        ]
+    return sensors
+
+
+def build_sensors(prepared, typed=False):
     target = ContactMatch(mode="subtree", pattern=prepared.target_body)
     robot = ContactMatch(mode="subtree", pattern=ROBOT_PREFIX + "robot0_base")
     sensors = [contact_sensor("self_collision", robot, robot)]
+    if typed:
+        if prepared.support_body not in [body.name for body in prepared.scene_spec.worldbody.bodies]:
+            raise ValueError("Typed collisions need the support table as a top-level scene body")
+        sensors += typed_contact_sensors(prepared, target, robot)
     for index, finger in enumerate(("left", "right")):
         sensors.append(
             contact_sensor(
@@ -93,7 +116,9 @@ def build_sensors(prepared):
             continue
         other = ContactMatch(mode="subtree", pattern=body.name)
         sensors.append(contact_sensor(f"support_{index}", target, other))
-        sensors.append(contact_sensor(f"environment_{index}", robot, other))
+        # Typed penalties split the support table into finger and arm contacts.
+        if not (typed and body.name == prepared.support_body):
+            sensors.append(contact_sensor(f"environment_{index}", robot, other))
     for index, geom in enumerate(prepared.scene_spec.worldbody.geoms):
         if not (geom.contype or geom.conaffinity):
             continue
@@ -125,6 +150,10 @@ class StationEnv(ManagerBasedRlEnv):
             for key, value in config["success"].items():
                 if RL_PICK_THRESHOLDS[key] != value:
                     raise ValueError("RL success configuration must match the named protocol")
+        mobile = config["action"].get("mobile_base", False)
+        if mobile and (config["scene"].get("fixed_base", False) or not contact_protocol
+                       or not config.get("observation", {}).get("world_state", False)):
+            raise ValueError("Mobile base requires a dynamic base and flat contact observations with world_state")
         self.research_config = config
         self.prepared = prepare_rl_scene(RLSceneConfig(**config["scene"]))
         self.task = None
@@ -137,12 +166,15 @@ class StationEnv(ManagerBasedRlEnv):
         root = prepared.robot_spec.bodies[1]
         robot = EntityCfg(
             spec_fn=prepared.copy_robot,
-            init_state=EntityCfg.InitialStateCfg(pos=tuple(root.pos), rot=tuple(root.quat), joint_pos=initial),
+            init_state=EntityCfg.InitialStateCfg(
+                pos=(0.0, 0.0, 0.0) if config["scene"].get("fixed_base", False) else tuple(root.pos),
+                rot=tuple(root.quat), joint_pos=initial,
+            ),
             articulation=EntityArticulationInfoCfg(actuators=(XmlActuatorCfg(target_names_expr=tuple(initial)),)),
         )
         action = config["action"]
         env_cfg = config["environment"]
-        sensors = build_sensors(prepared)
+        sensors = build_sensors(prepared, typed="collision_tiers" in config["reward"])
         observation_terms = (
             {"flat": ObservationTermCfg(func=terms.flat)} if contact_protocol
             else {
@@ -183,6 +215,7 @@ class StationEnv(ManagerBasedRlEnv):
                     frame_type="site",
                     frame_name="gripper0_right_grip_site",
                     base_site=ROBOT_PREFIX + "base_site",
+                    moving_base=mobile,
                     delta_pos_scale=action["translation_m"],
                     delta_ori_scale=action["rotation_rad"],
                     damping=action["damping"],
@@ -190,6 +223,11 @@ class StationEnv(ManagerBasedRlEnv):
                     joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
                 ),
                 "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol),
+                **({"base": MobileBaseCfg(
+                    entity_name=ROBOT_ENTITY,
+                    translation_m_s=action["base_translation_m_s"],
+                    yaw_rad_s=action["base_yaw_rad_s"],
+                )} if mobile else {}),
             },
             observations={
                 "policy": ObservationGroupCfg(

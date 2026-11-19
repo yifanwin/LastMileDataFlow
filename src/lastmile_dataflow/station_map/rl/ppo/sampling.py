@@ -11,8 +11,9 @@ from ..checkpoint import seed_all
 from ..training_common import record_episodes
 from ..devices import VISIBLE_DEVICE, ppo_sampler_entry
 from ..env.observation import CONTACT_REWARD_COMPONENTS, REWARD_COMPONENTS, policy_observation
-from ..networks import Actor, Value
+from ..networks import squashed_log_probability
 from ..config import PPOConfig
+from .agent import ppo_networks
 from .rollout import RolloutBatch, cat_observations, gae, map_observation
 
 
@@ -26,8 +27,9 @@ def sample(config, seed, num_envs, channel):
         mode = config.get("observation", {}).get("mode", "graph")
         obs = policy_observation(observations, mode)
         dim = obs.shape[-1] if mode == "flat" else obs.arm_task_state.shape[-1]
-        actor, value = Actor(dim, mode=mode).to(env.device), Value(dim, mode=mode).to(env.device)
         cfg = PPOConfig(**config.get("ppo", {}))
+        actor, value = (network.to(env.device) for network in
+                        ppo_networks(dim, env.action_manager.total_action_dim, mode, cfg))
         returns = torch.zeros(env.num_envs, device=env.device)
         names = CONTACT_REWARD_COMPONENTS if mode == "flat" else REWARD_COMPONENTS
         components = torch.zeros(env.num_envs, len(names), device=env.device)
@@ -40,13 +42,15 @@ def sample(config, seed, num_envs, channel):
             version, actor_state, value_state, quota = payload
             actor.load_state_dict(actor_state)
             value.load_state_dict(value_state)
-            observations_saved, raws, logs, values, rewards, next_values, terminals, dones, masks = ([] for _ in range(9))
+            observations_saved, raws, logs, mus, stds, values, rewards, next_values, terminals, dones, masks = ([] for _ in range(11))
             episodes = io.StringIO()
             used = 0
             with torch.no_grad():
                 for _ in range(min(cfg.rollout_steps, math.ceil(quota / env.num_envs))):
                     observations_saved.append(map_observation(obs, lambda x: x.detach().clone()))
-                    raw, old_log = actor.sample_raw(obs)
+                    normal = actor.distribution(obs)
+                    raw = normal.sample()
+                    old_log = squashed_log_probability(normal, raw)
                     old_value = value(obs)
                     observations, reward, terminated, truncated, _ = env.step(raw.tanh())
                     nxt = policy_observation(observations, mode)
@@ -57,6 +61,8 @@ def sample(config, seed, num_envs, channel):
                     used += int(valid.sum())
                     raws.append(raw)
                     logs.append(old_log)
+                    mus.append(normal.loc)
+                    stds.append(normal.scale)
                     values.append(old_value)
                     rewards.append(reward.clone())
                     next_values.append(value(nxt))
@@ -87,7 +93,8 @@ def sample(config, seed, num_envs, channel):
                 flat_mask = mask.flatten()
                 batch = RolloutBatch(
                     cat_observations(observations_saved)[flat_mask],
-                    torch.cat(raws)[flat_mask], torch.cat(logs)[flat_mask], torch.cat(values)[flat_mask],
+                    torch.cat(raws)[flat_mask], torch.cat(logs)[flat_mask], torch.cat(mus)[flat_mask],
+                    torch.cat(stds)[flat_mask], torch.cat(values)[flat_mask],
                     advantages.flatten()[flat_mask], targets.flatten()[flat_mask],
                 ).to("cpu")
             channel.send_bytes(pickle.dumps((version, batch, episodes.getvalue())))

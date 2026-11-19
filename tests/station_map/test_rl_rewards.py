@@ -115,6 +115,51 @@ class RewardTests(unittest.TestCase):
         torch.testing.assert_close(task.reward_components[0, 4:], torch.zeros(3))
         torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(3))
 
+    def test_pregrasp_stage_latches_with_continuous_potential(self):
+        env = self.contact_reward_env([0.10], [0.0], [0.0])
+        task, cfg = env.task, env.research_config["reward"]
+        cfg.update(pregrasp_offset_m=0.1, pregrasp_tolerance_m=0.02, pregrasp_tolerance_rad=0.2)
+        task.pregrasp_reached = torch.zeros(1, dtype=torch.bool)
+        grasp_dp = torch.tensor([[0.0, 0.0, 0.10]])
+        task.goal_error = lambda offset=0.0: (grasp_dp + torch.tensor([[0.0, 0.0, offset]]), torch.zeros(1, 3))
+        task.previous_distance[:] = 0.11
+        reward(env)  # Pregrasp error 0 reaches the stage; the grasp distance 0.10 equals offset + 0.
+        self.assertTrue(bool(task.pregrasp_reached[0]))
+        torch.testing.assert_close(task.reward_components[0, 0], torch.tensor(20 * 0.01))
+        grasp_dp = torch.tensor([[0.0, 0.0, 0.05]])  # Moving away from the pregrasp keeps the stage.
+        reward(env)
+        self.assertTrue(bool(task.pregrasp_reached[0]))
+        torch.testing.assert_close(task.reward_components[0, 0], torch.tensor(20 * 0.05))
+
+    def test_descent_weights_lateral_error_after_switch(self):
+        env = self.contact_reward_env([0.10], [0.0], [0.0])
+        task, cfg = env.task, env.research_config["reward"]
+        cfg.update(pregrasp_offset_m=0.1, pregrasp_tolerance_m=0.02, pregrasp_tolerance_rad=0.2,
+                   descent_lateral_weight=3.0)
+        task.pregrasp_reached = torch.ones(1, dtype=torch.bool)
+        task.approach_axis = lambda: torch.tensor([[0.0, 0.0, 1.0]])
+        task.goal_error = lambda offset=0.0: (torch.tensor([[0.03, 0.0, 0.04 + offset]]), torch.zeros(1, 3))
+        task.previous_distance[:] = 0.2
+        reward(env)  # sqrt(0.04^2 + (3 * 0.03)^2)
+        torch.testing.assert_close(task.previous_distance, torch.tensor([(0.04 ** 2 + 0.09 ** 2) ** 0.5]))
+
+    def test_closing_requires_a_pressing_finger_when_configured(self):
+        env = self.contact_reward_env([0.02, 0.02], [0.0, 0.0], [1.0, 1.0])
+        env.research_config["reward"]["closing_requires_contact"] = True
+        env.task.forces = torch.tensor([[0.0, 0.0], [0.6, 0.0]])
+        reward(env)  # Enter the stage; only the pressing environment becomes active.
+        env.task.robot.data.joint_pos *= 0.5
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([0.0, 1.5]))
+
+    def test_drop_event_is_a_one_off_penalty(self):
+        env = self.contact_reward_env([0.05, 0.05], [0.1, 0.1], [0.0, 0.0])
+        env.research_config["reward"]["drop_penalty"] = 20.0
+        env.task.drop_event = torch.tensor([True, False])
+        reward(env)
+        collision = CONTACT_REWARD_COMPONENTS.index("collision")
+        torch.testing.assert_close(env.task.reward_components[:, collision], torch.tensor([-21.0, -1.0]))
+
     def test_closing_uses_actual_progress_with_strict_pose_gate(self):
         env = self.contact_reward_env(
             [0.02, 0.03, 0.02, 0.04], [0., 0., 20 * torch.pi / 180, 0.],
@@ -208,7 +253,9 @@ class RewardTests(unittest.TestCase):
         task.collision_free = torch.ones(1, dtype=torch.bool)
         task.collision_time = torch.zeros(1)
         task.height_reference = torch.zeros(1)
-        task.fixed = [0, 1, 2, 3]
+        task.physical_fixed = False
+        task.base_joints = [0, 1, 2]
+        task.lift = [3]
         task.robot = SimpleNamespace(data=SimpleNamespace(joint_pos=torch.zeros(1, 4)))
         task.fixed_reference = torch.zeros(1, 4)
         task.max_drift = torch.zeros(1)
@@ -426,3 +473,63 @@ class RewardTests(unittest.TestCase):
         start, _, _, duration = update_hold_window(*args, xp=torch, thresholds=RL_PICK_THRESHOLDS)
         self.assertEqual(float(start), -1.0)
         self.assertEqual(float(duration), 0.0)
+
+
+class TypedCollisionTests(unittest.TestCase):
+    def test_tier_first_sustained_and_rearm(self):
+        from lastmile_dataflow.station_map.rl.env.terms import tier_penalty
+        first, sustained = torch.tensor([0.5, 0.8, 1.0]), torch.tensor([0.05, 0.08, 0.1])
+        idle = torch.full((1, 3), 5)
+        pattern = [1, 1, 0, 1, 0, 0, 0, 0, 0, 1]  # large tier only
+        paid = []
+        for on in pattern:
+            active = torch.tensor([[False, False, bool(on)]])
+            penalty, _ = tier_penalty(active, idle, first, sustained, 5)
+            paid.append(round(float(penalty[0]), 3))
+        # A short gap keeps the sustained rate; five idle steps rearm the first-contact penalty.
+        self.assertEqual(paid, [1.0, 0.1, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        both = torch.tensor([[True, True, False]])
+        penalty, onset = tier_penalty(both, torch.full((1, 3), 5), first, sustained, 5)
+        self.assertAlmostEqual(float(penalty[0]), 1.3, places=5)
+
+    def test_stuck_window_requires_all_three_conditions(self):
+        from lastmile_dataflow.station_map.rl.env.terms import stuck_window
+        cfg = dict(collision_fraction=0.5, tcp_path_m=0.02, distance_gain_m=0.005, angle_gain_rad=0.05)
+        w = 40
+        illegal = torch.ones(4, w, dtype=torch.bool)
+        illegal[1, :25] = False                     # only 15/40 colliding
+        move = torch.full((4, w), 0.0002)
+        move[2] = 0.001                             # 4 cm path
+        distance = torch.full((4, w), 0.1)
+        distance[3, 10:] = 0.09                     # 1 cm gain after the oldest step
+        angle = torch.full((4, w), 0.2)
+        stuck = stuck_window(illegal, move, distance, angle, torch.zeros(4, dtype=torch.long), cfg)
+        self.assertEqual(stuck.tolist(), [True, False, False, False])
+
+
+class RealObjectContactTests(unittest.TestCase):
+    contact_physics_task = RewardTests.contact_physics_task
+    def test_real_object_uses_lowest_vertex_and_continuous_hold(self):
+        task, position = self.contact_physics_task()
+        task.env.research_config["scene"].pop("cube")
+        task.target_points = torch.tensor([[0., 0., -0.06], [0.03, 0., 0.02]])
+        task.table_height_m = 0.75
+        position[:, 2] = 0.811  # Center rose, but the bottom clears by only 1 mm.
+        forces = torch.ones(1, 2)
+        support = torch.tensor([False])
+        task.contact_facts = lambda: (forces, support, torch.zeros(1, 2, dtype=torch.bool))
+        for _ in range(125):
+            task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        position[:, 2] = 0.821
+        for _ in range(100):
+            task.sample_physics()
+        forces[0, 1] = 0.5
+        task.sample_physics()
+        self.assertEqual(float(task.hold[0]), 0.)
+        forces.fill_(1.)
+        for _ in range(124):
+            task.sample_physics()
+        self.assertFalse(bool(task.success[0]))
+        task.sample_physics()
+        self.assertTrue(bool(task.success[0]))

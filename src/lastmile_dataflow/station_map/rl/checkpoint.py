@@ -6,11 +6,11 @@ import random
 import numpy as np
 import torch
 
-from .env.observation import ARM_STATE_FIELDS, FLAT_FIELDS, NODE_DIM
+from .env.observation import ARM_STATE_FIELDS, NODE_DIM, flat_fields
 
 
-def input_definition(mode):
-    return ("flat", FLAT_FIELDS) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
+def input_definition(mode, state_dim):
+    return ("flat", flat_fields(state_dim)) if mode == "flat" else ("graph", NODE_DIM, ARM_STATE_FIELDS)
 
 
 def seed_all(seed):

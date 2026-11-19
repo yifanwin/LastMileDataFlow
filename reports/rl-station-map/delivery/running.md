@@ -52,33 +52,34 @@ MUJOCO_GL=disable .venv/bin/python tests/smoke/rl.py --gpu 4 --scripted --statio
 
 算法优先级为命令行 `--algorithm`、配置 `algorithm`、默认 `sac`。SAC 沿用原异步采样；PPO 每卡一个同步采样进程，全部采完当前策略版本的 rollout 后，由首卡集中更新 Actor / V，再同步下一轮。每卡环境数由 `--num-envs` 覆盖。
 
-从当前工作区根目录执行，先查询实时 GPU 资源，下方卡号仅为示例：
+从当前工作区根目录执行，先查询实时 GPU 资源，下方卡号仅为示例。Cup_30 随机站位、物理固定底盘（与 rl-cup SAC 同一任务和奖励）：
 
 ```bash
-MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+PYTHONPATH=$PWD/src MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 .venv/bin/python scripts/station_map/rl/train.py \
-  --algorithm ppo --config configs/station_map/rl/val103_cube_s0246_facing_ppo.yaml \
-  --gpu 0 1 --seed 42 --output outputs/experiments/cube-ppo/runs/train
+  --config configs/station_map/rl/val103_cup30_random_stations_facing_ppo.yaml \
+  --gpu 0 1 2 3 --seed 42 --output outputs/experiments/ppo-cup/runs/<run>
 ```
 
-原 SAC 配置也可直接增加 `--algorithm ppo`，PPO 使用缺省参数；两个 PPO 示例保留 SAC 参数，因此也可用 `--algorithm sac` 切回 SAC。PPO 不使用 Replay、warmup、alpha、SAC batch_size 或 transitions_per_update。
+`PYTHONPATH` 不能省：本工作区 `.venv` 链接到 actor-critic 环境，默认会导入那边的源码。该配置的 `grasp.preprocessed_path` 是相对路径，工作区需有 `outputs/experiments/grasp-fps-all`（本工作区为指向 rl-cup 同名目录的软链接）。与 SAC 配置的差别只有 `algorithm: ppo`、`ppo: {}` 和 `episode_s: 20`。cube 旧配置 `val103_cube_s0246_facing_ppo.yaml` 仍可用。原 SAC 配置也可直接加 `--algorithm ppo`。PPO 不使用 Replay、warmup、alpha、SAC batch_size 或 transitions_per_update。
 
-PPO 参数默认值：
+PPO 参数默认值（2026-11-20 按[失败排查](../analyze/ppo-cube-s0246-failure-diagnosis.md)修改）：
 
 | 字段 | 默认值 |
 | --- | --- |
-| `rollout_steps` / `epochs` / `minibatch_size` | 32 / 5 / 512 |
-| `actor_lr` / `value_lr` | 0.0003 / 0.0003 |
-| `gamma` / `gae_lambda` | 0.999 / 0.95 |
-| `clip_coef` / `value_coef` / `entropy_coef` | 0.2 / 1.0 / 0.0 |
-| `actor_max_grad_norm` / `value_max_grad_norm` | 0.5 / 0.5 |
-| `target_kl` | 0.02 |
+| `rollout_steps` / `epochs` / `minibatch_size` | 32 / 5 / 4096 |
+| `actor_lr`（初值）/ `value_lr` | 0.0003 / 0.001 |
+| `desired_kl` / `lr_min` / `lr_max` | 0.01 / 1e-5 / 0.01 |
+| `gamma` / `gae_lambda` | 0.99 / 0.95 |
+| `clip_coef` / `value_coef` / `entropy_coef` | 0.2 / 1.0 / 0.005 |
+| `actor_max_grad_norm` / `value_max_grad_norm` | 1.0 / 1.0 |
+| `init_std` / `normalize_observations` | 1.0 / true |
 
-每轮仅使用当前版本策略产生的健康样本；先在全局样本上统一标准化优势，再每个 epoch 重新打乱、分 mini-batch 更新，尾批保留。GAE 不跨成功、失败、episode timeout 或异常样本传播，rollout 分段边界用下一状态 V 引导。Actor 与 V 分别裁剪梯度；每个 mini-batch 更新前检查新旧策略 KL，超阈值停止当前及后续 epoch。
+每轮仅使用当前版本策略产生的健康样本；先在全局样本上统一标准化优势，再每个 epoch 重新打乱、分 mini-batch 更新，尾批保留，epoch 不提前停止。每个 mini-batch 更新前计算新旧策略的精确高斯 KL（tanh 是双射，等于 squashed 策略 KL）：大于 2×`desired_kl` 时 Actor 学习率 /1.5，小于一半时 ×1.5，限制在 [`lr_min`, `lr_max`]。Actor 是 tanh 高斯，log std 为与状态无关的可学习参数（初值 `init_std`），输出层正交初始化增益 0.01；熵奖励用 tanh 前高斯熵。flat 输入经 Actor/V 共享的运行均值/方差归一化（std 下限 0.01、裁剪 ±10），统计量在每轮 epoch 结束后用本轮样本更新，随 checkpoint 保存并下发给 Sampler。GAE 不跨成功、失败或异常样本传播；episode timeout 结束回合但保留 V 引导；rollout 分段边界用下一状态 V 引导。Actor 与 V 分别裁剪梯度。
 
-run 保存展开默认参数后的 `config.json`、`metrics.jsonl`、TensorBoard、`latest.pt`、`best.pt` 与每40万样本的 `ckpts/`。best 按 train/success 最近最多100个完整健康训练回合的成功率选择，每30秒刷新；不足100回合使用实际数量。PPO 恢复参数、两个优化器、RNG 与更新计数，重新 reset 环境和 rollout；使用 `--resume <latest.pt>`，`--max-transitions` 为累计目标，不做随机预热。
+run 保存展开默认参数后的 `config.json`、`metrics.jsonl`、TensorBoard、`latest.pt`、`best.pt`、`grasp-subset.json` 与每40万样本的 `ckpts/`。best 规则与 SAC 相同（配置了 `training.best_checkpoint` 时按其窗口和起始门槛）。PPO 恢复参数、两个优化器、当前 Actor 学习率、归一化统计、RNG 与更新计数，重新 reset 环境和 rollout；使用 `--resume <latest.pt>`，`--max-transitions` 为累计目标。
 
-PPO 曲线位于 `ppo/`：actor_loss、value_loss、entropy、minibatch_kl、max_minibatch_kl、global_kl、clip_fraction、explained_variance、actor_grad_norm、value_grad_norm、epochs_completed、minibatches、kl_early_stop，以及累计 kl_early_stops。梯度范数为裁剪前范数；窗口内一般指标取各轮均值，累计停止次数取最新值。成功率等回合指标按最近100回合写入 `train/`，底盘漂移写入 `mobile/`，奖励分项写入 `reward/`，运行指标在 `runtime/`，不生成 SAC 的 alpha 曲线。`updates` 表示 rollout 更新轮数，`optimizer_steps` 表示实际完成的 Actor/V 成对 mini-batch 更新次数。
+PPO 曲线位于 `ppo/`：actor_loss、value_loss、entropy、minibatch_kl、global_kl、clip_fraction、explained_variance、actor_grad_norm、value_grad_norm、minibatches、actor_lr、policy_std。梯度范数为裁剪前范数，窗口内取各轮均值。成功率等回合指标按最近100回合写入 `train/`，底盘漂移写入 `mobile/`，奖励分项写入 `reward/`，运行指标在 `runtime/`，不生成 SAC 的 alpha 曲线。`updates` 表示 rollout 更新轮数，`optimizer_steps` 表示 Actor/V 成对 mini-batch 更新次数。
 
 flat 使用已有固定初态20次评估及视频流程：
 
@@ -122,6 +123,9 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
 训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt`、`ckpts/step-<实际累计步数>.pt` 和 `metrics.jsonl`。每次日志 checkpoint 保存 latest；每次监控刷新有新合格训练回合时，按与 `train/success` 相同的最近至多 100 回合成功率选择 best，严格提高才替换，同分保留，不足 100 回合使用实际数量。结束尾段参与比较；全程没有合格回合才以最终模型兜底，再独立加载 best 评估一次（方块 contact 协议不执行终点评估）。恢复训练重新建立回合窗口，仅继承 `recent_100_episode_success_rate` 口径的 best 排名；旧 return 或区间成功率重新选模。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
 每跨过累计 400000 条健康 transition，独立保存一次完整 checkpoint 到 `ckpts/`，全部保留；以接收该批次并完成对应更新后的实际步数命名，例如 `ckpts/step-000400000.pt`。批量采样可能略超阈值，后续阈值仍固定为 800000、1200000 等。恢复训练按累计步数定位下一个 40 万阈值。恢复 latest 时仅保留 recent_100_episode_success_rate 口径排名；恢复 ckpts 历史快照时重新选模，避免引用已被后来训练覆盖的根目录 best。历史 run 的权重不自动改写。
+Cup 随机站位配置的 best 规则（2026-11-19）：`training.best_checkpoint` 显式设置 `window_episodes: 200`、`start_transitions: 600000`、`metric: success_rate`，满200个有效回合且达到门槛后才比较。`metric: return` 可切换为平均未折扣回报。TensorBoard 仍用100回合；未配置保持上述旧行为。恢复窗口清空后重新满窗，仅继承相同选择配置的合格排名。训练结束无合格窗口时以最终模型兜底并标记 `rate=null`。字段与预算说明见[配置说明](../../../configs/README.md)。
+
+每跨过累计 400000 条健康 transition，独立保存一次完整 checkpoint 到 `ckpts/`，全部保留；以接收该批次并完成对应更新后的实际步数命名，例如 `ckpts/step-000400000.pt`。批量采样可能略超阈值，后续阈值仍固定为 800000、1200000 等。恢复训练按累计步数定位下一个 40 万阈值。恢复 latest 时仅保留与当前选模配置一致的排名；恢复 ckpts 历史快照时重新选模，避免引用已被后来训练覆盖的根目录 best。历史 run 的权重不自动改写。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 
@@ -191,6 +195,21 @@ MUJOCO_GL=disable .venv/bin/python scripts/station_map/rl/evaluate.py \
 评分使用在线 Q1/Q2，K=16 是动作采样数。输出原始 Q、动作评分标准差、站位 split 和 invalid mask；图不代表成功概率。
 
 评估先保存 `selection.json`，再保存 trial JSONL、状态 / 动作 NPZ 和统计。独立基线对照仍可使用已有的历史初始化 checkpoint；本训练入口不再自动生成初始化基线。抓取成功、无非法碰撞抓取成功、Q 排序分别判定；不能仅凭图有颜色或 Q 增长通过验收。
+
+### 固定Home方块的离线软价值
+
+正式评分直接读取已有任务YAML中的固定初态和checkpoint，完全绕过仿真导入、模型/场景加载及reset，不要求初态模板文件。共享训练时的69维观测构造。旧默认`--value-mode q`保留graph任务原始min-Q评分。
+
+```bash
+PYTHONPATH="$PWD/src" .venv/bin/python scripts/station_map/rl/score.py \
+  --value-mode soft --gpu 0 --checkpoint <checkpoint.pt> \
+  --output <实验单元>/runs/<run> \
+  --plot <实验单元>/analysis/<run>/station-value.png
+```
+
+GPU按实时空闲情况选择。soft默认配置为`configs/station_map/rl/val103_cube_random_stations_facing.yaml`，可用`--config`指定；固定Home和升降读取scene，固定方块位姿、TCP局部位姿、夹爪及范围直接读取observation中的数值。这些初态已与真实reset三站逐维核对，来源见[720万离线价值图报告](39-offline-soft-station-value.md)。训练环境仍直接读取真实物理状态，不使用这些静态观测数值替代动态观测。
+
+默认K=128、batch size=2048、seed=20261109，可用`--action-samples`、`--batch-size`、`--seed`覆盖。输出`station-value.json`和`samples.npz`，包含[有效站位,样本]排列的action/log_prob/Q1/Q2、[有效站位,69]初始观测、station_ids和alpha。复算：`v=(minimum(q1,q2)-alpha*log_prob).mean(axis=1)`；`v_std`为ddof=1标准差，`v_sem=v_std/sqrt(K)`。无效站位分数为空，图是策略条件软价值。
 
 ## 软件检查
 
@@ -269,3 +288,58 @@ PYTHONPATH="$PWD/src" /data1/wenyifan/lmdf/LastMileDataFlow/.worktrees/actor-cri
 ### 2026-11-17T17:53:32.106298+08:00 当前CUDA2–3训练
 
 按用户指令，从头启动当前0.25 s保持协议与新奖励配置。run为 `outputs/experiments/rl-cube-lift-v2-s0246/runs/20261117-175136-s0246-cube-hold025-3m-b512-g23`，固定源码 `bcbaaac19a6858856e6d0be3067a5fd1de71a837`；CUDA2–3各128环境，300万健康经验预算、batch512、seed42、无resume。已核查实际采样与更新；[启动记录](34-cube-hold-g23-training-launch.md)。先前CUDA0–3训练已按用户指令停止，旧产物保留。
+
+
+## 随机站位、物理固定底盘、69D 方块输入
+
+使用 `configs/station_map/rl/val103_cube_random_stations_facing.yaml`。该配置从方块周围的有效 XY 网格均匀抽样，每个位置只取正对方块中心的 yaw；Episode 内底盘无 XY/yaw 自由度，机械臂、升降和夹爪保持可控。站位通过地面支撑与 Home 无碰撞检查，不以 IK 或抓取成功预筛选。
+
+`scene.fixed_base: true` 移除三个底盘关节及驱动器，由 mjlab 的固定运动学根节点在 reset 时设置位姿。`observation.world_state: true` 在原65维后追加底盘世界 x、y（米）、yaw（弧度）、升降高度（米），共69维；原归一化升降高度仍保留。旧单站配置继续使用65维。新任务从零训练，不将65维权重作为69维输入直接复用。奖励与连续保持0.25秒的成功协议沿用当前方块任务。
+
+```bash
+# 选卡后替换示例物理 GPU 号；全部从本工作区根目录执行。
+PYTHONPATH="$PWD/src" MUJOCO_GL=disable OMP_NUM_THREADS=1 \
+  .venv/bin/python tests/smoke/rl_fixed_base.py --gpu 0 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<smoke-run>
+
+# 21,024条健康经验，保留20,000条预热，预期8次更新。
+PYTHONPATH="$PWD/src" MUJOCO_GL=disable OMP_NUM_THREADS=1 \
+  .venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cube_random_stations_facing.yaml \
+  --gpu 0 --seed 42 --num-envs 16 --max-transitions 21024 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<train-run>
+
+# 固定seed选择最多20个不同有效站位，每站1次随机策略rollout，保存全部视频。
+PYTHONPATH="$PWD/src" MUJOCO_GL=egl OMP_NUM_THREADS=1 \
+LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  .venv/bin/python scripts/station_map/rl/evaluate.py \
+  --config configs/station_map/rl/val103_cube_random_stations_facing.yaml \
+  --checkpoint outputs/experiments/rl-cube-random-stations/runs/<train-run>/best.pt \
+  --gpu 0 --num-envs 16 \
+  --output outputs/experiments/rl-cube-random-stations/runs/<train-run>/evaluation
+```
+
+评估使用 `evaluation.station_count: 20` 和 `evaluation.rollouts_per_station: 1`，有效池不足20站时全选。`selection.json` 固定站位、动作seed和trial编号；`summary.json` 包含逐站与总体统计，基础设施异常单列。轨迹单独保存 `mocap_pos` / `mocap_quat`，回放同时恢复固定底座位姿与关节状态。旧单站配置仍执行首站20回合。
+
+本轮实际验证和限制见[交付记录](36-random-stations-physical-base.md)。短跑与随机策略评估仅验证实现链路，不作为Actor已学会多站抓取的证据。
+
+## 随机站位移动底盘：75D输入、10D动作
+
+2026-11-18：配置 `configs/station_map/rl/val103_cube_random_stations_mobile.yaml`。`action.mobile_base` 控制Actor是否移动底盘，默认false；启用时须 `scene.fixed_base: false`，使用flat且world_state开启。动作顺序为TCP平移3、TCP旋转3、夹爪1、底盘前后/横移/转向3。平移合速度上限0.2 m/s、转向0.5 rad/s；升降仍由8关节DLS分配，上限0.05 m/s。TCP目标随实测底盘坐标系运动。
+
+保留目标周围2 m半宽方形内的局部场景；机器人或目标任一碰撞几何的世界包围盒越界，回合失败，计入失败分母。初始站位同样检查。观测为75D：上一动作扩展为10D，并追加实际底盘速度3D，按配置速度归一化。移动本身不触发固定底盘漂移失败。世界坐标和底盘速度均由实测状态计算。
+
+```bash
+PYTHONPATH="$PWD/src" LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+  MUJOCO_GL=egl .venv/bin/python tests/smoke/rl_mobile.py \
+  --config configs/station_map/rl/val103_cube_random_stations_mobile.yaml \
+  --gpu 0 --output outputs/experiments/rl-cube-mobile/runs/<control-run>
+
+PYTHONPATH="$PWD/src" LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \
+  MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cube_random_stations_mobile.yaml \
+  --gpu 0 1 2 3 --max-transitions 10000000 \
+  --output outputs/experiments/rl-cube-mobile/runs/<training-run>
+```
+
+GPU编号仅作命令示例，启动前按实时占用选卡。移动模式从零训练，target_entropy为-10；旧7D checkpoint可加载用于旧模式，不可resume为10D。每30秒监控新增越界回合比例、最大底盘速度/角速度以及底盘与升降位移；episode JSON另含初始/最终底盘姿态及结束速度。保持当前rl-pick-contact-v2的抓取判定和奖励，不增设移动奖励。移动策略的站位价值表示从该初态出发允许移动后的价值，原固定底盘离线score入口不接受此配置。

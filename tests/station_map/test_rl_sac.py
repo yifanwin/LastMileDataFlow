@@ -153,6 +153,22 @@ class SACTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "observation definition"):
                 SAC.load(path, "cpu")
 
+    def test_flat_69d_update_and_checkpoint_records_world_fields(self):
+        from lastmile_dataflow.station_map.rl.env.observation import WORLD_STATE_FIELDS
+        from lastmile_dataflow.station_map.rl.sac.agent import SAC
+
+        agent = SAC(69, "cpu", mode="flat")
+        obs = torch.randn(4, 69)
+        transition = Transition(obs, torch.zeros(4, 7), torch.ones(4), obs + 0.1,
+                                torch.zeros(4, dtype=torch.bool), torch.zeros(4, dtype=torch.bool))
+        self.assertTrue(all(torch.isfinite(v) for v in agent.update(transition).values()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            agent.save(path, metadata={}, transitions=4)
+            restored, saved = SAC.load(path, "cpu")
+            self.assertEqual(saved["input_definition"], ("flat", FLAT_FIELDS + WORLD_STATE_FIELDS))
+            torch.testing.assert_close(agent.actor.sample(obs, True)[0], restored.actor.sample(obs, True)[0])
+
 
 @unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependency group")
 class ActorNoiseTests(unittest.TestCase):

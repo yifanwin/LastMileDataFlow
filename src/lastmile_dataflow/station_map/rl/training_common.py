@@ -9,7 +9,9 @@ import subprocess
 import time
 
 from lastmile_dataflow.utils.io import REPO_ROOT
-from .env.observation import ARM_STATE_FIELDS, CONTACT_REWARD_COMPONENTS, FLAT_FIELDS, REWARD_COMPONENTS
+from .config import best_checkpoint_config
+from .env.observation import ARM_STATE_FIELDS, CONTACT_REWARD_COMPONENTS, REWARD_COMPONENTS, flat_fields
+from .env.terms import collision_episode, grasp_episode, mobile_episode
 from .evaluation import monitor_validation
 from .monitor import SuccessWindow
 
@@ -43,12 +45,15 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                 {
                     "event": "episode",
                     "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
-                    **({} if env.research_config["success"].get("version") == "rl-pick-contact-v2" else {
-                        "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
-                        "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
-                    }),
+                    **grasp_episode(env.task, index),
+                    **collision_episode(env.task, index),
                     "transitions": transitions,
                     "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
+                    **({
+                        "base_xyyaw_world": env.task.fixed_state()[index, :3].cpu().tolist(),
+                        "base_xyyaw_initial": env.task.fixed_reference[index, :3].cpu().tolist(),
+                    } if env.research_config.get("scene", {}).get("fixed_base", False) else {}),
+                    **mobile_episode(env.task, index),
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
@@ -86,16 +91,20 @@ def validation_checkpoint(agent, env, config, transitions, output, log, monitor)
 
 
 def save_best_checkpoint(agent, output, metadata, transitions, window: SuccessWindow | None, *, final=False):
+    selection = best_checkpoint_config(metadata.get("config", {}).get("training", {}))
+    if window is not None and not selection.eligible(window.count, transitions):
+        window = None
     best = metadata.get("best_training_success_rate")
     improved = window is not None and (best is None or best["rate"] is None or window.rate > best["rate"])
     fallback = final and best is None and window is None
     if improved or fallback:
         metadata["best_training_success_rate"] = {
-            "metric": "recent_100_episode_success_rate",
+            "metric": selection.metric_name,
+            "selection": dict(selection.__dict__),
             "rate": window.rate if window is not None else None,
             "count": window.count if window is not None else 0,
             "transitions": transitions,
-            "fallback": "no eligible episodes; final model" if fallback else None,
+            "fallback": "no eligible selection window; final model" if fallback else None,
         }
         agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
 
@@ -129,8 +138,9 @@ def training_metadata(config, env, obs, *, gpus, seed, num_envs, max_transitions
         "transition_limit": max_transitions or settings["max_transitions"],
         "observation_mode": mode,
         "node_capacity": obs.nodes.shape[1] if mode == "graph" else None,
+        "action_dim": env.action_manager.total_action_dim,
         "state_dim": obs.arm_task_state.shape[-1] if mode == "graph" else obs.shape[-1],
-        "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else FLAT_FIELDS,
+        "arm_state_fields": ARM_STATE_FIELDS if mode == "graph" else flat_fields(obs.shape[-1], real_object="cube" not in config["scene"]),
         "reward_component_names": CONTACT_REWARD_COMPONENTS if contact else REWARD_COMPONENTS,
         "success_protocol": config["success"],
         "stations": env.task.stations,
@@ -138,13 +148,26 @@ def training_metadata(config, env, obs, *, gpus, seed, num_envs, max_transitions
     }
 
 
+def record_grasp_subset(env, output, metadata):
+    if hasattr(env.task, "grasps"):
+        metadata["grasp_subset"] = [
+            {"source": c["source"], "row": c["row"], "pose_local": c["pose_local"].tolist()}
+            for c in (env.task.grasps[i] for i in env.task.grasp_pools[0])
+        ]
+        (Path(output) / "grasp-subset.json").write_text(json.dumps(metadata["grasp_subset"], indent=2))
+
+
 def restore_best_checkpoint(saved, resume, output, metadata):
     best = saved["metadata"].get("best_training_success_rate")
+    selection = best_checkpoint_config(metadata["config"]["training"])
     resume_output = Path(resume).parent
     if resume_output.name == "ckpts":
         # A historical snapshot cannot identify an overwritten best.pt.
         resume_output = resume_output.parent
-    elif best is not None and best.get("metric") == "recent_100_episode_success_rate":
+    elif (best is not None and best.get("metric") == selection.metric_name
+          and (not selection.require_full_window or (
+              best.get("selection") == selection.__dict__
+              and (best.get("rate") is None or selection.eligible(best["count"], best["transitions"]))))):
         metadata["best_training_success_rate"] = best
     previous_best = resume_output / "best.pt"
     if metadata.get("best_training_success_rate") is not None:

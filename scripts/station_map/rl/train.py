@@ -1,4 +1,4 @@
-"""(c) RL 站位图训练：固定底盘 mjlab SAC / PPO，主进程 Learner，每张卡一个 Sampler（独立 RL 环境）。"""
+"""(c) RL 站位图训练：mjlab SAC / PPO（可配置底盘移动），主进程 Learner，每张卡一个 Sampler（独立 RL 环境）。"""
 
 import argparse
 import json

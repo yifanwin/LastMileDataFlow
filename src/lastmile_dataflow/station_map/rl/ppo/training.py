@@ -14,7 +14,7 @@ from ..env.observation import policy_observation
 from ..evaluation import station_scores, plot_scores
 from ..monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
 from ..training_common import (
-    CHECKPOINT_EVERY_TRANSITIONS, flush_training_monitor, restore_best_checkpoint,
+    CHECKPOINT_EVERY_TRANSITIONS, flush_training_monitor, record_grasp_subset, restore_best_checkpoint,
     save_best_checkpoint, save_periodic_checkpoint, training_metadata, validation_checkpoint,
 )
 from .agent import PPO
@@ -44,7 +44,7 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
         obs = policy_observation(observations, mode)
         metadata = training_metadata(config, env, obs, gpus=gpus, seed=seed,
                                      num_envs=num_envs, max_transitions=max_transitions)
-        metadata.update(algorithm="ppo", resume="parameters/optimizers; fresh environment and rollout")
+        metadata.update(algorithm="ppo", resume="parameters/optimizers/normalizer; fresh environment and rollout")
         (output / "config.json").write_text(json.dumps(config, indent=2))
         resume_output = None
         if resume:
@@ -54,8 +54,10 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
             transitions = saved["transitions"]
             resume_output = restore_best_checkpoint(saved, resume, output, metadata)
         else:
-            agent = PPO(metadata["state_dim"], env.device, cfg, mode=mode)
+            agent = PPO(metadata["state_dim"], env.device, cfg, mode=mode, action_dim=metadata["action_dim"])
+        record_grasp_subset(env, output, metadata)
         monitor = TrainingMonitor(output, every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
+                                  best_checkpoint=settings.get("best_checkpoint"),
                                   purge_step=transitions if resume_output is not None and resume_output.resolve() == output.resolve() else None)
         workers = SynchronousSamplers(config, gpus, seed, num_envs)
         workers.ready()

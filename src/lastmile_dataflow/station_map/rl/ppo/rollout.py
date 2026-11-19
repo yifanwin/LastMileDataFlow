@@ -39,6 +39,8 @@ class RolloutBatch:
     obs: torch.Tensor | GraphObservation
     raw_action: torch.Tensor
     old_log_prob: torch.Tensor
+    old_mu: torch.Tensor
+    old_std: torch.Tensor
     old_value: torch.Tensor
     advantages: torch.Tensor
     returns: torch.Tensor

@@ -1,0 +1,149 @@
+scene:
+  data_root: /data1/wenyifan/lmdf/molmospaces_data
+  scene_xml: assets/scenes/procthor-10k-val/val_103.xml
+  scene_metadata: assets/scenes/procthor-10k-val/val_103_metadata.json
+  robot_xml: assets/robots/panda_omron/model.xml
+  target: Cup_30
+  local_radius_m: 2.0
+  physics_dt: 0.002
+  multiccd: false
+  home:
+  - 0.0
+  - -0.00365045915
+  - 0.0
+  - -2.61799387799
+  - 0.0
+  - 2.74159265359
+  - 0.78539816339
+  lift: 0.2
+  robot_scale: 0.9
+  fixed_base: true
+observation:
+  mode: flat
+  world_state: true
+mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
+environment:
+  num_envs: 128
+  decimation: 25
+  episode_s: 50
+  settling_s: 1.0
+  nconmax: 5000
+  njmax: 5000
+action:
+  translation_m: 0.02
+  rotation_rad: 0.08726646259971647
+  damping: 0.05
+  joint_limit_weight: 1.0
+  lift_velocity_m_s: 0.05
+reward:
+  position: 20.0
+  rotation: 5.0
+  success: 30.0
+  close: 3.0
+  grasp: 3.0
+  lift: 8.0
+  grasp_distance_m: 0.03
+  grasp_angle_rad: 0.3490658503988659
+  # Position potential targets the pregrasp (grasp pose moved back along the approach axis)
+  # until it is reached within distance/angle, then the grasp pose; the switch is latched.
+  pregrasp_offset_m: 0.1
+  pregrasp_tolerance_m: 0.02
+  pregrasp_tolerance_rad: 0.17453292519943295
+  # After the switch, sideways error counts this many times its distance.
+  descent_lateral_weight: 3.0
+  # Closing is paid only while at least one finger force exceeds success.finger_force_min_n.
+  closing_requires_contact: true
+  # Typed collision penalties, [first contact, per policy step while sustained]. A tier's contact
+  # counts as first again after collision_rearm_s without it. small: finger outer face or side on
+  # the cup, empty pad-to-pad closing; medium: palm on the cup, fingers on the support table;
+  # large: other robot links on the cup, robot on the scene (table except fingers, obstacles), self.
+  # Pad and inner-face finger contacts with the cup and cup-table contact are not penalized.
+  # Sustained 0.5 per 0.05 s step (10 per second) makes resting in contact cost one success
+  # (+44) within about 4.4 s; the stuck termination bounds a truly stuck episode near -20..-30.
+  collision_tiers:
+    small: [0.5, 0.1]
+    medium: [0.8, 0.5]
+    large: [1.0, 0.5]
+  collision_rearm_s: 0.25
+  # A finger-body contact is inner when its normal is within 60 degrees of the closing direction.
+  finger_inner_cos: 0.5
+  # Terminate with a one-off penalty when, over the window, at least collision_fraction of the
+  # steps collide, the TCP path is shorter than tcp_path_m, and neither the stage distance nor the
+  # orientation error improved by the given gains.
+  stuck:
+    window_s: 2.0
+    collision_fraction: 0.5
+    tcp_path_m: 0.02
+    distance_gain_m: 0.005
+    angle_gain_rad: 0.05
+    penalty: 10.0
+  # The cup's centre falling drop_height_m below its start (dropped or knocked off the table)
+  # ends the episode as a true terminal failure with a one-off penalty.
+  drop_height_m: 0.3
+  drop_penalty: 20.0
+sac:
+  gamma: 0.999
+  tau: 0.005
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  alpha_lr: 0.0001
+  initial_alpha: 0.1
+  target_entropy: -7.0
+training:
+  best_checkpoint:
+    window_episodes: 200
+    start_transitions: 600000
+    metric: success_rate
+  periodic_evaluation: false
+  batch_size: 512
+  replay_capacity: 100000
+  warmup_min: 20000
+  transitions_per_update: 128
+  debug_station_ids: []
+  log_every: 10000
+  max_transitions: 5000000
+  tensorboard_every_seconds: 30
+  validation_stations: 1
+  validation_rollouts_per_station: 16
+stations:
+  robot_config: configs/robots/panda_omron.yaml
+  heading_offsets_deg:
+  - 0
+  seed: 42
+evaluation:
+  action_samples: 16
+  top: 4
+  middle: 4
+  low: 4
+  uniform: 8
+  rollouts_per_station: 1
+  seed: 20261109
+  q_color_limits:
+  - -100.0
+  - 100.0
+  station_count: 20
+acceptance:
+  top_success_min: 0.5
+  top_collision_free_success_min: 0.4
+  top_uniform_gap_min: 0.1
+  positive_spearman: true
+success:
+  version: rl-pick-contact-v2
+  finger_force_min_n: 0.5
+  # Success, contact, lift and closing use the two pad geoms' normal forces.
+  pad_contact: true
+  lift_m: 0.01
+  hold_s: 0.25
+video:
+  every: 100000
+  width: 640
+  height: 480
+grasp:
+  preprocessed_path: outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-sym-fps128/grasps.npz
+  sample_count: 16
+  sample_seed: 42
+  roll_rad: 1.5707963267948966
+  # Per episode, use the equivalent variant closest to the start TCP: finger swap for any object,
+  # plus rotation about the symmetry axis recorded in the library for axisymmetric objects.
+  align_to_tcp: true
+  axis_steps: 72

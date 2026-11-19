@@ -15,7 +15,8 @@ import torch
 from lastmile_dataflow.station_map.rl.checkpoint import load_agent
 from lastmile_dataflow.station_map.rl.monitor import TrainingMonitor
 from lastmile_dataflow.station_map.rl.config import PPOConfig
-from lastmile_dataflow.station_map.rl.ppo.agent import PPO, approximate_kl, clipped_policy_loss
+from lastmile_dataflow.station_map.rl.networks import ObservationNormalizer
+from lastmile_dataflow.station_map.rl.ppo.agent import PPO, adapt_learning_rate, clipped_policy_loss, gaussian_kl
 from lastmile_dataflow.station_map.rl.ppo.rollout import RolloutBatch, gae, normalize_advantages
 from lastmile_dataflow.station_map.rl.ppo.sampling import SynchronousSamplers
 from lastmile_dataflow.station_map.rl.sac.agent import SAC
@@ -26,10 +27,12 @@ from tests.station_map.test_rl_sac import observation
 def make_batch(agent, count=11):
     obs = torch.randn(count, agent.state_dim) if agent.mode == "flat" else observation(count)
     with torch.no_grad():
-        raw, log = agent.actor.sample_raw(obs)
+        normal = agent.actor.distribution(obs)
+        raw = normal.sample()
+        log = agent.actor.log_probability(obs, raw)
         value = agent.value(obs)
     advantages = torch.linspace(-2, 4, count)
-    return RolloutBatch(obs, raw, log, value, advantages, value + advantages)
+    return RolloutBatch(obs, raw, log, normal.loc, normal.scale, value, advantages, value + advantages)
 
 
 def transport_worker(channel, index):
@@ -41,7 +44,7 @@ def transport_worker(channel, index):
         version, actor, value, quota = payload
         data = torch.ones(quota)
         batch = RolloutBatch(torch.full((quota, 2), float(index)), torch.zeros(quota, 7),
-                             data, data, data, data)
+                             data, torch.zeros(quota, 7), torch.ones(quota, 7), data, data, data)
         channel.send_bytes(pickle.dumps((version, batch, str(index))))
     channel.close()
 
@@ -94,7 +97,7 @@ class PPOTests(unittest.TestCase):
         torch.testing.assert_close(advantage, torch.tensor([[5.], [4.], [5.]]))
 
     def test_global_normalization_uses_all_valid_workers_once_and_preserves_targets(self):
-        agent = PPO(4, "cpu", PPOConfig(epochs=2, minibatch_size=3, target_kl=100), mode="flat")
+        agent = PPO(4, "cpu", PPOConfig(epochs=2, minibatch_size=3), mode="flat")
         first, second = make_batch(agent, 4), make_batch(agent, 7)
         first.advantages[:] = torch.tensor([-10., -5., 0., 5.])
         second.advantages[:] = torch.arange(7.) + 10
@@ -111,15 +114,17 @@ class PPOTests(unittest.TestCase):
         self.assertEqual(result["minibatches"], 8)  # Includes both tail minibatches.
         self.assertTrue(torch.equal(normalize_advantages(torch.ones(3)), torch.zeros(3)))
 
-    def test_clipped_objective_and_nonnegative_kl(self):
+    def test_clipped_objective_and_exact_gaussian_kl(self):
         ratios = torch.tensor([1.5, 0.5, 0.5, 1.5])
         adv = torch.tensor([1., -1., 1., -1.])
         torch.testing.assert_close(clipped_policy_loss(ratios.log(), adv, 0.2), torch.tensor(0.15))
-        self.assertEqual(float(approximate_kl(torch.zeros(4))), 0.)
-        self.assertGreater(float(approximate_kl(ratios.log())), 0.)
+        mu, std = torch.zeros(3, 2), torch.ones(3, 2)
+        self.assertEqual(float(gaussian_kl(mu, std, torch.distributions.Normal(mu, std))), 0.)
+        # KL(N(0,1) || N(1,1)) = 0.5 per dimension.
+        torch.testing.assert_close(gaussian_kl(mu, std, torch.distributions.Normal(mu + 1, std)), torch.tensor(1.))
 
     def test_separate_actor_value_gradient_clipping_epochs_shuffle_and_checkpoint(self):
-        cfg = PPOConfig(epochs=3, minibatch_size=4, target_kl=100,
+        cfg = PPOConfig(epochs=3, minibatch_size=4,
                         actor_max_grad_norm=0.03, value_max_grad_norm=0.07)
         for mode, dim in (("flat", 65), ("graph", 9)):
             with self.subTest(mode=mode):
@@ -138,7 +143,6 @@ class PPOTests(unittest.TestCase):
                     "lastmile_dataflow.station_map.rl.ppo.agent.torch.randperm", side_effect=shuffle
                 ):
                     result = agent.update(batch)
-                self.assertEqual(result["epochs_completed"], 3)
                 self.assertEqual(result["minibatches"], 9)
                 self.assertEqual(clip.call_count, 18)
                 self.assertEqual([call.args[1] for call in clip.call_args_list], [0.03, 0.07] * 9)
@@ -166,19 +170,43 @@ class PPOTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "Cannot resume"):
                         load_agent(path, "cpu", algorithm="sac")
 
-    def test_kl_exceeding_threshold_stops_current_and_remaining_epochs_before_update(self):
-        agent = PPO(4, "cpu", PPOConfig(epochs=5, minibatch_size=3), mode="flat")
+    def test_kl_adapts_actor_learning_rate_and_never_stops_epochs(self):
+        cfg = PPOConfig(desired_kl=0.01, actor_lr=1e-3, lr_min=1e-4, lr_max=2e-3)
+        self.assertAlmostEqual(adapt_learning_rate(1e-3, 0.05, cfg), 1e-3 / 1.5)
+        self.assertEqual(adapt_learning_rate(1e-3, 0.01, cfg), 1e-3)
+        self.assertEqual(adapt_learning_rate(1.5e-3, 0.0, cfg), 2e-3)
+        self.assertEqual(adapt_learning_rate(1e-4, 1.0, cfg), 1e-4)
+        agent = PPO(4, "cpu", PPOConfig(epochs=5, minibatch_size=3, actor_lr=1e-3), mode="flat")
         batch = make_batch(agent)
-        batch.old_log_prob += 2
-        before = [p.clone() for p in agent.actor.parameters()]
+        batch.old_mu += 3  # Far-off behaviour policy: every minibatch lowers the learning rate.
         result = agent.update(batch)
-        self.assertEqual(result["kl_early_stop"], 1)
-        self.assertEqual(result["kl_early_stops"], 1)
-        self.assertEqual(result["epochs_completed"], 0)
-        self.assertEqual(result["minibatches"], 0)
-        self.assertGreater(result["max_minibatch_kl"], agent.config.target_kl)
-        self.assertGreater(result["global_kl"], agent.config.target_kl)
-        self.assertTrue(all(torch.equal(a, b) for a, b in zip(before, agent.actor.parameters())))
+        self.assertEqual(result["minibatches"], 20)
+        self.assertAlmostEqual(result["actor_lr"], max(agent.config.lr_min, 1e-3 / 1.5 ** 20))
+        self.assertEqual(agent.actor_optimizer.param_groups[0]["lr"], result["actor_lr"])
+
+    def test_state_independent_std_init_and_normalizer_updates_after_epochs(self):
+        agent = PPO(3, "cpu", PPOConfig(init_std=0.5, minibatch_size=4), mode="flat")
+        obs = torch.randn(5, 3) * 4 + 2
+        normal = agent.actor.distribution(obs)
+        torch.testing.assert_close(normal.scale, torch.full((5, 7), 0.5))
+        self.assertLess(float(normal.loc.abs().max()), 1.)  # Output gain 0.01 keeps initial means near zero.
+        self.assertIs(agent.actor.normalizer, agent.value.normalizer)
+        batch = make_batch(agent, 64)
+        batch.obs = batch.obs * 3 + 5
+        seen = []
+        real = agent.actor.distribution
+        agent.actor.distribution = lambda o: (seen.append(agent.normalizer.count.clone()), real(o))[1]
+        agent.update(batch)
+        self.assertTrue(all(count == 0 for count in seen))
+        torch.testing.assert_close(agent.normalizer.mean, batch.obs.mean(0))
+        normalizer = ObservationNormalizer(2)
+        data = torch.randn(30, 2) * torch.tensor([1., 0.]) + torch.tensor([0., 7.])
+        normalizer.update(data[:10])
+        normalizer.update(data[10:])
+        torch.testing.assert_close(normalizer.mean, data.mean(0))
+        torch.testing.assert_close(normalizer.var, data.var(0, correction=0))
+        self.assertTrue(torch.isfinite(normalizer(data)).all())
+        self.assertEqual(float(normalizer(data)[:, 1].abs().max()), 0.)
 
     def test_saturated_actions_have_reproducible_finite_log_probability(self):
         agent = PPO(4, "cpu", mode="flat")
@@ -190,7 +218,7 @@ class PPOTests(unittest.TestCase):
     def test_legacy_sac_without_algorithm_loads_and_rejects_ppo_resume(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sac.pt"
-            SAC(4, "cpu", mode="flat").save(path, metadata={}, transitions=2)
+            SAC(65, "cpu", mode="flat").save(path, metadata={}, transitions=2)
             saved = torch.load(path, weights_only=False)
             del saved["algorithm"]
             torch.save(saved, path)
@@ -275,7 +303,8 @@ class PPOTests(unittest.TestCase):
             stack.enter_context(patch("lastmile_dataflow.station_map.rl.monitor.time", SimpleNamespace(monotonic=clock)))
             stack.enter_context(patch(prefix + "resolve_config", side_effect=lambda value: value))
             stack.enter_context(patch(prefix + "seed_all"))
-            stack.enter_context(patch(prefix + "training_metadata", return_value={"state_dim": 4}))
+            stack.enter_context(patch(prefix + "training_metadata", return_value={"state_dim": 4, "action_dim": 7}))
+            stack.enter_context(patch(prefix + "record_grasp_subset"))
             stack.enter_context(patch(prefix + "policy_observation", return_value=torch.zeros(1, 4)))
             stack.enter_context(patch(prefix + "PPO", return_value=agent))
             stack.enter_context(patch(prefix + "RolloutBatch.concatenate"))
