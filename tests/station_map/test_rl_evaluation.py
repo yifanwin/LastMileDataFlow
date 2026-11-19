@@ -392,7 +392,7 @@ class FlatParallelEvaluationTests(unittest.TestCase):
         self.assertEqual([r["seed"] for r in rows], [42, 43])
         self.assertAlmostEqual(rows[0]["first_simultaneous_contact_s"], 0.1)
         self.assertIsNone(rows[1]["first_simultaneous_contact_s"])
-        self.assertEqual(len(rows[0]["reward_component_names"]), 7)
+        self.assertEqual(len(rows[0]["reward_component_names"]), 8)
         self.assertNotIn("grasp_source", rows[0])
         self.assertTrue(torch.all(env.actions[1][0] == 0))
 
@@ -442,14 +442,15 @@ class FlatParallelEvaluationTests(unittest.TestCase):
     def test_parallel_override_keeps_checkpoint_configuration_check(self):
         from lastmile_dataflow.station_map.rl.evaluation import evaluate
 
-        config = {"evaluation": {"seed": 42}}
+        config = {"evaluation": {"seed": 42, "station_count": 20}, "scene": {"lift": 0.2}}
+        saved = {"evaluation": {"seed": 42, "station_count": 4}, "scene": {"lift": 0.3}}
         with patch("lastmile_dataflow.station_map.rl.evaluation.resolve_config", side_effect=lambda c: c), patch(
-            "lastmile_dataflow.station_map.rl.evaluation.SAC.load", return_value=(SimpleNamespace(mode="flat"), {"metadata": {"config": {}}})
-        ) as load, patch("lastmile_dataflow.station_map.rl.evaluation.evaluate_flat") as flat:
+            "lastmile_dataflow.station_map.rl.evaluation.SAC.load", return_value=(SimpleNamespace(mode="flat"), {"metadata": {"config": saved}})
+        ), patch("lastmile_dataflow.station_map.rl.evaluation.evaluate_flat") as flat:
             with self.assertRaisesRegex(ValueError, "checkpoint effective configuration"):
                 evaluate(config, checkpoint="best.pt", scores=None, gpu=0, output="unused", num_envs=3)
             flat.assert_not_called()
-            load.return_value[1]["metadata"]["config"] = config
+            saved["scene"]["lift"] = 0.2  # Only the evaluation protocol differs now.
             evaluate(config, checkpoint="best.pt", scores=None, gpu=0, output="unused", num_envs=3)
             self.assertEqual(flat.call_args.kwargs["num_envs"], 3)
-            self.assertEqual(config, {"evaluation": {"seed": 42}})
+            self.assertEqual(config, {"evaluation": {"seed": 42, "station_count": 20}, "scene": {"lift": 0.2}})

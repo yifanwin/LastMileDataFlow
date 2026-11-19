@@ -44,14 +44,15 @@ def main():
                 action = torch.zeros(2, 10, device=env.device)
                 action[:, 6] = -1
                 action[:, dimension] = sign
-                max_command_speed = 0.
+                max_command_step = 0.
                 max_command_yaw = 0.
                 for _ in range(20):
+                    measured = env.task.robot.data.joint_pos[:, env.task.base_joints].clone()
                     observations, _, terminated, truncated, _ = env.step(action)
                     assert torch.isfinite(observations["policy"]["flat"]).all()
-                    command = env.action_manager.get_term("base").command_velocity
-                    max_command_speed = max(max_command_speed, float(command[:, :2].norm(dim=-1).max()))
-                    max_command_yaw = max(max_command_yaw, float(command[:, 2].abs().max()))
+                    lead = env.action_manager.get_term("base").command - measured
+                    max_command_step = max(max_command_step, float(lead[:, :2].norm(dim=-1).max()))
+                    max_command_yaw = max(max_command_yaw, float(lead[:, 2].abs().max()))
                     assert not env.task.unhealthy.any()
                     if terminated.any() or truncated.any():
                         break
@@ -66,13 +67,15 @@ def main():
                 row = {"control": label, "sign": sign, "delta_xyyaw_lift": delta.cpu().tolist(),
                        "delta_body_xy": body_delta.cpu().tolist(),
                        "tcp_local_change_m": (local_after - local_before).norm(dim=-1).cpu().tolist(),
-                       "max_command_speed_m_s": max_command_speed, "max_command_yaw_rad_s": max_command_yaw,
+                       "max_command_step_m": max_command_step, "max_command_yaw_rad": max_command_yaw,
                        "max_measured_speed_m_s": float(env.task.max_base_speed.max()),
                        "max_measured_yaw_rad_s": float(env.task.max_base_yaw_speed.max()),
                        "collision": (~env.task.collision_free).cpu().tolist(),
                        "out_of_bounds": env.task.out_of_bounds.cpu().tolist()}
                 result["controls"].append(row)
-                assert max_command_speed <= .200001 and max_command_yaw <= .500001
+                cfg = config["action"]
+                assert max_command_step <= cfg["base_translation_m"] + 1e-5
+                assert max_command_yaw <= cfg["base_yaw_rad"] + 1e-5
                 if label in ("forward", "side"):
                     assert float(body_delta[:, 0 if label == "forward" else 1].mean()) * sign > .005
                 elif label == "yaw":

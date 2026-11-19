@@ -9,24 +9,28 @@ from mjlab.managers.action_manager import ActionTerm, ActionTermCfg
 from .scene import ROBOT_PREFIX
 
 
-def base_velocity(actions, rotation, translation_m_s, yaw_rad_s):
-    """Limit XY vector magnitude, then rotate body-frame velocity into world axes."""
+def base_delta(actions, rotation, translation_m, yaw_rad):
+    """Limit XY vector magnitude, then rotate the body-frame step into world axes."""
     xy = actions[:, :2] / actions[:, :2].norm(dim=-1, keepdim=True).clamp(min=1)
-    world = torch.einsum("bij,bj->bi", rotation[:, :2, :2], xy) * translation_m_s
-    return torch.cat((world, actions[:, 2:3] * yaw_rad_s), -1)
+    world = torch.einsum("bij,bj->bi", rotation[:, :2, :2], xy) * translation_m
+    return torch.cat((world, actions[:, 2:3] * yaw_rad), -1)
 
 
 @dataclass(kw_only=True)
 class MobileBaseCfg(ActionTermCfg):
-    translation_m_s: float
-    yaw_rad_s: float
+    translation_m: float
+    yaw_rad: float
 
     def build(self, env):
         return MobileBase(self, env)
 
 
 class MobileBase(ActionTerm):
-    """Integrate a base velocity reference using the existing position servos."""
+    """Per policy step, servo the base to its measured pose plus a body-frame delta.
+
+    Like the TCP delta, the target is re-anchored to the measured state each step,
+    so a blocked base never accumulates an unobserved command lead.
+    """
 
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
@@ -37,7 +41,6 @@ class MobileBase(ActionTerm):
         self.base = env.sim.mj_model.site(ROBOT_PREFIX + "base_site").id
         self._raw = torch.zeros(self.num_envs, 3, device=self.device)
         self.command = self._entity.data.joint_pos[:, self.ids].clone()
-        self.command_velocity = torch.zeros_like(self.command)
 
     @property
     def action_dim(self):
@@ -49,19 +52,17 @@ class MobileBase(ActionTerm):
 
     def process_actions(self, actions):
         self._raw[:] = actions.clamp(-1, 1)
+        rotation = self._env.sim.data.site_xmat[:, self.base].reshape(-1, 3, 3)
+        self.command[:] = self._entity.data.joint_pos[:, self.ids] + base_delta(
+            self._raw, rotation, self.cfg.translation_m, self.cfg.yaw_rad,
+        )
 
     def apply_actions(self):
-        rotation = self._env.sim.data.site_xmat[:, self.base].reshape(-1, 3, 3)
-        self.command_velocity[:] = base_velocity(
-            self._raw, rotation, self.cfg.translation_m_s, self.cfg.yaw_rad_s,
-        )
-        self.command += self.command_velocity * self._env.physics_dt
         self._entity.set_joint_position_target(self.command, joint_ids=self.ids)
 
     def reset(self, env_ids=None):
         ids = slice(None) if env_ids is None else env_ids
         self._raw[ids] = 0
-        self.command_velocity[ids] = 0
         self.command[ids] = self._entity.data.joint_pos[ids][:, self.ids]
 
 

@@ -312,6 +312,9 @@ class TaskState:
         self.dropped = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.drop_event = torch.zeros_like(self.dropped)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
+        self.collision_run = torch.zeros(n, device=self.device)
+        self.collision_limited = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.failure_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         if self.contact_protocol:
             # Keep the physical tabletop fixed independently of each episode baseline.
             cube = env.research_config["scene"].get("cube")
@@ -632,6 +635,12 @@ class TaskState:
                 self.drop_event |= dropped
                 self.dropped |= dropped
             self.failed |= fixed_failure | dropped
+            # Optional cap on one continuous collision; exceeding it is a failure.
+            limit = cfg.get("collision_limit_s")
+            if limit is not None:
+                self.collision_run[:] = torch.where(collision, self.collision_run + self.env.physics_dt, 0.0)
+                self.collision_limited |= self.collision_run >= limit - 1e-9
+                self.failed |= self.collision_limited
             data = self.env.sim.data
             self.unhealthy |= (data.overflow != 0) | ~(
                 torch.isfinite(data.qpos).all(-1) & torch.isfinite(data.qvel).all(-1)
@@ -711,10 +720,11 @@ class TaskState:
             gripper_width=(q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None],
             gripper_velocity=(v[:, self.fingers[0]] - v[:, self.fingers[1]])[:, None],
             last_action=self.last_action,
-            base_velocity=(self.base_velocity() / torch.tensor([
-                self.env.research_config["action"]["base_translation_m_s"],
-                self.env.research_config["action"]["base_translation_m_s"],
-                self.env.research_config["action"]["base_yaw_rad_s"],
+            # Nominal speed = per-step delta limit / policy step.
+            base_velocity=(self.base_velocity() * self.env.step_dt / torch.tensor([
+                self.env.research_config["action"]["base_translation_m"],
+                self.env.research_config["action"]["base_translation_m"],
+                self.env.research_config["action"]["base_yaw_rad"],
             ], device=self.device)) if getattr(self, "mobile_base", False) else None,
         )
         geometry = (
@@ -872,6 +882,9 @@ def reset(env, env_ids):
         "step_lift",
         "held_time",
         "pregrasp_reached",
+        "collision_run",
+        "collision_limited",
+        "failure_paid",
     ):
         getattr(task, name)[ids] = 0
     if hasattr(task, "drop_event"):
@@ -905,6 +918,13 @@ def reward(env):
         cfg = env.research_config["reward"]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
+        # One-off failure penalty only for causes without a dedicated one (out of bounds, collision limit).
+        drop_event = getattr(task, "drop_event", torch.zeros_like(task.success))
+        dedicated = drop_event & (cfg.get("drop_penalty", 0.0) > 0)
+        if getattr(task, "typed", False):
+            dedicated = dedicated | task.stuck_event
+        failure_event = task.failed & ~task.failure_paid & ~dedicated
+        task.failure_paid |= task.failed
         near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
         _, distance = pregrasp_stage(task, dp, angle, cfg, advance=True)
         q = task.robot.data.joint_pos
@@ -923,7 +943,7 @@ def reward(env):
         lift_progress = peak - task.lift_peak
         task.lift_peak[:] = peak
         # Terminal penalties (stuck, dropped target) are charged in the collision component.
-        drop = cfg.get("drop_penalty", 0.0) * getattr(task, "drop_event", torch.zeros_like(task.success)).float()
+        drop = cfg.get("drop_penalty", 0.0) * drop_event.float()
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
@@ -933,6 +953,7 @@ def reward(env):
             cfg["close"] * closing_progress,
             cfg["grasp"] * task.step_contact,
             cfg["lift"] * lift_progress,
+            -cfg.get("failure", 0.0) * failure_event.float(),
         ), -1)
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle
@@ -1000,6 +1021,7 @@ def mobile_episode(task, index):
         return {}
     return {
         "out_of_bounds": bool(task.out_of_bounds[index]),
+        "collision_limited": bool(task.collision_limited[index]),
         "max_base_speed_m_s": float(task.max_base_speed[index]),
         "max_base_yaw_speed_rad_s": float(task.max_base_yaw_speed[index]),
         "base_xyyaw_world": task.fixed_state()[index, :3].cpu().tolist(),
