@@ -39,8 +39,8 @@ action:
   joint_limit_weight: 1.0
   lift_velocity_m_s: 0.05
   mobile_base: true
-  base_translation_m_s: 0.2
-  base_yaw_rad_s: 0.5
+  base_translation_m: 0.03
+  base_yaw_rad: 0.15
 reward:
   position: 20.0
   rotation: 5.0

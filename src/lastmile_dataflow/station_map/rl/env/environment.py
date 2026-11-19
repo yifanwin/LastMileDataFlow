@@ -201,8 +201,8 @@ class StationEnv(ManagerBasedRlEnv):
                 "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol),
                 **({"base": MobileBaseCfg(
                     entity_name=ROBOT_ENTITY,
-                    translation_m_s=action["base_translation_m_s"],
-                    yaw_rad_s=action["base_yaw_rad_s"],
+                    translation_m=action["base_translation_m"],
+                    yaw_rad=action["base_yaw_rad"],
                 )} if mobile else {}),
             },
             observations={

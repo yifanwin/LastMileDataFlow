@@ -436,10 +436,11 @@ class TaskState:
             gripper_width=(q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None],
             gripper_velocity=(v[:, self.fingers[0]] - v[:, self.fingers[1]])[:, None],
             last_action=self.last_action,
-            base_velocity=(self.base_velocity() / torch.tensor([
-                self.env.research_config["action"]["base_translation_m_s"],
-                self.env.research_config["action"]["base_translation_m_s"],
-                self.env.research_config["action"]["base_yaw_rad_s"],
+            # Nominal speed = per-step delta limit / policy step.
+            base_velocity=(self.base_velocity() * self.env.step_dt / torch.tensor([
+                self.env.research_config["action"]["base_translation_m"],
+                self.env.research_config["action"]["base_translation_m"],
+                self.env.research_config["action"]["base_yaw_rad"],
             ], device=self.device)) if getattr(self, "mobile_base", False) else None,
         )
         return build_flat_observation(

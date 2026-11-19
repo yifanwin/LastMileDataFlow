@@ -65,8 +65,8 @@ def flat_fields(state_dim):
         return FLAT_FIELDS + WORLD_STATE_FIELDS
     if state_dim == 75:
         return FLAT_FIELDS[:-1] + (("previous_action", 10, 1.0),) + WORLD_STATE_FIELDS + (
-            ("base_linear_velocity_body_xy", 2, "action.base_translation_m_s"),
-            ("base_yaw_velocity", 1, "action.base_yaw_rad_s"),
+            ("base_linear_velocity_body_xy", 2, "action.base_translation_m/step_dt"),
+            ("base_yaw_velocity", 1, "action.base_yaw_rad/step_dt"),
         )
     raise ValueError("Flat observation definition requires 65, 69 or 75 dimensions")
 
