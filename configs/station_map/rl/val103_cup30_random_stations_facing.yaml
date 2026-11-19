@@ -58,10 +58,12 @@ reward:
   # the cup, empty pad-to-pad closing; medium: palm on the cup, fingers on the support table;
   # large: other robot links on the cup, robot on the scene (table except fingers, obstacles), self.
   # Pad and inner-face finger contacts with the cup and cup-table contact are not penalized.
+  # Sustained 0.5 per 0.05 s step (10 per second) makes resting in contact cost one success
+  # (+44) within about 4.4 s; the stuck termination bounds a truly stuck episode near -20..-30.
   collision_tiers:
-    small: [0.5, 0.05]
-    medium: [0.8, 0.08]
-    large: [1.0, 0.1]
+    small: [0.5, 0.1]
+    medium: [0.8, 0.5]
+    large: [1.0, 0.5]
   collision_rearm_s: 0.25
   # A finger-body contact is inner when its normal is within 60 degrees of the closing direction.
   finger_inner_cos: 0.5
@@ -91,7 +93,7 @@ training:
   transitions_per_update: 128
   debug_station_ids: []
   log_every: 10000
-  max_transitions: 8000000
+  max_transitions: 5000000
   tensorboard_every_seconds: 30
   validation_stations: 1
   validation_rollouts_per_station: 16
