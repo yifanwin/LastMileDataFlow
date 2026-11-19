@@ -12,7 +12,9 @@ from .observation import (
 )
 from .stations import prepare_stations, station_mocap_poses
 from .mobile import LocalBoundary
-from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, sample_grasps, select_grasps
+from lastmile_dataflow.operation.grasps import (
+    DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, load_symmetry, sample_grasps, select_grasps,
+)
 from lastmile_dataflow.utils.io import repo_path
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
@@ -65,7 +67,64 @@ def grasp_episode(task, index):
     if not hasattr(task, "grasps"):
         return {}
     candidate = task.grasps[int(task.grasp_ids[index])]
-    return {"grasp_source": candidate["source"], "grasp_row": candidate["row"]}
+    record = {"grasp_source": candidate["source"], "grasp_row": candidate["row"]}
+    if getattr(task, "grasp_variants", None) is not None:
+        record["grasp_variant"] = task.grasp_variant_info[int(task.grasp_variant[index])]
+    return record
+
+
+def axis_rotations(axis, angles):
+    """Rodrigues rotations about one unit axis, (len(angles), 3, 3)."""
+    k = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]],
+                     dtype=angles.dtype, device=angles.device)
+    s, c = angles.sin()[:, None, None], angles.cos()[:, None, None]
+    return torch.eye(3, dtype=angles.dtype, device=angles.device) + s * k + (1 - c) * (k @ k)
+
+
+def grasp_variants(symmetry, steps, device):
+    """Equivalent object-local transforms of a candidate: finger swap (TCP z by pi) for every object,
+    times rotation about the object's symmetry axis for axisymmetric objects."""
+    angles = torch.linspace(0, 2 * np.pi, steps + 1, device=device)[:-1] if symmetry else torch.zeros(1, device=device)
+    axis = symmetry[0] if symmetry else np.array([0, 0, 1.0])
+    centre = torch.tensor(symmetry[1] if symmetry else np.zeros(3), dtype=torch.float32, device=device)
+    about_axis = axis_rotations(axis, angles.float())
+    flips = torch.stack((torch.eye(3, device=device), torch.diag(torch.tensor([-1., -1, 1], device=device))))
+    info = [{"axis_rotation_rad": float(a), "finger_swap": bool(f)} for a in angles.tolist() for f in (0, 1)]
+    return SimpleNamespace(axis=about_axis.repeat_interleave(2, 0), flip=flips.repeat(len(angles), 1, 1),
+                           centre=centre, info=info)
+
+
+def align_grasp_targets(task, ids, tcp_rotation, target_rotation):
+    """Replace each episode's candidate by its equivalent variant closest to the current TCP rotation."""
+    v = task.grasp_variants
+    position = task.grasp_positions[task.grasp_ids[ids]]
+    rotation = task.grasp_rotations[task.grasp_ids[ids]]
+    local = v.axis[None] @ rotation[:, None] @ v.flip[None]                       # (n, V, 3, 3)
+    world = target_rotation[ids, None] @ local
+    agreement = torch.einsum("nij,nvij->nv", tcp_rotation[ids], world)            # trace(R_tcp^T R_goal)
+    best = agreement.argmax(-1)
+    task.grasp_variant[ids] = best
+    task.grasp_rotation[ids] = local[torch.arange(len(ids)), best]
+    task.grasp_position[ids] = v.centre + torch.einsum("nij,nj->ni", v.axis[best], position - v.centre)
+
+
+def pregrasp_stage(task, dp, angle, cfg, *, advance):
+    """Position error and potential distance to the current target: pregrasp, then grasp.
+
+    The pregrasp keeps the grasp orientation and lies offset metres back along the approach
+    axis. Adding the offset to its distance keeps the potential continuous at the latched switch.
+    """
+    offset = cfg.get("pregrasp_offset_m")
+    if not offset:
+        return dp, dp.norm(dim=-1)
+    pdp, _ = task.goal_error(-offset)
+    if advance:
+        task.pregrasp_reached |= (
+            (pdp.norm(dim=-1) < cfg["pregrasp_tolerance_m"]) & (angle < cfg["pregrasp_tolerance_rad"])
+        )
+    reached = task.pregrasp_reached
+    return (torch.where(reached[:, None], dp, pdp),
+            torch.where(reached, dp.norm(dim=-1), pdp.norm(dim=-1) + offset))
 
 
 def pregrasp_stage(task, dp, angle, cfg, *, advance):
@@ -283,6 +342,11 @@ class TaskState:
         self.requested_grasp_ids = None
         self.grasp_position = torch.zeros(n, 3, device=self.device)
         self.grasp_rotation = torch.eye(3, device=self.device).repeat(n, 1, 1)
+        self.grasp_variants = None
+        if grasp.get("align_to_tcp"):
+            self.grasp_variants = grasp_variants(load_symmetry(path), grasp.get("axis_steps", 72), self.device)
+            self.grasp_variant_info = self.grasp_variants.info
+            self.grasp_variant = torch.zeros(n, dtype=torch.long, device=self.device)
         if grasp.get("preprocessed_path"):
             pool = sample_grasps(self.grasps, grasp.get("sample_count", DEFAULT_FPS_COUNT),
                                  seed=grasp.get("sample_seed", DEFAULT_FPS_SEED))
@@ -488,6 +552,9 @@ class TaskState:
     def flat_state(self):
         """Return base-frame state, optionally followed by world XY/yaw and lift metres."""
         tcp_p, tcp_r, base_p, base_r, cube_p, cube_r = self.poses()
+        if getattr(self, "grasp_variants", None) is not None and self.needs_baseline.any():
+            # The first observation after reset sees the actual start TCP; the choice is fixed per episode.
+            align_grasp_targets(self, self.needs_baseline.nonzero(as_tuple=True)[0], tcp_r, cube_r)
         dp, dr = self.goal_error()
         angle = dr.norm(dim=-1)
         dp, distance = pregrasp_stage(self, dp, angle, self.env.research_config["reward"], advance=False)

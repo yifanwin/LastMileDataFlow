@@ -9,7 +9,9 @@ import time
 import mujoco
 import numpy as np
 
-from lastmile_dataflow.sim.model.geometry import descendants
+from types import SimpleNamespace
+
+from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 from lastmile_dataflow.sim.model.mjcf import load_spec
 from lastmile_dataflow.sim.source import SceneSource, instance_catalog, resolve_target
 from lastmile_dataflow.utils.io import create_run, write_json
@@ -94,9 +96,42 @@ def hand_clearance(model, data, probe, targets, goal, distmax):
     return min(mujoco.mj_geomDistance(model, data, hand, g, distmax, None) for g in targets)
 
 
+def outer_radius(model, data, geoms, start, direction):
+    """Distance from a ray start to the first hit on any of the geoms, inf when missed."""
+    hits = []
+    for g in geoms:
+        if model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+            hits.append(mujoco.mj_rayMesh(model, data, g, start, direction))
+        else:
+            hits.append(mujoco.mju_rayGeom(data.geom_xpos[g], data.geom_xmat[g], model.geom_size[g],
+                                           start, direction, int(model.geom_type[g])))
+    return min((h for h in hits if h >= 0), default=np.inf)
+
+
+def object_symmetry(model, data, geoms, points, *, azimuths=36, levels=12, reach_m=0.5, tolerance_m=0.002):
+    """Axisymmetry about the world vertical: at each height, horizontal rays from every azimuth toward
+    the axis must meet the outer surface at equal radius. The axis passes the XY box centre of `points`.
+    Returns (symmetric, world centre on the axis, max radius spread in metres)."""
+    centre = np.array([*(points[:, :2].max(0) + points[:, :2].min(0)) / 2, 0.0])
+    low, high = points[:, 2].min(), points[:, 2].max()
+    spread = 0.0
+    for z in np.linspace(low, high, levels + 2)[1:-1]:
+        radii = []
+        # Offset azimuths so rays do not graze mesh edges exactly.
+        for angle in np.linspace(0, 2 * np.pi, azimuths, endpoint=False) + 0.1:
+            outward = np.array([np.cos(angle), np.sin(angle), 0.0])
+            start = centre + [0, 0, z] + reach_m * outward
+            radii.append(reach_m - outer_radius(model, data, geoms, start, -outward))
+        radii = np.array(radii)
+        if np.isinf(radii).all():
+            continue
+        spread = max(spread, float(np.ptp(radii)) if np.isfinite(radii).all() else np.inf)
+    return spread <= tolerance_m, centre, spread
+
+
 def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, robot_scale,
                       roll_rad, resolution, min_hit_ratio, fps_count, fps_seed,
-                      position_scale_m, rotation_scale_rad, hand_clearance_m):
+                      position_scale_m, rotation_scale_rad, hand_clearance_m, symmetry_tolerance_m=0.002):
     """Write an object-local library; the input scene only supplies object geometry."""
     if resolution < 2 or not 0 <= min_hit_ratio <= 1:
         raise ValueError("Require resolution >= 2 and min_hit_ratio in [0, 1]")
@@ -106,7 +141,7 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
                   robot_config=robot_config, robot_scale=robot_scale, roll_rad=roll_rad,
                   resolution=resolution, min_hit_ratio=min_hit_ratio, fps_count=fps_count,
                   fps_seed=fps_seed, position_scale_m=position_scale_m, rotation_scale_rad=rotation_scale_rad,
-                  hand_clearance_m=hand_clearance_m)
+                  hand_clearance_m=hand_clearance_m, symmetry_tolerance_m=symmetry_tolerance_m)
     output = create_run(output, config)
     hand = panda_hand(robot_config, robot_scale)
     spec = load_spec(scene)
@@ -125,6 +160,12 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
         raise ValueError("Target has no visual mesh")
     targets = [g for g in range(model.ngeom) if model.geom_bodyid[g] in bodies
                and (model.geom_contype[g] or model.geom_conaffinity[g])]
+    rotation = data.xmat[body].reshape(3, 3)
+    points = np.concatenate([geom_points(SimpleNamespace(model=model, data=data), g) for g in targets])
+    symmetric, centre, deviation = object_symmetry(model, data, targets, points, tolerance_m=symmetry_tolerance_m)
+    up_local = rotation.T @ [0, 0, 1.0]  # The scene places the object upright.
+    centre[2] = data.xpos[body][2]
+    centre = rotation.T @ (centre - data.xpos[body])
     starts, ends, valid = pad_rays(hand, resolution)
     candidates = load_grasps(grasps, model.body(body).name)
     object_world = np.eye(4)
@@ -153,7 +194,8 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
              source_rows=np.array([c["row"] for c in pool], dtype=int), source=str(Path(grasps).resolve()),
              robot_scale=robot_scale, roll_rad=roll_rad, resolution=resolution,
              min_hit_ratio=min_hit_ratio, fps_count=fps_count, fps_seed=fps_seed,
-             hand_clearance_m=hand_clearance_m)
+             hand_clearance_m=hand_clearance_m, axisymmetric=symmetric,
+             symmetry_axis_local=up_local, symmetry_center_local=centre, symmetry_deviation_m=deviation)
     with (output / "checks.csv").open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=("source_row", "paired_hits", "rays", "hit_ratio",
                                                     "hand_distance_m", "accepted"))
@@ -163,7 +205,8 @@ def preprocess_grasps(scene, metadata, target, grasps, output, *, robot_config, 
                    accepted_count=len(accepted), pool_count=len(pool), required_hits=required,
                    source_rows=[c["row"] for c in pool], target_body=model.body(body).name,
                    frame="target_body_local", transforms_include_roll=False,
-                   pad_endpoint_valid_count=int(valid.sum()), elapsed_s=time.monotonic() - started,
+                   pad_endpoint_valid_count=int(valid.sum()), axisymmetric=bool(symmetric),
+                   symmetry_axis_local=up_local.tolist(), symmetry_deviation_m=float(deviation), elapsed_s=time.monotonic() - started,
                    scope="pad rays on target visual mesh; open-hand palm clearance to target collision geoms; "
                          "no scene obstacles, reachability or dynamics")
     write_json(output / "summary.json", summary)

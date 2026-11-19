@@ -32,6 +32,14 @@ def load_grasps(path, body, max_rows=None):
     return result
 
 
+def load_symmetry(path):
+    """Object-local symmetry axis and a point on it, or None when the object is not axisymmetric."""
+    with np.load(path, allow_pickle=False) as source:
+        if "axisymmetric" not in source or not bool(source["axisymmetric"]):
+            return None
+        return source["symmetry_axis_local"].astype(float), source["symmetry_center_local"].astype(float)
+
+
 def sample_grasps(candidates, count, *, seed):
     """Uniform subset without replacement, shared by training and calibration."""
     if not isinstance(count, int) or isinstance(count, bool) or count <= 0:

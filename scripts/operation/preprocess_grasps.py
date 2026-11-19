@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--position-scale-m", type=float, default=0.1)
     parser.add_argument("--rotation-scale-rad", type=float, default=math.pi / 2)
     parser.add_argument("--hand-clearance-m", type=float, default=0.003)
+    parser.add_argument("--symmetry-tolerance-m", type=float, default=0.002)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -34,6 +35,7 @@ def main():
         resolution=args.resolution, min_hit_ratio=args.min_hit_ratio, fps_count=args.fps_count,
         fps_seed=args.fps_seed, position_scale_m=args.position_scale_m,
         rotation_scale_rad=args.rotation_scale_rad, hand_clearance_m=args.hand_clearance_m,
+        symmetry_tolerance_m=args.symmetry_tolerance_m,
     )
     print(result)
 
