@@ -115,6 +115,22 @@ class RewardTests(unittest.TestCase):
         torch.testing.assert_close(task.reward_components[0, 4:], torch.zeros(3))
         torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(3))
 
+    def test_pregrasp_stage_latches_with_continuous_potential(self):
+        env = self.contact_reward_env([0.10], [0.0], [0.0])
+        task, cfg = env.task, env.research_config["reward"]
+        cfg.update(pregrasp_offset_m=0.1, pregrasp_tolerance_m=0.02, pregrasp_tolerance_rad=0.2)
+        task.pregrasp_reached = torch.zeros(1, dtype=torch.bool)
+        grasp_dp = torch.tensor([[0.0, 0.0, 0.10]])
+        task.goal_error = lambda offset=0.0: (grasp_dp + torch.tensor([[0.0, 0.0, offset]]), torch.zeros(1, 3))
+        task.previous_distance[:] = 0.11
+        reward(env)  # Pregrasp error 0 reaches the stage; the grasp distance 0.10 equals offset + 0.
+        self.assertTrue(bool(task.pregrasp_reached[0]))
+        torch.testing.assert_close(task.reward_components[0, 0], torch.tensor(20 * 0.01))
+        grasp_dp = torch.tensor([[0.0, 0.0, 0.05]])  # Moving away from the pregrasp keeps the stage.
+        reward(env)
+        self.assertTrue(bool(task.pregrasp_reached[0]))
+        torch.testing.assert_close(task.reward_components[0, 0], torch.tensor(20 * 0.05))
+
     def test_closing_uses_actual_progress_with_strict_pose_gate(self):
         env = self.contact_reward_env(
             [0.02, 0.03, 0.02, 0.04], [0., 0., 20 * torch.pi / 180, 0.],

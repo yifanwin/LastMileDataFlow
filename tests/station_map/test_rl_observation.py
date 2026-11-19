@@ -23,7 +23,7 @@ class GeometryTests(unittest.TestCase):
     def test_flat_state_field_values_and_base_rotation(self):
         task = TaskState.__new__(TaskState)
         task.device = "cpu"
-        task.env = SimpleNamespace(num_envs=1, research_config={"scene": {"cube": {"size_m": 0.04}}},
+        task.env = SimpleNamespace(num_envs=1, research_config={"scene": {"cube": {"size_m": 0.04}}, "reward": {}},
                                    cfg=SimpleNamespace(episode_length_s=10))
         yaw = torch.tensor([[[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]])
         identity = torch.eye(3)[None]

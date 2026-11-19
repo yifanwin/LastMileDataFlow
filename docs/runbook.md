@@ -78,8 +78,8 @@ MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/preprocess_grasps.
   --target Cup_30 \
   --grasps /data1/wenyifan/lmdf/molmospaces_data/mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz \
   --robot-config configs/robots/panda_omron.yaml --robot-scale 0.9 \
-  --roll-rad 1.5707963267948966 --resolution 21 --min-hit-ratio 0.3 --fps-count 128 \
-  --output outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-fps128
+  --roll-rad 1.5707963267948966 --resolution 21 --min-hit-ratio 0.3 --hand-clearance-m 0.003 --fps-count 128 \
+  --output outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-fps128
 ```
 
 RL的`grasp.preprocessed_path`指向生成的`grasps.npz`，路径相对仓库根目录。`grasp.sample_count`（默认16）和`grasp.sample_seed`（默认42）控制训练/评估开始前的均匀无放回抽样，不再FPS；所有站位共用该子集，episode再从中均匀选一条并固定。

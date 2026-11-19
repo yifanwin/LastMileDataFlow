@@ -3,9 +3,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+import mujoco
 import numpy as np
 import torch
-from lastmile_dataflow.station_map.rl.env.terms import TaskState, reset_grasp_targets
+from lastmile_dataflow.station_map.rl.env.terms import TaskState, reset_grasp_targets, grasp_variants, align_grasp_targets
+from lastmile_dataflow.operation.grasp_preprocessing import object_symmetry
 from lastmile_dataflow.operation.grasps import sample_grasps
 
 
@@ -103,3 +105,52 @@ class RealObjectGraspTests(unittest.TestCase):
             dp, dr = pose_goal_error(poses, local_p, z90)
             torch.testing.assert_close(dp, torch.zeros_like(dp), atol=1e-6, rtol=0)
             torch.testing.assert_close(dr, torch.zeros_like(dr), atol=1e-6, rtol=0)
+
+
+def rz(angle):
+    c, s = np.cos(angle), np.sin(angle)
+    return torch.tensor([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=torch.float32)
+
+
+class GraspAlignmentTests(unittest.TestCase):
+    def stub(self, symmetry, steps=72):
+        rotation = torch.tensor([[1., 0, 0], [0, -1, 0], [0, 0, -1]])  # Approach straight down.
+        return SimpleNamespace(
+            grasp_positions=torch.tensor([[0.05, 0., 0.1]]), grasp_rotations=rotation[None],
+            grasp_ids=torch.zeros(1, dtype=torch.long), grasp_position=torch.zeros(1, 3),
+            grasp_rotation=torch.zeros(1, 3, 3), grasp_variant=torch.zeros(1, dtype=torch.long),
+            grasp_variants=grasp_variants(symmetry, steps, "cpu"),
+        ), rotation
+
+    def test_axisymmetric_candidate_turns_to_start_tcp(self):
+        task, rotation = self.stub((np.array([0, 0, 1.]), np.zeros(3)))
+        theta = np.deg2rad(135)
+        tcp = (rz(theta) @ rotation @ rz(np.pi))[None]   # Swapped fingers and another azimuth.
+        align_grasp_targets(task, torch.tensor([0]), tcp, torch.eye(3)[None])
+        torch.testing.assert_close(task.grasp_rotation[0], tcp[0], atol=1e-5, rtol=0)
+        torch.testing.assert_close(task.grasp_position[0], rz(theta) @ torch.tensor([0.05, 0., 0.1]), atol=1e-6, rtol=0)
+        info = task.grasp_variants.info[int(task.grasp_variant[0])]
+        self.assertTrue(info["finger_swap"])
+        self.assertAlmostEqual(info["axis_rotation_rad"], theta, places=5)
+
+    def test_asymmetric_object_only_swaps_fingers(self):
+        task, rotation = self.stub(None)
+        self.assertEqual(len(task.grasp_variants.info), 2)
+        tcp = (rz(np.deg2rad(30)) @ rotation @ rz(np.pi))[None]
+        align_grasp_targets(task, torch.tensor([0]), tcp, torch.eye(3)[None])
+        torch.testing.assert_close(task.grasp_rotation[0], rotation @ rz(np.pi), atol=1e-6, rtol=0)
+        torch.testing.assert_close(task.grasp_position[0], torch.tensor([0.05, 0., 0.1]))
+
+    def test_symmetry_detection_rejects_a_handle(self):
+        angles = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+        ring = " ".join(f"{0.06 * np.cos(a):.5f} {0.06 * np.sin(a):.5f} {z}" for a in angles for z in (0, 0.1))
+        handle = '<geom type="box" size=".01 .005 .02" pos=".07 0 .05"/>'
+        for extra, expected in (("", True), (handle, False)):
+            model = mujoco.MjModel.from_xml_string(f"""<mujoco><asset><mesh name="cup" vertex="{ring}"/></asset>
+              <worldbody><body pos=".3 -.2 .7"><geom type="mesh" mesh="cup"/>{extra}</body></worldbody></mujoco>""")
+            data = mujoco.MjData(model)
+            mujoco.mj_forward(model, data)
+            points = np.array([[0.24, -0.26, 0.7], [0.36, -0.14, 0.8]])
+            symmetric, centre, _ = object_symmetry(model, data, list(range(model.ngeom)), points)
+            self.assertEqual(symmetric, expected)
+            np.testing.assert_allclose(centre[:2], [0.3, -0.2], atol=1e-9)
