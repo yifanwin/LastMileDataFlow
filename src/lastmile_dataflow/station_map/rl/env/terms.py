@@ -309,6 +309,8 @@ class TaskState:
         )
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.pregrasp_reached = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.dropped = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.drop_event = torch.zeros_like(self.dropped)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
         if self.contact_protocol:
             # Keep the physical tabletop fixed independently of each episode baseline.
@@ -535,6 +537,8 @@ class TaskState:
 
     def begin_step(self, action):
         self.step_collision.zero_()
+        if hasattr(self, "drop_event"):
+            self.drop_event.zero_()
         if getattr(self, "typed", False):
             self.step_classes.zero_()
             self.stuck_event.zero_()
@@ -622,7 +626,12 @@ class TaskState:
             self.contact_bonus_paid |= event
             fixed_failure = self.record_base_drift()
             self.control_failed |= fixed_failure
-            self.failed |= fixed_failure | (lift < -0.3)
+            # The target fell off its support (dropped or knocked down): a true terminal failure.
+            dropped = (lift < -cfg.get("drop_height_m", 0.3)) & ~self.failed & ~self.success
+            if hasattr(self, "drop_event"):
+                self.drop_event |= dropped
+                self.dropped |= dropped
+            self.failed |= fixed_failure | dropped
             data = self.env.sim.data
             self.unhealthy |= (data.overflow != 0) | ~(
                 torch.isfinite(data.qpos).all(-1) & torch.isfinite(data.qvel).all(-1)
@@ -865,6 +874,9 @@ def reset(env, env_ids):
         "pregrasp_reached",
     ):
         getattr(task, name)[ids] = 0
+    if hasattr(task, "drop_event"):
+        task.dropped[ids] = False
+        task.drop_event[ids] = False
     if task.contact_protocol:
         for name in ("closing_active", "closing_peak", "closing_paid"):
             getattr(task, name)[ids] = 0
@@ -910,11 +922,13 @@ def reward(env):
         peak = torch.where(both, torch.maximum(task.lift_peak, potential), task.lift_peak)
         lift_progress = peak - task.lift_peak
         task.lift_peak[:] = peak
+        # Terminal penalties (stuck, dropped target) are charged in the collision component.
+        drop = cfg.get("drop_penalty", 0.0) * getattr(task, "drop_event", torch.zeros_like(task.success)).float()
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
-            -(task.collision_penalty() + cfg["stuck"]["penalty"] * task.stuck_event.float()) if getattr(task, "typed", False)
-            else -cfg["collision"] * task.step_collision.float(),
+            -(task.collision_penalty() + cfg["stuck"]["penalty"] * task.stuck_event.float() + drop)
+            if getattr(task, "typed", False) else -cfg["collision"] * task.step_collision.float() - drop,
             cfg["success"] * success_event.float(),
             cfg["close"] * closing_progress,
             cfg["grasp"] * task.step_contact,
@@ -975,6 +989,7 @@ def collision_episode(task, index):
         return {}
     return {
         "stuck": bool(task.stuck[index]),
+        "dropped": bool(task.dropped[index]),
         "collision_class_s": dict(zip((name for name, _ in COLLISION_CLASSES), task.class_time[index].tolist())),
         "collision_onsets": dict(zip(COLLISION_TIERS, task.tier_onsets[index].int().tolist())),
     }

@@ -152,6 +152,14 @@ class RewardTests(unittest.TestCase):
         reward(env)
         torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([0.0, 1.5]))
 
+    def test_drop_event_is_a_one_off_penalty(self):
+        env = self.contact_reward_env([0.05, 0.05], [0.1, 0.1], [0.0, 0.0])
+        env.research_config["reward"]["drop_penalty"] = 20.0
+        env.task.drop_event = torch.tensor([True, False])
+        reward(env)
+        collision = CONTACT_REWARD_COMPONENTS.index("collision")
+        torch.testing.assert_close(env.task.reward_components[:, collision], torch.tensor([-21.0, -1.0]))
+
     def test_closing_uses_actual_progress_with_strict_pose_gate(self):
         env = self.contact_reward_env(
             [0.02, 0.03, 0.02, 0.04], [0., 0., 20 * torch.pi / 180, 0.],
