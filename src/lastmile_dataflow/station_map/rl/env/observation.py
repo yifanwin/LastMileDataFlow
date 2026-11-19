@@ -23,7 +23,7 @@ REWARD_COMPONENTS = (
     "held",
 )
 
-CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing", "grasp", "lift")
+CONTACT_REWARD_COMPONENTS = ("position", "orientation", "collision", "success", "closing", "grasp", "lift", "failure")
 
 CUBE_GRASP_ROTATION = ((0., 1., 0.), (1., 0., 0.), (0., 0., -1.))
 

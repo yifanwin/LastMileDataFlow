@@ -49,6 +49,10 @@ reward:
   close: 3.0
   grasp: 3.0
   lift: 8.0
+  # One-time penalty when an episode fails (out of bounds, cube dropped, collision limit).
+  failure: 30.0
+  # One continuous collision longer than this fails the episode.
+  collision_limit_s: 2.0
   grasp_distance_m: 0.03
   grasp_angle_rad: 0.3490658503988659
 sac:

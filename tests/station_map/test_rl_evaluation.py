@@ -390,7 +390,7 @@ class FlatParallelEvaluationTests(unittest.TestCase):
         self.assertEqual([r["seed"] for r in rows], [42, 43])
         self.assertAlmostEqual(rows[0]["first_simultaneous_contact_s"], 0.1)
         self.assertIsNone(rows[1]["first_simultaneous_contact_s"])
-        self.assertEqual(len(rows[0]["reward_component_names"]), 7)
+        self.assertEqual(len(rows[0]["reward_component_names"]), 8)
         self.assertNotIn("grasp_source", rows[0])
         self.assertTrue(torch.all(env.actions[1][0] == 0))
 

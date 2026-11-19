@@ -183,6 +183,9 @@ class TaskState:
         )
         self.contact_success_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.first_contact_time_s = torch.full((n,), -1.0, device=self.device, dtype=torch.float64)
+        self.collision_run = torch.zeros(n, device=self.device)
+        self.collision_limited = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.failure_paid = torch.zeros(n, dtype=torch.bool, device=self.device)
         if self.contact_protocol:
             # Cube creation places an upright box directly on the physical support.
             # Keep that tabletop fixed, independently of each episode's baseline.
@@ -361,6 +364,12 @@ class TaskState:
             fixed_failure = self.record_base_drift()
             self.control_failed |= fixed_failure
             self.failed |= fixed_failure | (lift < -0.3)
+            # Optional cap on one continuous collision; exceeding it is a failure.
+            limit = self.env.research_config["reward"].get("collision_limit_s")
+            if limit is not None:
+                self.collision_run[:] = torch.where(collision, self.collision_run + self.env.physics_dt, 0.0)
+                self.collision_limited |= self.collision_run >= limit - 1e-9
+                self.failed |= self.collision_limited
             data = self.env.sim.data
             self.unhealthy |= (data.overflow != 0) | ~(
                 torch.isfinite(data.qpos).all(-1) & torch.isfinite(data.qvel).all(-1)
@@ -592,6 +601,9 @@ def reset(env, env_ids):
         "step_contact",
         "step_lift",
         "held_time",
+        "collision_run",
+        "collision_limited",
+        "failure_paid",
     ):
         getattr(task, name)[ids] = 0
     if task.contact_protocol:
@@ -617,6 +629,8 @@ def reward(env):
         cfg = env.research_config["reward"]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
+        failure_event = task.failed & ~task.failure_paid
+        task.failure_paid |= failure_event
         near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
         q = task.robot.data.joint_pos
         closing = (1 - (q[:, task.fingers[0]] - q[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
@@ -638,6 +652,7 @@ def reward(env):
             cfg["close"] * closing_progress,
             cfg["grasp"] * task.step_contact,
             cfg["lift"] * lift_progress,
+            -cfg.get("failure", 0.0) * failure_event.float(),
         ), -1)
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle
@@ -691,6 +706,7 @@ def mobile_episode(task, index):
         return {}
     return {
         "out_of_bounds": bool(task.out_of_bounds[index]),
+        "collision_limited": bool(task.collision_limited[index]),
         "max_base_speed_m_s": float(task.max_base_speed[index]),
         "max_base_yaw_speed_rad_s": float(task.max_base_yaw_speed[index]),
         "base_xyyaw_world": task.fixed_state()[index, :3].cpu().tolist(),

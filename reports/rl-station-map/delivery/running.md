@@ -277,7 +277,7 @@ LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 
 2026-11-18：配置 `configs/station_map/rl/val103_cube_random_stations_mobile.yaml`。`action.mobile_base` 控制Actor是否移动底盘，默认false；启用时须 `scene.fixed_base: false`，使用flat且world_state开启。动作顺序为TCP平移3、TCP旋转3、夹爪1、底盘前后/横移/转向3。底盘动作为相对实测位姿的每步增量（2026-11-19起；平移合增量0.03 m、转向0.15 rad，实测约0.42 m/s、0.46 rad/s）；升降仍由8关节DLS分配，上限0.05 m/s。TCP目标随实测底盘坐标系运动。
 
-保留目标周围2 m半宽方形内的局部场景；机器人或目标任一碰撞几何的世界包围盒越界，回合失败，计入失败分母。初始站位同样检查。观测为75D：上一动作扩展为10D，并追加实际底盘速度3D，按“增量上限/策略步长”归一化。移动本身不触发固定底盘漂移失败。世界坐标和底盘速度均由实测状态计算。
+保留目标周围2 m半宽方形内的局部场景；机器人或目标任一碰撞几何的世界包围盒越界，回合失败，计入失败分母。初始站位同样检查。观测为75D：上一动作扩展为10D，并追加实际底盘速度3D，按“增量上限/策略步长”归一化。2026-11-19起：失败终止（越界、方块跌落、连续碰撞超过 `reward.collision_limit_s`=2 s）一次性扣 `reward.failure`=30，奖励分项第8项为 failure；回合日志增加 collision_limited。移动本身不触发固定底盘漂移失败。世界坐标和底盘速度均由实测状态计算。
 
 ```bash
 PYTHONPATH="$PWD/src" LD_LIBRARY_PATH="$PWD/.venv/lib/native:${LD_LIBRARY_PATH:-}" \

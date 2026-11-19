@@ -81,6 +81,8 @@ class RewardTests(unittest.TestCase):
             step_collision=torch.ones(n, dtype=torch.bool),
             success=torch.zeros(n, dtype=torch.bool),
             contact_success_paid=torch.zeros(n, dtype=torch.bool),
+            failed=torch.zeros(n, dtype=torch.bool),
+            failure_paid=torch.zeros(n, dtype=torch.bool),
             robot=SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[0.04, -0.04]]).repeat(n, 1))),
             fingers=[0, 1], open_grip=0.08,
             closing_active=torch.zeros(n, dtype=torch.bool),
@@ -105,15 +107,25 @@ class RewardTests(unittest.TestCase):
         task.previous_distance[1] = 0.04
         task.previous_angle[1] = 0.1
         reward(env)
-        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.2, 0.5, -1., 30., 0., 3., 0.]))
-        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.2, -0.5, -1., 0., 0., 0., 0.]))
+        torch.testing.assert_close(task.reward_components[0], torch.tensor([0.2, 0.5, -1., 30., 0., 3., 0., 0.]))
+        torch.testing.assert_close(task.reward_components[1], torch.tensor([-0.2, -0.5, -1., 0., 0., 0., 0., 0.]))
         env.step_dt = 0.1  # Action/contact rewards are per step, not per second.
         task.step_contact.zero_()
         reward(env)
         self.assertEqual(float(task.reward_components[:, 3].sum()), 0.0)
         self.assertEqual(float(task.reward_components[:, :2].sum()), 0.0)
-        torch.testing.assert_close(task.reward_components[0, 4:], torch.zeros(3))
-        torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(3))
+        torch.testing.assert_close(task.reward_components[0, 4:], torch.zeros(4))
+        torch.testing.assert_close(task.reward_components[1, 4:], torch.zeros(4))
+
+    def test_failure_penalty_is_paid_once(self):
+        env = self.contact_reward_env([0.05, 0.05], [0.2, 0.2], [0., 0.])
+        env.research_config["reward"]["failure"] = 30.
+        env.task.failed[0] = True
+        index = CONTACT_REWARD_COMPONENTS.index("failure")
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, index], torch.tensor([-30., 0.]))
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, index], torch.zeros(2))
 
     def test_closing_uses_actual_progress_with_strict_pose_gate(self):
         env = self.contact_reward_env(
@@ -334,7 +346,7 @@ class RewardTests(unittest.TestCase):
         reward(env)
         position[:, 2] += 0.002
         reward(env)
-        self.assertAlmostEqual(float(task.reward_components[0, -1]), 1.6, places=4)
+        self.assertAlmostEqual(float(task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("lift")]), 1.6, places=4)
         # Rotation alone can reduce clearance despite unchanged center height.
         position[:, 2] = 0.785
         task.poses = lambda: (None, None, None, None, position, torch.eye(3)[None])
@@ -342,7 +354,7 @@ class RewardTests(unittest.TestCase):
         peak = task.lift_peak.clone()
         task.poses = lambda: (None, None, None, None, position, tilt)
         reward(env)
-        self.assertEqual(float(task.reward_components[0, -1]), 0.)
+        self.assertEqual(float(task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("lift")]), 0.)
         torch.testing.assert_close(task.lift_peak, peak)
 
         physics, center = self.contact_physics_task()
@@ -369,13 +381,13 @@ class RewardTests(unittest.TestCase):
             reward(env)
             position[:, 2] = 0.78
             reward(env)
-            self.assertEqual(float(task.reward_components[0, -1]), 0.)
+            self.assertEqual(float(task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("lift")]), 0.)
         task.forces.fill_(0.6)
         position[:, 2] = 0.77
         reward(env)
         position[:, 2] = 0.775
         reward(env)
-        self.assertAlmostEqual(float(task.reward_components[0, -1]), 4., places=4)
+        self.assertAlmostEqual(float(task.reward_components[0, CONTACT_REWARD_COMPONENTS.index("lift")]), 4., places=4)
 
     def test_contact_bonus_once_per_episode_even_after_stage_reentry(self):
         task, _ = self.contact_physics_task()
