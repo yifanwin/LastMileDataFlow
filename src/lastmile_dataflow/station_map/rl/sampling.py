@@ -57,7 +57,6 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                 )
                 observations, reward, terminated, truncated, _ = env.step(action)
                 nxt = policy_observation(observations, mode)
-                terminated = terminated | truncated
                 healthy = ~env.task.unhealthy
                 if not healthy.any():
                     raise RuntimeError("All sampler environments unhealthy")
@@ -67,7 +66,7 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     reward[healthy],
                     nxt[healthy],
                     terminated[healthy],
-                    torch.zeros_like(truncated[healthy]),
+                    truncated[healthy],
                     env.task.reward_components[healthy],
                     env.task.station_ids[healthy],
                 ).to("cpu")
@@ -75,7 +74,8 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                 returns += reward
                 components += env.task.reward_components
                 steps += 1
-                done = terminated | env.task.unhealthy
+                # Time limits end the episode but keep bootstrapping (truncated, not terminal).
+                done = terminated | truncated | env.task.unhealthy
                 episodes = io.StringIO()
                 record_episodes(episodes, env, done, 0, returns, components, steps, random_episodes)
                 obs = nxt.clone()
