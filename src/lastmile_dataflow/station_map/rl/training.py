@@ -23,7 +23,7 @@ from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, SuccessWindow, TrainingM
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
-from .config import resolve_config
+from .config import best_checkpoint_config, resolve_config
 import pickle
 from queue import Empty
 from queue import Full
@@ -104,16 +104,20 @@ def validation_checkpoint(agent, env, config, transitions, output, log, monitor)
 
 
 def save_best_checkpoint(agent, output, metadata, transitions, window: SuccessWindow | None, *, final=False):
+    selection = best_checkpoint_config(metadata.get("config", {}).get("training", {}))
+    if window is not None and not selection.eligible(window.count, transitions):
+        window = None
     best = metadata.get("best_training_success_rate")
     improved = window is not None and (best is None or best["rate"] is None or window.rate > best["rate"])
     fallback = final and best is None and window is None
     if improved or fallback:
         metadata["best_training_success_rate"] = {
-            "metric": "recent_100_episode_success_rate",
+            "metric": selection.metric_name,
+            "selection": dict(selection.__dict__),
             "rate": window.rate if window is not None else None,
             "count": window.count if window is not None else 0,
             "transitions": transitions,
-            "fallback": "no eligible episodes; final model" if fallback else None,
+            "fallback": "no eligible selection window; final model" if fallback else None,
         }
         agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
 
@@ -241,6 +245,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     settings = config["training"]
+    selection = best_checkpoint_config(settings)
     devices = [str(gpu) for gpu in gpus]
     env = StationEnv(
         config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"] * settings.get("validation_rollouts_per_station", 1)
@@ -280,7 +285,12 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             if resume_output.name == "ckpts":
                 # A historical snapshot cannot identify an overwritten best.pt.
                 resume_output = resume_output.parent
-            elif best is not None and best.get("metric") == "recent_100_episode_success_rate":
+            elif (best is not None and best.get("metric") == selection.metric_name
+                  and (not selection.require_full_window or (
+                      best.get("selection") == selection.__dict__
+                      and (best.get("rate") is None or selection.eligible(
+                          best["count"], best["transitions"]
+                      ))))):
                 metadata["best_training_success_rate"] = best
             previous_best = resume_output / "best.pt"
             if metadata.get("best_training_success_rate") is not None:
@@ -296,6 +306,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
             output,
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
             purge_step=transitions if same_output else None,
+            best_checkpoint=settings.get("best_checkpoint"),
         )
         if hasattr(env.task, "grasps"):
             subset = [env.task.grasps[i] for i in env.task.grasp_pools[0]]

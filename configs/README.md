@@ -55,6 +55,20 @@ RL 研究配置通过 `stations.robot_config` 指向该机器人 YAML（相对�
 
 RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `training.tensorboard_every_seconds` 调整该间隔，必须大于零。它独立于 `training.log_every`（learner JSON 和 checkpoint 的 transition 间隔）。旧配置可直接使用，查看方式和统计口径见 [RL 运行指南](../reports/rl-station-map/delivery/running.md#tensorboard-实时监控)。
 
+可选 `training.best_checkpoint` 将选模窗口与监控窗口分开：
+
+```yaml
+training:
+  best_checkpoint:
+    window_episodes: 200
+    start_transitions: 600000
+    metric: success_rate
+```
+
+配置该块后必须满 `window_episodes` 个健康、完整且全程无随机预热的回合，且累计健康 transition 达到 `start_transitions`，才参与比较；普通失败保留在分母。`metric` 支持 `success_rate` 和 `return`（未折扣平均回报），严格提高才替换。同一组 Sampler 按 Learner 收到事件的顺序合并；开始门槛前的合格回合也滚动入窗，达到门槛后有新合格回合的刷新才比较。TensorBoard `train/` 仍为最近至多100回合。未配置该块保持原行为（最近至多100回合成功率、不满窗也比较、无开始门槛）；块内未配置字段也沿用旧值。
+
+Cup 随机站位配置已启用上例。512个总环境、每回合1000步、预热20000条时，一个最长回合的名义预算是532000条，600000条留有余量；门槛按全局累计经验计数，不逐环境追踪完成次数。更改总环境数或回合长度时应相应调整门槛。恢复训练保持全局累计门槛，窗口从空重新积累；只有选择配置相同且符合门槛、满窗条件的排名才继承，从 `ckpts/` 恢复仍重新选模。训练结束无合格选模窗口时保存最终模型作为兜底，`rate=null`、`count=0` 并标记原因，不作为比较胜出的模型。
+
 ## 执行配置
 
 - 场景库的 `geometry` 只覆盖 `spacing_m`、`width`、`height`、`min_target_pixels`；操作范围与导航设置以执行配置为准，最终以 run 里保存的有效配置为准。

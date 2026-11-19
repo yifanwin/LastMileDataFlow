@@ -90,6 +90,10 @@ sac:
   initial_alpha: 0.1
   target_entropy: -7.0
 training:
+  best_checkpoint:
+    window_episodes: 200
+    start_transitions: 600000
+    metric: success_rate
   periodic_evaluation: false
   batch_size: 512
   replay_capacity: 100000

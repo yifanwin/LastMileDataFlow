@@ -75,7 +75,9 @@ MUJOCO_GL=egl .venv/bin/python scripts/station_map/rl/train.py \
 
 训练启动不评估、不录视频，也不保存 `initial.pt`，直接开始采样和随机预热。输出 `latest.pt`、`best.pt`、`ckpts/step-<实际累计步数>.pt` 和 `metrics.jsonl`。每次日志 checkpoint 保存 latest；每次监控刷新有新合格训练回合时，按与 `train/success` 相同的最近至多 100 回合成功率选择 best，严格提高才替换，同分保留，不足 100 回合使用实际数量。结束尾段参与比较；全程没有合格回合才以最终模型兜底，再独立加载 best 评估一次（方块 contact 协议不执行终点评估）。恢复训练重新建立回合窗口，仅继承 `recent_100_episode_success_rate` 口径的 best 排名；旧 return 或区间成功率重新选模。checkpoint 包含有效配置、字段、运行版本、源码 revision、RNG、优化器和计数器；不保存 Replay / 环境内存。
 
-每跨过累计 400000 条健康 transition，独立保存一次完整 checkpoint 到 `ckpts/`，全部保留；以接收该批次并完成对应更新后的实际步数命名，例如 `ckpts/step-000400000.pt`。批量采样可能略超阈值，后续阈值仍固定为 800000、1200000 等。恢复训练按累计步数定位下一个 40 万阈值。恢复 latest 时仅保留 recent_100_episode_success_rate 口径排名；恢复 ckpts 历史快照时重新选模，避免引用已被后来训练覆盖的根目录 best。历史 run 的权重不自动改写。
+Cup 随机站位配置的 best 规则（2026-11-19）：`training.best_checkpoint` 显式设置 `window_episodes: 200`、`start_transitions: 600000`、`metric: success_rate`，满200个有效回合且达到门槛后才比较。`metric: return` 可切换为平均未折扣回报。TensorBoard 仍用100回合；未配置保持上述旧行为。恢复窗口清空后重新满窗，仅继承相同选择配置的合格排名。训练结束无合格窗口时以最终模型兜底并标记 `rate=null`。字段与预算说明见[配置说明](../../../configs/README.md)。
+
+每跨过累计 400000 条健康 transition，独立保存一次完整 checkpoint 到 `ckpts/`，全部保留；以接收该批次并完成对应更新后的实际步数命名，例如 `ckpts/step-000400000.pt`。批量采样可能略超阈值，后续阈值仍固定为 800000、1200000 等。恢复训练按累计步数定位下一个 40 万阈值。恢复 latest 时仅保留与当前选模配置一致的排名；恢复 ckpts 历史快照时重新选模，避免引用已被后来训练覆盖的根目录 best。历史 run 的权重不自动改写。
 
 恢复时增加 `--resume <latest.pt>`，`--max-transitions` 为累计目标；恢复参数 / 优化器后重新 reset 并 warmup Replay，不承诺逐步精确续跑。
 

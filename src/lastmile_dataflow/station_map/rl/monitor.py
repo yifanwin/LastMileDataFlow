@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
+from .config import best_checkpoint_config
+
 
 DEFAULT_TENSORBOARD_EVERY_SECONDS = 30
 MOBILE_KEYS = frozenset((
@@ -46,9 +48,11 @@ class _Mean:
 class TrainingMonitor:
     """Learner-owned interval losses/runtime and last-100-episode training statistics."""
 
-    def __init__(self, output, *, every_seconds, purge_step=None):
+    def __init__(self, output, *, every_seconds, purge_step=None, best_checkpoint=None):
         if not every_seconds > 0:
             raise ValueError("training.tensorboard_every_seconds must be positive")
+        self.selection = best_checkpoint_config({"best_checkpoint": best_checkpoint})
+        self.best_episodes = deque(maxlen=self.selection.window_episodes)
         self.writer = SummaryWriter(str(Path(output) / "tensorboard"), purge_step=purge_step)
         self.every_seconds = every_seconds
         self.last_flush = time.monotonic()
@@ -85,6 +89,7 @@ class TrainingMonitor:
                 self._mean(f"warmup/{key}", value)
             return
         self.episodes.append(values)
+        self.best_episodes.append(values)
         self.interval_episodes += 1
 
     def record_runtime(self, event):
@@ -108,9 +113,12 @@ class TrainingMonitor:
         for key, mean in rolling.items():
             self.writer.add_scalar(rolling_tag(key), float(mean.total / mean.count), transitions)
         count = len(self.episodes)
-        successes = sum(episode["success"] for episode in self.episodes)
         self.writer.add_scalar("train/episode_count", count, transitions)
-        window = SuccessWindow(successes / count, count) if self.interval_episodes else None
+        window = None
+        best_count = len(self.best_episodes)
+        if self.interval_episodes and self.selection.eligible(best_count, transitions):
+            key = "success" if self.selection.metric == "success_rate" else "return"
+            window = SuccessWindow(sum(episode[key] for episode in self.best_episodes) / best_count, best_count)
         self.writer.flush()
         self.interval_episodes = 0
         self.means.clear()

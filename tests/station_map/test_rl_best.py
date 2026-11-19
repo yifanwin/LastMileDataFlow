@@ -83,6 +83,71 @@ class BestTests(unittest.TestCase):
             self.assertEqual(metadata["best_training_success_rate"]["rate"], 0)
             self.assertIsNone(metadata["best_training_success_rate"]["fallback"])
 
+    def test_configured_full_window_start_gate_and_rollover(self):
+        selection = {"window_episodes": 200, "start_transitions": 600_000, "metric": "success_rate"}
+        agent = Mock()
+        metadata = {"config": {"training": {"best_checkpoint": selection}}}
+        with TemporaryDirectory() as output:
+            monitor = TrainingMonitor(output, every_seconds=30, best_checkpoint=selection)
+            try:
+                for _ in range(199):
+                    monitor.record_episode({"success": False, "infrastructure_failure": False})
+                # The time gate alone is insufficient: 199 episodes cannot compete.
+                flush_training_monitor(agent, output, metadata, 600_000, monitor, force=True)
+                agent.save.assert_not_called()
+                monitor.record_episode({"success": True, "infrastructure_failure": False})
+                # A full window also cannot compete before the time gate.
+                flush_training_monitor(agent, output, metadata, 599_999, monitor, force=True)
+                agent.save.assert_not_called()
+                monitor.record_episode({"success": True, "random_warmup": True, "infrastructure_failure": False})
+                monitor.record_episode({"success": True, "infrastructure_failure": True})
+                flush_training_monitor(agent, output, metadata, 600_000, monitor, force=True)
+                agent.save.assert_not_called()  # No new eligible episodes.
+                monitor.record_episode({"success": False, "infrastructure_failure": False})
+                flush_training_monitor(agent, output, metadata, 600_001, monitor, force=True)
+                best = metadata["best_training_success_rate"]
+                self.assertEqual((best["count"], best["rate"]), (200, 1 / 200))
+                self.assertEqual(best["metric"], "recent_200_episode_success_rate")
+                monitor.record_episode({"success": False, "infrastructure_failure": False})
+                flush_training_monitor(agent, output, metadata, 600_002, monitor, force=True)
+                agent.save.assert_called_once()  # Ties retain the selected model.
+                for _ in range(200):
+                    monitor.record_episode({"success": True, "infrastructure_failure": False})
+                flush_training_monitor(agent, output, metadata, 600_003, monitor, force=True)
+                self.assertEqual(metadata["best_training_success_rate"]["rate"], 1)
+                self.assertEqual(agent.save.call_count, 2)
+                self.assertEqual(len(monitor.episodes), 100)  # TensorBoard keeps its existing window.
+            finally:
+                monitor.close(600_003)
+
+    def test_configured_return_metric_and_final_fallback(self):
+        selection = {"window_episodes": 2, "start_transitions": 10, "metric": "return"}
+        agent = Mock()
+        metadata = {"config": {"training": {"best_checkpoint": selection}}}
+        with TemporaryDirectory() as output:
+            monitor = TrainingMonitor(output, every_seconds=30, best_checkpoint=selection)
+            try:
+                monitor.record_episode({"success": True, "return": -10, "infrastructure_failure": False})
+                flush_training_monitor(agent, output, metadata, 20, monitor, force=True)
+                agent.save.assert_not_called()
+                save_best_checkpoint(agent, output, metadata, 20, None, final=True)
+                self.assertIsNone(metadata["best_training_success_rate"]["rate"])
+                monitor.record_episode({"success": False, "return": -2, "infrastructure_failure": False})
+                flush_training_monitor(agent, output, metadata, 21, monitor, force=True)
+                best = metadata["best_training_success_rate"]
+                self.assertEqual(best["metric"], "recent_2_episode_return")
+                self.assertEqual(best["rate"], -6)
+                self.assertIsNone(best["fallback"])
+            finally:
+                monitor.close(21)
+
+    def test_invalid_selection_config(self):
+        from lastmile_dataflow.station_map.rl.config import best_checkpoint_config
+
+        for settings in ({"window_episodes": 0}, {"start_transitions": -1}, {"metric": "unknown"}):
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                best_checkpoint_config({"best_checkpoint": settings})
+
     def test_periodic_checkpoints_keep_every_400k_boundary_and_batch_overshoot(self):
         agent, metadata = Mock(), {"config": {}}
         checkpoint_at = 400_000
