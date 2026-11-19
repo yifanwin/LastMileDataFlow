@@ -38,7 +38,6 @@ action:
 reward:
   position: 20.0
   rotation: 5.0
-  collision: 1.0
   success: 30.0
   close: 3.0
   grasp: 3.0
@@ -54,6 +53,28 @@ reward:
   descent_lateral_weight: 3.0
   # Closing is paid only while at least one finger force exceeds success.finger_force_min_n.
   closing_requires_contact: true
+  # Typed collision penalties, [first contact, per policy step while sustained]. A tier's contact
+  # counts as first again after collision_rearm_s without it. small: finger outer face or side on
+  # the cup, empty pad-to-pad closing; medium: palm on the cup, fingers on the support table;
+  # large: other robot links on the cup, robot on the scene (table except fingers, obstacles), self.
+  # Pad and inner-face finger contacts with the cup and cup-table contact are not penalized.
+  collision_tiers:
+    small: [0.5, 0.05]
+    medium: [0.8, 0.08]
+    large: [1.0, 0.1]
+  collision_rearm_s: 0.25
+  # A finger-body contact is inner when its normal is within 60 degrees of the closing direction.
+  finger_inner_cos: 0.5
+  # Terminate with a one-off penalty when, over the window, at least collision_fraction of the
+  # steps collide, the TCP path is shorter than tcp_path_m, and neither the stage distance nor the
+  # orientation error improved by the given gains.
+  stuck:
+    window_s: 2.0
+    collision_fraction: 0.5
+    tcp_path_m: 0.02
+    distance_gain_m: 0.005
+    angle_gain_rad: 0.05
+    penalty: 10.0
 sac:
   gamma: 0.999
   tau: 0.005
@@ -99,6 +120,8 @@ acceptance:
 success:
   version: rl-pick-contact-v2
   finger_force_min_n: 0.5
+  # Success, contact, lift and closing use the two pad geoms' normal forces.
+  pad_contact: true
   lift_m: 0.01
   hold_s: 0.25
 video:

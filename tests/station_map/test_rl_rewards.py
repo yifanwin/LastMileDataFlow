@@ -467,6 +467,38 @@ class RewardTests(unittest.TestCase):
         self.assertEqual(float(duration), 0.0)
 
 
+class TypedCollisionTests(unittest.TestCase):
+    def test_tier_first_sustained_and_rearm(self):
+        from lastmile_dataflow.station_map.rl.env.terms import tier_penalty
+        first, sustained = torch.tensor([0.5, 0.8, 1.0]), torch.tensor([0.05, 0.08, 0.1])
+        idle = torch.full((1, 3), 5)
+        pattern = [1, 1, 0, 1, 0, 0, 0, 0, 0, 1]  # large tier only
+        paid = []
+        for on in pattern:
+            active = torch.tensor([[False, False, bool(on)]])
+            penalty, _ = tier_penalty(active, idle, first, sustained, 5)
+            paid.append(round(float(penalty[0]), 3))
+        # A short gap keeps the sustained rate; five idle steps rearm the first-contact penalty.
+        self.assertEqual(paid, [1.0, 0.1, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        both = torch.tensor([[True, True, False]])
+        penalty, onset = tier_penalty(both, torch.full((1, 3), 5), first, sustained, 5)
+        self.assertAlmostEqual(float(penalty[0]), 1.3, places=5)
+
+    def test_stuck_window_requires_all_three_conditions(self):
+        from lastmile_dataflow.station_map.rl.env.terms import stuck_window
+        cfg = dict(collision_fraction=0.5, tcp_path_m=0.02, distance_gain_m=0.005, angle_gain_rad=0.05)
+        w = 40
+        illegal = torch.ones(4, w, dtype=torch.bool)
+        illegal[1, :25] = False                     # only 15/40 colliding
+        move = torch.full((4, w), 0.0002)
+        move[2] = 0.001                             # 4 cm path
+        distance = torch.full((4, w), 0.1)
+        distance[3, 10:] = 0.09                     # 1 cm gain after the oldest step
+        angle = torch.full((4, w), 0.2)
+        stuck = stuck_window(illegal, move, distance, angle, torch.zeros(4, dtype=torch.long), cfg)
+        self.assertEqual(stuck.tolist(), [True, False, False, False])
+
+
 class RealObjectContactTests(unittest.TestCase):
     contact_physics_task = RewardTests.contact_physics_task
     def test_real_object_uses_lowest_vertex_and_continuous_hold(self):

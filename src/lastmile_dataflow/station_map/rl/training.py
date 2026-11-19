@@ -15,7 +15,7 @@ import torch
 from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
-from .env.terms import mobile_episode, grasp_episode
+from .env.terms import mobile_episode, grasp_episode, collision_episode
 from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS, flat_fields, policy_observation, graph_observation
 from .sac.agent import seed_all
 from .evaluation import monitor_validation
@@ -59,6 +59,7 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                     "event": "episode",
                     "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
                     **grasp_episode(env.task, index),
+                    **collision_episode(env.task, index),
                     "transitions": transitions,
                     "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
                     **({

@@ -21,6 +21,40 @@ from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 from lastmile_dataflow.sim.model.geometry import body_points
 
 
+# Typed collision classes (logged separately) and the penalty tier each one is charged in.
+COLLISION_CLASSES = (
+    ("finger_outer", "small"), ("finger_pair", "small"),
+    ("palm_target", "medium"), ("finger_table", "medium"),
+    ("arm_target", "large"), ("robot_scene", "large"), ("self", "large"),
+)
+COLLISION_TIERS = ("small", "medium", "large")
+
+
+def tier_penalty(active, idle, first, sustained, rearm_steps):
+    """First-contact penalty after rearm_steps without contact, sustained penalty otherwise.
+
+    active/idle are (n, tiers); idle counts policy steps since the tier was last active.
+    """
+    onset = active & (idle >= rearm_steps)
+    penalty = (onset.float() * first + (active & ~onset).float() * sustained).sum(-1)
+    idle[:] = torch.where(active, torch.zeros_like(idle), idle + 1)
+    return penalty, onset
+
+
+def stuck_window(illegal, move, distance, angle, oldest, cfg):
+    """Mostly colliding, TCP almost still, and no distance or angle gain over the window."""
+    rows = torch.arange(len(illegal), device=illegal.device)
+    no_progress = ((distance[rows, oldest] - distance.amin(-1) < cfg["distance_gain_m"])
+                   & (angle[rows, oldest] - angle.amin(-1) < cfg["angle_gain_rad"]))
+    return ((illegal.float().mean(-1) >= cfg["collision_fraction"])
+            & (move.sum(-1) < cfg["tcp_path_m"]) & no_progress)
+
+
+def sensor_addresses(model, names, device):
+    return torch.tensor([int(model.sensor_adr[model.sensor(name).id]) for name in names],
+                        dtype=torch.long, device=device)
+
+
 def contact_addresses(model, prefixes, field, device):
     # One native sensor per field with num_slots=1. Force offset zero is the
     # contact-frame normal force; never use the tangential components' norm.
@@ -113,25 +147,6 @@ def pregrasp_stage(task, dp, angle, cfg, *, advance):
 
     The pregrasp keeps the grasp orientation and lies offset metres back along the approach
     axis. Adding the offset to its distance keeps the potential continuous at the latched switch.
-    """
-    offset = cfg.get("pregrasp_offset_m")
-    if not offset:
-        return dp, dp.norm(dim=-1)
-    pdp, _ = task.goal_error(-offset)
-    if advance:
-        task.pregrasp_reached |= (
-            (pdp.norm(dim=-1) < cfg["pregrasp_tolerance_m"]) & (angle < cfg["pregrasp_tolerance_rad"])
-        )
-    reached = task.pregrasp_reached
-    return (torch.where(reached[:, None], dp, pdp),
-            torch.where(reached, dp.norm(dim=-1), pdp.norm(dim=-1) + offset))
-
-
-def pregrasp_stage(task, dp, angle, cfg, *, advance):
-    """Position error and potential distance to the current target: pregrasp, then grasp.
-
-    The pregrasp keeps the grasp orientation and lies offset metres back along the approach
-    axis. Adding the offset to its distance keeps the potential continuous at the latched switch.
     After the switch, ``descent_lateral_weight`` scales the error perpendicular to the approach
     axis so that drifting sideways while descending costs more than the axial remainder.
     """
@@ -197,6 +212,12 @@ class TaskState:
             if self.model.sensor(i).name.startswith(("environment_", "nonfinger_", "self_collision_"))
             and self.model.sensor(i).name.endswith("_found")
         ]
+        if env.research_config["success"].get("pad_contact"):
+            # Grasp facts use the pad geoms only, not the finger bodies' outer faces.
+            self.finger_addresses = contact_addresses(self.model, ("pad_",), "force", self.device)
+        self.typed = "collision_tiers" in env.research_config["reward"]
+        if self.typed:
+            self.prepare_typed_collisions(n)
         self.tcp = self.model.site(ROBOT_PREFIX + "gripper0_right_grip_site").id
         self.base = self.model.site(ROBOT_PREFIX + "base_site").id
         self.arm, _ = self.robot.find_joints([f"robot0_joint{i}" for i in range(1, 8)], preserve_order=True)
@@ -313,6 +334,104 @@ class TaskState:
             return
         self.prepare_corpus_grasps()
 
+    def prepare_typed_collisions(self, n):
+        model, device = self.model, self.device
+        cfg = self.env.research_config["reward"]
+        found = lambda prefix: contact_addresses(model, (prefix,), "found", device)
+        nonfinger = [model.sensor(i).name for i in range(model.nsensor)
+                     if model.sensor(i).name.startswith("nonfinger_") and model.sensor(i).name.endswith("_found")]
+        palm = [name for name in nonfinger if name.endswith(ROBOT_PREFIX + "gripper0_right_right_gripper_found")]
+        if len(palm) != 1:
+            raise ValueError("Typed collisions need exactly one palm contact sensor")
+        self.palm_address = sensor_addresses(model, palm, device)
+        self.arm_target_addresses = sensor_addresses(model, [x for x in nonfinger if x not in palm], device)
+        self.fmesh_found = found("fmesh_")
+        self.pad_found = found("pad_")
+        self.fmesh_normal = contact_addresses(model, ("fmesh_",), "normal", device).tolist()
+        self.fpair_address, self.self_address = found("fpair_"), found("self_collision_")
+        self.table_robot_address, self.ftable_addresses = found("table_robot_"), found("ftable_")
+        self.scene_addresses = found("environment_")
+        if (len(self.table_robot_address) != 1 or len(self.ftable_addresses) != 2 or len(self.fmesh_normal) != 2
+                or len(self.pad_found) != 2):
+            raise ValueError("Typed collision sensors are missing")
+        # Finger 1 sits on the TCP -x side and finger 2 on +x; inward points to the other finger.
+        self.inward_sign = torch.tensor([1.0, -1.0], device=device)
+        self.inner_cos = cfg["finger_inner_cos"]
+        tiers = cfg["collision_tiers"]
+        self.tier_first = torch.tensor([tiers[t][0] for t in COLLISION_TIERS], device=device)
+        self.tier_sustained = torch.tensor([tiers[t][1] for t in COLLISION_TIERS], device=device)
+        self.class_tier = [COLLISION_TIERS.index(tier) for _, tier in COLLISION_CLASSES]
+        self.rearm_steps = max(1, round(cfg["collision_rearm_s"] / self.env.step_dt))
+        window = round(cfg["stuck"]["window_s"] / self.env.step_dt)
+        classes = len(COLLISION_CLASSES)
+        self.step_classes = torch.zeros(n, classes, dtype=torch.bool, device=device)
+        self.class_time = torch.zeros(n, classes, device=device)
+        self.tier_idle = torch.full((n, len(COLLISION_TIERS)), self.rearm_steps, dtype=torch.long, device=device)
+        self.tier_onsets = torch.zeros(n, len(COLLISION_TIERS), device=device)
+        self.stuck = torch.zeros(n, dtype=torch.bool, device=device)
+        self.stuck_event = torch.zeros_like(self.stuck)
+        self.window_illegal = torch.zeros(n, window, dtype=torch.bool, device=device)
+        self.window_move = torch.zeros(n, window, device=device)
+        self.window_distance = torch.zeros(n, window, device=device)
+        self.window_angle = torch.zeros(n, window, device=device)
+        self.window_steps = torch.zeros(n, dtype=torch.long, device=device)
+        self.previous_tcp = torch.zeros(n, 3, device=device)
+
+    def typed_collisions(self, tcp_r):
+        """Per-substep (n, classes) flags in COLLISION_CLASSES order."""
+        values = self.env.sim.data.sensordata
+        present = lambda addresses: (values[:, addresses] > 0).any(-1)
+        count = lambda addresses: values[:, addresses].sum(-1)
+        normals = torch.stack([values[:, a:a + 3] for a in self.fmesh_normal], 1)       # finger -> target
+        inward = self.inward_sign[None, :, None] * tcp_r[:, None, :, 0]
+        inner = (normals * inward).sum(-1) > self.inner_cos
+        # While a finger's pad touches the cup, its body contacts belong to the grasp: pressing into the
+        # thin convex wall pieces can flip the reported normal outward.
+        pad = values[:, self.pad_found] > 0
+        outer = ((values[:, self.fmesh_found] > 0) & ~inner & ~pad).any(-1)
+        # "found" counts matched contacts, so contacts beyond the fingers' share belong to other links.
+        arm_table = count(self.table_robot_address) > count(self.ftable_addresses)
+        return torch.stack((
+            outer,
+            present(self.fpair_address),
+            present(self.palm_address),
+            present(self.ftable_addresses),
+            present(self.arm_target_addresses),
+            present(self.scene_addresses) | arm_table,
+            count(self.self_address) > count(self.fpair_address),
+        ), -1)
+
+    def collision_penalty(self):
+        active = torch.stack([self.step_classes[:, [c for c, t in enumerate(self.class_tier) if t == tier]].any(-1)
+                              for tier in range(len(COLLISION_TIERS))], -1)
+        penalty, onset = tier_penalty(active, self.tier_idle, self.tier_first, self.tier_sustained, self.rearm_steps)
+        self.tier_onsets += onset.float()
+        return penalty
+
+    def update_stuck(self):
+        cfg = self.env.research_config["reward"]
+        tcp_p = self.poses()[0]
+        dp, dr = self.goal_error()
+        angle = dr.norm(dim=-1)
+        _, distance = pregrasp_stage(self, dp, angle, cfg, advance=False)
+        window = self.window_illegal.shape[1]
+        rows = torch.arange(len(tcp_p), device=self.device)
+        slot = self.window_steps % window
+        self.window_illegal[rows, slot] = self.step_classes.any(-1)
+        self.window_move[rows, slot] = torch.where(
+            self.window_steps > 0, (tcp_p - self.previous_tcp).norm(dim=-1), torch.zeros_like(angle))
+        self.window_distance[rows, slot] = distance
+        self.window_angle[rows, slot] = angle
+        self.previous_tcp[:] = tcp_p
+        self.window_steps += 1
+        stuck = (self.window_steps >= window) & stuck_window(
+            self.window_illegal, self.window_move, self.window_distance, self.window_angle,
+            (slot + 1) % window, cfg["stuck"],
+        ) & ~(self.success | self.failed | self.unhealthy)
+        self.stuck_event[:] = stuck
+        self.stuck |= stuck
+        self.failed |= stuck
+
     def prepare_target_geometry(self):
         data = mujoco.MjData(self.model)
         data.qpos[:] = self.initial_qpos.cpu().numpy()
@@ -416,6 +535,9 @@ class TaskState:
 
     def begin_step(self, action):
         self.step_collision.zero_()
+        if getattr(self, "typed", False):
+            self.step_classes.zero_()
+            self.stuck_event.zero_()
         self.step_contact.zero_()
         self.step_lift.zero_()
         self.held_time.zero_()
@@ -475,6 +597,11 @@ class TaskState:
         tcp_p, tcp_r, _, _, target_p, target_r = self.poses()
         forces, support, hits = self.contact_facts()
         collision = hits.any(-1)
+        if getattr(self, "typed", False):
+            classes = self.typed_collisions(tcp_r)
+            self.step_classes |= classes
+            self.class_time += classes.float() * self.env.physics_dt
+            collision = classes.any(-1)
         self.collision_hits += hits.float() * self.env.physics_dt
         self.forces[:] = forces
         self.support[:] = support
@@ -744,6 +871,11 @@ def reset(env, env_ids):
     task.first_contact_time_s[ids] = -1
     task.collision_free[ids] = True
     task.needs_baseline[ids] = True
+    if getattr(task, "typed", False):
+        for name in ("step_classes", "class_time", "tier_onsets", "stuck", "stuck_event", "window_illegal",
+                     "window_move", "window_distance", "window_angle", "window_steps"):
+            getattr(task, name)[ids] = 0
+        task.tier_idle[ids] = task.rearm_steps
 
 
 def substep(env):
@@ -781,7 +913,8 @@ def reward(env):
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
-            -cfg["collision"] * task.step_collision.float(),
+            -(task.collision_penalty() + cfg["stuck"]["penalty"] * task.stuck_event.float()) if getattr(task, "typed", False)
+            else -cfg["collision"] * task.step_collision.float(),
             cfg["success"] * success_event.float(),
             cfg["close"] * closing_progress,
             cfg["grasp"] * task.step_contact,
@@ -828,11 +961,24 @@ def reward(env):
 
 
 def terminated(env):
+    # Termination runs before reward in each step, so the stuck event is paid in the same step.
+    if getattr(env.task, "typed", False):
+        env.task.update_stuck()
     return env.task.success | env.task.failed | env.task.unhealthy
 
 
 def timeout(env):
     return env.episode_length_buf >= env.max_episode_length
+
+def collision_episode(task, index):
+    if not getattr(task, "typed", False):
+        return {}
+    return {
+        "stuck": bool(task.stuck[index]),
+        "collision_class_s": dict(zip((name for name, _ in COLLISION_CLASSES), task.class_time[index].tolist())),
+        "collision_onsets": dict(zip(COLLISION_TIERS, task.tier_onsets[index].int().tolist())),
+    }
+
 
 def mobile_episode(task, index):
     if not getattr(task, "mobile_base", False):

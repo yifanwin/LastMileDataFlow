@@ -19,7 +19,7 @@ from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
 from .devices import VISIBLE_DEVICE
 from .env.terms import finger_contact, target_lift_height
-from .env.terms import mobile_episode, grasp_episode
+from .env.terms import mobile_episode, grasp_episode, collision_episode
 
 
 def reset_stations(env, station_ids, env_ids=None, *, mode="graph"):
@@ -164,6 +164,7 @@ def validation_rollout(
                 "failed": bool(task.failed[index]),
                 **mobile_episode(task, index),
                 **grasp_episode(task, index),
+                **collision_episode(task, index),
                 "contact_bonus_count": int(task.contact_bonus_paid[index]),
                 "stage_seconds": dict(
                     zip(("Approach", "Pre-grasp", "Grasp", "LIFT"), stage_time[index].cpu().tolist())

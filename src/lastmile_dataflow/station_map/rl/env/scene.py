@@ -79,6 +79,7 @@ class PreparedRLScene:
     multiccd: bool
     reference_model: mujoco.MjModel | None = None
     support_height_m: float | None = None
+    support_body: str | None = None
 
     def copy_robot(self):
         return self.robot_spec.copy()
@@ -112,6 +113,7 @@ def prepare_rl_scene(config):
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
     support_height = target_support_height(sim, sim.data.xpos[sim.target_id, None, :2])
+    support = target_support_body(sim)
     if config.cube is not None:
         cube = config.cube
         if set(cube) != {"size_m", "mass_kg"} or cube["size_m"] <= 0 or cube["mass_kg"] <= 0:
@@ -144,7 +146,7 @@ def prepare_rl_scene(config):
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a]) for a in range(local.model.nu)}
     prepared = PreparedRLScene(
         scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd,
-        local.model if config.fixed_base else None, support_height,
+        local.model if config.fixed_base else None, support_height, support,
     )
     local.close()
     sim.close()
@@ -158,11 +160,17 @@ def fix_robot_base(spec):
         spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
 
 
+def target_support_body(sim):
+    """MJCF body of the scene instance the target originally stands on."""
+    target = sim.model.body(sim.target_id).name
+    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
+    return next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+
+
 def target_support_height(sim, xy):
     """Read the target's original physical tabletop from its scene parent."""
     target = sim.model.body(sim.target_id).name
-    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
-    support = next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+    support = target_support_body(sim)
     regions = []
     for region in extract_regions(sim, support):
         points = np.column_stack((xy, np.full(len(xy), region.height)))

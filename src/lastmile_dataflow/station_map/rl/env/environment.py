@@ -77,10 +77,32 @@ def contact_sensor(name, primary, secondary=None):
     )
 
 
-def build_sensors(prepared):
+def typed_contact_sensors(prepared, target, robot):
+    """Pads, finger bodies with normals, finger pair and table contacts for typed collision penalties."""
+    fingers = [ContactMatch(mode="subtree", pattern=ROBOT_PREFIX + f"gripper0_right_{side}finger")
+               for side in ("left", "right")]
+    table = ContactMatch(mode="subtree", pattern=prepared.support_body)
+    sensors = [contact_sensor("fpair", fingers[0], fingers[1]),
+               contact_sensor("table_robot", robot, table)]
+    for index in (0, 1):
+        geom = ROBOT_PREFIX + f"gripper0_right_finger{index + 1}"
+        sensors += [
+            contact_sensor(f"pad_{index}", ContactMatch(mode="geom", pattern=geom + "_pad_collision"), target),
+            ContactSensorCfg(name=f"fmesh_{index}", primary=ContactMatch(mode="geom", pattern=geom + "_collision"),
+                             secondary=target, fields=("found", "normal"), reduce="maxforce"),
+            contact_sensor(f"ftable_{index}", fingers[index], table),
+        ]
+    return sensors
+
+
+def build_sensors(prepared, typed=False):
     target = ContactMatch(mode="subtree", pattern=prepared.target_body)
     robot = ContactMatch(mode="subtree", pattern=ROBOT_PREFIX + "robot0_base")
     sensors = [contact_sensor("self_collision", robot, robot)]
+    if typed:
+        if prepared.support_body not in [body.name for body in prepared.scene_spec.worldbody.bodies]:
+            raise ValueError("Typed collisions need the support table as a top-level scene body")
+        sensors += typed_contact_sensors(prepared, target, robot)
     for index, finger in enumerate(("left", "right")):
         sensors.append(
             contact_sensor(
@@ -94,7 +116,9 @@ def build_sensors(prepared):
             continue
         other = ContactMatch(mode="subtree", pattern=body.name)
         sensors.append(contact_sensor(f"support_{index}", target, other))
-        sensors.append(contact_sensor(f"environment_{index}", robot, other))
+        # Typed penalties split the support table into finger and arm contacts.
+        if not (typed and body.name == prepared.support_body):
+            sensors.append(contact_sensor(f"environment_{index}", robot, other))
     for index, geom in enumerate(prepared.scene_spec.worldbody.geoms):
         if not (geom.contype or geom.conaffinity):
             continue
@@ -150,7 +174,7 @@ class StationEnv(ManagerBasedRlEnv):
         )
         action = config["action"]
         env_cfg = config["environment"]
-        sensors = build_sensors(prepared)
+        sensors = build_sensors(prepared, typed="collision_tiers" in config["reward"])
         observation_terms = (
             {"flat": ObservationTermCfg(func=terms.flat)} if contact_protocol
             else {
