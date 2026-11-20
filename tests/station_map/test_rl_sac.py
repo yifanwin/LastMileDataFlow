@@ -186,3 +186,21 @@ class ActorNoiseTests(unittest.TestCase):
         torch.testing.assert_close(single[0], action[1])
         self.assertTrue(torch.isfinite(log_prob).all())
         torch.testing.assert_close(actor.sample(obs, True, noise=noise)[0], mu.tanh())
+
+
+class EntropyInTargetTests(unittest.TestCase):
+    def test_disabled_entropy_bonus_leaves_the_critic_target_task_only(self):
+        from unittest.mock import patch
+        from lastmile_dataflow.station_map.rl.sac import agent as module
+        from lastmile_dataflow.station_map.rl.sac.replay import Transition
+
+        n = 8
+        batch = Transition(torch.randn(n, 6), torch.rand(n, 2) * 2 - 1, torch.randn(n), torch.randn(n, 6),
+                           torch.zeros(n, dtype=torch.bool), torch.zeros(n, dtype=torch.bool))
+        for flag, expected in ((True, True), (False, False)):
+            sac = module.SAC(6, "cpu", module.SACConfig(entropy_in_target=flag), mode="flat", action_dim=2)
+            with patch.object(module, "bellman_target", wraps=module.bellman_target) as target:
+                sac.update(batch)
+            alpha = target.call_args.args[4]
+            self.assertEqual(float(alpha) > 0, expected)
+

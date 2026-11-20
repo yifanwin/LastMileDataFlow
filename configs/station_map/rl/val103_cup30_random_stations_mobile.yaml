@@ -23,10 +23,11 @@ observation:
   world_state: true
 mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
 environment:
-  # 512 per GPU (report 51): about 2.8x the 128-env throughput, 20 GB per GPU.
-  num_envs: 512
+  # 256 per GPU (report 53): about 1.8x the 128-env throughput, 10 GB per GPU.
+  num_envs: 256
   decimation: 25
-  episode_s: 50
+  # 30 s = 600 policy steps (report 53).
+  episode_s: 30
   settling_s: 1.0
   nconmax: 5000
   njmax: 5000
@@ -96,23 +97,27 @@ reward:
   # 3-4% of past successes and bounds grinding episodes, whose 99th percentile was 230-260.
   collision_budget: 30.0
 sac:
-  gamma: 0.999
+  # About a 200-step horizon (report 53).
+  gamma: 0.995
   tau: 0.005
   actor_lr: 0.0003
   critic_lr: 0.0003
   alpha_lr: 0.0001
   initial_alpha: 0.1
   target_entropy: -10.0
+  # The critic target omits the entropy bonus: with it, ending an episode (success included) forfeited
+  # hundreds of future entropy reward and the policy avoided the cup (report 52).
+  entropy_in_target: false
 training:
   best_checkpoint:
     window_episodes: 200
-    # 20000 + 4 GPUs x 512 envs x 1000 steps, plus margin.
-    start_transitions: 2100000
+    # 20000 + 4 GPUs x 256 envs x 600 steps, plus margin.
+    start_transitions: 700000
     metric: success_rate
   periodic_evaluation: false
   batch_size: 512
-  # Scaled with the 4x environments to keep about 195 steps per environment.
-  replay_capacity: 400000
+  # About 195 steps per environment for 4 x 256 environments.
+  replay_capacity: 200000
   warmup_min: 20000
   transitions_per_update: 128
   debug_station_ids: []

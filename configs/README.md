@@ -109,3 +109,5 @@ Panda cuRobo配置的`grasp_preprocessed_paths`按资产名（如Cup_30）映射
 真实杯子接触抬升训练使用 `station_map/rl/val103_cup30_random_stations_facing.yaml`：预处理库路径、运行前抽样数量16和seed42在 `grasp` 显式指定。每回合随机有效站位及一个候选，底盘固定，使用当前方块接触抬升协议；旧Cup图观测配置保持原协议。启动步骤见 `docs/runbook.md`。
 
 移动底盘杯子配置 `station_map/rl/val103_cup30_random_stations_mobile.yaml` 在上述Cup配置上只改：`scene.fixed_base: false`，`action.mobile_base: true`（0.03 m、0.15 rad增量），`sac.target_entropy: -10`，`reward.failure: 20`（越界一次性罚分，与掉落罚分持平）。分类碰撞、卡死终止、掉落罚分、对称对齐、best窗口（200回合、60万条门槛）与Cup配置相同；不设 `collision_limit_s`。2026-11-20起（报告51）：小档 [0.25, 0.05]、中档 [0.4, 0.1]、大档不变；`reward.collision_budget: 30`，一回合分类碰撞罚分累计达30即判失败（下一步终止并付一次 `failure`），回合日志记 `collision_budget_hit`；未配置时不启用。
+
+`sac.entropy_in_target`（默认true）：false时critic目标不含熵奖励 $-\alpha\log\pi$，Q只估任务回报，熵项只留在actor损失里。移动底盘杯子配置2026-11-20起使用false，并改为gamma 0.995、episode_s 30、每卡256环境、replay 20万、best门槛70万（报告52、53）。
