@@ -1,6 +1,6 @@
 # PPO Cup_30 移动底盘：合并 rl-mobile 与按 PPO 定奖励和参数
 
-- 状态：active
+- 状态：done
 - 日期：2026-11-20
 - 时间戳：2026-11-20T11:40+08:00
 - 关联：[PPO固定底盘总结](49-ppo-cup-summary.md)、[SAC移动底盘合并](50-cup30-mobile-base-setup.md)、[SAC移动熵奖励根因](52-cup30-mobile-budget30-e512-results.md)、[SAC移动当前训练](53-cup30-mobile-noenttarget.md)、[运行指南](running.md#ppo-训练与评估)

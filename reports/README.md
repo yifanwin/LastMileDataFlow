@@ -45,7 +45,7 @@
 - PPO正式训练：[CUDA0–3 cube 300万样本启动配置](rl-station-map/delivery/37-ppo-cube-g0123-training-launch.md)，实时进度与启动验收记录在对应run。
 - PPO cube失败排查：[按pipeline分层](rl-station-map/analyze/ppo-cube-s0246-failure-diagnosis.md)，主因KL硬停使300万样本只做666次梯度步，叠加熵塌缩。
 - PPO Cup_30迁移：[合并rl-cup、修正PPO、方案A闭爪门槛与增量夹爪、验证与价值图](rl-station-map/delivery/48-ppo-cup-migration.md)；[总结](rl-station-map/delivery/49-ppo-cup-summary.md)：845万模型验证40/40成功、38/40无碰撞。
-- PPO Cup_30移动底盘：[合并rl-mobile、按PPO定奖励与参数、训练](rl-station-map/delivery/54-ppo-cup30-mobile.md)。
+- PPO Cup_30移动底盘：[合并rl-mobile、按PPO定奖励与参数、底盘噪声排查](rl-station-map/delivery/54-ppo-cup30-mobile.md)；[总结](rl-station-map/delivery/55-ppo-cup30-mobile-summary.md)：1193万模型验证39/40成功、35/40无碰撞。
 - Cup_30抓取候选：[物体级射线预处理与运行前抽样](rl-station-map/delivery/cup30-grasp-preprocessing.md)，1000→564→FPS128，训练/标定默认均匀抽16；仅验证静态几何与消费接口。
 
 ## 主题
