@@ -63,6 +63,8 @@ PYTHONPATH=$PWD/src MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 
 `PYTHONPATH` 不能省：本工作区 `.venv` 链接到 actor-critic 环境，默认会导入那边的源码。该配置的 `grasp.preprocessed_path` 是相对路径，工作区需有 `outputs/experiments/grasp-fps-all`（本工作区为指向 rl-cup 同名目录的软链接）。与 SAC 配置的差别只有 `algorithm: ppo`、`ppo: {}` 和 `episode_s: 20`。cube 旧配置 `val103_cube_s0246_facing_ppo.yaml` 仍可用。原 SAC 配置也可直接加 `--algorithm ppo`。PPO 不使用 Replay、warmup、alpha、SAC batch_size 或 transitions_per_update。
 
+移动底盘 Cup_30 PPO：把上面的配置换成 `configs/station_map/rl/val103_cup30_random_stations_mobile_ppo.yaml`，建议 `--num-envs 512`（配置默认也是512）。相对固定底盘 PPO 只多了底盘动作（0.03 m、0.15 rad）、越界 `failure: 20`、`collision_budget: 30`、底盘维度初始 std 0.3 和 best 门槛 85万；见[报告54](54-ppo-cup30-mobile.md)。
+
 PPO 参数默认值（2026-11-20 按[失败排查](../analyze/ppo-cube-s0246-failure-diagnosis.md)修改）：
 
 | 字段 | 默认值 |
@@ -73,7 +75,7 @@ PPO 参数默认值（2026-11-20 按[失败排查](../analyze/ppo-cube-s0246-fai
 | `gamma` / `gae_lambda` | 0.99 / 0.95 |
 | `clip_coef` / `value_coef` / `entropy_coef` | 0.2 / 1.0 / 0.005 |
 | `actor_max_grad_norm` / `value_max_grad_norm` | 1.0 / 1.0 |
-| `init_std` / `normalize_observations` | 1.0 / true |
+| `init_std`（一个数或每个动作维度一个数）/ `normalize_observations` | 1.0 / true |
 
 每轮仅使用当前版本策略产生的健康样本；先在全局样本上统一标准化优势，再每个 epoch 重新打乱、分 mini-batch 更新，尾批保留，epoch 不提前停止。每个 mini-batch 更新前计算新旧策略的精确高斯 KL（tanh 是双射，等于 squashed 策略 KL）：大于 2×`desired_kl` 时 Actor 学习率 /1.5，小于一半时 ×1.5，限制在 [`lr_min`, `lr_max`]。Actor 是 tanh 高斯，log std 为与状态无关的可学习参数（初值 `init_std`），输出层正交初始化增益 0.01；熵奖励用 tanh 前高斯熵。flat 输入经 Actor/V 共享的运行均值/方差归一化（std 下限 0.01、裁剪 ±10），统计量在每轮 epoch 结束后用本轮样本更新，随 checkpoint 保存并下发给 Sampler。GAE 不跨成功、失败或异常样本传播；episode timeout 结束回合但保留 V 引导；rollout 分段边界用下一状态 V 引导。Actor 与 V 分别裁剪梯度。
 
