@@ -29,3 +29,17 @@
 
 - 本工作区 `.venv` 是指向 actor-critic 环境的软链接，其 `.pth` 让 `lastmile_dataflow` 从 actor-critic 源码导入。运行时必须加 `PYTHONPATH=$PWD/src`。
 - 未做正式训练，PPO 能否学会 Cup 任务尚未验证。
+
+## 第一轮正式训练与评估（2026-11-20T10:15:45+08:00 记录）
+
+- run 20261120-082753-cup30-ppo-20m-e512-g4567（每卡512环境，吞吐约2750条/s；128环境时约1050条/s）。1212万条时按用户指令停止：0成功，接触率≈0。
+- 评估（latest.pt，20站位随机策略，视频在 run 的 evaluation-latest/）：20/20 到达抓取位（最佳误差0.4–2.4 mm），之后停留至超时；夹爪开度在全开的约0.5–0.8之间晃动，从未双指接触，全程无碰撞。夹爪维 std 1.14（7维中最大，未学习）。
+- 原因：夹爪动作是绝对开度，零均值噪声平均成半开；且闭爪奖励要求先接触（closing_requires_contact），接触前合拢没有任何奖励。
+
+## 方案A与增量夹爪（提交 6fde5ba）
+
+- reward.closing_distance_m / closing_angle_rad：闭爪进度单独的对准门槛；未配置时沿用 grasp_distance_m / grasp_angle_rad。Cup 配置改为 closing_requires_contact=false、1 cm、10°（双指接触事件仍用 3 cm、20°）。
+- action.gripper_step：夹爪动作改为每步闭合比例增量（|a|=1 时 20% 行程），截断在[0,1]，reset 为全开；未配置时仍为绝对开度。
+- SAC 与 PPO 的 Cup 随机站位配置同时启用两项，旧配置与 checkpoint 不受影响。
+- 验证：130 项离线测试通过；PPO（512环境）与 SAC 真实冒烟无报错；真实环境中 +1 每步闭合约20%、0 保持、-1 全开，脚本移到抓取位后合拢，4/4 环境指腹受力 2–8 N，闭爪奖励与双指接触 +3 正常发放。
+- 正式训练：run 20261120-101117-cup30-ppo-closeA-incgrip-20m-e512-g4567，CUDA4–7、每卡512环境、2000万条，约2780条/s。
