@@ -133,8 +133,9 @@ training:
   validation_stations: 1
   validation_rollouts_per_station: 16
 stations:
-  # Expand the initial XY sampling disk; keep spacing and physical validity checks unchanged.
+  # Initial XY sampling disk 1.5x the arm reach, grid spacing 2x the default (base radius / 4).
   radius_scale: 1.5
+  spacing_scale: 2.0
   robot_config: configs/robots/panda_omron.yaml
   heading_offsets_deg:
   - 0

@@ -62,7 +62,7 @@ def resolve_config(config):
             **settings,
             "base_radius_m": radius,
             "radius_m": reach * settings.get("radius_scale", 1.0),
-            "spacing_m": radius / 4,
+            "spacing_m": radius / 4 * settings.get("spacing_scale", 1.0),
         },
     }
 

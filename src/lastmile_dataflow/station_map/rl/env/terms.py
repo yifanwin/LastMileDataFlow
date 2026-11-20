@@ -10,7 +10,7 @@ from .observation import (
     GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
     CUBE_GRASP_ROTATION, FlatObservationState, build_flat_observation, pose_goal_error,
 )
-from .stations import prepare_stations, station_mocap_poses
+from .stations import prepare_stations, station_joint_poses, station_mocap_poses
 from .mobile import LocalBoundary
 from lastmile_dataflow.operation.grasps import (
     DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, load_symmetry, sample_grasps, select_grasps,
@@ -252,6 +252,10 @@ class TaskState:
         self.stations, initial = prepare_stations(self.model, env.prepared, env.research_config)
         self.initial_qpos = torch.tensor(initial, device=self.device, dtype=torch.float32)
         self.station_poses = torch.tensor([[s["x"], s["y"], s["yaw"]] for s in self.stations], device=self.device)
+        if not self.physical_fixed:
+            self.station_joints = torch.tensor(
+                station_joint_poses(self.model, ROBOT_PREFIX, self.stations), device=self.device, dtype=torch.float32
+            )
         if self.physical_fixed:
             self.mocap_poses = torch.tensor(
                 station_mocap_poses(self.model, self.base, self.stations), device=self.device, dtype=torch.float32
@@ -848,7 +852,7 @@ def reset(env, env_ids):
     if task.physical_fixed:
         task.robot.write_mocap_pose_to_sim(task.mocap_poses[selected], env_ids=ids)
     else:
-        q[:, task.base_joints] = task.station_poses[selected]
+        q[:, task.base_joints] = task.station_joints[selected]
     task.robot.write_joint_state_to_sim(q, torch.zeros_like(q), env_ids=ids)
     task.robot.set_joint_position_target(q, env_ids=ids)
     base = task.station_poses[selected] if task.physical_fixed else q[:, task.base_joints]

@@ -80,6 +80,31 @@ def station_candidates(center, settings):
     return rows
 
 
+def base_joint_offset(model, namespace):
+    """World base_site x, y, yaw with the planar base joints at zero.
+
+    base_xyyaw sets the slide/yaw joints, whose frame need not start at the base_site (the
+    mjlab entity starts 0.21 m ahead), so a station (a base_site pose) needs joints = station - offset.
+    The yaw axis passes through the base_site, so the offset does not depend on yaw.
+    """
+    ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, namespace + "mobilebase0_joint_mobile_" + s)
+           for s in ("forward", "side", "yaw")]
+    if min(ids) < 0:
+        return np.zeros(3)
+    data = mujoco.MjData(model)
+    data.qpos[[model.jnt_qposadr[i] for i in ids]] = 0
+    mujoco.mj_forward(model, data)
+    site = model.site(namespace + "base_site").id
+    rotation = data.site_xmat[site].reshape(3, 3)
+    return np.array([*data.site_xpos[site, :2], math.atan2(rotation[1, 0], rotation[0, 0])])
+
+
+def station_joint_poses(model, namespace, stations):
+    """Planar base joint values that put the base_site at each station."""
+    offset = base_joint_offset(model, namespace)
+    return np.array([[s["x"], s["y"], s["yaw"]] for s in stations]) - offset
+
+
 def prepare_stations(model, prepared, config):
     """CPU preparation only, before GPU episodes; no IK, FOV or reach filter."""
 
@@ -102,7 +127,7 @@ def prepare_stations(model, prepared, config):
             if not row["valid"]:
                 continue
             initial = deepcopy(robot_config.initial)
-            initial["base_xyyaw"] = [row[key] for key in ("x", "y", "yaw")]
+            initial["base_xyyaw"] = station_joint_poses(reference, robot_config.namespace, [row])[0].tolist()
             sim.robot.initialize(initial)
             mujoco.mj_forward(reference, sim.data)
             if boundary.outside(sim.data).item():
@@ -192,7 +217,7 @@ def check_stations(sim, settings, *, facing_only=False):
             if not row["valid"]:
                 continue
             initial = deepcopy(robot_config.initial)
-            initial["base_xyyaw"] = [row["x"], row["y"], row["yaw"]]
+            initial["base_xyyaw"] = station_joint_poses(model, robot_config.namespace, [row])[0].tolist()
             state.initialize(sim)
             place_frozen_station(sim, {"initial": initial})
             collisions = robot_contacts(sim)
