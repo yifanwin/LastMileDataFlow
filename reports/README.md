@@ -15,7 +15,7 @@
 
 - Cup_30真实物体RL：[随机站位接触抬升训练](rl-station-map/delivery/cup30-random-stations-training.md)，沿用方块协议、69D输入和预处理128→16候选；真实验证及正式训练状态见报告。
 
-- Cup_30移动底盘RL：[合并与奖励统一](rl-station-map/delivery/50-cup30-mobile-base-setup.md)，工作区 .worktrees/rl-mobile；真实杯子+底盘增量控制，失败罚分统一到约−20，尚未正式训练。
+- Cup_30移动底盘RL：[合并与奖励统一](rl-station-map/delivery/50-cup30-mobile-base-setup.md)、[8M诊断](rl-station-map/delivery/51-cup30-mobile-8m-diagnosis.md)、[熵奖励根因](rl-station-map/delivery/52-cup30-mobile-budget30-e512-results.md)、[当前训练](rl-station-map/delivery/53-cup30-mobile-noenttarget.md)；工作区 .worktrees/rl-mobile。
 
 - 抓取候选：[全量 FPS 与 Cup_30 16位姿图](rl-station-map/delivery/full-corpus-grasp-fps.md)，cuRobo/RL 共用固定种子的全量筛选；真实数据三处一致，未执行轨迹规划或训练。
 
