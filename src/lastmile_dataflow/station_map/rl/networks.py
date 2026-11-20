@@ -105,7 +105,7 @@ class GaussianActor(nn.Module):
         self.encoder = GraphEncoder() if mode == "graph" else FlatEncoder()
         self.normalizer = normalizer if normalizer is not None else nn.Identity()
         self.head = mlp((128 if mode == "graph" else 0) + state_dim, action_dim)
-        self.log_std = nn.Parameter(torch.full((action_dim,), math.log(init_std)))
+        self.log_std = nn.Parameter(torch.as_tensor(init_std, dtype=torch.float32).log().expand(action_dim).clone())
         orthogonal_init(self.head, 0.01)
 
     def distribution(self, observation):

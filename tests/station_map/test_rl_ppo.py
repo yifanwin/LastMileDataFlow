@@ -190,6 +190,9 @@ class PPOTests(unittest.TestCase):
         normal = agent.actor.distribution(obs)
         torch.testing.assert_close(normal.scale, torch.full((5, 7), 0.5))
         self.assertLess(float(normal.loc.abs().max()), 1.)  # Output gain 0.01 keeps initial means near zero.
+        per_dim = [1.0] * 7 + [0.3] * 3  # Quieter mobile-base dimensions.
+        scale = PPO(3, "cpu", PPOConfig(init_std=per_dim), action_dim=10, mode="flat").actor.distribution(obs).scale
+        torch.testing.assert_close(scale, torch.tensor(per_dim).expand(5, 10))
         self.assertIs(agent.actor.normalizer, agent.value.normalizer)
         batch = make_batch(agent, 64)
         batch.obs = batch.obs * 3 + 5

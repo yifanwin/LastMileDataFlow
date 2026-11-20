@@ -2,6 +2,8 @@
 
 from dataclasses import asdict, dataclass
 
+import numpy as np
+
 from lastmile_dataflow.utils.io import read_config, repo_path
 from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED
 
@@ -24,13 +26,14 @@ class PPOConfig:
     entropy_coef: float = 0.005
     actor_max_grad_norm: float = 1.0
     value_max_grad_norm: float = 1.0
-    init_std: float = 1.0
+    # One value for every action dimension, or one per dimension (e.g. a quieter mobile base).
+    init_std: float | list[float] = 1.0
     normalize_observations: bool = True
 
     def __post_init__(self):
         if min(self.rollout_steps, self.epochs, self.minibatch_size) < 1:
             raise ValueError("PPO rollout_steps, epochs and minibatch_size must be positive")
-        if min(self.actor_max_grad_norm, self.value_max_grad_norm, self.desired_kl, self.init_std) <= 0:
+        if min(self.actor_max_grad_norm, self.value_max_grad_norm, self.desired_kl, *np.atleast_1d(self.init_std)) <= 0:
             raise ValueError("PPO gradient limits, desired_kl and init_std must be positive")
         if not 0 < self.lr_min <= self.actor_lr <= self.lr_max:
             raise ValueError("PPO actor_lr must lie within [lr_min, lr_max]")
