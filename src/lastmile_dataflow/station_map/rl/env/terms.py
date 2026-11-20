@@ -905,13 +905,15 @@ def reward(env):
         cfg = env.research_config["reward"]
         success_event = task.success & ~task.contact_success_paid
         task.contact_success_paid |= success_event
-        near = (distance < cfg["grasp_distance_m"]) & (angle < cfg["grasp_angle_rad"])
+        # Closing may use a stricter alignment gate than the grasp event.
+        aligned = ((distance < cfg.get("closing_distance_m", cfg["grasp_distance_m"]))
+                   & (angle < cfg.get("closing_angle_rad", cfg["grasp_angle_rad"])))
         _, distance = pregrasp_stage(task, dp, angle, cfg, advance=True)
         q = task.robot.data.joint_pos
         closing = (1 - (q[:, task.fingers[0]] - q[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
         # Optionally pay closing only once a finger presses the target, not for empty closing.
         touched = (task.forces > env.research_config["success"]["finger_force_min_n"]).any(-1)
-        closing_stage = near & touched if cfg.get("closing_requires_contact") else near
+        closing_stage = aligned & touched if cfg.get("closing_requires_contact") else aligned
         closing_progress = stage_peak_progress(
             closing, closing_stage, task.closing_active, task.closing_peak, task.closing_paid
         )

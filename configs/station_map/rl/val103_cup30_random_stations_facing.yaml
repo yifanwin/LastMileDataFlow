@@ -35,6 +35,8 @@ action:
   damping: 0.05
   joint_limit_weight: 1.0
   lift_velocity_m_s: 0.05
+  # Gripper action is an increment: |action| = 1 moves 20% of the full stroke per policy step.
+  gripper_step: 0.2
 reward:
   position: 20.0
   rotation: 5.0
@@ -51,8 +53,11 @@ reward:
   pregrasp_tolerance_rad: 0.17453292519943295
   # After the switch, sideways error counts this many times its distance.
   descent_lateral_weight: 3.0
-  # Closing is paid only while at least one finger force exceeds success.finger_force_min_n.
-  closing_requires_contact: true
+  # Closing is paid without finger contact, but only inside a strict alignment gate
+  # (1 cm, 10 deg; the grasp event keeps grasp_distance_m/grasp_angle_rad).
+  closing_requires_contact: false
+  closing_distance_m: 0.01
+  closing_angle_rad: 0.17453292519943295
   # Typed collision penalties, [first contact, per policy step while sustained]. A tier's contact
   # counts as first again after collision_rearm_s without it. small: finger outer face or side on
   # the cup, empty pad-to-pad closing; medium: palm on the cup, fingers on the support table;

@@ -28,6 +28,8 @@ from .terms import TaskState
 @dataclass(kw_only=True)
 class GripperCfg(ActionTermCfg):
     positive_closes: bool = False
+    # Closed-fraction change per policy step at |action| = 1; None keeps absolute width commands.
+    step: float | None = None
 
     def build(self, env):
         return Gripper(self, env)
@@ -46,6 +48,8 @@ class Gripper(ActionTerm):
         self.open_targets = torch.stack((self.upper[:, 0], self.lower[:, 1]), -1)
         self.closed_targets = torch.stack((self.lower[:, 0], self.upper[:, 1]), -1)
         self.positive_closes = cfg.positive_closes
+        self.step = cfg.step
+        self.closed = torch.zeros(self.num_envs, 1, device=self.device)
         self._raw = torch.zeros(self.num_envs, 1, device=self.device)
         self.targets = torch.zeros(self.num_envs, 2, device=self.device)
 
@@ -59,8 +63,12 @@ class Gripper(ActionTerm):
 
     def process_actions(self, actions):
         self._raw[:] = actions
-        fraction = (1 - actions if self.positive_closes else 1 + actions) / 2
-        self.targets[:] = self.closed_targets + fraction * (self.open_targets - self.closed_targets)
+        closing = actions if self.positive_closes else -actions
+        if self.step is None:
+            self.closed[:] = (1 + closing) / 2
+        else:
+            self.closed[:] = (self.closed + self.step * closing).clamp(0, 1)
+        self.targets[:] = self.open_targets + self.closed * (self.closed_targets - self.open_targets)
 
     def apply_actions(self):
         self._entity.set_joint_position_target(self.targets, joint_ids=self.ids)
@@ -68,6 +76,7 @@ class Gripper(ActionTerm):
     def reset(self, env_ids=None):
         ids = slice(None) if env_ids is None else env_ids
         self._raw[ids] = 0
+        self.closed[ids] = 0
         self.targets[ids] = self.open_targets[ids]
 
 
@@ -222,7 +231,8 @@ class StationEnv(ManagerBasedRlEnv):
                     joint_limit_weight=action["joint_limit_weight"],
                     joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
                 ),
-                "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol),
+                "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol,
+                                      step=action.get("gripper_step")),
                 **({"base": MobileBaseCfg(
                     entity_name=ROBOT_ENTITY,
                     translation_m_s=action["base_translation_m_s"],

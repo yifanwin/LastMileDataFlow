@@ -152,6 +152,16 @@ class RewardTests(unittest.TestCase):
         reward(env)
         torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([0.0, 1.5]))
 
+    def test_contactless_closing_uses_its_own_strict_alignment_gate(self):
+        env = self.contact_reward_env([0.005, 0.02, 0.005], [0.0, 0.0, 0.2], [1.0, 1.0, 1.0])
+        env.research_config["reward"].update(closing_requires_contact=False, closing_distance_m=0.01,
+                                             closing_angle_rad=0.1745)
+        env.task.forces = torch.zeros(3, 2)
+        reward(env)  # Only the 5 mm / 0 rad environment is aligned; no finger contact is needed.
+        env.task.robot.data.joint_pos *= 0.5
+        reward(env)
+        torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([1.5, 0.0, 0.0]))
+
     def test_drop_event_is_a_one_off_penalty(self):
         env = self.contact_reward_env([0.05, 0.05], [0.1, 0.1], [0.0, 0.0])
         env.research_config["reward"]["drop_penalty"] = 20.0

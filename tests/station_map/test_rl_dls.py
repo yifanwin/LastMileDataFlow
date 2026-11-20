@@ -14,6 +14,7 @@ class JointCommandTests(unittest.TestCase):
         gripper.targets = torch.zeros(3, 2)
         gripper.open_targets = torch.tensor([[0.04, -0.04]]).expand(3, -1)
         gripper.closed_targets = torch.zeros(3, 2)
+        gripper.step, gripper.closed = None, torch.zeros(3, 1)
         actions = torch.tensor([[-1.], [0.], [1.]])
         for positive_closes in (True, False):
             gripper.positive_closes = positive_closes
@@ -21,6 +22,28 @@ class JointCommandTests(unittest.TestCase):
             expected = torch.tensor([[0.04, -0.04], [0.02, -0.02], [0., 0.]])
             torch.testing.assert_close(gripper.targets, expected if positive_closes else expected.flip(0))
             torch.testing.assert_close(gripper.raw_action, actions)
+
+    def test_incremental_gripper_accumulates_clamps_and_resets_open(self):
+        from lastmile_dataflow.station_map.rl.env.environment import Gripper
+
+        gripper = Gripper.__new__(Gripper)
+        gripper._raw, gripper.targets = torch.zeros(2, 1), torch.zeros(2, 2)
+        gripper.open_targets = torch.tensor([[0.04, -0.04]]).expand(2, -1)
+        gripper.closed_targets = torch.zeros(2, 2)
+        gripper.positive_closes, gripper.step, gripper.closed = True, 0.2, torch.zeros(2, 1)
+        for _ in range(3):
+            gripper.process_actions(torch.tensor([[1.], [0.5]]))
+        torch.testing.assert_close(gripper.closed, torch.tensor([[0.6], [0.3]]))
+        torch.testing.assert_close(gripper.targets, torch.tensor([[0.016, -0.016], [0.028, -0.028]]))
+        gripper.process_actions(torch.tensor([[0.], [-1.]]))  # Zero holds; opening clamps at fully open.
+        gripper.process_actions(torch.tensor([[0.], [-1.]]))
+        torch.testing.assert_close(gripper.closed, torch.tensor([[0.6], [0.]]))
+        for _ in range(5):
+            gripper.process_actions(torch.tensor([[1.], [0.]]))
+        self.assertEqual(float(gripper.closed[0]), 1.)
+        gripper.reset(torch.tensor([0]))
+        torch.testing.assert_close(gripper.closed, torch.zeros(2, 1))
+        torch.testing.assert_close(gripper.targets[0], torch.tensor([0.04, -0.04]))
 
     def test_command_rate_is_relative_to_previous_command(self):
         from lastmile_dataflow.station_map.rl.env.dls import limit_joint_command
