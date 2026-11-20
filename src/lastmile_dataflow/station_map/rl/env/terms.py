@@ -375,6 +375,8 @@ class TaskState:
         self.tier_onsets = torch.zeros(n, len(COLLISION_TIERS), device=device)
         self.stuck = torch.zeros(n, dtype=torch.bool, device=device)
         self.stuck_event = torch.zeros_like(self.stuck)
+        self.collision_spent = torch.zeros(n, device=device)
+        self.collision_budget_hit = torch.zeros_like(self.stuck)
         self.window_illegal = torch.zeros(n, window, dtype=torch.bool, device=device)
         self.window_move = torch.zeros(n, window, device=device)
         self.window_distance = torch.zeros(n, window, device=device)
@@ -898,7 +900,8 @@ def reset(env, env_ids):
     task.needs_baseline[ids] = True
     if getattr(task, "typed", False):
         for name in ("step_classes", "class_time", "tier_onsets", "stuck", "stuck_event", "window_illegal",
-                     "window_move", "window_distance", "window_angle", "window_steps"):
+                     "window_move", "window_distance", "window_angle", "window_steps", "collision_spent",
+                     "collision_budget_hit"):
             getattr(task, name)[ids] = 0
         task.tier_idle[ids] = task.rearm_steps
 
@@ -906,6 +909,22 @@ def reset(env, env_ids):
 def substep(env):
     env.task.sample_physics()
     return env.task.hold
+
+
+def typed_collision_penalty(task, cfg):
+    """Per-step typed collision penalty; optionally fail once the episode total reaches the budget.
+
+    The failure is set after this step's termination check, so the episode ends on the next step
+    and the one-off ``reward.failure`` is paid there.
+    """
+    penalty = task.collision_penalty()
+    budget = cfg.get("collision_budget")
+    if budget is not None:
+        task.collision_spent += penalty
+        hit = (task.collision_spent >= budget) & ~(task.success | task.failed)
+        task.collision_budget_hit |= hit
+        task.failed |= hit
+    return penalty
 
 
 def reward(env):
@@ -947,7 +966,7 @@ def reward(env):
         task.reward_components[:] = torch.stack((
             cfg["position"] * (task.previous_distance - distance),
             cfg["rotation"] * (task.previous_angle - angle),
-            -(task.collision_penalty() + cfg["stuck"]["penalty"] * task.stuck_event.float() + drop)
+            -(typed_collision_penalty(task, cfg) + cfg["stuck"]["penalty"] * task.stuck_event.float() + drop)
             if getattr(task, "typed", False) else -cfg["collision"] * task.step_collision.float() - drop,
             cfg["success"] * success_event.float(),
             cfg["close"] * closing_progress,
@@ -1011,6 +1030,7 @@ def collision_episode(task, index):
     return {
         "stuck": bool(task.stuck[index]),
         "dropped": bool(task.dropped[index]),
+        "collision_budget_hit": bool(task.collision_budget_hit[index]),
         "collision_class_s": dict(zip((name for name, _ in COLLISION_CLASSES), task.class_time[index].tolist())),
         "collision_onsets": dict(zip(COLLISION_TIERS, task.tier_onsets[index].int().tolist())),
     }

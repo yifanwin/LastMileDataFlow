@@ -174,6 +174,25 @@ class RewardTests(unittest.TestCase):
         reward(env)
         torch.testing.assert_close(env.task.reward_components[:, 4], torch.tensor([0.0, 1.5]))
 
+    def test_collision_budget_fails_once_the_episode_total_reaches_it(self):
+        from lastmile_dataflow.station_map.rl.env.terms import typed_collision_penalty
+
+        step = torch.tensor([10.0, 10.0, 0.5])
+        task = SimpleNamespace(
+            collision_penalty=lambda: step.clone(), collision_spent=torch.zeros(3),
+            collision_budget_hit=torch.zeros(3, dtype=torch.bool), failed=torch.zeros(3, dtype=torch.bool),
+            success=torch.tensor([False, True, False]),
+        )
+        cfg = {"collision_budget": 30.0}
+        for _ in range(2):
+            torch.testing.assert_close(typed_collision_penalty(task, cfg), step)
+        self.assertFalse(bool(task.failed.any()))
+        typed_collision_penalty(task, cfg)  # Row 0 reaches 30; row 1 already succeeded.
+        self.assertEqual(task.failed.tolist(), [True, False, False])
+        self.assertEqual(task.collision_budget_hit.tolist(), [True, False, False])
+        typed_collision_penalty(task, {})  # No budget configured: penalty only.
+        torch.testing.assert_close(task.collision_spent, torch.tensor([30.0, 30.0, 1.5]))
+
     def test_drop_event_is_a_one_off_penalty(self):
         env = self.contact_reward_env([0.05, 0.05], [0.1, 0.1], [0.0, 0.0])
         env.research_config["reward"]["drop_penalty"] = 20.0

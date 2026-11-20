@@ -64,9 +64,11 @@ reward:
   # Pad and inner-face finger contacts with the cup and cup-table contact are not penalized.
   # Sustained 0.5 per 0.05 s step (10 per second) makes resting in contact cost one success
   # (+44) within about 4.4 s; the stuck termination bounds a truly stuck episode near -20..-30.
+  # Mobile: cup-contact tiers halved on first contact and sustained 0.05/0.1, because base motion
+  # makes early cup contacts frequent and the policy learned to avoid the cup (report 51).
   collision_tiers:
-    small: [0.5, 0.1]
-    medium: [0.8, 0.5]
+    small: [0.25, 0.05]
+    medium: [0.4, 0.1]
     large: [1.0, 0.5]
   collision_rearm_s: 0.25
   # A finger-body contact is inner when its normal is within 60 degrees of the closing direction.
@@ -87,9 +89,11 @@ reward:
   drop_penalty: 20.0
   # One-off penalty for a failure without a dedicated penalty above: the base leaving the local
   # boundary. Matching the drop penalty keeps every failure near -20 so that leaving is never cheaper
-  # than backing off. No collision_limit_s: sustained collisions are priced per step and bounded by
-  # the stuck termination, and a time cap would also count tolerated finger-outer contact.
+  # than backing off. The collision budget below replaces a continuous-time limit.
   failure: 20.0
+  # Fail (paying failure once) when the episode's typed collision penalty total reaches this. 30 cuts
+  # 3-4% of past successes and bounds grinding episodes, whose 99th percentile was 230-260.
+  collision_budget: 30.0
 sac:
   gamma: 0.999
   tau: 0.005
