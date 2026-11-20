@@ -174,4 +174,3 @@ class SACInference:
             network.to(device).eval().requires_grad_(False)
         alpha = saved["log_alpha"].to(device).exp().detach()
         return cls(*networks, alpha, mode, dim), saved
-
