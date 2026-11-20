@@ -17,6 +17,7 @@ from .checkpoint import seed_all
 from .env.observation import graph_observation, policy_observation
 from .monitor import station_evaluation
 from .capture import RolloutCapture, EpisodeReplays
+from .soft_value import plot_values
 from .devices import VISIBLE_DEVICE
 from .env.terms import finger_contact, target_lift_height
 from .env.terms import mobile_episode, grasp_episode, collision_episode
@@ -45,7 +46,7 @@ def station_scores(agent, env, samples, station_ids=None, *, initial_scores=()):
             batch = pool[start:start + env.num_envs]
             padded = batch + [batch[-1]] * (env.num_envs - len(batch))
             env.task.requested_grasp_ids = torch.tensor(padded, device=env.device)
-            obs = reset_stations(env, [index] * env.num_envs)
+            obs = reset_stations(env, [index] * env.num_envs, mode=getattr(agent, "mode", "graph"))
             if kind == "v":
                 mean = agent.value(obs)
                 std = torch.zeros_like(mean)
@@ -387,8 +388,8 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
     agent, saved = load_agent(checkpoint, f"cuda:{VISIBLE_DEVICE}")
     if config != saved["metadata"]["config"]:
         raise ValueError("Scoring requires the checkpoint effective configuration")
-    if agent.mode == "flat":
-        raise ValueError("Flat contact checkpoints do not have station scores; use evaluate instead")
+    if agent.mode == "flat" and agent.algorithm != "ppo":
+        raise ValueError("Flat SAC checkpoints use score.py --value-mode soft; flat PPO is scored by V")
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -406,7 +407,14 @@ def score(config, *, checkpoint, gpu, output, seed=None, num_envs=32):
             "stations": rows,
         }
         (output / f"station-{kind}.json").write_text(json.dumps(result, indent=2))
-        plot_scores(rows, output / f"station-{kind}.png", config["evaluation"].get(f"{kind}_color_limits"))
+        if agent.mode == "flat":
+            # Same per-station map as the SAC soft-value figure; the target is static across resets.
+            plot_values(rows, env.task.poses()[4][0, :2].tolist(), output / f"station-{kind}.png",
+                        title=f"PPO initial state value V | {saved['transitions']:,} transitions | "
+                              f"mean over {len(env.task.grasp_pools[0])} grasps",
+                        label="mean V(s0) over grasp candidates (not success probability)")
+        else:
+            plot_scores(rows, output / f"station-{kind}.png", config["evaluation"].get(f"{kind}_color_limits"))
         return result
     finally:
         env.close()

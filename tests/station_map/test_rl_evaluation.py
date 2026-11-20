@@ -181,7 +181,7 @@ class ValidationTests(unittest.TestCase):
             return_value=(torch.tensor([1.0, 3.0]), torch.zeros(2)),
         ):
             rows = station_scores(None, env, 16, initial_scores=[cached])
-        reset.assert_called_once_with(env, [1, 1])
+        reset.assert_called_once_with(env, [1, 1], mode="graph")
         self.assertEqual(rows[0], cached)
         self.assertEqual(rows[1]["q_mean"], 2.0)
         self.assertFalse(rows[2]["valid"])

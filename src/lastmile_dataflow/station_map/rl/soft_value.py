@@ -67,20 +67,20 @@ def summarize_values(stations, sampled, alpha):
     return rows
 
 
-def plot_values(rows, target, path, *, transitions):
+def plot_values(rows, target, path, *, title, label, limits=(None, None)):
     valid = [r for r in rows if r["valid"]]
     invalid = [r for r in rows if not r["valid"]]
     fig, axis = plt.subplots(figsize=(8, 7), constrained_layout=True)
     axis.scatter([r["x"] for r in invalid], [r["y"] for r in invalid],
                  c="lightgray", marker="x", label="invalid initial station")
     points = axis.scatter([r["x"] for r in valid], [r["y"] for r in valid],
-                          c=[r["v_mean"] for r in valid], marker="s", s=100, cmap="viridis")
-    axis.scatter(float(target[0]), float(target[1]), c="orangered", marker="*", s=180, label="cube")
-    axis.set(title=f"SAC initial soft value | {transitions:,} transitions | K={valid[0]['K']}\n"
-                   "Each base faces the cube; invalid stations are masked",
+                          c=[r["v_mean"] for r in valid], marker="s", s=100, cmap="viridis",
+                          vmin=limits[0], vmax=limits[1])
+    axis.scatter(float(target[0]), float(target[1]), c="orangered", marker="*", s=180, label="target")
+    axis.set(title=title + "\nEach base faces the target; invalid stations are masked",
              xlabel="world x (m)", ylabel="world y (m)", aspect="equal")
     axis.legend(loc="upper left", fontsize=8)
-    fig.colorbar(points, ax=axis, label="E[min(Q1, Q2) - alpha log pi] (not success probability)")
+    fig.colorbar(points, ax=axis, label=label)
     fig.savefig(path, dpi=180)
     plt.close(fig)
 
@@ -134,7 +134,9 @@ def score_soft(config, *, checkpoint, gpu, output, samples, batch_size, seed, pl
     )
     plot_path = Path(plot) if plot is not None else output / "station-value.png"
     plot_path.parent.mkdir(parents=True, exist_ok=True)
-    plot_values(rows, config["observation"]["cube_position_world"], plot_path, transitions=saved["transitions"])
+    plot_values(rows, config["observation"]["cube_position_world"], plot_path,
+                title=f"SAC initial soft value | {saved['transitions']:,} transitions | K={samples}",
+                label="E[min(Q1, Q2) - alpha log pi] (not success probability)")
     result["plot"] = str(plot_path.resolve())
     result["timings"]["total_seconds"] = time.perf_counter() - started
     (output / "station-value.json").write_text(json.dumps(result, indent=2))
