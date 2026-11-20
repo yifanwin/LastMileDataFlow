@@ -102,10 +102,11 @@ reward:
 algorithm: ppo
 # Defaults come from PPOConfig (gamma 0.99, KL-adaptive actor lr, entropy 0.005, normalized inputs).
 ppo:
-  # Action layout: TCP delta (6), gripper (1), base x, y, yaw (3). A base std of 1 makes the base a
-  # random walk (about 0.09 rad yaw per step, 1.8 rad over 400 steps) that ruins the 1 cm closing gate;
-  # 0.3 starts the base quieter while its log std stays learnable.
-  init_std: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 0.3]
+  # Action layout: TCP delta (6), gripper (1), base x, y, yaw (3). The DLS keeps the TCP target in the
+  # base frame, so base noise moves the TCP rigidly: at std 0.3 the yaw alone shook the TCP 2.5-3.4 cm
+  # per step (arm noise is about 1.2 cm), the policy hovered in the 1 cm gate without ever closing, and
+  # PPO only lowered the base std to 0.285 in 7M transitions (report 54). 0.1 gives about 0.9 cm.
+  init_std: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 0.1, 0.1]
 sac:
   gamma: 0.999
   tau: 0.005
