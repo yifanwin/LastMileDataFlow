@@ -69,7 +69,7 @@ training:
 
 配置该块后必须满 `window_episodes` 个健康、完整且全程无随机预热的回合，且累计健康 transition 达到 `start_transitions`，才参与比较；普通失败保留在分母。`metric` 支持 `success_rate` 和 `return`（未折扣平均回报），严格提高才替换。同一组 Sampler 按 Learner 收到事件的顺序合并；开始门槛前的合格回合也滚动入窗，达到门槛后有新合格回合的刷新才比较。TensorBoard `train/` 仍为最近至多100回合。未配置该块保持原行为（最近至多100回合成功率、不满窗也比较、无开始门槛）；块内未配置字段也沿用旧值。
 
-Cup 随机站位配置已启用上例。512个总环境、每回合1000步、预热20000条时，一个最长回合的名义预算是532000条，600000条留有余量；门槛按全局累计经验计数，不逐环境追踪完成次数。更改总环境数或回合长度时应相应调整门槛。恢复训练保持全局累计门槛，窗口从空重新积累；只有选择配置相同且符合门槛、满窗条件的排名才继承，从 `ckpts/` 恢复仍重新选模。训练结束无合格选模窗口时保存最终模型作为兜底，`rate=null`、`count=0` 并标记原因，不作为比较胜出的模型。
+Cup 随机站位配置已启用上例（移动底盘配置为每卡512环境，门槛2100000）。512个总环境、每回合1000步、预热20000条时，一个最长回合的名义预算是532000条，600000条留有余量；门槛按全局累计经验计数，不逐环境追踪完成次数。更改总环境数或回合长度时应相应调整门槛。恢复训练保持全局累计门槛，窗口从空重新积累；只有选择配置相同且符合门槛、满窗条件的排名才继承，从 `ckpts/` 恢复仍重新选模。训练结束无合格选模窗口时保存最终模型作为兜底，`rate=null`、`count=0` 并标记原因，不作为比较胜出的模型。
 
 ## 执行配置
 
@@ -98,7 +98,7 @@ RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` �
 
 该方块配置的 `observation` 同时保存离线评分所需的固定初态数值（静置方块位姿、Home TCP局部位姿、底盘高度、夹爪开度及归一化范围）。`score.py --value-mode soft` 直接读取，无需模板文件或仿真加载；Home关节与升降仍使用原 `scene.home/lift`。这些静态值仅用于初态评分，不替代训练环境中的动态观测。
 
-移动方块配置 `station_map/rl/val103_cube_random_stations_mobile.yaml` 使用 `action.mobile_base: true`、`scene.fixed_base: false`：75维平坦观测、10维动作（TCP6、夹爪1、底盘前后/横移/转向3）；升降继续由臂与升降联合DLS控制。`action.mobile_base` 默认为false，不能与物理固定底盘同时启用。平移合速度和转向命令分别由 `action.base_translation_m_s`、`action.base_yaw_rad_s` 设置（本配置0.2 m/s、0.5 rad/s）。机器人或目标碰撞几何越出目标周围局部裁剪方形即失败，移动本身不再按固定底盘漂移失败。旧固定底盘离线评分仅用于原固定模式。
+移动方块配置 `station_map/rl/val103_cube_random_stations_mobile.yaml` 使用 `action.mobile_base: true`、`scene.fixed_base: false`：75维平坦观测、10维动作（TCP6、夹爪1、底盘前后/横移/转向3）；升降继续由臂与升降联合DLS控制。`action.mobile_base` 默认为false，不能与物理固定底盘同时启用。底盘动作与TCP一致，是相对实测位姿的每策略步增量：平移合增量上限 `action.base_translation_m`、转向增量上限 `action.base_yaw_rad`（本配置0.03 m、0.15 rad；实测满动作约0.42 m/s、0.46 rad/s）。机器人或目标碰撞几何越出目标周围局部裁剪方形即失败，移动本身不再按固定底盘漂移失败。`reward.failure` 为失败终止时一次性罚分（本配置30；已有专门罚分的失败不再叠加：卡死 `reward.stuck.penalty`、配置了 `reward.drop_penalty` 的掉落），`reward.collision_limit_s` 为单次连续碰撞上限（本配置2 s，超过即失败）；两项缺省时关闭，其他配置不受影响。奖励分项增加第8项 failure。旧固定底盘离线评分仅用于原固定模式。
 
 ## 物体级抓取预处理库
 
@@ -110,3 +110,7 @@ Panda cuRobo配置的`grasp_preprocessed_paths`按资产名（如Cup_30）映射
 
 
 真实杯子接触抬升训练使用 `station_map/rl/val103_cup30_random_stations_facing.yaml`：预处理库路径、运行前抽样数量16和seed42在 `grasp` 显式指定。每回合随机有效站位及一个候选，底盘固定，使用当前方块接触抬升协议；旧Cup图观测配置保持原协议。启动步骤见 `docs/runbook.md`。
+
+移动底盘杯子配置 `station_map/rl/val103_cup30_random_stations_mobile.yaml` 在上述Cup配置上只改：`scene.fixed_base: false`，`action.mobile_base: true`（0.03 m、0.15 rad增量），`sac.target_entropy: -10`，`reward.failure: 20`（越界一次性罚分，与掉落罚分持平）。分类碰撞、卡死终止、掉落罚分、对称对齐、best窗口（200回合、60万条门槛）与Cup配置相同；不设 `collision_limit_s`。2026-11-20起（报告51）：小档 [0.25, 0.05]、中档 [0.4, 0.1]、大档不变；`reward.collision_budget: 30`，一回合分类碰撞罚分累计达30即判失败（下一步终止并付一次 `failure`），回合日志记 `collision_budget_hit`；未配置时不启用。
+
+`sac.entropy_in_target`（默认true）：false时critic目标不含熵奖励 $-\alpha\log\pi$，Q只估任务回报，熵项只留在actor损失里。移动底盘杯子配置2026-11-20起使用false，并改为gamma 0.995、episode_s 30、每卡256环境、replay 20万、best门槛70万（报告52、53）。

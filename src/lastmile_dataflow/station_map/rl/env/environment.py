@@ -235,8 +235,8 @@ class StationEnv(ManagerBasedRlEnv):
                                       step=action.get("gripper_step")),
                 **({"base": MobileBaseCfg(
                     entity_name=ROBOT_ENTITY,
-                    translation_m_s=action["base_translation_m_s"],
-                    yaw_rad_s=action["base_yaw_rad_s"],
+                    translation_m=action["base_translation_m"],
+                    yaw_rad=action["base_yaw_rad"],
                 )} if mobile else {}),
             },
             observations={

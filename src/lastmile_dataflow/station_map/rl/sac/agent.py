@@ -21,6 +21,9 @@ class SACConfig:
     alpha_lr: float = 1e-4
     initial_alpha: float = 0.1
     target_entropy: float = -7.0
+    # False: the critic target omits the entropy bonus (Q estimates task return only); the actor
+    # loss keeps alpha * log_prob for exploration.
+    entropy_in_target: bool = True
 
 
 def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
@@ -60,7 +63,8 @@ class SAC:
         with torch.no_grad():
             next_action, next_log_prob = self.actor.sample(batch.next_obs)
             next_q = torch.minimum(self.target1(batch.next_obs, next_action), self.target2(batch.next_obs, next_action))
-            target = bellman_target(batch.reward, batch.terminated, next_q, next_log_prob, self.alpha, cfg.gamma)
+            alpha = self.alpha if cfg.entropy_in_target else 0.0
+            target = bellman_target(batch.reward, batch.terminated, next_q, next_log_prob, alpha, cfg.gamma)
         critic_loss = F.mse_loss(self.q1(batch.obs, batch.action), target) + F.mse_loss(
             self.q2(batch.obs, batch.action), target
         )

@@ -41,13 +41,13 @@ def episode(value, *, warmup=False, unhealthy=False):
 
 @unittest.skipUnless(importlib.util.find_spec("tensorboard"), "requires RL TensorBoard dependency")
 class TrainingMonitorTests(unittest.TestCase):
-    def test_contact_task_writes_all_seven_rewards(self):
+    def test_contact_task_writes_all_rewards(self):
         from lastmile_dataflow.station_map.rl.env.observation import CONTACT_REWARD_COMPONENTS
 
         event = episode(1)
         event.pop("contact_bonus_count")
         event["reward_component_names"] = CONTACT_REWARD_COMPONENTS
-        event["reward_components"] = [0.1, 0.05, -1., 30., 0.05, 0.05, 0.5]
+        event["reward_components"] = [0.1, 0.05, -1., 30., 0.05, 0.05, 0.5, -30.]
         with tempfile.TemporaryDirectory() as directory:
             monitor = TrainingMonitor(directory, every_seconds=30)
             monitor.record_episode(event)

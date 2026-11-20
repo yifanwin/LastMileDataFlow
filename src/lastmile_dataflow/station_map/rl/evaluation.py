@@ -463,7 +463,9 @@ def evaluate(config, *, checkpoint, scores, gpu, output, seed=None, baseline=Fal
     seed = config["evaluation"]["seed"] if seed is None else seed
     seed_all(seed)
     agent, saved = load_agent(checkpoint, f"cuda:{VISIBLE_DEVICE}")
-    if config != saved["metadata"]["config"]:
+    # The evaluation section is the test protocol (seed, station count); all else must match training.
+    trained = {key: value for key, value in saved["metadata"]["config"].items() if key != "evaluation"}
+    if {key: value for key, value in config.items() if key != "evaluation"} != trained:
         raise ValueError("Evaluation requires the checkpoint effective configuration")
     if agent.mode == "flat":
         return evaluate_flat(config, agent, checkpoint, gpu, output, seed, num_envs=num_envs)

@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import mujoco
 import torch
 
-from lastmile_dataflow.station_map.rl.env.mobile import LocalBoundary, MobileBase, base_velocity
+from lastmile_dataflow.station_map.rl.env.mobile import LocalBoundary, MobileBase, base_delta
 from lastmile_dataflow.station_map.rl.env.dls import BaseFrameDLS
 from lastmile_dataflow.station_map.rl.env.observation import (
     FlatObservationState, build_flat_observation, flat_fields,
@@ -20,18 +20,28 @@ from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition
 
 
 class MobileTests(unittest.TestCase):
-    def test_body_velocity_rotates_and_diagonal_translation_is_limited(self):
+    def test_body_delta_rotates_and_diagonal_translation_is_limited(self):
         rotation = torch.tensor([[[0., -1, 0], [1, 0, 0], [0, 0, 1]]]).repeat(3, 1, 1)
-        velocity = base_velocity(torch.tensor([[1., 0, 1], [0, -1, -1], [1, 1, 0]]), rotation, 0.2, 0.5)
-        torch.testing.assert_close(velocity[:2], torch.tensor([[0., .2, .5], [.2, 0, -.5]]))
-        torch.testing.assert_close(velocity[:, :2].norm(dim=-1), torch.full((3,), .2))
+        delta = base_delta(torch.tensor([[1., 0, 1], [0, -1, -1], [1, 1, 0]]), rotation, 0.04, 0.1)
+        torch.testing.assert_close(delta[:2], torch.tensor([[0., .04, .1], [.04, 0, -.1]]))
+        torch.testing.assert_close(delta[:, :2].norm(dim=-1), torch.full((3,), .04))
+
+    def test_blocked_base_target_does_not_accumulate(self):
+        base = MobileBase.__new__(MobileBase)
+        base._entity = SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[1., 2, 0]])))
+        base._env = SimpleNamespace(sim=SimpleNamespace(data=SimpleNamespace(site_xmat=torch.eye(3).reshape(1, 1, 9))))
+        base.cfg = SimpleNamespace(translation_m=.04, yaw_rad=.1)
+        base.ids, base.base = [0, 1, 2], 0
+        base._raw, base.command = torch.zeros(1, 3), torch.zeros(1, 3)
+        for _ in range(5):  # The measured pose never moves, as when pushing a table.
+            base.process_actions(torch.tensor([[1., 0, 1]]))
+        torch.testing.assert_close(base.command, torch.tensor([[1.04, 2, .1]]))
 
     def test_base_reset_only_changes_selected_references(self):
         base = MobileBase.__new__(MobileBase)
         base._entity = SimpleNamespace(data=SimpleNamespace(joint_pos=torch.tensor([[1., 2, 3], [4, 5, 6]])))
         base.ids = [0, 1, 2]
         base._raw = torch.ones(2, 3)
-        base.command_velocity = torch.ones(2, 3)
         base.command = torch.zeros(2, 3)
         base.reset(torch.tensor([1]))
         torch.testing.assert_close(base.command, torch.tensor([[0., 0, 0], [4, 5, 6]]))
