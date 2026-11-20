@@ -63,7 +63,7 @@ PYTHONPATH=$PWD/src MUJOCO_GL=disable OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 
 `PYTHONPATH` 不能省：本工作区 `.venv` 链接到 actor-critic 环境，默认会导入那边的源码。该配置的 `grasp.preprocessed_path` 是相对路径，工作区需有 `outputs/experiments/grasp-fps-all`（本工作区为指向 rl-cup 同名目录的软链接）。与 SAC 配置的差别只有 `algorithm: ppo`、`ppo: {}` 和 `episode_s: 20`。cube 旧配置 `val103_cube_s0246_facing_ppo.yaml` 仍可用。原 SAC 配置也可直接加 `--algorithm ppo`。PPO 不使用 Replay、warmup、alpha、SAC batch_size 或 transitions_per_update。
 
-移动底盘 Cup_30 PPO：把上面的配置换成 `configs/station_map/rl/val103_cup30_random_stations_mobile_ppo.yaml`，建议 `--num-envs 512`（配置默认也是512）。相对固定底盘 PPO 只多了底盘动作（0.03 m、0.15 rad）、越界 `failure: 20`、`collision_budget: 30`、底盘维度初始 std 0.3 和 best 门槛 85万；见[报告54](54-ppo-cup30-mobile.md)。
+移动底盘 Cup_30 PPO：把上面的配置换成 `configs/station_map/rl/val103_cup30_random_stations_mobile_ppo.yaml`，建议 `--num-envs 512`（配置默认也是512）。相对固定底盘 PPO 只多了底盘动作（0.03 m、0.15 rad）、越界 `failure: 20`、`collision_budget: 30`、底盘维度初始 std 0.1、初始采样半径 1.5 倍和 best 门槛 85万；见[报告54](54-ppo-cup30-mobile.md)。
 
 PPO 参数默认值（2026-11-20 按[失败排查](../analyze/ppo-cube-s0246-failure-diagnosis.md)修改）：
 
@@ -111,7 +111,7 @@ graph 使用 `val103_cup30_s0246_facing_ppo.yaml`，训练结束加载 best 做�
 
 机器人尺寸由 `scene.robot_scale` 显式指定（当前 0.9，相对于原始 factory XML）。更改该值即可重新构建训练和评估模型；夹爪初态、动作上下限、升降位置归一化和底盘支撑半径从实际模型读取，不需同步修改尺寸常量。显式指定的 Home 升降高度仍以米计，需处于新模型范围内。
 
-站位采样通过 `stations.robot_config` 读取 `configs/robots/panda_omron.yaml`：圆盘半径取 `arm_working_reach_m`，网格间隔取 `base_radius_m × 0.25`，不再在 RL 配置中填写固定米数。当前为 0.8469596623341055 m / 0.09861573150365006 m；圆心及 9 档朝向规则不变。两个机器人尺寸字段是实际尺寸，不重复乘 `scene.robot_scale`；改变模型比例时需同步更新机器人配置中的臂展与底盘半径。训练、评分和验收都解析同一配置，有效半径与间隔随 checkpoint 保存；机器人配置变化后，旧 checkpoint 的配置一致性检查会拒绝恢复或评分。新网格须重新生成，历史运行的站位数量不作为新网格的合法数量。
+站位采样通过 `stations.robot_config` 读取 `configs/robots/panda_omron.yaml`：圆盘半径取 `arm_working_reach_m`，网格间隔取 `base_radius_m × 0.25`，不再在 RL 配置中填写固定米数。默认是 0.8469596623341055 m / 0.09861573150365006 m；`stations.radius_scale` 可缩放采样半径（默认1），移动底盘 PPO 配置取1.5，即1.2704394935011583 m，间距不变；圆心及 9 档朝向规则不变。两个机器人尺寸字段是实际尺寸，不重复乘 `scene.robot_scale`；改变模型比例时需同步更新机器人配置中的臂展与底盘半径。训练、评分和验收都解析同一配置，有效半径与间隔随 checkpoint 保存；机器人配置变化后，旧 checkpoint 的配置一致性检查会拒绝恢复或评分。新网格须重新生成，历史运行的站位数量不作为新网格的合法数量。
 
 尺寸变化后使用新 run 从头训练；该字段随有效配置进入 checkpoint，resume / 评分 / 评估要求相同配置。缺少该字段的旧配置需明确补齐其原始实验尺寸，勿直接补成当前尺寸来复用旧结果。本研究入口不调用 cuRobo；主链规划 URDF 和碰撞球仍是 main 的 0.9 资产，不随 RL 实验比例改写。
 

@@ -61,7 +61,7 @@ def resolve_config(config):
         "stations": {
             **settings,
             "base_radius_m": radius,
-            "radius_m": reach,
+            "radius_m": reach * settings.get("radius_scale", 1.0),
             "spacing_m": radius / 4,
         },
     }

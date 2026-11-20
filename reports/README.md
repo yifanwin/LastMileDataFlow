@@ -85,3 +85,5 @@
 - RL 最低软价值站位：[S0091-y00五次操作视频](rl-station-map/delivery/41-lowest-value-station-five-rollouts.md)，720万checkpoint，成功5/5、无碰撞成功2/5。
 
 - RL 最高软价值站位：[S0078-y00五次操作视频](rl-station-map/delivery/42-highest-value-station-five-rollouts.md)，720万checkpoint，成功4/5、无碰撞成功3/5。
+
+- [PPO 移动底盘初始采样范围扩大1.5倍](rl-station-map/delivery/56-ppo-mobile-expanded-sampling.md)

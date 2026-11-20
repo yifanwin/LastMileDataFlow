@@ -58,6 +58,16 @@ class StationGeometryTests(unittest.TestCase):
         self.assertEqual(resolved["radius_m"], robot["arm_working_reach_m"])
         self.assertEqual(resolved["spacing_m"], robot["base_radius_m"] / 4)
 
+    def test_mobile_ppo_expands_initial_sampling_disk(self):
+        config = read_config("configs/station_map/rl/val103_cup30_random_stations_mobile_ppo.yaml")
+        expanded = resolve_config(config)["stations"]
+        config["stations"].pop("radius_scale")
+        original = resolve_config(config)["stations"]
+        self.assertAlmostEqual(expanded["radius_m"], original["radius_m"] * 1.5)
+        self.assertEqual(expanded["spacing_m"], original["spacing_m"])
+        points = station_candidates(np.zeros(3), expanded)
+        self.assertTrue(any(np.hypot(row["x"], row["y"]) > original["radius_m"] for row in points))
+
     def test_fixed_station_preserves_historical_pose_outside_current_grid(self):
         config = resolve_config(read_config("configs/station_map/rl/val103_cup30_s0246_y04.yaml"))
         settings = config["stations"]
