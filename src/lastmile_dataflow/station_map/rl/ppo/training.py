@@ -9,6 +9,8 @@ import time
 
 import torch
 
+from lastmile_dataflow.utils.io import repo_path
+
 from ..checkpoint import load_agent, seed_all
 from ..config import PPOConfig, resolve_config
 from ..devices import VISIBLE_DEVICE
@@ -110,6 +112,13 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
             resume_output = restore_best_checkpoint(saved, resume, output, metadata)
         else:
             agent = PPO(metadata["state_dim"], env.device, cfg, mode=mode, action_dim=metadata["action_dim"])
+            if settings.get("init_checkpoint"):
+                # A new run (own config, counters and optimizers) starting from another run's networks,
+                # e.g. switching the same policy from graded penalties to strict termination.
+                source, _ = load_agent(repo_path(settings["init_checkpoint"]), env.device, algorithm="ppo")
+                agent.actor.load_state_dict(source.actor.state_dict())
+                agent.value.load_state_dict(source.value.state_dict())
+                agent.actor_lr = source.actor_lr
         record_grasp_subset(env, output, metadata)
         monitor = TrainingMonitor(output, every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
                                   best_checkpoint=settings.get("best_checkpoint"),

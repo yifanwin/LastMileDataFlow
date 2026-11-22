@@ -478,7 +478,10 @@ class TaskState:
             self.limit_joints = joints
             self.limit_low, self.limit_high = limits[:, 0] - tolerance, limits[:, 1] + tolerance
             names = [name for name, _ in COLLISION_CLASSES]
-            self.illegal_classes = torch.tensor([names.index(c) for c in self.strict["illegal"]], device=self.device)
+            self.illegal_classes = torch.tensor([names.index(c) for c in self.strict["illegal"]],
+                                                device=self.device, dtype=torch.long)
+            # Classes whose any contact disqualifies a "strict clean" success (logged even when not terminal).
+            self.clean_classes = [names.index(c) for c in self.strict.get("clean", self.strict["illegal"])]
         self.node_tensors = None
         if config.get("observation", {}).get("layout") == "station":
             data = mujoco.MjData(self.model)
@@ -530,12 +533,13 @@ class TaskState:
         """Latch the first failure of this substep; illegal contacts outrank joint limits, drops and drift."""
         q = self.robot.data.joint_pos[:, self.limit_joints]
         limit = ((q < self.limit_low) | (q > self.limit_high)).any(-1)
-        illegal = classes[:, self.illegal_classes]
         reason = torch.zeros_like(self.failure_reason)
         for flag, name in ((drift, "base_drift"), (dropped, "drop"), (limit, "joint_limit")):
             reason = torch.where(flag, FAILURE_REASONS.index(name), reason)
-        first_illegal = 1 + self.illegal_classes[illegal.float().argmax(-1)]
-        reason = torch.where(illegal.any(-1), first_illegal, reason)
+        if len(self.illegal_classes):
+            illegal = classes[:, self.illegal_classes]
+            first_illegal = 1 + self.illegal_classes[illegal.float().argmax(-1)]
+            reason = torch.where(illegal.any(-1), first_illegal, reason)
         new = (reason > 0) & ~self.failed & ~self.success
         self.failure_reason[new] = reason[new]
         self.failed |= new
@@ -1194,7 +1198,9 @@ def strict_episode(task, index):
     reason = FAILURE_REASONS[int(task.failure_reason[index])]
     if not reason and not task.success[index] and not task.unhealthy[index]:
         reason = "timeout"
-    return {"sigma": float(task.sigma[index]), "failure_reason": reason,
+    clean = getattr(task, "clean_classes", [])
+    strict_clean = bool(task.success[index]) and (not clean or float(task.class_time[index, clean].sum()) == 0.0)
+    return {"sigma": float(task.sigma[index]), "failure_reason": reason, "strict_clean_success": strict_clean,
             "base_xyyaw_actual": task.actual_pose[index].cpu().tolist(),
             # Stage reach: pregrasp latch, closing progress inside the gate, two-pad grasp event, lift peak.
             "pregrasp_reached": bool(task.pregrasp_reached[index]), "closing_paid": float(task.closing_paid[index]),
