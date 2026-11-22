@@ -1,5 +1,7 @@
 """Synchronous multi-GPU PPO using the shared task, monitoring and recording flow."""
 
+from collections import deque
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import resource
@@ -20,6 +22,59 @@ from ..training_common import (
 from .agent import PPO
 from .rollout import RolloutBatch
 from .sampling import SynchronousSamplers
+
+
+@dataclass
+class SigmaCurriculum:
+    """Raise the noise ceiling after the low- and high-noise training windows both succeed.
+
+    Level -1 is sigma = 0 (stage 1). Windows hold the latest episodes with sigma <= 0.25 and
+    >= 0.75 of the current ceiling; at level -1 both are every episode.
+    """
+
+    levels: list
+    start_level: int = -1
+    min_transitions: int = 1_000_000
+    low_success: float = 0.8
+    high_success: float = 0.75
+    window: int = 2000
+    level: int = field(init=False)
+    since: int = field(init=False, default=0)
+
+    def __post_init__(self):
+        self.level = self.start_level
+        self.low, self.high = deque(maxlen=self.window), deque(maxlen=self.window)
+
+    @property
+    def sigma_max(self):
+        return 0.0 if self.level < 0 else float(self.levels[self.level])
+
+    def record(self, event):
+        if event.get("infrastructure_failure") or "sigma" not in event:
+            return
+        ceiling = self.sigma_max
+        if event["sigma"] <= 0.25 * ceiling + 1e-6:
+            self.low.append(event["success"])
+        if event["sigma"] >= 0.75 * ceiling - 1e-6:
+            self.high.append(event["success"])
+
+    def rates(self):
+        rate = lambda values: sum(values) / len(values) if values else 0.0
+        return rate(self.low), rate(self.high)
+
+    def advance(self, transitions):
+        low, high = self.rates()
+        ready = (len(self.low) == self.window and len(self.high) == self.window
+                 and transitions - self.since >= self.min_transitions
+                 and low >= self.low_success and high >= self.high_success)
+        if not ready or self.level + 1 >= len(self.levels):
+            return None
+        self.level += 1
+        self.since = transitions
+        self.low.clear()
+        self.high.clear()
+        return {"event": "curriculum", "transitions": transitions, "level": self.level,
+                "sigma_max": self.sigma_max, "previous_low_success": low, "previous_high_success": high}
 
 
 def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
@@ -59,6 +114,7 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
         monitor = TrainingMonitor(output, every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
                                   best_checkpoint=settings.get("best_checkpoint"),
                                   purge_step=transitions if resume_output is not None and resume_output.resolve() == output.resolve() else None)
+        curriculum = SigmaCurriculum(**config["curriculum"]) if "curriculum" in config else None
         workers = SynchronousSamplers(config, gpus, seed, num_envs)
         workers.ready()
         started = time.perf_counter()
@@ -68,7 +124,8 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
         evaluation_at = transitions + 100_000
         with (output / "metrics.jsonl").open("a") as log:
             while transitions < limit:
-                sampled = workers.collect(agent, limit - transitions)
+                sampled = workers.collect(agent, limit - transitions,
+                                          curriculum.sigma_max if curriculum is not None else None)
                 batches = []
                 versions = []
                 for worker, batch, episodes in sampled:
@@ -83,6 +140,8 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
                         event.update(transitions=transitions, worker=worker)
                         log.write(json.dumps(event) + "\n")
                         monitor.record_episode(event)
+                        if curriculum is not None:
+                            curriculum.record(event)
                 if not batches:
                     raise RuntimeError("All PPO sampler transitions are unhealthy")
                 # Window success selects the policy which actually generated these episodes.
@@ -96,6 +155,8 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
                     "transitions_per_s": collected / (time.perf_counter() - started),
                     "learner_gpu_allocated_bytes": torch.cuda.memory_allocated(env.device),
                     "learner_max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                    **({"sigma_max": curriculum.sigma_max, "curriculum_low_success": curriculum.rates()[0],
+                        "curriculum_high_success": curriculum.rates()[1]} if curriculum is not None else {}),
                     **losses,
                 }
                 log.write(json.dumps(event) + "\n")
@@ -106,6 +167,10 @@ def train_ppo(config, *, gpus, output, seed, resume=None, max_transitions=None, 
                     agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
                     log_at = transitions + settings["log_every"]
                 checkpoint_at = save_periodic_checkpoint(agent, output, metadata, transitions, checkpoint_at)
+                if curriculum is not None and (change := curriculum.advance(transitions)) is not None:
+                    # Keep the policy that cleared each level before the ceiling rises.
+                    agent.save(output / f"level{change['level'] - 1:+d}.pt", metadata=metadata, transitions=transitions)
+                    log.write(json.dumps(change) + "\n")
                 if settings.get("periodic_evaluation", False) and transitions >= evaluation_at and mode == "graph":
                     validation_checkpoint(agent, env, config, transitions, output, log, monitor)
                     evaluation_at = transitions + 100_000

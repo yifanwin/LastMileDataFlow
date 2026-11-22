@@ -39,7 +39,10 @@ def sample(config, seed, num_envs, channel):
             command, payload = pickle.loads(channel.recv_bytes())
             if command == "close":
                 break
-            version, actor_state, value_state, quota = payload
+            version, actor_state, value_state, quota, sigma_max = payload
+            if sigma_max is not None:
+                # New resets draw sigma ~ U(0, sigma_max); running episodes keep their own sigma.
+                env.task.sigma_max = sigma_max
             actor.load_state_dict(actor_state)
             value.load_state_dict(value_state)
             observations_saved, raws, logs, mus, stds, values, rewards, next_values, terminals, dones, masks = ([] for _ in range(11))
@@ -131,14 +134,14 @@ class SynchronousSamplers:
             if self.receive(index) != ("ready", self.num_envs):
                 raise RuntimeError("Unexpected PPO sampler initialization")
 
-    def collect(self, agent, remaining):
+    def collect(self, agent, remaining, sigma_max=None):
         states = [{k: v.detach().cpu().clone() for k, v in network.state_dict().items()}
                   for network in (agent.actor, agent.value)]
         active = []
         for index, channel in enumerate(self.channels):
             quota = min(self.steps * self.num_envs, remaining)
             if quota:
-                channel.send_bytes(pickle.dumps(("collect", (agent.updates, *states, quota))))
+                channel.send_bytes(pickle.dumps(("collect", (agent.updates, *states, quota, sigma_max))))
                 active.append(index)
                 remaining -= quota
         results = []

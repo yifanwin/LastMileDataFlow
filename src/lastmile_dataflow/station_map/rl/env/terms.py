@@ -490,6 +490,10 @@ class TaskState:
             self.goal_offset = (self.target_points.amin(0) + self.target_points.amax(0)) / 2
             goal = data.xpos[self.target] + data.xmat[self.target].reshape(3, 3) @ self.goal_offset.cpu().numpy()
             self.goal_center = goal
+            # Settled target pose: the nominal (pre-disturbance) input of the quality ensemble.
+            self.target_snapshot_p = torch.tensor(data.xpos[self.target], dtype=torch.float32, device=self.device)
+            self.target_snapshot_r = torch.tensor(data.xmat[self.target].reshape(3, 3), dtype=torch.float32,
+                                                  device=self.device)
             self.node_selection = select_nodes(self.entities, goal, [(s["x"], s["y"], s["yaw"]) for s in self.stations],
                                                config["stations"]["base_radius_m"])
             self.node_tensors = NodeTensors(self.entities, self.node_selection, self.device)
