@@ -5,12 +5,14 @@ from types import SimpleNamespace
 import mujoco
 import numpy as np
 import torch
+from mjlab.utils.lab_api.math import quat_from_matrix
 
 from .observation import (
     GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
     CUBE_GRASP_ROTATION, FlatObservationState, build_flat_observation, pose_goal_error,
 )
-from .stations import prepare_stations, station_joint_poses, station_mocap_poses
+from .stations import mocap_frame, prepare_stations, station_joint_poses, station_mocap_poses
+from .scene_graph import NodeTensors, scene_entities, select_nodes
 from .mobile import LocalBoundary
 from lastmile_dataflow.operation.grasps import (
     DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED, load_grasps, load_symmetry, sample_grasps, select_grasps,
@@ -28,6 +30,8 @@ COLLISION_CLASSES = (
     ("arm_target", "large"), ("robot_scene", "large"), ("self", "large"),
 )
 COLLISION_TIERS = ("small", "medium", "large")
+# First failure of a strict episode; "" while none, "timeout" is assigned when the record is written.
+FAILURE_REASONS = ("", *(name for name, _ in COLLISION_CLASSES), "joint_limit", "drop", "base_drift")
 
 
 def tier_penalty(active, idle, first, sustained, rearm_steps):
@@ -142,7 +146,7 @@ def align_grasp_targets(task, ids, tcp_rotation, target_rotation):
     task.grasp_position[ids] = v.centre + torch.einsum("nij,nj->ni", v.axis[best], position - v.centre)
 
 
-def pregrasp_stage(task, dp, angle, cfg, *, advance):
+def pregrasp_stage(task, dp, angle, cfg, *, advance, poses=None):
     """Position error and potential distance to the current target: pregrasp, then grasp.
 
     The pregrasp keeps the grasp orientation and lies offset metres back along the approach
@@ -153,7 +157,7 @@ def pregrasp_stage(task, dp, angle, cfg, *, advance):
     offset = cfg.get("pregrasp_offset_m")
     if not offset:
         return dp, dp.norm(dim=-1)
-    pdp, _ = task.goal_error(-offset)
+    pdp, _ = task.goal_error(-offset, poses)
     if advance:
         task.pregrasp_reached |= (
             (pdp.norm(dim=-1) < cfg["pregrasp_tolerance_m"]) & (angle < cfg["pregrasp_tolerance_rad"])
@@ -216,7 +220,10 @@ class TaskState:
             # Grasp facts use the pad geoms only, not the finger bodies' outer faces.
             self.finger_addresses = contact_addresses(self.model, ("pad_",), "force", self.device)
         self.typed = "collision_tiers" in env.research_config["reward"]
-        if self.typed:
+        # Strict termination reuses the typed contact classes without their penalty tiers.
+        self.strict = env.research_config.get("termination")
+        self.classify = self.typed or self.strict is not None
+        if self.classify:
             self.prepare_typed_collisions(n)
         self.tcp = self.model.site(ROBOT_PREFIX + "gripper0_right_grip_site").id
         self.base = self.model.site(ROBOT_PREFIX + "base_site").id
@@ -332,6 +339,7 @@ class TaskState:
             self.closing_paid = torch.zeros(n, device=self.device)
             if cube is None:
                 self.prepare_corpus_grasps()
+                self.prepare_station_quality(n)
                 return
             # The gripper's local Y axis closes across the cube's local X;
             # local Z points downward for the approach. Columns form a proper rotation.
@@ -366,15 +374,17 @@ class TaskState:
         # Finger 1 sits on the TCP -x side and finger 2 on +x; inward points to the other finger.
         self.inward_sign = torch.tensor([1.0, -1.0], device=device)
         self.inner_cos = cfg["finger_inner_cos"]
+        classes = len(COLLISION_CLASSES)
+        self.step_classes = torch.zeros(n, classes, dtype=torch.bool, device=device)
+        self.class_time = torch.zeros(n, classes, device=device)
+        if not self.typed:
+            return
         tiers = cfg["collision_tiers"]
         self.tier_first = torch.tensor([tiers[t][0] for t in COLLISION_TIERS], device=device)
         self.tier_sustained = torch.tensor([tiers[t][1] for t in COLLISION_TIERS], device=device)
         self.class_tier = [COLLISION_TIERS.index(tier) for _, tier in COLLISION_CLASSES]
         self.rearm_steps = max(1, round(cfg["collision_rearm_s"] / self.env.step_dt))
         window = round(cfg["stuck"]["window_s"] / self.env.step_dt)
-        classes = len(COLLISION_CLASSES)
-        self.step_classes = torch.zeros(n, classes, dtype=torch.bool, device=device)
-        self.class_time = torch.zeros(n, classes, device=device)
         self.tier_idle = torch.full((n, len(COLLISION_TIERS)), self.rearm_steps, dtype=torch.long, device=device)
         self.tier_onsets = torch.zeros(n, len(COLLISION_TIERS), device=device)
         self.stuck = torch.zeros(n, dtype=torch.bool, device=device)
@@ -443,6 +453,101 @@ class TaskState:
         self.stuck |= stuck
         self.failed |= stuck
 
+    def prepare_station_quality(self, n):
+        """Episode noise, strict-termination limits and the per-station entity graph."""
+        config = self.env.research_config
+        noise = config.get("noise", {})
+        self.noise = {key: float(noise.get(key, 0.0)) for key in ("action", "target_m", "dock_m", "dock_yaw_rad")}
+        self.sigma_max = float(noise.get("sigma_max", 0.0))
+        self.requested_sigma = None
+        self.sigma = torch.zeros(n, device=self.device)
+        self.target_offset = torch.zeros(n, 3, device=self.device)
+        self.actual_pose = torch.zeros(n, 3, device=self.device)
+        self.failure_reason = torch.zeros(n, dtype=torch.long, device=self.device)
+        self.home_noise = float(config["scene"].get("home_noise_rad", 0.0))
+        if self.physical_fixed:
+            position, rotation, self.mocap_z = mocap_frame(self.model, self.base)
+            self.mocap_local_position = torch.tensor(position, dtype=torch.float32, device=self.device)
+            self.mocap_local_rotation = torch.tensor(rotation, dtype=torch.float32, device=self.device)
+        if self.strict is not None:
+            joints = [*self.arm, *self.lift, *self.fingers]
+            limits = self.robot.data.joint_pos_limits[0, joints]
+            tolerance = torch.tensor([self.strict["joint_tolerance_rad"]] * len(self.arm)
+                                     + [self.strict["joint_tolerance_m"]] * (len(self.lift) + len(self.fingers)),
+                                     device=self.device)
+            self.limit_joints = joints
+            self.limit_low, self.limit_high = limits[:, 0] - tolerance, limits[:, 1] + tolerance
+            names = [name for name, _ in COLLISION_CLASSES]
+            self.illegal_classes = torch.tensor([names.index(c) for c in self.strict["illegal"]], device=self.device)
+        self.node_tensors = None
+        if config.get("observation", {}).get("layout") == "station":
+            data = mujoco.MjData(self.model)
+            data.qpos[:] = self.initial_qpos.cpu().numpy()
+            mujoco.mj_forward(self.model, data)
+            prepared = self.env.prepared
+            self.entities = scene_entities(self.model, data, target_body=prepared.target_body,
+                                           support_body=prepared.support_body, support_height=prepared.support_height_m)
+            self.goal_offset = (self.target_points.amin(0) + self.target_points.amax(0)) / 2
+            goal = data.xpos[self.target] + data.xmat[self.target].reshape(3, 3) @ self.goal_offset.cpu().numpy()
+            self.goal_center = goal
+            self.node_selection = select_nodes(self.entities, goal, [(s["x"], s["y"], s["yaw"]) for s in self.stations],
+                                               config["stations"]["base_radius_m"])
+            self.node_tensors = NodeTensors(self.entities, self.node_selection, self.device)
+
+    def jittered_pose(self, pose, sigma):
+        """Docking jitter: uniform disk in the nominal base frame and uniform yaw, both scaled by sigma."""
+        count = len(pose)
+        radius = self.noise["dock_m"] * sigma * torch.rand(count, device=self.device).sqrt()
+        phase = 2 * np.pi * torch.rand(count, device=self.device)
+        local = torch.stack((radius * phase.cos(), radius * phase.sin()), -1)
+        c, s = pose[:, 2].cos(), pose[:, 2].sin()
+        world = torch.stack((c * local[:, 0] - s * local[:, 1], s * local[:, 0] + c * local[:, 1]), -1)
+        yaw = pose[:, 2] + self.noise["dock_yaw_rad"] * sigma * (2 * torch.rand(count, device=self.device) - 1)
+        return torch.cat((pose[:, :2] + world, torch.atan2(yaw.sin(), yaw.cos())[:, None]), -1)
+
+    def mocap_pose(self, pose):
+        """Mocap root position and wxyz quaternion that put base_site at world (x, y, yaw)."""
+        c, s = pose[:, 2].cos(), pose[:, 2].sin()
+        zero, one = torch.zeros_like(c), torch.ones_like(c)
+        yaw = torch.stack((c, -s, zero, s, c, zero, zero, zero, one), -1).reshape(-1, 3, 3)
+        rotation = yaw @ self.mocap_local_rotation.T
+        site = torch.cat((pose[:, :2], torch.full_like(c, self.mocap_z)[:, None]), -1)
+        position = site - rotation @ self.mocap_local_position
+        return torch.cat((position, quat_from_matrix(rotation)), -1)
+
+    def execute_action(self, action):
+        """Control disturbance: independent uniform noise per normalized action dimension and step."""
+        if getattr(self, "sigma", None) is None or not self.noise["action"]:
+            return action
+        noise = self.noise["action"] * (2 * torch.rand_like(action) - 1)
+        return (action + self.sigma[:, None] * noise).clamp(-1, 1)
+
+    def strict_failures(self, classes, dropped, drift):
+        """Latch the first failure of this substep; illegal contacts outrank joint limits, drops and drift."""
+        q = self.robot.data.joint_pos[:, self.limit_joints]
+        limit = ((q < self.limit_low) | (q > self.limit_high)).any(-1)
+        illegal = classes[:, self.illegal_classes]
+        reason = torch.zeros_like(self.failure_reason)
+        for flag, name in ((drift, "base_drift"), (dropped, "drop"), (limit, "joint_limit")):
+            reason = torch.where(flag, FAILURE_REASONS.index(name), reason)
+        first_illegal = 1 + self.illegal_classes[illegal.float().argmax(-1)]
+        reason = torch.where(illegal.any(-1), first_illegal, reason)
+        new = (reason > 0) & ~self.failed & ~self.success
+        self.failure_reason[new] = reason[new]
+        self.failed |= new
+
+    def station_observation(self, flat, base_p, base_r, target_p, target_r):
+        """Normalized vector (target, grasp, sigma, dynamics, proprioception, flags) then the raw graph."""
+        grasp_r = self.grasp_rotations[self.grasp_ids]
+        remaining = (self.env.cfg.episode_length_s - self.elapsed) / self.env.cfg.episode_length_s
+        vector = torch.cat((
+            flat[:, :13], self.grasp_positions[self.grasp_ids], grasp_r[:, :, :2].transpose(-1, -2).flatten(1),
+            self.sigma[:, None], flat[:, 13:65], self.pregrasp_reached.float()[:, None], remaining.float()[:, None],
+        ), -1)
+        goal = target_p + torch.einsum("bij,j->bi", target_r, self.goal_offset)
+        nodes, mask, distance = self.node_tensors.compute(self.station_ids, base_p, base_r, goal)
+        return torch.cat((vector, nodes.flatten(1), mask, distance.flatten(1)), -1)
+
     def prepare_target_geometry(self):
         data = mujoco.MjData(self.model)
         data.qpos[:] = self.initial_qpos.cpu().numpy()
@@ -508,8 +613,9 @@ class TaskState:
         axis = (target_r @ self.grasp_rotation)[:, :, 2]
         return torch.einsum("bji,bj->bi", base_r, axis)
 
-    def goal_error(self, approach_offset_m=0.0):
-        return pose_goal_error(self.poses(), self.grasp_position, self.grasp_rotation, approach_offset_m)
+    def goal_error(self, approach_offset_m=0.0, poses=None):
+        poses = self.poses() if poses is None else poses
+        return pose_goal_error(poses, self.grasp_position, self.grasp_rotation, approach_offset_m)
 
     def tcp_velocity(self):
         action = self.env.action_manager.get_term("tcp")
@@ -548,8 +654,9 @@ class TaskState:
         self.step_collision.zero_()
         if hasattr(self, "drop_event"):
             self.drop_event.zero_()
-        if getattr(self, "typed", False):
+        if getattr(self, "classify", False):
             self.step_classes.zero_()
+        if getattr(self, "typed", False):
             self.stuck_event.zero_()
         self.step_contact.zero_()
         self.step_lift.zero_()
@@ -610,7 +717,7 @@ class TaskState:
         tcp_p, tcp_r, _, _, target_p, target_r = self.poses()
         forces, support, hits = self.contact_facts()
         collision = hits.any(-1)
-        if getattr(self, "typed", False):
+        if getattr(self, "classify", False):
             classes = self.typed_collisions(tcp_r)
             self.step_classes |= classes
             self.class_time += classes.float() * self.env.physics_dt
@@ -640,6 +747,8 @@ class TaskState:
             if hasattr(self, "drop_event"):
                 self.drop_event |= dropped
                 self.dropped |= dropped
+            if self.strict is not None:
+                self.strict_failures(classes, dropped, fixed_failure)
             self.failed |= fixed_failure | dropped
             # Optional cap on one continuous collision; exceeding it is a failure.
             limit = cfg.get("collision_limit_s")
@@ -706,13 +815,21 @@ class TaskState:
         if getattr(self, "grasp_variants", None) is not None and self.needs_baseline.any():
             # The first observation after reset sees the actual start TCP; the choice is fixed per episode.
             align_grasp_targets(self, self.needs_baseline.nonzero(as_tuple=True)[0], tcp_r, cube_r)
+        cfg = self.env.research_config["reward"]
         dp, dr = self.goal_error()
         angle = dr.norm(dim=-1)
-        dp, distance = pregrasp_stage(self, dp, angle, self.env.research_config["reward"], advance=False)
+        dp, distance = pregrasp_stage(self, dp, angle, cfg, advance=False)
         self.previous_distance[self.needs_baseline] = distance[self.needs_baseline]
         self.previous_angle[self.needs_baseline] = angle[self.needs_baseline]
         self.height_reference[self.needs_baseline] = cube_p[self.needs_baseline, 2]
         self.needs_baseline.zero_()
+        station = getattr(self, "node_tensors", None) is not None
+        if station:
+            # Observation bias: every control-side target quantity uses the same perceived position.
+            cube_p = cube_p + self.target_offset
+            observed = (tcp_p, tcp_r, base_p, base_r, cube_p, cube_r)
+            dp, dr = self.goal_error(poses=observed)
+            dp, _ = pregrasp_stage(self, dp, dr.norm(dim=-1), cfg, advance=False, poses=observed)
         q, v = self.robot.data.joint_pos, self.robot.data.joint_vel
         linear, angular = self.tcp_velocity()
         cube_linear, cube_angular = self.target_velocity()
@@ -738,11 +855,12 @@ class TaskState:
             if hasattr(self, "target_points")
             else {"cube_size": self.env.research_config["scene"]["cube"]["size_m"]}
         )
-        return build_flat_observation(
+        flat = build_flat_observation(
             state, **geometry,
             lift_range=self.lift_range, open_grip=self.open_grip,
             world_state=self.env.research_config.get("observation", {}).get("world_state", False),
         )
+        return self.station_observation(flat, base_p, base_r, cube_p, cube_r) if station else flat
 
     def observation_state(self):
         tcp_p, tcp_r, base_p, base_r, target_p, target_r = self.poses()
@@ -846,16 +964,33 @@ def reset(env, env_ids):
     task.station_ids[ids] = selected
     if hasattr(task, "grasp_pool_table"):
         reset_grasp_targets(task, selected, ids)
+    noisy = getattr(task, "sigma", None) is not None
+    if noisy:
+        sigma = (torch.rand(len(ids), device=env.device) * task.sigma_max if task.requested_sigma is None
+                 else task.requested_sigma)
+        task.requested_sigma = None
+        task.sigma[ids] = sigma
+        task.target_offset[ids] = sigma[:, None] * task.noise["target_m"] * (
+            2 * torch.rand(len(ids), 3, device=env.device) - 1)
+        task.failure_reason[ids] = 0
     env.sim.data.qpos[ids] = task.initial_qpos
     env.sim.data.qvel[ids] = 0
     q = task.robot.data.default_joint_pos[ids].clone()
-    if task.physical_fixed:
+    if noisy and task.home_noise:
+        limits = task.robot.data.joint_pos_limits[ids][:, task.arm]
+        offset = task.home_noise * (2 * torch.rand(len(ids), len(task.arm), device=env.device) - 1)
+        q[:, task.arm] = torch.maximum(torch.minimum(q[:, task.arm] + offset, limits[..., 1]), limits[..., 0])
+    if task.physical_fixed and noisy:
+        actual = task.jittered_pose(task.station_poses[selected], task.sigma[ids])
+        task.actual_pose[ids] = actual
+        task.robot.write_mocap_pose_to_sim(task.mocap_pose(actual), env_ids=ids)
+    elif task.physical_fixed:
         task.robot.write_mocap_pose_to_sim(task.mocap_poses[selected], env_ids=ids)
     else:
         q[:, task.base_joints] = task.station_joints[selected]
     task.robot.write_joint_state_to_sim(q, torch.zeros_like(q), env_ids=ids)
     task.robot.set_joint_position_target(q, env_ids=ids)
-    base = task.station_poses[selected] if task.physical_fixed else q[:, task.base_joints]
+    base = (task.actual_pose[ids] if noisy else task.station_poses[selected]) if task.physical_fixed else q[:, task.base_joints]
     task.fixed_reference[ids] = torch.cat((base, q[:, task.lift]), -1)
     task.window_start[ids] = -1
     task.reference_position[ids] = 0
@@ -902,8 +1037,11 @@ def reset(env, env_ids):
     task.first_contact_time_s[ids] = -1
     task.collision_free[ids] = True
     task.needs_baseline[ids] = True
+    if getattr(task, "classify", False):
+        task.step_classes[ids] = 0
+        task.class_time[ids] = 0
     if getattr(task, "typed", False):
-        for name in ("step_classes", "class_time", "tier_onsets", "stuck", "stuck_event", "window_illegal",
+        for name in ("tier_onsets", "stuck", "stuck_event", "window_illegal",
                      "window_move", "window_distance", "window_angle", "window_steps", "collision_spent",
                      "collision_budget_hit"):
             getattr(task, name)[ids] = 0
@@ -980,6 +1118,10 @@ def reward(env):
             cfg["lift"] * lift_progress,
             -cfg.get("failure", 0.0) * failure_event.float(),
         ), -1)
+        if getattr(task, "strict", None) is not None:
+            # A safety termination pays only its one-off penalty, never the same step's other terms.
+            task.reward_components[failure_event] = 0
+            task.reward_components[failure_event, -1] = -cfg["failure"]
         task.previous_distance[:] = distance
         task.previous_angle[:] = angle
         return task.reward_components.sum(-1)
@@ -1040,6 +1182,19 @@ def collision_episode(task, index):
         "collision_class_s": dict(zip((name for name, _ in COLLISION_CLASSES), task.class_time[index].tolist())),
         "collision_onsets": dict(zip(COLLISION_TIERS, task.tier_onsets[index].int().tolist())),
     }
+
+
+def strict_episode(task, index):
+    if getattr(task, "sigma", None) is None:
+        return {}
+    reason = FAILURE_REASONS[int(task.failure_reason[index])]
+    if not reason and not task.success[index] and not task.unhealthy[index]:
+        reason = "timeout"
+    return {"sigma": float(task.sigma[index]), "failure_reason": reason,
+            "base_xyyaw_actual": task.actual_pose[index].cpu().tolist(),
+            # Stage reach: pregrasp latch, closing progress inside the gate, two-pad grasp event, lift peak.
+            "pregrasp_reached": bool(task.pregrasp_reached[index]), "closing_paid": float(task.closing_paid[index]),
+            "grasp_event": bool(task.contact_bonus_paid[index]), "lift_peak": float(task.lift_peak[index])}
 
 
 def mobile_episode(task, index):

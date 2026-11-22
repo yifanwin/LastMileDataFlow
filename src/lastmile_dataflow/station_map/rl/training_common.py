@@ -11,7 +11,7 @@ import time
 from lastmile_dataflow.utils.io import REPO_ROOT
 from .config import best_checkpoint_config
 from .env.observation import ARM_STATE_FIELDS, CONTACT_REWARD_COMPONENTS, REWARD_COMPONENTS, flat_fields
-from .env.terms import collision_episode, grasp_episode, mobile_episode
+from .env.terms import collision_episode, grasp_episode, mobile_episode, strict_episode
 from .evaluation import monitor_validation
 from .monitor import SuccessWindow
 
@@ -54,6 +54,7 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                         "base_xyyaw_initial": env.task.fixed_reference[index, :3].cpu().tolist(),
                     } if env.research_config.get("scene", {}).get("fixed_base", False) else {}),
                     **mobile_episode(env.task, index),
+                    **strict_episode(env.task, index),
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),

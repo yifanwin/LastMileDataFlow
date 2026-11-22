@@ -47,6 +47,8 @@ class RLSceneConfig:
     lift: float = 0.2
     cube: dict | None = None
     fixed_base: bool = False
+    # Uniform per-joint arm offset around Home at reset (radians); used by the station-quality task.
+    home_noise_rad: float = 0.0
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)

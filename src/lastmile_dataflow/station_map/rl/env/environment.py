@@ -183,7 +183,8 @@ class StationEnv(ManagerBasedRlEnv):
         )
         action = config["action"]
         env_cfg = config["environment"]
-        sensors = build_sensors(prepared, typed="collision_tiers" in config["reward"])
+        strict = "termination" in config
+        sensors = build_sensors(prepared, typed="collision_tiers" in config["reward"] or strict)
         observation_terms = (
             {"flat": ObservationTermCfg(func=terms.flat)} if contact_protocol
             else {
@@ -250,7 +251,8 @@ class StationEnv(ManagerBasedRlEnv):
             rewards={"task": RewardTermCfg(func=terms.reward, weight=1.0)},
             terminations={
                 "task": TerminationTermCfg(func=terms.terminated),
-                "timeout": TerminationTermCfg(func=terms.timeout, time_out=True),
+                # With strict termination the task time limit is a true terminal (remaining time is observed).
+                "timeout": TerminationTermCfg(func=terms.timeout, time_out=not strict),
             },
         )
         super().__init__(cfg, device=f"cuda:{gpu}")
@@ -262,4 +264,4 @@ class StationEnv(ManagerBasedRlEnv):
 
     def step(self, action):
         self.task.begin_step(action)
-        return super().step(action)
+        return super().step(self.task.execute_action(action))

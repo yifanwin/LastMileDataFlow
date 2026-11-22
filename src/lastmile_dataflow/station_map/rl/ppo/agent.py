@@ -8,13 +8,15 @@ from torch.nn import functional as F
 
 from ..config import PPOConfig, action_fields
 from ..checkpoint import input_definition, rng_state, restore_rng_state
+from ..env.observation import STATION_DIM, STATION_VECTOR_DIM
 from ..networks import GaussianActor, ObservationNormalizer, Value, squashed_log_probability
 from .rollout import normalize_advantages
 
 
 def ppo_networks(state_dim, action_dim, mode, config):
-    """Actor and V share one observation normalizer (flat mode only)."""
-    normalizer = ObservationNormalizer(state_dim) if mode == "flat" and config.normalize_observations else None
+    """Actor and V share one observation normalizer (flat mode only; the station layout normalizes its vector)."""
+    dim = STATION_VECTOR_DIM if state_dim == STATION_DIM else state_dim
+    normalizer = ObservationNormalizer(dim) if mode == "flat" and config.normalize_observations else None
     actor = GaussianActor(state_dim, action_dim, mode=mode, init_std=config.init_std, normalizer=normalizer)
     return actor, Value(state_dim, mode=mode, normalizer=normalizer)
 
@@ -46,7 +48,7 @@ class PPO:
         self.state_dim, self.action_dim, self.mode, self.config = state_dim, action_dim, mode, config
         self.device = torch.device(device)
         self.actor, self.value = (network.to(device) for network in ppo_networks(state_dim, action_dim, mode, config))
-        self.normalizer = self.actor.normalizer if isinstance(self.actor.normalizer, ObservationNormalizer) else None
+        self.normalizer = next((m for m in self.actor.modules() if isinstance(m, ObservationNormalizer)), None)
         self.actor_lr = config.actor_lr
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr)
         self.value_optimizer = torch.optim.Adam(self.value.parameters(), lr=config.value_lr)
@@ -103,7 +105,7 @@ class PPO:
             explained = 1 - (batch.returns - batch.old_value).var(correction=0) / variance if variance > 0 else torch.tensor(0.)
         # Statistics change only after this rollout's epochs, so old log-probs stay consistent.
         if self.normalizer is not None:
-            self.normalizer.update(batch.obs.to(self.device))
+            self.normalizer.update(batch.obs[:, :self.normalizer.mean.numel()].to(self.device))
         self.updates += 1
         return {
             **{key: value / max(weight, 1) for key, value in totals.items()},

@@ -153,21 +153,26 @@ def map_joint_positions(source, qpos, target):
     return result
 
 
-def station_mocap_poses(model, base_site, stations):
-    """Place base_site at each world XY/yaw, preserving its original world Z."""
+def mocap_frame(model, base_site):
+    """Base_site pose in the mocap root frame and its world Z, for placing base_site anywhere."""
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     body = int(model.body_rootid[model.site_bodyid[base_site]])
     root_rotation = data.xmat[body].reshape(3, 3)
-    base_rotation = data.site_xmat[base_site].reshape(3, 3)
-    local_rotation = root_rotation.T @ base_rotation
+    local_rotation = root_rotation.T @ data.site_xmat[base_site].reshape(3, 3)
     local_position = root_rotation.T @ (data.site_xpos[base_site] - data.xpos[body])
+    return local_position, local_rotation, float(data.site_xpos[base_site, 2])
+
+
+def station_mocap_poses(model, base_site, stations):
+    """Place base_site at each world XY/yaw, preserving its original world Z."""
+    local_position, local_rotation, z = mocap_frame(model, base_site)
     poses = []
     for station in stations:
         yaw = station["yaw"]
         c, s = np.cos(yaw), np.sin(yaw)
         rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ local_rotation.T
-        position = np.array([station["x"], station["y"], data.site_xpos[base_site, 2]]) - rotation @ local_position
+        position = np.array([station["x"], station["y"], z]) - rotation @ local_position
         quat = np.empty(4)
         mujoco.mju_mat2Quat(quat, rotation.ravel())
         poses.append(np.r_[position, quat])

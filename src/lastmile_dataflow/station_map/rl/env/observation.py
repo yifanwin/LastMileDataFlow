@@ -58,7 +58,27 @@ WORLD_STATE_FIELDS = (
 )
 
 
+# Station-quality layout: a normalized vector, then the raw padded entity graph (scene_graph.py).
+STATION_VECTOR_FIELDS = (
+    ("target_position_base", 3, 1.0),
+    ("target_rotation_columns_6d", 6, 1.0),
+    ("target_size_local", 3, 1.0),
+    ("target_bottom_height_base", 1, 1.0),
+    ("grasp_position_object", 3, 1.0),
+    ("grasp_rotation_columns_6d_object", 6, 1.0),
+    ("noise_sigma", 1, 1.0),
+    *(field for field in FLAT_FIELDS[4:]),
+    ("pregrasp_reached", 1, 1.0),
+    ("remaining_time_fraction", 1, 1.0),
+)
+STATION_VECTOR_DIM = sum(dim for _, dim, _ in STATION_VECTOR_FIELDS)
+STATION_GRAPH_FIELDS = (("nodes", 20 * 19, 1.0), ("node_mask", 20, 1.0), ("node_distance_goal_base", 2 * 20, 1.0))
+STATION_DIM = STATION_VECTOR_DIM + sum(dim for _, dim, _ in STATION_GRAPH_FIELDS)
+
+
 def flat_fields(state_dim, *, real_object=False):
+    if state_dim == STATION_DIM:
+        return STATION_VECTOR_FIELDS + STATION_GRAPH_FIELDS
     if real_object:
         return tuple((name.replace("cube_", "target_"), dim, scale)
                      for name, dim, scale in flat_fields(state_dim))
