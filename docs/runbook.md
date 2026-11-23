@@ -139,8 +139,6 @@ MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/visualize_grasps.p
 
 数量和首点种子可通过 `--count`、`--seed` 覆盖。输出全部16个原生Panda夹爪与杯子的叠加图 `grasps.png`、逐个位姿的4×4图 `individual-grasps.png`、`selection.json` 与 `selected-grasps.npz`；NPZ 位姿在目标 body 局部坐标系中，已包含 `--roll-rad`。图中杯子和16个 TCP 位姿统一映射到场景世界坐标，显示时仅减去杯子原点平移；夹爪使用原生visual mesh，双指全开，按模型测得的root-to-TCP变换放置；`--robot-config` 指定Panda配置，`--robot-scale` 与RL场景一致。NPZ 另存 `world_transforms` 和 `object_world`，便于核对映射；图片不代表可达性验证。场景 XML 使用原输入路径，保留符号链接所在目录的资产解析语义。
 
-## 7. 渲染与失败结果
-
 ## 7. RoboCasa365 原生场景
 
 用独立环境 `.venv-robocasa`。场景构建沿用同一入口，配置的 `scene_source: robocasa365` 会走 RoboCasa 导入：
