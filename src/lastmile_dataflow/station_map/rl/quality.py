@@ -130,10 +130,7 @@ def collect_labels(agent, env, requests, *, deterministic=True, log=None):
     return results
 
 
-def _collect_worker(physical_gpu, config, checkpoint, requests, num_envs, seed, path):
-    from lastmile_dataflow.utils.gpu import bind_device
-
-    bind_device(int(physical_gpu))
+def collect_worker(config, checkpoint, requests, num_envs, seed, path):
     from .checkpoint import load_agent, seed_all
     from .devices import VISIBLE_DEVICE
     from .env.environment import StationEnv
@@ -151,7 +148,7 @@ def _collect_worker(physical_gpu, config, checkpoint, requests, num_envs, seed, 
 
 def collect(config, *, checkpoint, gpus, output, repeats, seed, num_envs):
     """Shard the label requests over GPUs; each worker writes its own JSONL of strict outcomes."""
-    from .devices import VISIBLE_DEVICE
+    from .devices import VISIBLE_DEVICE, quality_collect_entry
     from .env.environment import StationEnv
 
     output = Path(output)
@@ -163,7 +160,7 @@ def collect(config, *, checkpoint, gpus, output, repeats, seed, num_envs):
                                                       "repeats": repeats, "requests": requests}))
     ctx = mp.get_context("spawn")
     shards = [requests[i::len(gpus)] for i in range(len(gpus))]
-    processes = [ctx.Process(target=_collect_worker, args=(gpu, config, checkpoint, shard, num_envs, seed + i,
+    processes = [ctx.Process(target=quality_collect_entry, args=(gpu, config, checkpoint, shard, num_envs, seed + i,
                                                            output / f"labels-{i}.jsonl"))
                  for i, (gpu, shard) in enumerate(zip(gpus, shards))]
     for process in processes:

@@ -16,6 +16,14 @@ def sampler_entry(physical_gpu, *args):
     sample(*args)
 
 
+def quality_collect_entry(physical_gpu, *args):
+    """Bind the physical card before importing the stage-3 label worker."""
+    bind_device(int(physical_gpu))
+    from .quality import collect_worker
+
+    collect_worker(*args)
+
+
 def ppo_sampler_entry(physical_gpu, *args):
     """Bind the physical card before importing the PPO worker."""
     bind_device(int(physical_gpu))
