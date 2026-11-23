@@ -20,6 +20,7 @@
 - 含数据输入的配置显式填写 `data_root`（当前统一为 `/data1/wenyifan/lmdf/molmospaces_data`）；数据、权重、tokenizer 路径相对 `data_root`。
 - 配置文件和解释器路径（`robot_config`、`policy_config`、`python`）相对仓库根目录，也可写绝对路径。不是相对 YAML 所在目录。
 - 命令行路径按当前调用目录解释。
+- RL `grasp.preprocessed_path`及cuRobo `grasp_preprocessed_paths`中的离线库路径相对仓库根目录，也可写绝对路径。
 
 ## 文件
 
@@ -37,7 +38,10 @@
 | `policies/molmobot.yaml`、`pi05_panda_omron.yaml`、`pi05_rby1.yaml` | 策略服务配置 |
 | `lastmile_benchmark/panda_omron.yaml` | Panda benchmark，1/3 与 1.0 阈值 |
 | `station_map/rl/val103_cup30.yaml` | RL 站位图研究 |
+| `station_map/rl/val103_cube_s0246_facing_ppo.yaml` | 当前 cube 任务的 PPO 训练，物理和奖励沿用 SAC 配置 |
+| `station_map/rl/val103_cup30_s0246_facing_ppo.yaml` | Cup 图观测 PPO 训练及 V 站位评分 |
 | `station_map/rl/val103_cup30_s0246_y04.yaml` | 固定历史 S0246-y04 世界位姿的单站位 SAC 训练 |
+| `station_map/rl/val103_cup30_s0246_facing.yaml` | S0246 正对 Cup_30，100 万条经验；启动时选择空闲卡，最多 8 卡 |
 
 冒烟脚本自己持有的配置（`panda_omron_scene.yaml`、`panda_omron_position.yaml`、`panda_omron_mobile.yaml`）放在 `tests/smoke/`。
 
@@ -59,6 +63,20 @@ RL 研究配置通过 `stations.robot_config` 指向该机器人 YAML（相对�
 
 RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `training.tensorboard_every_seconds` 调整该间隔，必须大于零。它独立于 `training.log_every`（learner JSON 和 checkpoint 的 transition 间隔）。旧配置可直接使用，查看方式和统计口径见 [RL 运行指南](../reports/rl-station-map/delivery/running.md#tensorboard-实时监控)。
 
+可选 `training.best_checkpoint` 将选模窗口与监控窗口分开：
+
+```yaml
+training:
+  best_checkpoint:
+    window_episodes: 200
+    start_transitions: 600000
+    metric: success_rate
+```
+
+配置该块后必须满 `window_episodes` 个健康、完整且全程无随机预热的回合，且累计健康 transition 达到 `start_transitions`，才参与比较；普通失败保留在分母。`metric` 支持 `success_rate` 和 `return`（未折扣平均回报），严格提高才替换。同一组 Sampler 按 Learner 收到事件的顺序合并；开始门槛前的合格回合也滚动入窗，达到门槛后有新合格回合的刷新才比较。TensorBoard `train/` 仍为最近至多100回合。未配置该块保持原行为（最近至多100回合成功率、不满窗也比较、无开始门槛）；块内未配置字段也沿用旧值。
+
+Cup 随机站位配置已启用上例（移动底盘配置为每卡512环境，门槛2100000）。512个总环境、每回合1000步、预热20000条时，一个最长回合的名义预算是532000条，600000条留有余量；门槛按全局累计经验计数，不逐环境追踪完成次数。更改总环境数或回合长度时应相应调整门槛。恢复训练保持全局累计门槛，窗口从空重新积累；只有选择配置相同且符合门槛、满窗条件的排名才继承，从 `ckpts/` 恢复仍重新选模。训练结束无合格选模窗口时保存最终模型作为兜底，`rate=null`、`count=0` 并标记原因，不作为比较胜出的模型。
+
 ## 执行配置
 
 - 场景库的 `geometry` 只覆盖 `spacing_m`、`width`、`height`、`min_target_pixels`；操作范围与导航设置以执行配置为准，最终以 run 里保存的有效配置为准。
@@ -79,3 +97,26 @@ RL 训练默认每 30 秒向 `<run>/tensorboard/` 更新监控指标；可选 `t
 构建直接读取已有场景和标定，不启动新 trial。`low/high`（默认 0.20/0.60，含等号）是参考协议下起点成功率阈值；`region_radius_m`、`region_yaw_tolerance_rad` 是高率站位周围合法恢复区域；`navigation_*` 同执行配置；`local_candidate_radius_m: null` 用整个候选域算 Recovery Ratio；`max_episodes_per_scene: 0` 保留全部合格起点；`horizon`/`wall_timeout_s` 是评测预算。导航使用完整来源房间地面。
 
 运行步骤见 [运行手册](../docs/runbook.md)。
+
+RL 算法由 `--algorithm {sac,ppo}` 覆盖配置 `algorithm`，缺省为 SAC。PPO 参数集中在 `ppo` 段，缺省值见 `PPOConfig`；示例配置保留 `sac` 与 Replay 字段以便切回 SAC，PPO 不读取这些训练参数。有效 PPO 参数写入 run 的 `config.json`。多卡时 `environment.num_envs` 是每卡环境数，单轮样本上限为 `卡数 × 环境数 × ppo.rollout_steps`。PPO graph 使用 `evaluation.v_color_limits`（可省略自动定色限）；SAC 保留 `q_color_limits`。
+
+RL 多站方块配置 `station_map/rl/val103_cube_random_stations_facing.yaml` 启用 `scene.fixed_base: true` 和 `observation.world_state: true`：底盘物理固定、每回合随机有效XY、每个XY仅正对方块；输入69维，新增底盘世界x/y/yaw与原始米制升降高度。评估默认20个不同站位各1次；旧单站配置保持65维和20回合。命令见[RL运行指南](../reports/rl-station-map/delivery/running.md#随机站位物理固定底盘69d-方块输入)。
+
+该方块配置的 `observation` 同时保存离线评分所需的固定初态数值（静置方块位姿、Home TCP局部位姿、底盘高度、夹爪开度及归一化范围）。`score.py --value-mode soft` 直接读取，无需模板文件或仿真加载；Home关节与升降仍使用原 `scene.home/lift`。这些静态值仅用于初态评分，不替代训练环境中的动态观测。
+
+移动方块配置 `station_map/rl/val103_cube_random_stations_mobile.yaml` 使用 `action.mobile_base: true`、`scene.fixed_base: false`：75维平坦观测、10维动作（TCP6、夹爪1、底盘前后/横移/转向3）；升降继续由臂与升降联合DLS控制。`action.mobile_base` 默认为false，不能与物理固定底盘同时启用。底盘动作与TCP一致，是相对实测位姿的每策略步增量：平移合增量上限 `action.base_translation_m`、转向增量上限 `action.base_yaw_rad`（本配置0.03 m、0.15 rad；实测满动作约0.42 m/s、0.46 rad/s）。机器人或目标碰撞几何越出目标周围局部裁剪方形即失败，移动本身不再按固定底盘漂移失败。`reward.failure` 为失败终止时一次性罚分（本配置30；已有专门罚分的失败不再叠加：卡死 `reward.stuck.penalty`、配置了 `reward.drop_penalty` 的掉落），`reward.collision_limit_s` 为单次连续碰撞上限（本配置2 s，超过即失败）；两项缺省时关闭，其他配置不受影响。奖励分项增加第8项 failure。旧固定底盘离线评分仅用于原固定模式。
+
+## 物体级抓取预处理库
+
+三个Cup_30 RL配置使用`grasp.preprocessed_path`，不再设置原始`path`和运行时FPS参数。`sample_count`默认16、`sample_seed`默认42；它们控制从最多128条的离线库均匀无放回抽样。原始库分支仍用`fps_count`/`fps_seed`。
+
+Panda cuRobo配置的`grasp_preprocessed_paths`按资产名（如Cup_30）映射到离线NPZ，`max_grasp_candidates`控制抽样数量、`grasp_sample_seed`默认42；未配置资产保持原筛选方式。生成命令见[运行指南](../docs/runbook.md#cup_30-物体级抓取库)。
+
+离线NPZ包含未加roll的物体局部`transforms`、原始`source_rows`和`source`。射线检测使用的roll、机器人缩放、分辨率、阈值、FPS参数也保存在产物中；更换物体尺寸或夹爪约定需要重新生成。库不验证场景中的可达性、碰撞和动力学成功。
+
+
+真实杯子接触抬升训练使用 `station_map/rl/val103_cup30_random_stations_facing.yaml`：预处理库路径、运行前抽样数量16和seed42在 `grasp` 显式指定。每回合随机有效站位及一个候选，底盘固定，使用当前方块接触抬升协议；旧Cup图观测配置保持原协议。启动步骤见 `docs/runbook.md`。
+
+移动底盘杯子配置 `station_map/rl/val103_cup30_random_stations_mobile.yaml` 在上述Cup配置上只改：`scene.fixed_base: false`，`action.mobile_base: true`（0.03 m、0.15 rad增量），`sac.target_entropy: -10`，`reward.failure: 20`（越界一次性罚分，与掉落罚分持平）。分类碰撞、卡死终止、掉落罚分、对称对齐、best窗口（200回合、60万条门槛）与Cup配置相同；不设 `collision_limit_s`。2026-11-20起（报告51）：小档 [0.25, 0.05]、中档 [0.4, 0.1]、大档不变；`reward.collision_budget: 30`，一回合分类碰撞罚分累计达30即判失败（下一步终止并付一次 `failure`），回合日志记 `collision_budget_hit`；未配置时不启用。
+
+`sac.entropy_in_target`（默认true）：false时critic目标不含熵奖励 $-\alpha\log\pi$，Q只估任务回报，熵项只留在actor损失里。移动底盘杯子配置2026-11-20起使用false，并改为gamma 0.995、episode_s 30、每卡256环境、replay 20万、best门槛70万（报告52、53）。

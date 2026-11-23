@@ -14,7 +14,7 @@ from lastmile_dataflow.station_map.rl.devices import VISIBLE_DEVICE
 from lastmile_dataflow.station_map.rl.env.environment import StationEnv
 from lastmile_dataflow.station_map.rl.evaluation import reset_stations
 from lastmile_dataflow.station_map.rl.monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
-from lastmile_dataflow.station_map.rl.sac.agent import seed_all
+from lastmile_dataflow.station_map.rl.checkpoint import seed_all
 from lastmile_dataflow.station_map.rl.env.observation import graph_observation
 from lastmile_dataflow.station_map.rl.sac.agent import SAC, SACConfig
 from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition

@@ -25,6 +25,8 @@ SCRIPTS = (
     "lastmile_benchmark/evaluate",
     "lastmile_benchmark/station_policy",
     "operation/replay",
+    "operation/visualize_grasps",
+    "operation/preprocess_grasps",
 )
 
 

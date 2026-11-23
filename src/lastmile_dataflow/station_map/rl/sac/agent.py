@@ -2,13 +2,14 @@
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-import random
 
 import numpy as np
 import torch
 from torch.nn import functional as F
 
-from .networks import Actor, Critic
+from ..networks import Actor, Critic
+from ..checkpoint import input_definition, rng_state, restore_rng_state
+from ..config import action_fields
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class SACConfig:
     alpha_lr: float = 1e-4
     initial_alpha: float = 0.1
     target_entropy: float = -7.0
+    # False: the critic target omits the entropy bonus (Q estimates task return only); the actor
+    # loss keeps alpha * log_prob for exploration.
+    entropy_in_target: bool = True
 
 
 def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
@@ -27,12 +31,18 @@ def bellman_target(reward, terminated, next_q, next_log_prob, alpha, gamma):
 
 
 class SAC:
-    def __init__(self, state_dim, device, config=SACConfig()):
+    algorithm = "sac"
+
+    def __init__(self, state_dim, device, config=SACConfig(), *, mode="graph", action_dim=7):
+        if mode not in ("graph", "flat"):
+            raise ValueError(f"Unknown SAC mode: {mode}")
+        self.mode = mode
         self.config = config
         self.state_dim = state_dim
+        self.action_dim = action_dim
         self.device = torch.device(device)
-        self.actor = Actor(state_dim).to(device)
-        self.q1, self.q2 = (Critic(state_dim).to(device) for _ in range(2))
+        self.actor = Actor(state_dim, action_dim, mode=mode).to(device)
+        self.q1, self.q2 = (Critic(state_dim, action_dim, mode=mode).to(device) for _ in range(2))
         self.target1, self.target2 = deepcopy(self.q1), deepcopy(self.q2)
         self.target1.requires_grad_(False)
         self.target2.requires_grad_(False)
@@ -53,7 +63,8 @@ class SAC:
         with torch.no_grad():
             next_action, next_log_prob = self.actor.sample(batch.next_obs)
             next_q = torch.minimum(self.target1(batch.next_obs, next_action), self.target2(batch.next_obs, next_action))
-            target = bellman_target(batch.reward, batch.terminated, next_q, next_log_prob, self.alpha, cfg.gamma)
+            alpha = self.alpha if cfg.entropy_in_target else 0.0
+            target = bellman_target(batch.reward, batch.terminated, next_q, next_log_prob, alpha, cfg.gamma)
         critic_loss = F.mse_loss(self.q1(batch.obs, batch.action), target) + F.mse_loss(
             self.q2(batch.obs, batch.action), target
         )
@@ -92,7 +103,12 @@ class SAC:
     def save(self, path, *, metadata, transitions):
         torch.save(
             {
+                "algorithm": self.algorithm,
                 "state_dim": self.state_dim,
+                "action_dim": self.action_dim,
+                "action_definition": action_fields(self.action_dim),
+                "mode": self.mode,
+                "input_definition": input_definition(self.mode, self.state_dim),
                 "sac_config": asdict(self.config),
                 "networks": {
                     name: getattr(self, name).state_dict() for name in ("actor", "q1", "q2", "target1", "target2")
@@ -104,21 +120,25 @@ class SAC:
                 "updates": self.updates,
                 "transitions": transitions,
                 "metadata": metadata,
-                "rng": {
-                    "python": random.getstate(),
-                    "numpy": np.random.get_state(),
-                    "torch": torch.get_rng_state(),
-                    "cuda": torch.cuda.get_rng_state(self.device) if self.device.type == "cuda" else None,
-                },
+                "rng": rng_state(self.device),
                 "resume_semantics": "parameter/optimizer warm resume; reset environment and replay",
             },
             path,
         )
 
     @classmethod
-    def load(cls, path, device, *, restore_rng=False):
-        saved = torch.load(path, map_location=device, weights_only=False)
-        agent = cls(saved["state_dim"], device, SACConfig(**saved["sac_config"]))
+    def load(cls, path, device, *, restore_rng=False, saved=None):
+        saved = torch.load(path, map_location=device, weights_only=False) if saved is None else saved
+        if saved.get("algorithm", "sac") != "sac":
+            raise ValueError("SAC requires a SAC checkpoint")
+        mode = saved.get("mode", "graph")
+        definition = input_definition(mode, saved["state_dim"])
+        if saved.get("input_definition", definition) != definition:
+            raise ValueError("Checkpoint observation definition does not match SAC mode")
+        action_dim = saved.get("action_dim", 7)
+        if saved.get("action_definition", action_fields(action_dim)) != action_fields(action_dim):
+            raise ValueError("Checkpoint action definition does not match SAC mode")
+        agent = cls(saved["state_dim"], device, SACConfig(**saved["sac_config"]), mode=mode, action_dim=action_dim)
         for name, state in saved["networks"].items():
             getattr(agent, name).load_state_dict(state)
         for name, state in saved["optimizers"].items():
@@ -127,17 +147,34 @@ class SAC:
             agent.log_alpha.copy_(saved["log_alpha"])
         agent.updates = saved["updates"]
         if restore_rng:
-            rng = saved["rng"]
-            random.setstate(rng["python"])
-            np.random.set_state(rng["numpy"])
-            torch.set_rng_state(rng["torch"].cpu())
-            if rng["cuda"] is not None and agent.device.type == "cuda":
-                torch.cuda.set_rng_state(rng["cuda"].cpu(), agent.device)
+            restore_rng_state(saved["rng"], agent.device)
         return agent, saved
 
 
-def seed_all(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+@dataclass(frozen=True)
+class SACInference:
+    """Frozen online networks and entropy coefficient; no targets or optimizers."""
+
+    actor: Actor
+    q1: Critic
+    q2: Critic
+    alpha: torch.Tensor
+    mode: str
+    state_dim: int
+
+    @classmethod
+    def load(cls, path, device):
+        saved = torch.load(path, map_location="cpu", weights_only=False)
+        mode, dim = saved.get("mode", "graph"), saved["state_dim"]
+        if saved["input_definition"] != input_definition(mode, dim):
+            raise ValueError("Checkpoint observation definition does not match SAC mode")
+        action_dim = saved.get("action_dim", 7)
+        if saved.get("action_definition", action_fields(action_dim)) != action_fields(action_dim):
+            raise ValueError("Checkpoint action definition does not match SAC mode")
+        networks = (Actor(dim, action_dim, mode=mode), Critic(dim, action_dim, mode=mode),
+                    Critic(dim, action_dim, mode=mode))
+        for name, network in zip(("actor", "q1", "q2"), networks):
+            network.load_state_dict(saved["networks"][name])
+            network.to(device).eval().requires_grad_(False)
+        alpha = saved["log_alpha"].to(device).exp().detach()
+        return cls(*networks, alpha, mode, dim), saved

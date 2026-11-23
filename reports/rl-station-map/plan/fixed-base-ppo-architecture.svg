@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1080" viewBox="0 0 1200 1080" role="img" aria-labelledby="title desc">
+<title id="title">固定底盘 PPO 与逐抓法成功率网络</title>
+<desc id="desc">上部展开环境编码器。下部左侧为扰动后观测、Actor、控制价值与 PPO 更新；右侧为名义输入、五个独立成功率模型、冻结策略终局标签和选站评分。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#52667a"/></marker></defs>
+<style>text{font-family:"Noto Sans CJK SC","Microsoft YaHei","PingFang SC",Arial,sans-serif;fill:#14283b}.heading{font-weight:700}.small{fill:#43596b}path.edge{stroke:#52667a;stroke-width:2;fill:none;marker-end:url(#arrow)}</style>
+<rect width="1200" height="1080" fill="#ffffff"/>
+<text x="28" y="43" font-size="31" class="heading" text-anchor="start">固定底盘 PPO 与逐抓法成功率网络</text>
+<text x="29" y="72" font-size="18" class="small" text-anchor="start">Panda–Omron × 0.9   ·   条件抓法 gₗ   ·   连续扰动强度 σ</text>
+<rect x="24" y="93" width="1152" height="276" rx="9" fill="#f8fafc" stroke="#c4d1dc" stroke-width="1.6"/>
+<text x="42" y="126" font-size="22" class="heading" text-anchor="start">环境图编码器</text>
+<text x="218" y="126" font-size="17" class="small" text-anchor="start">同一结构实例化 7 次，各自学习参数</text>
+<rect x="44" y="152" width="292" height="79" rx="9" fill="#eef4fa" stroke="#8ca7bf" stroke-width="1.6"/>
+<text x="190.0" y="181" font-size="19" class="heading" text-anchor="middle">每站最多 20 × 19D 节点</text>
+<text x="190.0" y="205" font-size="16" class="small" text-anchor="middle">共享节点 MLP → K / V，追加空槽</text>
+<rect x="44" y="254" width="292" height="78" rx="9" fill="#eef4fa" stroke="#8ca7bf" stroke-width="1.6"/>
+<text x="190.0" y="283" font-size="19" class="heading" text-anchor="middle">目标与底盘两个锚点</text>
+<text x="190.0" y="307" font-size="16" class="small" text-anchor="middle">目标静态 13D；基座查询按分支构造</text>
+<rect x="406" y="152" width="320" height="79" rx="9" fill="#eef4fa" stroke="#8ca7bf" stroke-width="1.6"/>
+<text x="566.0" y="181" font-size="19" class="heading" text-anchor="middle">双查询交叉注意力</text>
+<text x="566.0" y="205" font-size="16" class="small" text-anchor="middle">4 头 × 16D；表面距离偏置 + mask</text>
+<rect x="406" y="254" width="320" height="78" rx="9" fill="#eef4fa" stroke="#8ca7bf" stroke-width="1.6"/>
+<text x="566.0" y="283" font-size="19" class="heading" text-anchor="middle">按锚点的 masked MaxPool</text>
+<text x="566.0" y="307" font-size="16" class="small" text-anchor="middle">真实节点 V 与对应距离一起映射</text>
+<rect x="806" y="194" width="346" height="95" rx="9" fill="#eef4fa" stroke="#8ca7bf" stroke-width="1.6"/>
+<text x="979.0" y="223" font-size="19" class="heading" text-anchor="middle">四个 64D 向量拼接</text>
+<text x="979.0" y="247" font-size="16" class="small" text-anchor="middle">两个注意力输出 + 两个池化输出</text>
+<text x="979.0" y="269" font-size="16" class="small" text-anchor="middle">线性投影 256 → h_env 128D</text>
+<path class="edge" d="M336 178H406"/>
+<path class="edge" d="M336 205H355V273H406"/>
+<path class="edge" d="M336 300H406"/>
+<path class="edge" d="M336 277H380V211H406"/>
+<path class="edge" d="M726 190H762V217H806"/>
+<path class="edge" d="M726 292H779V266H806"/>
+<text x="42" y="353" font-size="16" class="small" text-anchor="start">控制侧在实际底盘系逐步编码；质量侧在名义底盘系为每个候选站位编码一次。</text>
+<rect x="24" y="390" width="562" height="663" rx="9" fill="#f6fbfa" stroke="#b1cdc6" stroke-width="1.6"/>
+<rect x="614" y="390" width="562" height="663" rx="9" fill="#fbf9fd" stroke="#cbbfdb" stroke-width="1.6"/>
+<text x="44" y="425" font-size="23" class="heading" text-anchor="start">控制分支</text>
+<text x="160" y="425" font-size="17" class="small" text-anchor="start">阶段一、二训练 PPO</text>
+<text x="634" y="425" font-size="23" class="heading" text-anchor="start">质量分支</text>
+<text x="750" y="425" font-size="17" class="small" text-anchor="start">阶段三冻结 Actor 后单独训练</text>
+<rect x="45" y="444" width="520" height="86" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="305.0" y="473" font-size="19" class="heading" text-anchor="middle">执行侧输入 · 每个策略步</text>
+<text x="305.0" y="497" font-size="16" class="small" text-anchor="middle">实际落点与目标观测 → 环境图、静态目标、实时误差</text>
+<text x="305.0" y="519" font-size="16" class="small" text-anchor="middle">当局指定 gₗ、σ；本体状态、阶段标志、剩余时间</text>
+<rect x="635" y="444" width="520" height="86" rx="9" fill="#f3f0fb" stroke="#a59ac3" stroke-width="1.6"/>
+<text x="895.0" y="473" font-size="19" class="heading" text-anchor="middle">名义输入 · 操作开始前</text>
+<text x="895.0" y="497" font-size="16" class="small" text-anchor="middle">固定 q_b 和无噪声场景 → 名义环境图与目标</text>
+<text x="895.0" y="519" font-size="16" class="small" text-anchor="middle">对象系候选 gₗ、σ；每个候选 × 噪声档分别查询</text>
+<rect x="45" y="560" width="520" height="85" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="305.0" y="589" font-size="19" class="heading" text-anchor="middle">Actor / V_ctrl 分别编码与拼接</text>
+<text x="305.0" y="613" font-size="16" class="small" text-anchor="middle">各自 h_env 128 + 目标 13 + gₗ 9 + σ 1</text>
+<text x="305.0" y="635" font-size="16" class="small" text-anchor="middle">+ 动态 12 + 本体 40 + 阶段 1 + 时间 1 = 205D</text>
+<rect x="635" y="560" width="520" height="85" rx="9" fill="#f3f0fb" stroke="#a59ac3" stroke-width="1.6"/>
+<text x="895.0" y="589" font-size="19" class="heading" text-anchor="middle">五个独立成员分别编码与拼接</text>
+<text x="895.0" y="613" font-size="16" class="small" text-anchor="middle">每成员 h_env 128 + 名义目标 13 + gₗ 9 + σ 1 = 151D</text>
+<text x="895.0" y="635" font-size="16" class="small" text-anchor="middle">目标、抓法和 σ 直接拼入各 MLP</text>
+<path class="edge" d="M305 530V560"/>
+<path class="edge" d="M895 530V560"/>
+<rect x="45" y="687" width="250" height="88" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="170.0" y="716" font-size="19" class="heading" text-anchor="middle">Actor MLP</text>
+<text x="170.0" y="740" font-size="16" class="small" text-anchor="middle">205 → 256 → 256 → μ 7</text>
+<text x="170.0" y="762" font-size="16" class="small" text-anchor="middle">独立 log_std 7；tanh 高斯</text>
+<rect x="315" y="687" width="250" height="88" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="440.0" y="716" font-size="19" class="heading" text-anchor="middle">V_ctrl MLP</text>
+<text x="440.0" y="740" font-size="16" class="small" text-anchor="middle">205 → 256 → 256 → 1</text>
+<text x="440.0" y="762" font-size="16" class="small" text-anchor="middle">无界控制价值</text>
+<path class="edge" d="M305 645V665H170V687"/>
+<path class="edge" d="M305 645V665H440V687"/>
+<rect x="635" y="687" width="520" height="88" rx="9" fill="#f3f0fb" stroke="#a59ac3" stroke-width="1.6"/>
+<text x="895.0" y="716" font-size="19" class="heading" text-anchor="middle">每成员一个质量 MLP</text>
+<text x="895.0" y="740" font-size="16" class="small" text-anchor="middle">151 → 128 → 64 → 1 logit</text>
+<text x="895.0" y="762" font-size="16" class="small" text-anchor="middle">sigmoid → pₘ(q_b, gₗ, σ)，m = 1…5</text>
+<path class="edge" d="M895 645V687"/>
+<rect x="45" y="812" width="250" height="88" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="170.0" y="841" font-size="19" class="heading" text-anchor="middle">扰动后物理执行</text>
+<text x="170.0" y="865" font-size="16" class="small" text-anchor="middle">7D 动作 + 执行噪声</text>
+<text x="170.0" y="887" font-size="16" class="small" text-anchor="middle">DLS / 夹爪 → 奖励、终止</text>
+<rect x="315" y="812" width="250" height="88" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="440.0" y="841" font-size="19" class="heading" text-anchor="middle">GAE 与价值目标</text>
+<text x="440.0" y="865" font-size="16" class="small" text-anchor="middle">稠密奖励 + V_ctrl</text>
+<text x="440.0" y="887" font-size="16" class="small" text-anchor="middle">γ = 0.99，λ = 0.95</text>
+<path class="edge" d="M170 775V812"/>
+<path class="edge" d="M440 775V812"/>
+<path class="edge" d="M295 856H315"/>
+<rect x="45" y="935" width="520" height="94" rx="9" fill="#ecf7f4" stroke="#78a89d" stroke-width="1.6"/>
+<text x="305.0" y="964" font-size="19" class="heading" text-anchor="middle">PPO 梯度更新</text>
+<text x="305.0" y="988" font-size="16" class="small" text-anchor="middle">Actor：裁剪目标 + 熵；控制 V：回报目标 MSE</text>
+<text x="305.0" y="1010" font-size="16" class="small" text-anchor="middle">各自的梯度更新各自的环境编码器</text>
+<path class="edge" d="M440 900V935"/>
+<rect x="635" y="812" width="520" height="88" rx="9" fill="#f3f0fb" stroke="#a59ac3" stroke-width="1.6"/>
+<text x="895.0" y="841" font-size="19" class="heading" text-anchor="middle">训练 · 无折扣 MC 终局监督</text>
+<text x="895.0" y="865" font-size="16" class="small" text-anchor="middle">冻结 Actor 执行指定 gₗ → 严格安全成败 y ∈ {0,1}</text>
+<text x="895.0" y="887" font-size="16" class="small" text-anchor="middle">每个成员用自己的 logit 与 y 计算 BCE</text>
+<rect x="635" y="935" width="520" height="94" rx="9" fill="#f3f0fb" stroke="#a59ac3" stroke-width="1.6"/>
+<text x="895.0" y="964" font-size="19" class="heading" text-anchor="middle">推理 · 噪声谱与多抓法聚合</text>
+<text x="895.0" y="988" font-size="16" class="small" text-anchor="middle">五头均值与分歧 → 各抓法鲁棒分 → 选抓分布</text>
+<text x="895.0" y="1010" font-size="16" class="small" text-anchor="middle">输出预测成功率 P、保守站位分 Q 与抓法</text>
+<path class="edge" d="M850 775V812"/>
+<path class="edge" d="M1128 775V789H1165V980H1155"/>
+</svg>

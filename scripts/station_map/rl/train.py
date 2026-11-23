@@ -1,4 +1,4 @@
-"""(c) RL 站位图训练：固定底盘 mjlab SAC，主进程 Learner，每张卡一个 Sampler（独立 RL 环境）。"""
+"""(c) RL 站位图训练：mjlab SAC / PPO（可配置底盘移动），主进程 Learner，每张卡一个 Sampler（独立 RL 环境）。"""
 
 import argparse
 import json
@@ -12,6 +12,7 @@ DEFAULT_CONFIG = REPO_ROOT / "configs/station_map/rl/val103_cup30.yaml"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--algorithm", choices=("sac", "ppo"), help="覆盖配置算法，默认 SAC")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument(
         "--gpu",
@@ -41,6 +42,7 @@ def main():
         resume=args.resume,
         max_transitions=args.max_transitions,
         num_envs=args.num_envs,
+        algorithm=args.algorithm,
     )
     print(json.dumps(result, indent=2))
 

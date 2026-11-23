@@ -8,12 +8,12 @@ import time
 import torch
 
 from .devices import VISIBLE_DEVICE
-from .sac.networks import Actor
+from .networks import Actor
 from .sac.replay import Transition
-from .training import record_episodes
-from .sac.agent import seed_all
-from .env.observation import graph_observation
-from .env.observation import REWARD_COMPONENTS
+from .training_common import record_episodes
+from .checkpoint import seed_all
+from .env.observation import policy_observation
+from .env.observation import REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS
 
 
 def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
@@ -23,12 +23,16 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=num_envs)
     try:
         observations, _ = env.reset()
-        obs = graph_observation(observations)
-        actor = Actor(obs.arm_task_state.shape[-1]).to(env.device)
+        mode = config.get("observation", {}).get("mode", "graph")
+        obs = policy_observation(observations, mode)
+        state_dim = obs.shape[-1] if mode == "flat" else obs.arm_task_state.shape[-1]
+        action_dim = env.action_manager.total_action_dim
+        actor = Actor(state_dim, action_dim, mode=mode).to(env.device)
         version, random_actions, paused = 0, True, False
         random_episodes = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         returns = torch.zeros(env.num_envs, device=env.device)
-        components = torch.zeros(env.num_envs, len(REWARD_COMPONENTS), device=env.device)
+        reward_names = CONTACT_REWARD_COMPONENTS if mode == "flat" else REWARD_COMPONENTS
+        components = torch.zeros(env.num_envs, len(reward_names), device=env.device)
         steps = torch.zeros(env.num_envs, device=env.device)
         while not stop.is_set():
             try:
@@ -49,11 +53,10 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     paused = False
             with torch.no_grad():
                 action = (
-                    torch.rand(env.num_envs, 7, device=env.device) * 2 - 1 if random_actions else actor.sample(obs)[0]
+                    torch.rand(env.num_envs, action_dim, device=env.device) * 2 - 1 if random_actions else actor.sample(obs)[0]
                 )
                 observations, reward, terminated, truncated, _ = env.step(action)
-                nxt = graph_observation(observations)
-                terminated = terminated | truncated
+                nxt = policy_observation(observations, mode)
                 healthy = ~env.task.unhealthy
                 if not healthy.any():
                     raise RuntimeError("All sampler environments unhealthy")
@@ -63,7 +66,7 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     reward[healthy],
                     nxt[healthy],
                     terminated[healthy],
-                    torch.zeros_like(truncated[healthy]),
+                    truncated[healthy],
                     env.task.reward_components[healthy],
                     env.task.station_ids[healthy],
                 ).to("cpu")
@@ -71,7 +74,8 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                 returns += reward
                 components += env.task.reward_components
                 steps += 1
-                done = terminated | env.task.unhealthy
+                # Time limits end the episode but keep bootstrapping (truncated, not terminal).
+                done = terminated | truncated | env.task.unhealthy
                 episodes = io.StringIO()
                 record_episodes(episodes, env, done, 0, returns, components, steps, random_episodes)
                 obs = nxt.clone()
@@ -79,7 +83,11 @@ def sample(config, seed, num_envs, worker, channel, actor_queue, queue, stop):
                     ids = done.nonzero(as_tuple=True)[0]
                     random_episodes[ids] = False
                     reset, _ = env.reset(env_ids=ids)
-                    obs.replace(ids, graph_observation(reset))
+                    reset_obs = policy_observation(reset, mode)
+                    if mode == "flat":
+                        obs[ids] = reset_obs[ids] if len(reset_obs) == env.num_envs else reset_obs
+                    else:
+                        obs.replace(ids, reset_obs)
             # Messages own their bytes: no producer tensor lifetime or CUDA IPC.
             for start in range(0, len(batch.reward), 256):
                 payload = pickle.dumps(

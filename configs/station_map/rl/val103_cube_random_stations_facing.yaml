@@ -1,0 +1,136 @@
+scene:
+  data_root: /data1/wenyifan/lmdf/molmospaces_data
+  scene_xml: assets/scenes/procthor-10k-val/val_103.xml
+  scene_metadata: assets/scenes/procthor-10k-val/val_103_metadata.json
+  robot_xml: assets/robots/panda_omron/model.xml
+  target: Cup_30
+  cube:
+    size_m: 0.04
+    mass_kg: 0.1
+  local_radius_m: 2.0
+  physics_dt: 0.002
+  multiccd: false
+  home:
+  - 0.0
+  - -0.00365045915
+  - 0.0
+  - -2.61799387799
+  - 0.0
+  - 2.74159265359
+  - 0.78539816339
+  lift: 0.2
+  robot_scale: 0.9
+  fixed_base: true
+observation:
+  mode: flat
+  world_state: true
+  # 固定Home初态：三站reset逐维核对通过；离线评分直接读取，不加载仿真。
+  base_height: 0.0
+  tcp_position_base:
+  - 0.6020712852478027
+  - 6.378371608661837e-09
+  - 0.981444776058197
+  tcp_rotation_base:
+  - - -0.0004887073300778866
+    - 0.9919145107269287
+    - 0.126906156539917
+  - - 0.9999997615814209
+    - 0.0004927359404973686
+    - -1.4578006357623963e-07
+  - - -6.267490971367806e-05
+    - 0.1269061416387558
+    - -0.991914689540863
+  cube_position_world:
+  - 7.313459396362305
+  - 2.098811388015747
+  - 0.7702707648277283
+  cube_rotation_world:
+  - - 1.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 1.0
+  gripper_width: 0.07199999690055847
+  lift_range:
+  - 0.0
+  - 0.3059999942779541
+  open_grip: 0.07199999690055847
+mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
+environment:
+  num_envs: 128
+  decimation: 25
+  episode_s: 50
+  settling_s: 1.0
+  nconmax: 5000
+  njmax: 5000
+action:
+  translation_m: 0.02
+  rotation_rad: 0.08726646259971647
+  damping: 0.05
+  joint_limit_weight: 1.0
+  lift_velocity_m_s: 0.05
+reward:
+  position: 20.0
+  rotation: 5.0
+  collision: 1.0
+  success: 30.0
+  close: 3.0
+  grasp: 3.0
+  lift: 8.0
+  grasp_distance_m: 0.03
+  grasp_angle_rad: 0.3490658503988659
+sac:
+  gamma: 0.999
+  tau: 0.005
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  alpha_lr: 0.0001
+  initial_alpha: 0.1
+  target_entropy: -7.0
+training:
+  periodic_evaluation: false
+  batch_size: 512
+  replay_capacity: 100000
+  warmup_min: 20000
+  transitions_per_update: 128
+  debug_station_ids: []
+  log_every: 10000
+  max_transitions: 3000000
+  tensorboard_every_seconds: 30
+  validation_stations: 1
+  validation_rollouts_per_station: 16
+stations:
+  robot_config: configs/robots/panda_omron.yaml
+  heading_offsets_deg:
+  - 0
+  seed: 42
+evaluation:
+  action_samples: 16
+  top: 4
+  middle: 4
+  low: 4
+  uniform: 8
+  rollouts_per_station: 1
+  seed: 20261109
+  q_color_limits:
+  - -100.0
+  - 100.0
+  station_count: 20
+acceptance:
+  top_success_min: 0.5
+  top_collision_free_success_min: 0.4
+  top_uniform_gap_min: 0.1
+  positive_spearman: true
+success:
+  version: rl-pick-contact-v2
+  finger_force_min_n: 0.5
+  lift_m: 0.01
+  hold_s: 0.25
+video:
+  every: 100000
+  width: 640
+  height: 480

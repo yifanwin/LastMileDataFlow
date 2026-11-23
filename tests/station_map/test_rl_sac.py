@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from lastmile_dataflow.station_map.rl.env.observation import GraphObservation, graph_edges
+from lastmile_dataflow.station_map.rl.env.observation import GraphObservation, graph_edges, FLAT_FIELDS, CONTACT_REWARD_COMPONENTS
 from lastmile_dataflow.station_map.rl.sac.replay import Replay, Transition
 
 
@@ -72,7 +72,7 @@ class SACTests(unittest.TestCase):
         torch.testing.assert_close(target, torch.tensor([1.0, 2.6]))
 
     def test_goal_embedding_is_invariant_to_padding_and_node_order(self):
-        from lastmile_dataflow.station_map.rl.sac.networks import GraphEncoder
+        from lastmile_dataflow.station_map.rl.networks import GraphEncoder
 
         obs = observation()
         encoder = GraphEncoder().eval()
@@ -110,7 +110,7 @@ class SACTests(unittest.TestCase):
             self.assertEqual(restored.updates, 1)
 
     def test_saturated_tanh_log_probability_remains_finite(self):
-        from lastmile_dataflow.station_map.rl.sac.networks import Actor
+        from lastmile_dataflow.station_map.rl.networks import Actor
 
         actor = Actor(9)
         with torch.no_grad():
@@ -119,3 +119,88 @@ class SACTests(unittest.TestCase):
         action, log_prob = actor.sample(observation())
         self.assertTrue(torch.isfinite(log_prob).all())
         self.assertTrue((action <= 1).all())
+
+    def test_flat_65d_replay_update_checkpoint_and_old_input_rejection(self):
+        from lastmile_dataflow.station_map.rl.sac.agent import SAC
+
+        dim = sum(size for _, size, _ in FLAT_FIELDS)
+        obs = torch.randn(4, dim)
+        components = torch.randn(4, len(CONTACT_REWARD_COMPONENTS))
+        transition = Transition(obs, torch.zeros(4, 7), components.sum(-1), obs + 1,
+                                torch.tensor([True, False, False, True]), torch.zeros(4, dtype=torch.bool), components.clone())
+        replay = Replay(8, obs)
+        replay.add(transition.to("cpu"))
+        transition.reward_components.zero_()
+        torch.testing.assert_close(replay.reward_components[:4], components)
+        agent = SAC(dim, "cpu", mode="flat")
+        losses = agent.update(replay.sample(4))
+        self.assertTrue(all(torch.isfinite(value) for value in losses.values()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            agent.save(path, metadata={}, transitions=4)
+            restored, _ = SAC.load(path, "cpu")
+            torch.testing.assert_close(agent.actor.sample(obs, True)[0], restored.actor.sample(obs, True)[0])
+            saved = torch.load(path, weights_only=False)
+            old_scales = {"target_position_error_base": 1., "target_rotation_error_base": "pi"}
+            old_fields = tuple((name, size, old_scales.get(name, scale)) for name, size, scale in FLAT_FIELDS)
+            saved["input_definition"] = ("flat", old_fields)
+            torch.save(saved, path)
+            with self.assertRaisesRegex(ValueError, "observation definition"):
+                SAC.load(path, "cpu")
+            saved["state_dim"] = 45
+            saved["input_definition"] = ("flat", (("old_contact_input", 45, 1.),))
+            torch.save(saved, path)
+            with self.assertRaisesRegex(ValueError, "observation definition"):
+                SAC.load(path, "cpu")
+
+    def test_flat_69d_update_and_checkpoint_records_world_fields(self):
+        from lastmile_dataflow.station_map.rl.env.observation import WORLD_STATE_FIELDS
+        from lastmile_dataflow.station_map.rl.sac.agent import SAC
+
+        agent = SAC(69, "cpu", mode="flat")
+        obs = torch.randn(4, 69)
+        transition = Transition(obs, torch.zeros(4, 7), torch.ones(4), obs + 0.1,
+                                torch.zeros(4, dtype=torch.bool), torch.zeros(4, dtype=torch.bool))
+        self.assertTrue(all(torch.isfinite(v) for v in agent.update(transition).values()))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkpoint.pt"
+            agent.save(path, metadata={}, transitions=4)
+            restored, saved = SAC.load(path, "cpu")
+            self.assertEqual(saved["input_definition"], ("flat", FLAT_FIELDS + WORLD_STATE_FIELDS))
+            torch.testing.assert_close(agent.actor.sample(obs, True)[0], restored.actor.sample(obs, True)[0])
+
+
+@unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependency group")
+class ActorNoiseTests(unittest.TestCase):
+    def test_supplied_noise_is_batched_and_keeps_sampling_contract(self):
+        from lastmile_dataflow.station_map.rl.networks import Actor
+
+        torch.manual_seed(5)
+        actor = Actor(9)
+        obs = observation()
+        noise = torch.randn(2, 7)
+        action, log_prob = actor.sample(obs, noise=noise)
+        mu, log_std = actor(obs)
+        torch.testing.assert_close(action, (mu + log_std.exp() * noise).tanh())
+        single, _ = actor.sample(obs[1:2], noise=noise[1:2])
+        torch.testing.assert_close(single[0], action[1])
+        self.assertTrue(torch.isfinite(log_prob).all())
+        torch.testing.assert_close(actor.sample(obs, True, noise=noise)[0], mu.tanh())
+
+
+class EntropyInTargetTests(unittest.TestCase):
+    def test_disabled_entropy_bonus_leaves_the_critic_target_task_only(self):
+        from unittest.mock import patch
+        from lastmile_dataflow.station_map.rl.sac import agent as module
+        from lastmile_dataflow.station_map.rl.sac.replay import Transition
+
+        n = 8
+        batch = Transition(torch.randn(n, 6), torch.rand(n, 2) * 2 - 1, torch.randn(n), torch.randn(n, 6),
+                           torch.zeros(n, dtype=torch.bool), torch.zeros(n, dtype=torch.bool))
+        for flag, expected in ((True, True), (False, False)):
+            sac = module.SAC(6, "cpu", module.SACConfig(entropy_in_target=flag), mode="flat", action_dim=2)
+            with patch.object(module, "bellman_target", wraps=module.bellman_target) as target:
+                sac.update(batch)
+            alpha = target.call_args.args[4]
+            self.assertEqual(float(alpha) > 0, expected)
+

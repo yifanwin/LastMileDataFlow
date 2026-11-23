@@ -1,6 +1,8 @@
 """Global budgets, CPU ownership, subset scoring and bounded process transport."""
 
 import importlib.util
+import io
+import json
 import multiprocessing as mp
 import pickle
 from types import SimpleNamespace
@@ -27,6 +29,29 @@ def producer(channel, queue, stop):
 
 @unittest.skipUnless(importlib.util.find_spec("torch_geometric"), "requires RL dependencies")
 class SamplingTests(unittest.TestCase):
+    def test_contact_episode_records_seven_rewards_without_old_once_only_bonus(self):
+        from lastmile_dataflow.station_map.rl.env.observation import CONTACT_REWARD_COMPONENTS
+        from lastmile_dataflow.station_map.rl.training_common import record_episodes
+
+        task = SimpleNamespace(
+            contact_protocol=True, stations=[{"station_id": "S0246"}], station_ids=torch.tensor([0]),
+            success=torch.tensor([True]), first_contact_time_s=torch.tensor([1.]),
+            collision_free=torch.tensor([True]), unhealthy=torch.tensor([False]),
+            **{name: torch.zeros(1) for name in ("collision_time", "max_drift", "max_yaw_drift", "max_lift_drift")},
+        )
+        env = SimpleNamespace(task=task, research_config={"success": {"version": "rl-pick-contact-v2"}})
+        returns, steps = torch.tensor([30.1]), torch.tensor([95])
+        components = torch.tensor([[0.1, 0., 0., 30., 0., 0.05, 0.05]])
+        stream = io.StringIO()
+        record_episodes(stream, env, torch.tensor([True]), 128, returns, components, steps)
+        event = json.loads(stream.getvalue())
+        self.assertEqual(event["reward_component_names"], list(CONTACT_REWARD_COMPONENTS))
+        self.assertEqual(len(event["reward_components"]), 7)
+        self.assertTrue(event["success"])
+        self.assertNotIn("contact_bonus_count", event)
+        self.assertEqual(event["first_contact_time_s"], 1.)
+        self.assertEqual(float(returns.sum() + components.sum() + steps.sum()), 0.)
+
     def test_global_credits_keep_remainder_and_skip_warmup(self):
         self.assertEqual(
             [target_updates(h, 20000, 128) for h in (19999, 20000, 20127, 20128, 100000, 200000)],

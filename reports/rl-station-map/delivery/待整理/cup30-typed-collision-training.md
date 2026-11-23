@@ -1,0 +1,48 @@
+# Cup_30 分类碰撞罚分、卡死终止与指腹判定训练
+
+- 状态：active
+- 日期：2026-11-19
+- 时间戳：2026-11-19T14:19:42+08:00
+- 关联：cup30-training-diagnosis.md、cup30-close-lateral-training.md
+- 工作区：.worktrees/rl-cup-collision-types，分支 codex/rl-cup-collision-types，提交 61aa2e3（基于 99fe82f，含超时截断 bootstrap 修复 29c5009）
+
+## 改动（用户 2026-11-19 13:21 批准的方案）
+
+- 碰撞分三档，各档 [首次, 持续每控制步]：小 [0.5, 0.05]（手指外侧碰杯、两指互碰空夹），中 [0.8, 0.08]（手掌碰杯、手指碰杯下的桌子），大 [1.0, 0.1]（其余机器人部位碰杯、机器人碰场景含桌子与障碍物、真自碰）。同档 0.25 s 无接触后再出现才重新算首次。指腹碰杯、手指内侧（接触法向与合拢方向夹角 <60°）碰杯、杯子碰桌子不罚。替换原来的每步 −1，奖励分量个数不变。
+- 同一根手指的指腹正在接触杯子时，该手指本体的接触不算外侧：oracle 正常抓取中约 8% 的手指本体接触法向朝外（x≈−0.99），是手指压入杯壁薄凸包导致法向翻面，加此条件后 64 回合中误报从 28 回合降到 2 回合（各约 2 ms）。
+- 卡死终止：最近 2 s 内 ≥50% 的步有罚分碰撞、TCP 路程 <2 cm、到当前目标距离改善 <5 mm 且姿态改善 <0.05 rad，同时满足时罚 −10 并按真终止结束，记为失败。
+- 成功判定、接触奖励、抬升奖励、闭合奖励的受力改为看两个指腹碰撞体。
+- 回合日志新增 stuck、collision_class_s（各类碰撞时长）、collision_onsets（各档首次次数）。
+- 删除 terms.py 中被覆盖的旧 pregrasp_stage 定义。
+
+## 验证
+
+- RL 测试 142 项通过（新增分档首次/持续/重新武装与卡死窗口测试）。
+- oracle 先到预抓取位再下探：64/64 成功，罚分碰撞仅 2 回合各约 2 ms，无卡死。直线走向抓取位姿：64/64 成功，1 回合约 2 ms。
+- 用上次训练 1.2M checkpoint（随机动作）验证归类：手掌碰杯 20 回合、手指碰桌 8 回合、机器人碰场景 16 回合、手指外侧 54 回合；按新的指腹判定该 checkpoint 成功率 42%。2.8M checkpoint 停在杯口上方，无任何接触。
+
+## 正式训练
+
+outputs/experiments/rl-cup-collision-types/runs/20261119-141815-cup30-typedcoll-stuck-pad-8m-g0123，GPU0–3，seed42，8M，其余超参不变，结束后自动评估 best.pt。启动后已开始更新，无报错。
+
+## 第一次训练结果与调参重训（2026-11-19T16:40+08:00）
+
+第一次训练（20261119-141815，8M 采样完成，best.pt 评估按用户要求中止，status=stopped_by_user）：训练期成功率 0–1M 为 71%，之后 3–37%，无碰撞成功基本为 0；持续碰撞罚太轻（0.05–0.1/步），手指压桌每回合最多 15–18 s，手掌碰杯 2–6 s，卡死终止 5–7M 占 10–35%。
+
+调参（提交 3bf7102）：小 [0.5, 0.1]，中 [0.8, 0.5]，大 [1.0, 0.5]。持续 0.5/步即每秒 −10，约 4.4 s 接触抵一次成功（+44）；卡死终止把真正卡死的回合限制在约 −20~−30，避免早期每步 −1 时出现的 −100~−180 回合。预算改为 5M。
+
+重训：outputs/experiments/rl-cup-collision-types/runs/20261119-163248-cup30-typedcoll-sustain05-5m-g0123，GPU0–3，seed42，其余不变，结束后自动评估 best.pt。启动后已开始更新，无报错。
+
+## 5M 重训结果与杯子掉落罚分（2026-11-19T20:30+08:00）
+
+5M 重训（20261119-163248）：训练期成功率 0.5–5M 稳定在 58–71%，无回落；卡死终止 0，手指压桌约 0，手掌碰杯约 0.2 s/回合。3M 后约 20% 回合因杯子中心比初始低 0.3 m 以上（掉下桌）提前失败，其中 41% 已抬起 1 cm、31% 未接触。成功回合中仅 17% 无碰撞，主要是手指外侧碰杯（80% 成功回合，均 0.4 s）。best.pt 选在 0.69M（窗口 57 回合 96%），独立评估 6/20 成功、0/20 无碰撞成功。
+
+用户批准：杯子掉落或被撞下桌时一次性罚 −20，按真终止处理（reward.drop_penalty、drop_height_m，未配置时为 0 和原阈值 0.3 m，其他配置行为不变）；罚分计入 collision 分量，回合日志新增 dropped。
+
+验证：RL 测试 143 项通过（新增掉落罚分测试）；GPU 冒烟把 4/8 个环境的杯子下移 0.5 m，这 4 个 dropped、真终止、collision 分量 −20，其余不受影响；oracle 先到预抓取位再下探 64/64 成功、0 掉落。未启动训练。
+
+## 分支与工作区合并（2026-11-19T20:50+08:00）
+
+按用户要求把 rl-cup 系列合并为分支 codex/rl-cup，工作区 .worktrees/rl-cup（由 rl-cup-collision-types 移动而来）。合并了 codex/rl-cup-close-lateral（含 bef83aa 回落排查记录）、codex/rl-cup-diagnosis 与 codex/rl-cup-random-stations（d4786ed，与已有的 29c5009 为同一修复）。删除上述分支及 rl-cup-close-lateral、rl-cup-random-stations 工作区；各工作区 outputs/experiments 下的实验产物（grasp-fps-all、rl-cup-random-stations、rl-cup-diagnosis、rl-cup-symmetry、rl-cup-close-lateral）已移入本工作区，索引见 outputs/README.md。Cup_30 配置的候选库路径改为仓库相对路径。
+
+原 rl-cup-random-stations 工作区里的 .venv 只是指向 .worktrees/actor-critic/.venv 的符号链接；本工作区已有同样的 .venv 链接，之后用 .worktrees/rl-cup/.venv/bin/python 运行（旧 run 的 launch.json 中记录的旧路径已失效，仅作历史记录）。合并后 RL 测试 143 项、抓取相关 11 项通过。

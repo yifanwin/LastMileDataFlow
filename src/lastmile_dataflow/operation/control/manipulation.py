@@ -1,7 +1,5 @@
 """Native grasp planning and semantic physical execution; no scene resets."""
 
-from ..grasps import select_grasps
-
 import copy
 from dataclasses import dataclass, replace
 from functools import partial
@@ -12,7 +10,8 @@ import numpy as np
 from lastmile_dataflow.planning.curobo.planner import V2Planner
 from lastmile_dataflow.planning.result import GRASP_APPROACH_DISTANCE_M
 from lastmile_dataflow.sim.model.geometry import body_pose, tcp_pose
-from lastmile_dataflow.utils.io import write_json
+from lastmile_dataflow.utils.io import repo_path, write_json
+from ..grasps import load_grasps, sample_grasps, select_grasps
 from ..config import PLANNER_BACKEND
 from lastmile_dataflow.planning.curobo.tracing import NATIVE_MAX_ATTEMPTS
 from ..outcomes.task import PickMonitor, evaluate_open
@@ -21,10 +20,8 @@ from .context import planner_options
 from lastmile_dataflow.sim.simulation import OperationFailure
 
 
-def _candidate_score(sim, reference, method, candidate):
+def _candidate_score(sim, reference, candidate):
     goal = body_pose(sim, sim.model.body(candidate["body"]).id) @ candidate["pose_local"]
-    if method == "tcp_distance":
-        return float(np.linalg.norm(goal[:3, 3] - reference))
     vector = goal[:3, 3] - np.r_[reference[:2], goal[2, 3]]
     return float(np.dot(goal[:3, 2], vector) / max(np.linalg.norm(vector), 1e-9))
 
@@ -32,15 +29,30 @@ def _candidate_score(sim, reference, method, candidate):
 def candidate_pool(sim, config, candidates, seed, forced):
     rng = np.random.default_rng(seed)
     if forced:
-        pool = [c for c in candidates if c["row"] == forced["grasp_row"] and c["source"] == forced["grasp_source"]]
+        pool = [c for c in candidates if c["row"] == forced["grasp_row"]
+                and Path(c["source"]).resolve() == Path(forced["grasp_source"]).resolve()]
         if not pool:
             raise ValueError("missing winning grasp")
         return pool[: config.max_grasp_candidates]
+    preprocessed = None
+    if candidates:
+        asset = Path(candidates[0]["source"]).parent.name
+        preprocessed = config.grasp_preprocessed_paths.get(asset)
+        if preprocessed:
+            candidates = load_grasps(repo_path(preprocessed), candidates[0]["body"])
+            if not candidates:
+                raise ValueError("No valid preprocessed grasps")
+    if preprocessed:
+        return sample_grasps(candidates, config.max_grasp_candidates, seed=config.grasp_sample_seed)
     method = config.grasp_candidate_order
-    reference = tcp_pose(sim, sim.robot.arms[0])[:3, 3] if method == "tcp_distance" else sim.robot.base_pose()
-    score = partial(_candidate_score, sim, reference, method)
-    if method == "tcp_distance":
-        return select_grasps(candidates, [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates], reference, config.max_grasp_candidates, config.grasp_fps_position_scale_m, config.grasp_fps_rotation_scale_rad)
+    if method == "fps":
+        poses = [body_pose(sim, sim.model.body(c["body"]).id) @ c["pose_local"] for c in candidates]
+        return select_grasps(
+            candidates, poses, config.max_grasp_candidates,
+            config.grasp_fps_position_scale_m, config.grasp_fps_rotation_scale_rad,
+            seed=config.grasp_fps_seed,
+        )
+    score = partial(_candidate_score, sim, sim.robot.base_pose())
     pool = sorted(candidates, key=score, reverse=True)[: max(config.max_grasp_candidates * 8, 16)]
     return [pool[i] for i in rng.permutation(len(pool))[: config.max_grasp_candidates]]
 

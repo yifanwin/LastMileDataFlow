@@ -1,4 +1,4 @@
-"""(c) RL 站位图评测：在留出站位上 rollout，并保存事先确定的试验清单。"""
+"""(c) RL 站位图评测：并行运行冻结策略，并保存事先确定的试验清单。"""
 
 import argparse
 import json
@@ -14,11 +14,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--scores", required=True, help="score.py 输出的 station-q.json")
+    parser.add_argument("--scores", help="graph 需要的 score.py station-q.json（SAC）或 station-v.json（PPO）；flat 不需要")
     parser.add_argument("--baseline", action="store_true", help="用 initial.pt 评测训练后打分选出的站位")
     parser.add_argument("--gpu", type=int, required=True, help="物理 GPU 编号")
     parser.add_argument("--output", required=True)
     parser.add_argument("--seed", type=int, help="默认取配置的 evaluation.seed")
+    parser.add_argument("--num-envs", type=int, help="并行环境数，默认最多20个；不修改checkpoint配置")
     args = parser.parse_args()
     config = read_config(args.config)
     select_devices([args.gpu])
@@ -33,6 +34,7 @@ def main():
         output=args.output,
         seed=args.seed,
         baseline=args.baseline,
+        **({"num_envs": args.num_envs} if args.num_envs is not None else {}),
     )
     print(json.dumps(result, indent=2))
 

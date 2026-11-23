@@ -1,112 +1,31 @@
-"""Off-policy vector sampling with explicit final observations and local reset."""
+"""Algorithm dispatch and asynchronous SAC training with explicit final observations."""
 
 import json
 from collections import deque
-import shutil
-import importlib.metadata
-import os
 from pathlib import Path
-import subprocess
 import resource
 import time
 
 import torch
 
-from lastmile_dataflow.utils.io import REPO_ROOT
 from .sac.agent import SAC, SACConfig
 from .sac.replay import Replay
-from .env.observation import ARM_STATE_FIELDS, REWARD_COMPONENTS
-from .env.observation import graph_observation
-from .sac.agent import seed_all
-from .evaluation import monitor_validation
+from .env.observation import policy_observation, graph_observation
+from .checkpoint import seed_all
 from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
 from .config import resolve_config
+from .ppo.training import train_ppo
+from .training_common import (
+    CHECKPOINT_EVERY_TRANSITIONS, training_metadata, restore_best_checkpoint,
+    flush_training_monitor, record_grasp_subset, save_best_checkpoint, save_periodic_checkpoint,
+    validation_checkpoint,
+)
 import pickle
 from queue import Empty
 from queue import Full
-
-
-def runtime_metadata(config, physical_gpu):
-    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    revisions = {
-        "project": os.environ.get("LASTMILE_SOURCE_REVISION")
-        or subprocess.check_output(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"], text=True).strip(),
-        "mjlab": subprocess.check_output(["git", "-C", config["mjlab_source"], "rev-parse", "HEAD"], text=True).strip(),
-    }
-    return {
-        "revisions": revisions,
-        "versions": {
-            name: importlib.metadata.version(name)
-            for name in ("torch", "torch-geometric", "mjlab", "mujoco", "mujoco-warp", "warp-lang", "numpy")
-        },
-        "gpu_argument": physical_gpu,
-        "cuda_visible_devices": visible,
-        "physical_gpu": physical_gpu,
-    }
-
-
-def record_episodes(log, env, done, transitions, returns, components, steps, random_episodes=None):
-    for index in done.nonzero(as_tuple=True)[0].tolist():
-        log.write(
-            json.dumps(
-                {
-                    "event": "episode",
-                    "random_warmup": bool(random_episodes[index]) if random_episodes is not None else False,
-                    "grasp_source": env.task.grasps[int(env.task.grasp_ids[index])]["source"],
-                    "grasp_row": env.task.grasps[int(env.task.grasp_ids[index])]["row"],
-                    "transitions": transitions,
-                    "station_id": env.task.stations[int(env.task.station_ids[index])]["station_id"],
-                    "return": float(returns[index]),
-                    "steps": int(steps[index]),
-                    "reward_components": components[index].cpu().tolist(),
-                    "reward_component_names": REWARD_COMPONENTS,
-                    "contact_bonus_count": int(env.task.contact_bonus_paid[index]),
-                    "success": bool(env.task.success[index]),
-                    "collision_free": bool(env.task.collision_free[index]),
-                    "collision_time_s": float(env.task.collision_time[index]),
-                    "max_drift_m": float(env.task.max_drift[index]),
-                    "max_yaw_drift_rad": float(env.task.max_yaw_drift[index]),
-                    "max_lift_drift_m": float(env.task.max_lift_drift[index]),
-                    "infrastructure_failure": bool(env.task.unhealthy[index]),
-                }
-            )
-            + "\n"
-        )
-    returns[done] = 0
-    components[done] = 0
-    steps[done] = 0
-
-
-def validation_checkpoint(agent, env, config, transitions, output, log, monitor):
-    monitor.flush(transitions, force=True)
-    started = time.perf_counter()
-    event = monitor_validation(agent, env, config, transitions, output, force_video=True)
-    event["seconds"] = time.perf_counter() - started
-    log.write(json.dumps(event) + "\n")
-    log.flush()
-    monitor.record_evaluation(event)
-    if not event["healthy_trials"]:
-        raise RuntimeError("Training-station evaluation produced no healthy trials")
-
-
-def save_training_checkpoint(agent, output, metadata, transitions, returns, *, final=False):
-    score = sum(returns) / len(returns) if returns else None
-    best = metadata.get("best_training_return")
-    improved = score is not None and (best is None or best["mean"] is None or score > best["mean"])
-    fallback = final and best is None and score is None
-    if improved or fallback:
-        metadata["best_training_return"] = {
-            "metric": "recent_mean_undiscounted_episode_return",
-            "mean": score, "count": len(returns), "transitions": transitions,
-            "fallback": "no eligible episodes; final model" if fallback else None,
-        }
-    metadata["recent_episode_returns"] = list(returns)
-    if improved or fallback:
-        agent.save(Path(output) / "best.pt", metadata=metadata, transitions=transitions)
-    agent.save(Path(output) / "latest.pt", metadata=metadata, transitions=transitions)
 
 
 def target_updates(healthy, warmup, interval):
@@ -209,7 +128,7 @@ class Samplers:
             queue.close()
 
 
-def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
+def train_sac(config, *, gpus, output, seed, resume=None, max_transitions=None, num_envs=None):
     """``gpus`` are physical cards: the first also hosts the Learner, each one runs a Sampler."""
     from .env.environment import StationEnv
 
@@ -220,57 +139,40 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
     settings = config["training"]
     devices = [str(gpu) for gpu in gpus]
     env = StationEnv(
-        config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"]
+        config, gpu=VISIBLE_DEVICE, seed=config["evaluation"]["seed"], num_envs=settings["validation_stations"] * settings.get("validation_rollouts_per_station", 1)
     )
     workers = None
     monitor = None
     try:
         observations, _ = env.reset()
-        obs = graph_observation(observations)
-        metadata = {
-            "config": config,
-            "seed": seed,
-            **runtime_metadata(config, gpus[0]),
-            "sampler_gpus": devices,
-            "learner_gpu": devices[0],
-            "sampler_num_envs": num_envs or config["environment"]["num_envs"],
-            "transition_limit": max_transitions or settings["max_transitions"],
-            "node_capacity": obs.nodes.shape[1],
-            "state_dim": obs.arm_task_state.shape[-1],
-            "arm_state_fields": ARM_STATE_FIELDS,
-            "reward_component_names": REWARD_COMPONENTS,
-            "success_protocol": config["success"],
-            "stations": env.task.stations,
-            "resume": "parameters/optimizers; fresh environment and CPU replay",
-        }
+        mode = config.get("observation", {}).get("mode", "graph")
+        obs = graph_observation(observations) if mode == "graph" else policy_observation(observations, mode)
+        contact = config["success"].get("version") == "rl-pick-contact-v2"
+        metadata = training_metadata(config, env, obs, gpus=gpus, seed=seed,
+                                     num_envs=num_envs, max_transitions=max_transitions)
         if resume:
             agent, saved = SAC.load(resume, env.device, restore_rng=True)
             if saved["metadata"]["config"] != config:
                 raise ValueError("Resume requires the checkpoint effective configuration")
             transitions = saved["transitions"]
-            for key in ("best_training_return", "recent_episode_returns"):
-                if key in saved["metadata"]:
-                    metadata[key] = saved["metadata"][key]
-            previous_best = Path(resume).parent / "best.pt"
-            if metadata.get("best_training_return") is not None:
-                if not previous_best.is_file():
-                    raise ValueError("Resume requires the previously selected best.pt")
-                if previous_best.resolve() != (output / "best.pt").resolve():
-                    shutil.copyfile(previous_best, output / "best.pt")
+            resume_output = restore_best_checkpoint(saved, resume, output, metadata)
         else:
-            agent = SAC(obs.arm_task_state.shape[-1], env.device, SACConfig(**config["sac"]))
+            agent = SAC(metadata["state_dim"], env.device, SACConfig(**config["sac"]), mode=mode, action_dim=metadata["action_dim"])
             transitions = 0
-        same_output = resume is not None and Path(resume).parent.resolve() == output.resolve()
+        same_output = resume is not None and resume_output.resolve() == output.resolve()
         monitor = TrainingMonitor(
             output,
             every_seconds=settings.get("tensorboard_every_seconds", DEFAULT_TENSORBOARD_EVERY_SECONDS),
             purge_step=transitions if same_output else None,
+            best_checkpoint=settings.get("best_checkpoint"),
         )
-        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()))
+        record_grasp_subset(env, output, metadata)
+        replay = Replay(settings["replay_capacity"], obs.map(lambda v: v.cpu()) if mode == "graph" else obs.cpu(),
+                        action_dim=metadata["action_dim"])
         collected, updates = 0, 0
         limit = max_transitions or settings["max_transitions"]
         log_at = transitions + settings["log_every"]
-        recent_returns = deque(metadata.get("recent_episode_returns", []), maxlen=100)
+        checkpoint_at = (transitions // CHECKPOINT_EVERY_TRANSITIONS + 1) * CHECKPOINT_EVERY_TRANSITIONS
         evaluation_at = transitions + 100000
         started = time.perf_counter()
         discarded = 0
@@ -291,8 +193,6 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 for line in episodes.splitlines():
                     event = json.loads(line)
                     event.update(transitions=transitions, worker=worker)
-                    if not event["infrastructure_failure"] and not event["random_warmup"]:
-                        recent_returns.append(event["return"])
                     log.write(json.dumps(event) + "\n")
                     monitor.record_episode(event)
                 if before < settings["warmup_min"] <= collected:
@@ -314,7 +214,7 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     "transitions_per_s": collected / (time.perf_counter() - started),
                 }
                 monitor.record_runtime(learner)
-                monitor.flush(transitions)
+                flush_training_monitor(agent, output, metadata, transitions, monitor)
                 losses = {}
                 while updates < target_updates(collected, settings["warmup_min"], settings["transitions_per_update"]):
                     losses = agent.update(replay.sample(settings["batch_size"]).to(env.device))
@@ -326,17 +226,19 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                     )
                     monitor.record_update(losses)
                     monitor.record_runtime(learner)
-                    monitor.flush(transitions)
+                    flush_training_monitor(agent, output, metadata, transitions, monitor)
                     if updates % 16 == 0:
                         workers.publish(agent, False)
                 if transitions >= log_at:
                     log.write(json.dumps({**learner, **{k: float(v) for k, v in losses.items()}}) + "\n")
                     log.flush()
-                    save_training_checkpoint(agent, output, metadata, transitions, recent_returns)
+                    agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
                     log_at += settings["log_every"]
+                checkpoint_at = save_periodic_checkpoint(agent, output, metadata, transitions, checkpoint_at)
                 if settings.get("periodic_evaluation", False) and transitions >= evaluation_at and transitions < limit:
                     # Pause and drain before evaluation, keeping queued experience for normal ingestion.
                     pending = workers.pause()
+                    flush_training_monitor(agent, output, metadata, transitions, monitor, force=True)
                     validation_checkpoint(agent, env, config, transitions, output, log, monitor)
                     workers.resume()
                     for message in pending:
@@ -358,18 +260,20 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
                 + "\n"
             )
             monitor.record_runtime({"generated_unused": discarded})
-            monitor.flush(transitions, force=True)
+            flush_training_monitor(agent, output, metadata, transitions, monitor, force=True)
             workers.close()
             workers = None
-            save_training_checkpoint(agent, output, metadata, transitions, recent_returns, final=True)
+            save_best_checkpoint(agent, output, metadata, transitions, None, final=True)
+            agent.save(output / "latest.pt", metadata=metadata, transitions=transitions)
             agent, _ = SAC.load(output / "best.pt", env.device)
-            validation_checkpoint(agent, env, config, transitions, output, log, monitor)
-            seed_all(config["evaluation"]["seed"])
-            rows = station_scores(agent, env, config["evaluation"]["action_samples"])
-            (output / "station-q.json").write_text(
-                json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
-            )
-            plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
+            if not contact:
+                initial_scores = validation_checkpoint(agent, env, config, transitions, output, log, monitor)
+                seed_all(config["evaluation"]["seed"])
+                rows = station_scores(agent, env, config["evaluation"]["action_samples"], initial_scores=initial_scores)
+                (output / "station-q.json").write_text(
+                    json.dumps({"checkpoint": str((output / "best.pt").absolute()), "seed": config["evaluation"]["seed"], "interpretation": "equal grasp mean of action-sampled min online Q", "stations": rows}, indent=2)
+                )
+                plot_scores(rows, output / "station-q.png", config["evaluation"]["q_color_limits"])
         return {"transitions": transitions, "updates": agent.updates, "checkpoint": str(output / "latest.pt")}
     finally:
         if workers is not None:
@@ -377,3 +281,19 @@ def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_
         if monitor is not None:
             monitor.close(transitions)
         env.close()
+
+
+def train(config, *, gpus, output, seed, resume=None, max_transitions=None, num_envs=None, algorithm=None):
+    """Choose the algorithm without changing the existing SAC defaults."""
+    kind = algorithm or config.get("algorithm", "sac")
+    if kind not in ("sac", "ppo"):
+        raise ValueError(f"Unknown RL algorithm: {kind}")
+    config = dict(config)
+    if kind == "ppo" or "algorithm" in config:
+        config["algorithm"] = kind
+    if kind == "ppo":
+        runner = train_ppo
+    else:
+        runner = train_sac
+    return runner(config, gpus=gpus, output=output, seed=seed, resume=resume,
+                  max_transitions=max_transitions, num_envs=num_envs)

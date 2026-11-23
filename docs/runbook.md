@@ -1,7 +1,7 @@
 # 运行手册
 
 - 状态：active
-- 日期：2026-11-13
+- 日期：2026-11-23
 - 替代：无
 - 关联：../reports/simplify-refactor/plan/01-refactor-plan.md
 
@@ -10,6 +10,7 @@
 ```bash
 source .venv/bin/activate   # 渲染需要的 libEGL.so.1 在激活时接上
 PY=.venv/bin/python
+export PYTHONPATH="$PWD/src"  # 当前工作区源码，避免 .pth 指向其他工作区
 nvidia-smi
 ```
 
@@ -63,6 +64,82 @@ $PY scripts/lastmile_benchmark/evaluate.py --benchmark outputs/batches/example/r
 ## 6. RL 站位图
 
 保持独立 RL 环境，使用 scripts/station_map/rl/ 下的 train.py、score.py、evaluate.py；先查看 --help。`--gpu` 填物理卡号，train.py 可给多张（每张一个 Sampler，第一张同时放 Learner），原来的 `--gpus 0,5` 写成 `--gpu 0 5`。配置入口为 configs/station_map/rl/val103_cup30.yaml。不要用 cuRobo 主环境缺少 mjlab 的结果冒充 RL 通过。
+
+### Cup_30 物体级抓取库
+
+当前三个 Cup_30 RL 配置及 Panda cuRobo 配置使用同一物体级预处理库：21×21指腹间配对射线命中杯体至少30%（133/441），再FPS最多128条。杯壁也计入，不使用5mm杯沿限制。库中的位姿相对物体，未叠加roll；同一资产、相同尺寸、相同夹爪及缩放可跨场景复用。可达性、场景碰撞和轨迹仍在各场景检查。
+
+先离线生成库（CPU静态查询，无动力学；重新生成时使用新的run目录）：
+
+```bash
+MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/preprocess_grasps.py \
+  --scene /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103.xml \
+  --metadata /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103_metadata.json \
+  --target Cup_30 \
+  --grasps /data1/wenyifan/lmdf/molmospaces_data/mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz \
+  --robot-config configs/robots/panda_omron.yaml --robot-scale 0.9 \
+  --roll-rad 1.5707963267948966 --resolution 21 --min-hit-ratio 0.3 --hand-clearance-m 0.003 --fps-count 128 \
+  --output outputs/experiments/grasp-fps-all/runs/cup30-panda09-rays21-ratio30-hand3mm-fps128
+```
+
+RL的`grasp.preprocessed_path`指向生成的`grasps.npz`，路径相对仓库根目录。`grasp.sample_count`（默认16）和`grasp.sample_seed`（默认42）控制训练/评估开始前的均匀无放回抽样，不再FPS；所有站位共用该子集，episode再从中均匀选一条并固定。
+
+cuRobo用`grasp_preprocessed_paths: {Cup_30: <文件路径>}`按物体资产选择库，以`max_grasp_candidates`和`grasp_sample_seed`控制同样的抽样；每次试验使用相同子集，规划整池。相同库、数量和seed与RL得到相同行号。产物缺失时需先预处理，不自动回退。库不保存场景实例body名，加载时绑定当前目标。
+
+当前库适用于Panda缩放0.9、局部Z +π/2。改变物体尺寸、夹爪、缩放或roll后重新预处理。生成抽样图时，沿用下方可视化命令，把`--grasps`改为预处理NPZ，并加`--sampling uniform --count 16 --seed 42`。
+
+### 真实杯子随机站位 SAC
+
+从 `rl-cup-random-stations` 工作区运行。使用本工作区源码和研究环境的图形动态库：
+
+```bash
+export PYTHONPATH="$PWD/src"
+export MUJOCO_GL=egl
+export LD_LIBRARY_PATH="$PWD/.venv/lib/native${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+.venv/bin/python scripts/station_map/rl/train.py \
+  --config configs/station_map/rl/val103_cup30_random_stations_facing.yaml \
+  --gpu 0 1 2 3 --seed 42 \
+  --output outputs/experiments/rl-cup-random-stations/runs/<新run>
+```
+
+GPU编号按实时负载选择。配置为800万条健康经验、每卡128环境、batch512、预热20,000、每128条更新一次。每回合随机选择正对目标的有效站位和16条子集中的一个候选，底盘物理固定、机械臂从Home开始，候选回合内固定。`grasp.preprocessed_path`引用已有128条库，`sample_count: 16`和`sample_seed: 42`明确控制均匀无放回抽样；所有进程共享同一子集。更换物体前先离线预处理，不允许真实物体接触训练回退到原始库。
+
+69维观测使用真实碰撞几何的局部尺寸及最低点，候选误差随物体姿态更新。成功要求同一物理子步双指法向力各>0.5 N、碰撞几何最低点离原桌面≥1 cm、无支撑接触，连续保持0.25 s。训练采用当前方块接触抬升奖励，关闭周期评估；`grasp-subset.json`和checkpoint记录实际子集，episode记录原始抓取row。
+
+训练结束后独立评估 `best.pt`（完整100个健康非预热回合窗口的训练成功率选择）：
+
+```bash
+.venv/bin/python scripts/station_map/rl/evaluate.py \
+  --config configs/station_map/rl/val103_cup30_random_stations_facing.yaml \
+  --checkpoint outputs/experiments/rl-cup-random-stations/runs/<run>/best.pt \
+  --gpu 0 --num-envs 20 \
+  --output outputs/experiments/rl-cup-random-stations/runs/<run>/evaluation
+```
+
+默认20个随机有效站位各一次，trial种子为 `evaluation.seed + trial_index`，独立选择候选和动作，保存每次视频与回放。普通失败不重试，分别统计成功和无碰撞成功，基础设施异常单列。现有无仿真soft-Q入口仍仅支持方块。
+
+### 原始抓取库 FPS
+
+未配置预处理库的 RL 任务默认从全部有效位姿中 FPS 选 16 个，首点使用独立固定种子 42；所有站位共用一组，每个 episode 均匀随机选一个并在 episode 内固定。默认距离尺度为 0.10 m / π/2；不参考 Home TCP，不做最近 64 个预筛选，也不默认截断为 1024 行。Cube 解析抓取分支不读取抓取库。
+
+在 RL YAML 的 `grasp` 段覆盖 `fps_count`、`fps_seed` 即可调整数量与种子；`fps_position_scale_m`、`fps_rotation_scale_rad` 调整距离尺度。cuRobo 配置使用 `grasp_candidate_order: fps`、`max_grasp_candidates`、`grasp_fps_seed`，仍规划整池；旧 `tcp_distance` 值已替换为 `fps`，`facing` 模式保留。相同位姿库、顺序、参数与种子生成相同候选池。
+
+从仓库根目录生成 Cup_30 的全部 16 个抓取叠加图（静态出图，不使用 GPU）：
+
+```bash
+MUJOCO_GL=disable PYTHONPATH="$PWD/src" $PY scripts/operation/visualize_grasps.py \
+  --scene /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103.xml \
+  --metadata /data1/wenyifan/lmdf/molmospaces_data/assets/scenes/procthor-10k-val/val_103_metadata.json \
+  --target Cup_30 \
+  --robot-config configs/robots/panda_omron.yaml --robot-scale 0.9 \
+  --grasps /data1/wenyifan/lmdf/molmospaces_data/mujoco/grasps/droid/20251116/Cup_30/Cup_30_grasps_filtered.npz \
+  --roll-rad 1.5707963267948966 \
+  --output outputs/experiments/grasp-fps-all/runs/val103-cup30-grippers
+```
+
+数量和首点种子可通过 `--count`、`--seed` 覆盖。输出全部16个原生Panda夹爪与杯子的叠加图 `grasps.png`、逐个位姿的4×4图 `individual-grasps.png`、`selection.json` 与 `selected-grasps.npz`；NPZ 位姿在目标 body 局部坐标系中，已包含 `--roll-rad`。图中杯子和16个 TCP 位姿统一映射到场景世界坐标，显示时仅减去杯子原点平移；夹爪使用原生visual mesh，双指全开，按模型测得的root-to-TCP变换放置；`--robot-config` 指定Panda配置，`--robot-scale` 与RL场景一致。NPZ 另存 `world_transforms` 和 `object_world`，便于核对映射；图片不代表可达性验证。场景 XML 使用原输入路径，保留符号链接所在目录的资产解析语义。
+
+## 7. 渲染与失败结果
 
 ## 7. RoboCasa365 原生场景
 

@@ -6,51 +6,69 @@ import numpy as np
 import torch
 
 from .video import render_rollout
+from .env.terms import finger_contact, target_lift_height
 
 
 class RolloutCapture:
-    def __init__(self, output, transitions, config, representatives=False):
+    def __init__(self, output, transitions, config, representatives=False, *, selected_slots=None, trial_ids=None, trial_seeds=None):
         self.output = Path(output)
         self.transitions = transitions
         self.config = config
         self.representatives = representatives
+        self.selected_slots = selected_slots
         self.videos = []
+        self.trial_ids = trial_ids
+        self.trial_seeds = trial_seeds
 
     def initialize(self, env, stations, seed, deterministic):
         self.stations, self.seed = stations, seed
         self.mode = "mean" if deterministic else "stochastic"
-        self.states = [[] for _ in stations]
-        self.metrics = [[] for _ in stations]
+        if self.selected_slots is None:
+            self.selected_slots = list(range(len(stations)))
+        self.mocap_pos = env.sim.data.mocap_pos.clone()
+        self.mocap_quat = env.sim.data.mocap_quat.clone()
+        self.frames, self.facts, self.active = [], [], []
         self.sample(env, torch.ones(env.num_envs, dtype=torch.bool, device=env.device))
 
     def sample(self, env, active):
         task = env.task
+        ids = self.selected_slots
         dp, dr = task.goal_error()
-        distances, angles = dp.norm(dim=-1).cpu().tolist(), dr.norm(dim=-1).cpu().tolist()
-        positions = env.sim.data.qpos.cpu().numpy()
-        for i in active.nonzero(as_tuple=True)[0].tolist():
-            self.states[i].append(positions[i].copy())
-            both = bool((task.forces[i] > 1e-6).all())
-            stage = (
-                "LIFT"
-                if both
-                else "Grasp"
-                if distances[i] < 0.01 and angles[i] < np.deg2rad(10)
-                else "Pre-grasp"
-                if distances[i] < 0.04
-                else "Approach"
-            )
-            width = float(task.robot.data.joint_pos[i, task.fingers[0]] - task.robot.data.joint_pos[i, task.fingers[1]])
-            lift = float(env.sim.data.xpos[i, task.target, 2] - task.height_reference[i])
-            self.metrics[i].append(
-                f"{stage} t={float(task.elapsed[i]):.2f} d={distances[i]:.3f} angle={angles[i]:.3f} "
-                f"width={width:.3f} both={both} lift={lift:.3f} peak={float(task.lift_peak[i]) * 0.01:.3f} "
-                f"hold={float(task.hold[i]):.3f} collision={bool(task.step_collision[i])}"
-            )
+        q = task.robot.data.joint_pos
+        lift_goal = env.research_config["success"]["lift_m"] if getattr(task, "contact_protocol", False) else 0.01
+        facts = torch.stack((
+            task.elapsed, dp.norm(dim=-1), dr.norm(dim=-1),
+            q[:, task.fingers[0]] - q[:, task.fingers[1]],
+            finger_contact(env).float(),
+            target_lift_height(env),
+            task.lift_peak * lift_goal, task.hold, task.step_collision.float(),
+        ), dim=-1)
+        # Copy only selected video lanes; defer CPU transfers and formatting until the episode ends.
+        self.frames.append(env.sim.data.qpos[ids].clone())
+        self.facts.append(facts[ids].clone())
+        self.active.append(active[ids].clone())
+
+    def prepare_frames(self):
+        frames = torch.stack(self.frames).cpu().numpy()
+        facts = torch.stack(self.facts).cpu().numpy()
+        active = torch.stack(self.active).cpu().numpy()
+        self.states = [[] for _ in self.stations]
+        self.metrics = [[] for _ in self.stations]
+        for lane, slot in enumerate(self.selected_slots):
+            self.states[slot] = frames[active[:, lane], lane]
+            for t, distance, angle, width, both, lift, peak, hold, collision in facts[active[:, lane], lane]:
+                stage = "LIFT" if both else "Grasp" if distance < 0.01 and angle < np.deg2rad(10) else "Pre-grasp" if distance < 0.04 else "Approach"
+                self.metrics[slot].append(
+                    f"{stage} t={t:.2f} d={distance:.3f} angle={angle:.3f} width={width:.3f} "
+                    f"both={bool(both)} lift={lift:.3f} peak={peak:.3f} hold={hold:.3f} collision={bool(collision)}"
+                )
 
     def finish(self, env, records):
+        if hasattr(self, "frames"):
+            self.prepare_frames()
         selected = set()
-        for i, row in enumerate(records):
+        for i in self.selected_slots if self.selected_slots is not None else range(len(records)):
+            row = records[i]
             station = env.task.stations[self.stations[i]]
             if self.representatives:
                 categories = {
@@ -65,17 +83,25 @@ class RolloutCapture:
                     continue
             else:
                 categories = {station["split"]}
-                if categories <= selected:
+                if self.trial_ids is None and categories <= selected:
                     continue
             selected.update(categories)
             stem = f"actor-{self.transitions:012d}-{station['split']}-{station['station_id']}-{self.mode}"
+            if self.trial_ids is not None:
+                stem += f"-t{self.trial_ids[i]:03d}"
+            seed = self.seed if self.trial_seeds is None else self.trial_seeds[i]
             replay_dir = self.output / "replays"
             replay_dir.mkdir(exist_ok=True)
             replay = replay_dir / (stem + ".npz")
             if replay.exists():
                 continue
             states = np.asarray(self.states[i])
-            np.savez_compressed(replay, qpos=states, metrics=np.asarray(self.metrics[i]), dt=env.step_dt)
+            mocap_pos = self.mocap_pos[i].cpu().numpy()
+            mocap_quat = self.mocap_quat[i].cpu().numpy()
+            np.savez_compressed(
+                replay, qpos=states, mocap_pos=mocap_pos, mocap_quat=mocap_quat,
+                metrics=np.asarray(self.metrics[i]), dt=env.step_dt,
+            )
             result = (
                 "success"
                 if row["success"]
@@ -84,8 +110,11 @@ class RolloutCapture:
                 else "timeout"
             )
             result += f" collision_free={row['collision_free']}"
-            label = f"{self.transitions} {station['split']} {station['station_id']} seed={self.seed} {self.mode}"
+            label = f"{self.transitions} {station['split']} {station['station_id']} seed={seed} {self.mode}"
+            if "grasp_row" in row:
+                label += f" grasp_row={row['grasp_row']}"
             settings = {**self.config["video"], "target_body": env.prepared.target_body}
+            print(f"Rendering {stem} seed={seed}", flush=True)
             video = render_rollout(
                 env.sim.mj_model,
                 states,
@@ -95,12 +124,15 @@ class RolloutCapture:
                 result,
                 settings,
                 env.step_dt,
+                mocap_pos=mocap_pos,
+                mocap_quat=mocap_quat,
             )
             self.videos.append(
                 {
                     **video,
                     "replay": str(replay),
-                    "seed": self.seed,
+                    "seed": seed,
+                    **({"trial": self.trial_ids[i]} if self.trial_ids is not None else {}),
                     "result": row,
                     "transitions": self.transitions,
                     "policy": self.mode,
@@ -109,3 +141,33 @@ class RolloutCapture:
             )
             if self.representatives:
                 env._representative_video_categories.update(categories)
+
+
+class EpisodeReplays:
+    """Full policy-step graph replays; transfer one completed trial at a time."""
+
+    def initialize(self, env):
+        self.qpos = [env.sim.data.qpos.clone()]
+        self.qvel = [env.sim.data.qvel.clone()]
+        self.mocap_pos = [env.sim.data.mocap_pos.clone()]
+        self.mocap_quat = [env.sim.data.mocap_quat.clone()]
+        self.actions, self.controls = [], []
+
+    def sample(self, env, action):
+        self.qpos.append(env.sim.data.qpos.clone())
+        self.qvel.append(env.sim.data.qvel.clone())
+        self.mocap_pos.append(env.sim.data.mocap_pos.clone())
+        self.mocap_quat.append(env.sim.data.mocap_quat.clone())
+        self.actions.append(action.clone())
+        self.controls.append(env.sim.data.ctrl.clone())
+
+    def save(self, index, steps, path):
+        np.savez_compressed(
+            path,
+            qpos=torch.stack([q[index] for q in self.qpos[:steps + 1]]).cpu().numpy(),
+            qvel=torch.stack([q[index] for q in self.qvel[:steps + 1]]).cpu().numpy(),
+            mocap_pos=torch.stack([p[index] for p in self.mocap_pos[:steps + 1]]).cpu().numpy(),
+            mocap_quat=torch.stack([q[index] for q in self.mocap_quat[:steps + 1]]).cpu().numpy(),
+            action=torch.stack([a[index] for a in self.actions[:steps]]).cpu().numpy(),
+            ctrl=torch.stack([c[index] for c in self.controls[:steps]]).cpu().numpy(),
+        )

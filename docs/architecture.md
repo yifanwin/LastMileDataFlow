@@ -53,7 +53,7 @@
 | `station_map/planner_trials.py` | `station_map/planner_trials/build.run_station_map` | 调度器：CPU 准备（`operation/preparation`）→ GPU 规划池（`operation/control/planner_pool`）→ CPU 执行（`planner_trials/workers` → `operation/curobo.run_curobo_attempt`）→ `aggregate` 与 `heatmap` |
 | `lastmile_dataset/collect.py` | `lastmile_dataset/collect.run_collection` | 复用或先跑标定 → 全部合格 S0×S1 → A* 路线 → `continuous.run_continuous_attempt` → `export` |
 | `lastmile_benchmark/build.py`、`evaluate.py` | `lastmile_benchmark/build.build`、`evaluate.evaluate` | 按实测成功率选困难起点和恢复区域；评测时 `policy_rollout.run_vla_attempt` 驱动 MolmoBot/π0.5 |
-| `station_map/rl/{train,score,evaluate}.py` | `station_map/rl/` | RL 站位图，独立环境（mjlab）；脚本先 `select_devices` 绑卡再导入 torch/mjlab，Sampler 子进程经 `devices.sampler_entry` 绑到各自的卡 |
+| `station_map/rl/{train,score,evaluate}.py` | `station_map/rl/` | RL 站位图，独立环境（mjlab）；脚本先 `select_devices` 绑卡再导入 torch/mjlab，SAC / PPO 分派训练；Sampler 分别经 `devices.sampler_entry` / `devices.ppo_sampler_entry` 绑卡 |
 
 ## 关键约定
 
@@ -64,6 +64,8 @@
 - 控制与结果：规划参考经本体适配、FK 与真实控制器执行，规划成功不算任务成功。抓取按 strict-pick-v3 的真实力、抬升、支撑、保持与滑移判定；执行终止和任务结果分开保存；普通躯干反馈偏差只记录，严重失控仍停止。
 - 策略：不导入外部 MolmoBot 包；策略返回 20 维动作（Panda π0.5 为 12 维），仿真仍由 `sim` 推进。`configs/policies/pi05_rby1` 的 `norm_stats` 需先运行 `scripts/lastmile_dataset/export_pi05.py` 生成。
 - 设备：在 CUDA/渲染初始化前绑定。`utils/gpu.py` 在干净子进程里查询 EGL 映射，spawn 的子进程继承显式映射；`CUDA_VISIBLE_DEVICES` 不能替代 EGL 绑定。
+
+RL 的 `networks.py` 共享 flat / graph 编码和 tanh Gaussian Actor，SAC 使用独立双 Q，PPO 使用独立 V。`training_common.py` 共享 episode 记录、运行元信息和 checkpoint 选择，`checkpoint.py` 按算法加载模型。SAC 保留异步采样与 Replay；`ppo/` 使用同步 rollout、GAE 和多个 mini-batch epoch，优势在所有 worker 的有效样本上统一归一化。
 
 ## 两种 runtime
 

@@ -18,6 +18,20 @@ from lastmile_dataflow.utils.io import read_config
 
 
 class StationGeometryTests(unittest.TestCase):
+    def test_grasp_defaults_are_recorded_and_overrides_preserved(self):
+        config = read_config("configs/station_map/rl/val103_cup30.yaml")
+        resolved = resolve_config(config)
+        self.assertEqual(resolved["grasp"]["sample_count"], 16)
+        self.assertEqual(resolved["grasp"]["sample_seed"], 42)
+        self.assertNotIn("sample_count", config["grasp"])
+        self.assertNotIn("fps_count", resolved["grasp"])
+        config["grasp"].update(sample_count=23, sample_seed=7)
+        resolved = resolve_config(config)
+        self.assertEqual(resolved["grasp"]["sample_count"], 23)
+        self.assertEqual(resolved["grasp"]["sample_seed"], 7)
+        config["grasp"] = {"path": "raw.npz", "roll_rad": 0}
+        self.assertEqual(resolve_config(config)["grasp"]["fps_count"], 16)
+
     def test_robot_dimensions_change_the_sampling_lattice(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "robot.yaml"
@@ -43,6 +57,17 @@ class StationGeometryTests(unittest.TestCase):
         resolved = resolve_config(config)["stations"]
         self.assertEqual(resolved["radius_m"], robot["arm_working_reach_m"])
         self.assertEqual(resolved["spacing_m"], robot["base_radius_m"] / 4)
+
+    def test_mobile_ppo_expands_initial_sampling_disk(self):
+        config = read_config("configs/station_map/rl/val103_cup30_random_stations_mobile_ppo.yaml")
+        expanded = resolve_config(config)["stations"]
+        config["stations"].pop("radius_scale")
+        config["stations"].pop("spacing_scale")
+        original = resolve_config(config)["stations"]
+        self.assertAlmostEqual(expanded["radius_m"], original["radius_m"] * 1.5)
+        self.assertAlmostEqual(expanded["spacing_m"], original["spacing_m"] * 2.0)
+        points = station_candidates(np.zeros(3), expanded)
+        self.assertTrue(any(np.hypot(row["x"], row["y"]) > original["radius_m"] for row in points))
 
     def test_fixed_station_preserves_historical_pose_outside_current_grid(self):
         config = resolve_config(read_config("configs/station_map/rl/val103_cup30_s0246_y04.yaml"))

@@ -6,12 +6,14 @@ No collision queries, projections or state writes are performed here.
 from dataclasses import dataclass
 
 import torch
+from mjlab.utils.lab_api.math import quat_from_matrix, matrix_from_quat
 from mjlab.envs.mdp.actions.differential_ik import DifferentialIKAction, DifferentialIKActionCfg
 
 
 @dataclass(kw_only=True)
 class BaseFrameDLSCfg(DifferentialIKActionCfg):
     base_site: str
+    moving_base: bool = False
     joint_velocity_limits: tuple[float, ...] = (2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61)
 
     def build(self, env):
@@ -42,6 +44,8 @@ class BaseFrameDLS(DifferentialIKAction):
         self.velocity_step = torch.tensor(ordered_limits, device=self.device) * env.physics_dt
         self.limit_fraction = torch.zeros(self.num_envs, device=self.device)
         self.q_command = torch.zeros(self.num_envs, self._num_joints, device=self.device)
+        self.local_position = torch.zeros(self.num_envs, 3, device=self.device)
+        self.local_rotation = torch.eye(3, device=self.device).repeat(self.num_envs, 1, 1)
 
     def process_actions(self, actions):
         # Use the measured site rotation, not a nominal yaw from the station grid.
@@ -52,8 +56,17 @@ class BaseFrameDLS(DifferentialIKAction):
         super().process_actions(world)
         self._raw_actions[:] = actions
         self.limit_fraction.zero_()
+        if self.cfg.moving_base:
+            base = self._env.sim.data.site_xpos[:, self.base_id]
+            self.local_position[:] = torch.einsum("bji,bj->bi", rotation, self._desired_pos - base)
+            self.local_rotation[:] = rotation.transpose(-1, -2) @ matrix_from_quat(self._desired_quat)
 
     def apply_actions(self):
+        if self.cfg.moving_base:
+            rotation = self._env.sim.data.site_xmat[:, self.base_id].reshape(-1, 3, 3)
+            base = self._env.sim.data.site_xpos[:, self.base_id]
+            self._desired_pos[:] = base + torch.einsum("bij,bj->bi", rotation, self.local_position)
+            self._desired_quat[:] = quat_from_matrix(rotation @ self.local_rotation)
         dq = self.compute_dq()
         current = self._entity.data.joint_pos[:, self._joint_ids]
         command, limited = limit_joint_command(
@@ -74,3 +87,5 @@ class BaseFrameDLS(DifferentialIKAction):
         ids = slice(None) if env_ids is None else env_ids
         self.q_command[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids]
         self.limit_fraction[ids] = 0
+        self.local_position[ids] = 0
+        self.local_rotation[ids] = torch.eye(3, device=self.device)

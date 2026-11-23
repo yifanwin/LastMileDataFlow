@@ -1,6 +1,8 @@
 """Prepare one fixed task-local XML topology using the existing scene loader."""
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -13,7 +15,7 @@ from lastmile_dataflow.sim.source import SceneSource
 from lastmile_dataflow.robots.registry import load_robot_spec
 from lastmile_dataflow.sim.state import migrate_state
 from lastmile_dataflow.sim.simulation import closed_on_error
-from lastmile_dataflow.sim.model.geometry import geom_points
+from lastmile_dataflow.sim.model.geometry import extract_regions, geom_points, support_rays
 
 
 # mjlab names every element of an entity "<entity>/<name>"; the robot is the entity "robot",
@@ -45,6 +47,12 @@ class RLSceneConfig:
     multiccd: bool = False
     home: tuple = (0.0, -0.00365045915, 0.0, -2.61799387799, 0.0, 2.74159265359, 0.78539816339)
     lift: float = 0.2
+    cube: dict | None = None
+    fixed_base: bool = False
+    # Uniform per-joint arm offset around Home at reset (radians); used by the station-quality task.
+    home_noise_rad: float = 0.0
+    # Scene-builder run directory whose accepted edit adds obstacles (procedural_obstacle_*) to this scene.
+    edit_scene: str | None = None
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
@@ -75,6 +83,9 @@ class PreparedRLScene:
     catalog: list
     local_model: dict
     multiccd: bool
+    reference_model: mujoco.MjModel | None = None
+    support_height_m: float | None = None
+    support_body: str | None = None
 
     def copy_robot(self):
         return self.robot_spec.copy()
@@ -107,6 +118,17 @@ def prepare_rl_scene(config):
     )
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
+    if config.edit_scene is not None:
+        sim = add_edit_obstacles(sim, config.edit_scene)
+    support_height = target_support_height(sim, sim.data.xpos[sim.target_id, None, :2])
+    support = target_support_body(sim)
+    if config.cube is not None:
+        cube = config.cube
+        if set(cube) != {"size_m", "mass_kg"} or cube["size_m"] <= 0 or cube["mass_kg"] <= 0:
+            raise ValueError("cube requires positive size_m and mass_kg")
+        replacement = replace_with_cube(sim, cube["size_m"], cube["mass_kg"])
+        sim.close()
+        sim = replacement
     target = sim.model.body(sim.target_id).name
     anchor = sim.data.xpos[sim.target_id].copy()
     local = task_local_model(sim, {"anchor_world": anchor.tolist(), "target_body": target}, config.local_radius_m)
@@ -120,18 +142,111 @@ def prepare_rl_scene(config):
             scene_spec.delete(mesh)
 
     robot_spec = load_robot_spec(robot, config.robot_scale)
+    if config.fixed_base:
+        fix_robot_base(robot_spec)
+    robot_joints = {joint.name for joint in robot_spec.joints}
     qpos = {
         local.model.joint(j).name: float(local.data.qpos[local.model.jnt_qposadr[j]])
         for j in range(local.model.njnt)
         if local.model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+        and local.model.joint(j).name in robot_joints
     }
     ctrl = {local.model.actuator(a).name: float(local.data.ctrl[a]) for a in range(local.model.nu)}
     prepared = PreparedRLScene(
-        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd
+        scene_spec, robot_spec, target, anchor, qpos, ctrl, local.catalog, local.local_model, config.multiccd,
+        local.model if config.fixed_base else None, support_height, support,
     )
     local.close()
     sim.close()
     return prepared
+
+
+def add_edit_obstacles(sim, run_dir):
+    """Copy the obstacles of an accepted scene edit into this scene at their placement poses."""
+    run_dir = Path(run_dir)
+    record = [json.loads(line) for line in (run_dir / "scenes.jsonl").open()]
+    record = [r for r in record if r["status"] == "accepted"][-1]
+    placements = record["edits"]["placements"]
+    names = [f"procedural_obstacle_{i}" for i in range(len(placements))]
+    edit = mujoco.MjSpec.from_file(str(run_dir / record["scene"] / "model.xml"))
+    for body in list(edit.worldbody.bodies):
+        if body.name not in names:
+            edit.delete(body)
+    meshes = {g.meshname for g in edit.geoms if g.meshname}
+    materials = {g.material for g in edit.geoms if g.material}
+    for elements, keep in ((edit.meshes, meshes), (edit.materials, materials)):
+        for item in list(elements):
+            if item.name not in keep:
+                edit.delete(item)
+    textures = {t for m in edit.materials for t in m.textures if t}
+    for texture in list(edit.textures):
+        if texture.name not in textures:
+            edit.delete(texture)
+    spec = sim.spec.copy()
+    for name, placement in zip(names, placements):
+        body = edit.body(name)
+        body.pos, body.quat = placement["pose"]["position"], placement["pose"]["quaternion_wxyz"]
+        spec.worldbody.add_frame().attach_body(body, "", "")
+    with closed_on_error(sim.derive(model=spec.compile(), spec=spec)) as edited:
+        migrate_state(sim, edited)
+    sim.close()
+    return edited
+
+
+def fix_robot_base(spec):
+    """Remove planar dynamics; mjlab wraps this articulated robot in a mocap root."""
+    for suffix in ("forward", "side", "yaw"):
+        spec.delete(spec.actuator(ROBOT_NAMESPACE + "mobilebase0_actuator_mobile_" + suffix))
+        spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
+
+
+def target_support_body(sim):
+    """MJCF body of the scene instance the target originally stands on."""
+    target = sim.model.body(sim.target_id).name
+    entry = next(item for item in sim.catalog if item["mjcf_body"] == target)
+    return next(item["mjcf_body"] for item in sim.catalog if item["instance_id"] == entry["parent_instance_id"])
+
+
+def target_support_height(sim, xy):
+    """Read the target's original physical tabletop from its scene parent."""
+    target = sim.model.body(sim.target_id).name
+    support = target_support_body(sim)
+    regions = []
+    for region in extract_regions(sim, support):
+        points = np.column_stack((xy, np.full(len(xy), region.height)))
+        if region.contains(points, tolerance=-0.002) and support_rays(sim, sim.target_id, region, points):
+            regions.append(region)
+    if not regions:
+        raise ValueError(f"No physical support at original {target} XY")
+    return max(region.height for region in regions)
+
+
+def replace_with_cube(sim, size_m, mass_kg):
+    """Replace the source cup in memory on its original dining-table support."""
+    target = sim.model.body(sim.target_id).name
+    xy = sim.data.xpos[sim.target_id, :2].copy()
+    half = size_m / 2
+    corners = xy + np.array([[-half, -half], [-half, half], [half, -half], [half, half]])
+    height = target_support_height(sim, corners)
+    spec = sim.spec.copy()
+    spec.delete(spec.body(target))
+    body = spec.worldbody.add_body(name="RL_Cube", pos=[*xy, height + half])
+    body.add_freejoint(name="RL_Cube_free")
+    body.add_geom(
+        name="RL_Cube_geom", type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=[half, half, half], mass=mass_kg, rgba=[0.95, 0.32, 0.15, 1.0],
+    )
+    model = spec.compile()
+    catalog = [item for item in sim.catalog if item["mjcf_body"] != target]
+    catalog.append({
+        "instance_id": "RL_Cube", "mjcf_body": "RL_Cube",
+        "body_id": model.body("RL_Cube").id, "asset_id": None,
+        "category": "Cube", "name_map": {},
+        "pose_frame": "world", "pose_order": "xyz_wxyz",
+    })
+    with closed_on_error(sim.derive(model=model, catalog=catalog, target="RL_Cube", spec=spec)) as replaced:
+        migrate_state(sim, replaced)
+    return replaced
 
 
 def root_body(model, body):
