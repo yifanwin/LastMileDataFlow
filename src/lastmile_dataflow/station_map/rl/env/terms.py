@@ -550,7 +550,9 @@ class TaskState:
         remaining = (self.env.cfg.episode_length_s - self.elapsed) / self.env.cfg.episode_length_s
         vector = torch.cat((
             flat[:, :13], self.grasp_positions[self.grasp_ids], grasp_r[:, :, :2].transpose(-1, -2).flatten(1),
-            self.sigma[:, None], flat[:, 13:65], self.pregrasp_reached.float()[:, None], remaining.float()[:, None],
+            # observation.sigma_input false: physical noise still applies, the policy is told sigma = 0
+            # (for policies trained only at sigma 0, whose normalizer cannot represent sigma > 0).
+            self.sigma[:, None] * self.env.research_config["observation"].get("sigma_input", True), flat[:, 13:65], self.pregrasp_reached.float()[:, None], remaining.float()[:, None],
         ), -1)
         goal = target_p + torch.einsum("bij,j->bi", target_r, self.goal_offset)
         nodes, mask, distance = self.node_tensors.compute(self.station_ids, base_p, base_r, goal)
