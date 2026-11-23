@@ -51,3 +51,5 @@ cuRobo 全域在每个 XY 上加偏航偏移 {0°, ±20°}（约 3 倍站位）�
 - 2026-11-23 23:50：`76ae29f` 提交 plan 04；`8cd7f93` 合入 `feat/station-quality@468be71`（三处文档冲突，两侧保留）；`e8950c9` 去重 runbook 标题。
 - 测试：规划层 62/62（主仓库 `.venv`，含 cuRobo）；RoboCasa 14/14（`robocasa-native/.venv-robocasa`）。
 - 已知问题：`test_rl_rewards`/`test_rl_ppo` 12 个错误在来源 `468be71` 上同样出现，非合并引入，M4 前修复。工作树 `.venv` 无 curobo/rtree。
+- 2026-11-24 00:01：M0 真实验证通过。原生快照重载 `runs/<ts>-m0-native-reload` all_passed（用 robocasa-native 原生构建 run；变体清单格式不被冒烟脚本接受，M1 处理）。PPO 正式入口 `train.py` 8 env、4096 transitions、16 次更新，写出 checkpoint（`runs/20261123-2358-m0-ppo-train`）。
+- 运行须知：两环境都要 `LD_LIBRARY_PATH=<venv>/lib/native`（否则缺 libEGL）；抓法库从 station-quality 复制到同路径（运行产物，不提交）；`tests/smoke/rl.py` 与当前观测接口不符（`GraphObservation` 不收 `flat`），已过时。
