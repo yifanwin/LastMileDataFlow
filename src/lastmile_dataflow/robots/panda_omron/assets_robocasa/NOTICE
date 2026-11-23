@@ -1,0 +1,18 @@
+PandaOmron planning description
+
+Kinematic chain and initial arm/base sphere approximation adapted from the local
+MolmoSpaces `robots/curobo/panda_omron` description. Geometry and frame conventions
+come from robosuite 1.5.2 Panda, Omron mobile base and Panda gripper MJCF assets.
+The local robosuite distribution is MIT licensed (Stanford Vision and Learning
+Lab and UT Robot Perception and Learning Lab, 2022); retain its LICENSE with
+exported robot assets.
+
+This version adds the two movable finger branches and gripper collision spheres.
+TCP and collision alignment must be validated against the factory-composed model.
+
+The mobile integration replaces chassis/support sphere coverage using the actual
+factory MuJoCo geometry, including the rear chassis and fixed/lift columns.
+
+assets_robocasa: the 0.9 description divided by 0.9 (translations, prismatic limits, sphere centers and radii) for the unscaled RoboCasa 1.0 PandaOmron. Validate FK against the native model.
+Simulation applies frame scale=0.9 with scaling=geometry on scene attachment
+(MuJoCo 3.16). Source factory assets must remain unscaled.
