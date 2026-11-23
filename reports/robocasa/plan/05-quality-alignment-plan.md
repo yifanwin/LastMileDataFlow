@@ -55,3 +55,4 @@ cuRobo 全域在每个 XY 上加偏航偏移 {0°, ±20°}（约 3 倍站位）�
 - 运行须知：两环境都要 `LD_LIBRARY_PATH=<venv>/lib/native`（否则缺 libEGL）；抓法库从 station-quality 复制到同路径（运行产物，不提交）；`tests/smoke/rl.py` 与当前观测接口不符（`GraphObservation` 不收 `flat`），已过时。
 - 2026-11-24 00:03：M1 锁底盘 lock_base/mask_base_action；kettle-far S0022 200 步强底盘命令下漂移 0.28 mm / 0.038°，臂与升降正常。
 - 2026-11-24 00:06：cup_3 解析抓法池 56 条（侧抓 48：16 方位×3 高度，开口 5.9–7.3 cm；杯沿捏抓 8），TCP=grip_site（+z 接近、x 闭合、开口 ≤8 cm）。原 Cup_30 库只用于 M0 val103 冒烟，不用于 RoboCasa。原生夹起验证待 M2。
+- 2026-11-24 00:12：1.0 规划资产 assets_robocasa（0.9 版除以 0.9，141 球）。S0022 同关节下 link0→TCP FK 与原生误差 0.0 mm / 0.028°。URDF world 在 link0 后方 0.21 m，导出碰撞世界以原生 robot0_link0 减该偏移为基座。
