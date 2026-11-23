@@ -18,6 +18,7 @@
 - lastmile-bench v0.1：已用既有标定完成构建，RBY-1 真实评测 TSR=0/2、Recovery=0/2，恢复能力尚无正例；见[现状](benchmark/analyze/01-current-status.md)。
 - RoboCasa365 原生场景：三个厨房的 pick 子任务已导入，统一运行接口通过真实验证；pick 判定只有单元测试，见[交付记录](robocasa/delivery/01-native-pick.md)。π0.5 在三个厨房 120 个 RL 网格站位 × 3 seed 上抓取成功 32/360（8.9%，20 s 预算）、175/360（48.6%，50 s 预算），见[抓取实验](robocasa/delivery/02-pi05-pick.md)。
 - RoboCasa 固定底盘站位实验见[框架梳理](robocasa/plan/02-fixed-base-station-evaluation.md)；原生物体和自定义长方体的放置、成组对照与人工选集见[场景搭建方案](robocasa/plan/03-pick-scene-construction.md)。
+- 固定底盘首版选用同一把水壶远置与杯左 125 mm，PPO 基于 station-quality。合并预检、双评测器、基线和配对验收见[首对实验构建计划](robocasa/plan/04-paired-station-experiment.md)。
 - RoboCasa 台面取杯的水壶和长方体首批 14 个变体已完成物理、重载和站位视野检查，见[候选与人工选择清单](robocasa/delivery/03-pick-scene-selection.md)。
 - 公开机器人配套资产是否齐全仍是复现限制。
 
