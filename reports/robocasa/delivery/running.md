@@ -25,6 +25,8 @@ python scripts/scenes/build.py --config configs/scenes/robocasa365_pick.yaml \
 
 输出 `scenes.jsonl`、`summary.json` 和 `scenes/<实例>/`（`env.json`、`ep_meta.json`、`model.xml`、`initial_state.npz`、`initial_facts.json`、预览图）。实例在配置的 `instances` 里改；只用 `--gpu` 的第一张卡渲染。
 
+从冻结厨房添加台面障碍、重查共用站位并导出选片图，见[场景构建与人工选集](03-pick-scene-selection.md)的复跑命令。
+
 ## 3. 验证
 
 ```bash

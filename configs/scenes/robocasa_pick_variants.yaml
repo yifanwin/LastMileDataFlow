@@ -1,0 +1,32 @@
+counter: counter_right_main_group
+kettle_asset: lightwheel/kettle/Kettle001/model.xml
+yaw_from_counter_deg: 0
+box:
+  mass_kg: 0.30
+  friction: [0.95, 0.3, 0.1]
+  rgba: [0.19, 0.50, 0.60, 1]
+  joint_damping: 0.0005
+drop_height_m: 0.001
+edge_inset_m: 0.001
+penetration_tolerance_m: 0.0002
+pose_tolerance_m: 0.002
+tilt_tolerance_rad: 0.035
+settle_steps: 20
+tail_steps: 5
+tail_tolerance_m: 0.0005
+tail_tolerance_rad: 0.005
+# Cup-centred counter XY. Local +X is right, local +Y is inward from the front.
+placements:
+  far: [-0.350, 0.015]
+  left-10cm: [-0.100, 0]
+  right-10cm: [0.100, 0]
+  left-16cm: [-0.160, 0]
+  right-16cm: [0.160, 0]
+  left-12cm: [-0.120, 0]
+  right-12cm: [0.120, 0]
+  left-inward-16cm: [-0.120, 0.106]
+  right-inward-16cm: [0.120, 0.106]
+  left-125mm: [-0.125, 0]
+  right-125mm: [0.125, 0]
+  left-front-16cm: [-0.121, -0.105]
+  right-front-16cm: [0.121, -0.105]

@@ -104,13 +104,21 @@ def object_record(env, name):
 
 def freeze_env(env, kwargs, path):
     """Save one imported instance: arguments, versions, ep_meta, native XML, flattened initial state."""
+    return write_frozen_scene(
+        path, {"kwargs": kwargs, "versions": versions()}, env.get_ep_meta(),
+        env.sim.model.get_xml(), env.sim.get_state().flatten(),
+    )
+
+
+def write_frozen_scene(path, env_record, ep_meta, xml, state):
+    """Write a model and its matching native playback state together."""
     path = Path(path)
     path.mkdir(parents=True, exist_ok=False)
-    write_json(path / ENV_FILE, {"kwargs": kwargs, "versions": versions()})
-    write_json(path / META_FILE, env.get_ep_meta())
-    (path / XML_FILE).write_text(env.sim.model.get_xml())
+    write_json(path / ENV_FILE, env_record)
+    write_json(path / META_FILE, ep_meta)
+    (path / XML_FILE).write_text(xml)
     with (path / STATE_FILE).open("xb") as stream:
-        np.savez_compressed(stream, states=env.sim.get_state().flatten())
+        np.savez_compressed(stream, states=state)
     return path
 
 

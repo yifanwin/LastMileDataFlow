@@ -66,15 +66,8 @@ def robocasa_stations(runtime, robot):
     radius = footprint_radius(runtime)
     floor = floor_rectangles(runtime)
     spacing = robot.base_radius_m / 4
-    rows = facing_stations(center, robot.arm_working_reach_m, spacing)
-    for row in rows:
-        if not row["valid"]:
-            continue
-        xy = np.array([row["x"], row["y"]])
-        footprint = [xy, *(xy + radius * np.array([math.cos(a), math.sin(a)]) for a in np.linspace(0, 2 * math.pi, 16, endpoint=False))]
-        contacts = runtime.probe_station(xy[0], xy[1], row["yaw"])
-        reason = "home_penetration" if contacts else "" if all(_on_floor(p, floor) for p in footprint) else "floor_support"
-        row.update(valid=not reason, invalid_reason=reason, contacts=contacts)
+    nominal = facing_stations(center, robot.arm_working_reach_m, spacing)
+    rows = _check_stations(runtime, nominal, radius, floor)
     meta = {
         "rule": "rl-grid facing-target (val103): radius=arm_working_reach_m, spacing=base_radius_m/4",
         "center": center.tolist(),
@@ -86,3 +79,22 @@ def robocasa_stations(runtime, robot):
         "valid": sum(r["valid"] for r in rows),
     }
     return rows, meta
+
+
+def check_robocasa_stations(runtime, nominal):
+    """Recheck the same XY/yaw table on a reloaded variant, including previously rejected points."""
+    return _check_stations(runtime, nominal, footprint_radius(runtime), floor_rectangles(runtime))
+
+
+def _check_stations(runtime, nominal, radius, floor):
+    angles = np.linspace(0, 2 * math.pi, 16, endpoint=False)
+    footprint_offsets = np.vstack((np.zeros(2), radius * np.column_stack((np.cos(angles), np.sin(angles)))))
+    rows = [dict(row) for row in nominal]
+    for row in rows:
+        if row["yaw_offset_rad"] is None:
+            continue
+        xy = np.array([row["x"], row["y"]])
+        contacts = runtime.probe_station(*xy, row["yaw"])
+        reason = "home_penetration" if contacts else "" if all(_on_floor(p, floor) for p in xy + footprint_offsets) else "floor_support"
+        row.update(valid=not reason, invalid_reason=reason, contacts=contacts)
+    return rows
