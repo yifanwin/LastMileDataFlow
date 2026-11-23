@@ -261,18 +261,21 @@ def station_maps(task, members, device):
     return rows, [int(g) for g in grasps.tolist()]
 
 
-def plot_maps(rows, invalid, path):
+MAP_PANELS = (("q_phys", "Q_phys (Max grasp)", (0, 1)), ("u", "U (ensemble std)", (0, None)))
+
+
+def plot_maps(rows, invalid, path, panels=MAP_PANELS):
     import matplotlib
 
     matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
     offsets = sorted({round(r["yaw_offset_rad"] or 0.0, 4) for r in rows})
-    fig, axes = plt.subplots(len(offsets), 2, figsize=(11, 4.6 * len(offsets)), squeeze=False, constrained_layout=True)
+    fig, axes = plt.subplots(len(offsets), len(panels), figsize=(5.5 * len(panels), 4.6 * len(offsets)),
+                             squeeze=False, constrained_layout=True)
     for line, offset in enumerate(offsets):
         subset = [r for r in rows if abs((r["yaw_offset_rad"] or 0.0) - offset) < 1e-3]
-        for axis, key, title, limits in zip(axes[line], ("q_phys", "u"), ("Q_phys (Max grasp)", "U (ensemble std)"),
-                                            ((0, 1), (0, None))):
+        for axis, (key, title, limits) in zip(axes[line], panels):
             axis.scatter([r["x"] for r in invalid], [r["y"] for r in invalid], c="lightgray", marker="x", s=12)
             points = axis.scatter([r["x"] for r in subset], [r["y"] for r in subset], c=[r[key] for r in subset],
                                   vmin=limits[0], vmax=limits[1], marker="s", cmap="viridis")
