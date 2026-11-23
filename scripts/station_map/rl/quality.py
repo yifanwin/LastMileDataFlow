@@ -18,6 +18,7 @@ def main():
     collect.add_argument("--repeats", type=int, default=2)
     collect.add_argument("--num-envs", type=int, default=512)
     collect.add_argument("--seed", type=int, default=20261123)
+    collect.add_argument("--stochastic", action="store_true", help="按训练时的采样动作执行（默认均值动作）")
     fit = sub.add_parser("fit", help="按 XY 空间块划分，五个成员各自 bootstrap 拟合，输出校准表和两张图")
     fit.add_argument("--labels", type=Path, required=True, help="collect 的输出目录")
     fit.add_argument("--gpu", type=int, required=True)
@@ -34,7 +35,8 @@ def main():
         saved = __import__("torch").load(args.checkpoint, map_location="cpu", weights_only=False)
         config = saved["metadata"]["config"]
         result = quality.collect(config, checkpoint=args.checkpoint, gpus=args.gpu, output=args.output,
-                                 repeats=args.repeats, seed=args.seed, num_envs=args.num_envs)
+                                 repeats=args.repeats, seed=args.seed, num_envs=args.num_envs,
+                                 deterministic=not args.stochastic)
     else:
         result = quality.fit(args.labels, output=args.output, members=args.members, epochs=args.epochs,
                              block_m=args.block_m, seed=args.seed)

@@ -130,7 +130,7 @@ def collect_labels(agent, env, requests, *, deterministic=True, log=None):
     return results
 
 
-def collect_worker(config, checkpoint, requests, num_envs, seed, path):
+def collect_worker(config, checkpoint, requests, num_envs, seed, path, deterministic=True):
     from .checkpoint import load_agent, seed_all
     from .devices import VISIBLE_DEVICE
     from .env.environment import StationEnv
@@ -141,12 +141,12 @@ def collect_worker(config, checkpoint, requests, num_envs, seed, path):
         agent, _ = load_agent(checkpoint, env.device)
         agent.actor.eval()
         with open(path, "w") as log:
-            collect_labels(agent, env, requests, log=log)
+            collect_labels(agent, env, requests, deterministic=deterministic, log=log)
     finally:
         env.close()
 
 
-def collect(config, *, checkpoint, gpus, output, repeats, seed, num_envs):
+def collect(config, *, checkpoint, gpus, output, repeats, seed, num_envs, deterministic=True):
     """Shard the label requests over GPUs; each worker writes its own JSONL of strict outcomes."""
     from .devices import VISIBLE_DEVICE, quality_collect_entry
     from .env.environment import StationEnv
@@ -157,11 +157,12 @@ def collect(config, *, checkpoint, gpus, output, repeats, seed, num_envs):
     requests = label_requests(env.task, repeats=repeats, seed=seed)
     env.close()
     (output / "requests.json").write_text(json.dumps({"checkpoint": str(checkpoint), "seed": seed,
+                                                      "policy": "mean" if deterministic else "stochastic",
                                                       "repeats": repeats, "requests": requests}))
     ctx = mp.get_context("spawn")
     shards = [requests[i::len(gpus)] for i in range(len(gpus))]
     processes = [ctx.Process(target=quality_collect_entry, args=(gpu, config, checkpoint, shard, num_envs, seed + i,
-                                                           output / f"labels-{i}.jsonl"))
+                                                           output / f"labels-{i}.jsonl", deterministic))
                  for i, (gpu, shard) in enumerate(zip(gpus, shards))]
     for process in processes:
         process.start()
