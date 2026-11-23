@@ -19,6 +19,7 @@ def main():
     collect.add_argument("--num-envs", type=int, default=512)
     collect.add_argument("--seed", type=int, default=20261123)
     collect.add_argument("--stochastic", action="store_true", help="按训练时的采样动作执行（默认均值动作）")
+    collect.add_argument("--heading-offsets-deg", type=float, nargs="+", help="覆盖 checkpoint 配置的站位航向，例如只采正对目标：0")
     fit = sub.add_parser("fit", help="按 XY 空间块划分，五个成员各自 bootstrap 拟合，输出校准表和两张图")
     fit.add_argument("--labels", type=Path, required=True, help="collect 的输出目录")
     fit.add_argument("--gpu", type=int, required=True)
@@ -34,6 +35,8 @@ def main():
     if args.command == "collect":
         saved = __import__("torch").load(args.checkpoint, map_location="cpu", weights_only=False)
         config = saved["metadata"]["config"]
+        if args.heading_offsets_deg is not None:
+            config["stations"]["heading_offsets_deg"] = args.heading_offsets_deg
         result = quality.collect(config, checkpoint=args.checkpoint, gpus=args.gpu, output=args.output,
                                  repeats=args.repeats, seed=args.seed, num_envs=args.num_envs,
                                  deterministic=not args.stochastic)
