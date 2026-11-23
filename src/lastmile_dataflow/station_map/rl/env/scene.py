@@ -1,6 +1,8 @@
 """Prepare one fixed task-local XML topology using the existing scene loader."""
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -49,6 +51,8 @@ class RLSceneConfig:
     fixed_base: bool = False
     # Uniform per-joint arm offset around Home at reset (radians); used by the station-quality task.
     home_noise_rad: float = 0.0
+    # Scene-builder run directory whose accepted edit adds obstacles (procedural_obstacle_*) to this scene.
+    edit_scene: str | None = None
 
     def asset(self, name):
         return str(REPO_ROOT / self.data_root / name)
@@ -114,6 +118,8 @@ def prepare_rl_scene(config):
     )
     robot = config.robot_config()
     sim = Simulation.from_source(source, robot, target=config.target, robot_scale=config.robot_scale)
+    if config.edit_scene is not None:
+        sim = add_edit_obstacles(sim, config.edit_scene)
     support_height = target_support_height(sim, sim.data.xpos[sim.target_id, None, :2])
     support = target_support_body(sim)
     if config.cube is not None:
@@ -153,6 +159,38 @@ def prepare_rl_scene(config):
     local.close()
     sim.close()
     return prepared
+
+
+def add_edit_obstacles(sim, run_dir):
+    """Copy the obstacles of an accepted scene edit into this scene at their placement poses."""
+    run_dir = Path(run_dir)
+    record = [json.loads(line) for line in (run_dir / "scenes.jsonl").open()]
+    record = [r for r in record if r["status"] == "accepted"][-1]
+    placements = record["edits"]["placements"]
+    names = [f"procedural_obstacle_{i}" for i in range(len(placements))]
+    edit = mujoco.MjSpec.from_file(str(run_dir / record["scene"] / "model.xml"))
+    for body in list(edit.worldbody.bodies):
+        if body.name not in names:
+            edit.delete(body)
+    meshes = {g.meshname for g in edit.geoms if g.meshname}
+    materials = {g.material for g in edit.geoms if g.material}
+    for elements, keep in ((edit.meshes, meshes), (edit.materials, materials)):
+        for item in list(elements):
+            if item.name not in keep:
+                edit.delete(item)
+    textures = {t for m in edit.materials for t in m.textures if t}
+    for texture in list(edit.textures):
+        if texture.name not in textures:
+            edit.delete(texture)
+    spec = sim.spec.copy()
+    for name, placement in zip(names, placements):
+        body = edit.body(name)
+        body.pos, body.quat = placement["pose"]["position"], placement["pose"]["quaternion_wxyz"]
+        spec.worldbody.add_frame().attach_body(body, "", "")
+    with closed_on_error(sim.derive(model=spec.compile(), spec=spec)) as edited:
+        migrate_state(sim, edited)
+    sim.close()
+    return edited
 
 
 def fix_robot_base(spec):
