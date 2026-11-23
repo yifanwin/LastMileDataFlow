@@ -199,14 +199,20 @@ class RoboCasaRuntime:
     def reset(self):
         self._restore()
         self.steps = 0
+        self.locked_base = None
+        self.max_base_drift = np.zeros(2)
         return self.get_state()
 
     def step(self, action):
         action = np.asarray(action, dtype=float)
         if action.shape != (self.action_spec.dim,):
             raise ValueError(f"RoboCasa action must have shape ({self.action_spec.dim},)")
+        if self.locked_base is not None:
+            action = self.mask_base_action(action)
         observation, reward, done, info = self.env.step(action)
         self.steps += 1
+        if self.locked_base is not None:
+            self._track_drift()
         native = {
             "reward": float(reward),
             "done": bool(done),
@@ -301,6 +307,34 @@ class RoboCasaRuntime:
         self.env.update_state()
         self._sync_controllers()
         return self.get_state()
+
+    def lock_base(self):
+        """Fixed-base mode: clamp the three planar base joints to their current values and mask base commands."""
+        model, data = self.env.sim.model._model, self.env.sim.data._data
+        for name in BASE_JOINTS:
+            joint = model.joint(name).id
+            q = data.qpos[model.jnt_qposadr[joint]]
+            model.jnt_range[joint] = (q, q)
+            model.jnt_limited[joint] = 1
+        self.locked_base = self.base_pose()
+
+    def mask_base_action(self, action):
+        """Zero planar base commands and force arm mode; arm, gripper and torso entries pass unchanged."""
+        action = action.copy()
+        start = 0
+        for name, size in self.action_spec.parts:
+            if name == "base":
+                action[start : start + size] = 0.0
+            elif name == "base_mode":
+                action[start : start + size] = -1.0
+            start += size
+        return action
+
+    def _track_drift(self):
+        pose = self.base_pose()
+        d = pose - self.locked_base
+        drift = np.r_[np.hypot(d[0], d[1]), abs(np.arctan2(np.sin(d[2]), np.cos(d[2])))]
+        self.max_base_drift = np.maximum(self.max_base_drift, drift)
 
     def probe_station(self, x, y, yaw):
         """Geometry-only check: frozen qpos with the base at (x, y, yaw); no reset, controllers untouched.
