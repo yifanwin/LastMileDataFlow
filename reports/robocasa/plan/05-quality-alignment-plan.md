@@ -54,3 +54,4 @@ cuRobo 全域在每个 XY 上加偏航偏移 {0°, ±20°}（约 3 倍站位）�
 - 2026-11-24 00:01：M0 真实验证通过。原生快照重载 `runs/<ts>-m0-native-reload` all_passed（用 robocasa-native 原生构建 run；变体清单格式不被冒烟脚本接受，M1 处理）。PPO 正式入口 `train.py` 8 env、4096 transitions、16 次更新，写出 checkpoint（`runs/20261123-2358-m0-ppo-train`）。
 - 运行须知：两环境都要 `LD_LIBRARY_PATH=<venv>/lib/native`（否则缺 libEGL）；抓法库从 station-quality 复制到同路径（运行产物，不提交）；`tests/smoke/rl.py` 与当前观测接口不符（`GraphObservation` 不收 `flat`），已过时。
 - 2026-11-24 00:03：M1 锁底盘 lock_base/mask_base_action；kettle-far S0022 200 步强底盘命令下漂移 0.28 mm / 0.038°，臂与升降正常。
+- 2026-11-24 00:06：cup_3 解析抓法池 56 条（侧抓 48：16 方位×3 高度，开口 5.9–7.3 cm；杯沿捏抓 8），TCP=grip_site（+z 接近、x 闭合、开口 ≤8 cm）。原 Cup_30 库只用于 M0 val103 冒烟，不用于 RoboCasa。原生夹起验证待 M2。
