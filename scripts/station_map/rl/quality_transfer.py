@@ -186,28 +186,37 @@ def refit(source_config, target_config, *, source_labels, target_labels, quality
 GROUPS = ("top", "middle", "low", "uniform")
 
 
-def select_validation(maps, *, beta, per_group, seed):
-    """Pre-registered stations: top / middle third / bottom third by S_rank = Q_phys - beta U, and uniform."""
+def select_validation(maps, *, beta, per_group, seed, score="max", u_quantile=None):
+    """Pre-registered stations: top / middle third / bottom third by S_rank = Q - beta U, and uniform.
+
+    score="uniform" ranks by the uniform-grasp summary; stations whose U exceeds the u_quantile are marked
+    unknown and excluded from the ranked groups. The uniform group is drawn from all legal stations."""
     import numpy as np
 
+    q_key, u_key = ("q_phys", "u") if score == "max" else ("q_phys_uniform_grasp", "u_uniform_grasp")
+    threshold = float(np.quantile([r[u_key] for r in maps], u_quantile)) if u_quantile is not None else None
+    eligible = [r for r in maps if threshold is None or r[u_key] <= threshold]
     rng = np.random.default_rng(seed)
-    ranked = sorted(maps, key=lambda r: r["q_phys"] - beta * r["u"], reverse=True)
+    ranked = sorted(eligible, key=lambda r: r[q_key] - beta * r[u_key], reverse=True)
     third = len(ranked) // 3
     pools = {"top": ranked[:per_group], "middle": ranked[third:2 * third], "low": ranked[2 * third:],
-             "uniform": ranked}
+             "uniform": maps}
     chosen, used = [], set()
     for group in GROUPS:
         pool = [r for r in pools[group] if r["station_id"] not in used]
         picks = pool[:per_group] if group == "top" else [pool[i] for i in rng.permutation(len(pool))[:per_group]]
         for row in picks:
             used.add(row["station_id"])
-            chosen.append({"group": group, "station_id": row["station_id"], "s_rank": row["q_phys"] - beta * row["u"],
+            chosen.append({"group": group, "station_id": row["station_id"], "s_rank": row[q_key] - beta * row[u_key],
                            "q_phys": row["q_phys"], "u": row["u"], "best_grasp_id": row["best_grasp_id"],
-                           "p_max": row["q_phys"], "p_uniform": row["q_phys_uniform_grasp"]})
-    return chosen
+                           "p_max": row["q_phys"], "p_uniform": row["q_phys_uniform_grasp"],
+                           "unknown": threshold is not None and row[u_key] > threshold})
+    return chosen, {"score": score, "u_quantile": u_quantile, "u_threshold": threshold,
+                    "unknown": len(maps) - len(eligible), "legal": len(maps)}
 
 
-def validate(config, *, checkpoint, maps_path, output, gpus, beta, per_group, episodes, seed, num_envs):
+def validate(config, *, checkpoint, maps_path, output, gpus, beta, per_group, episodes, seed, num_envs,
+             score="max", u_quantile=None):
     """Q-ranked vs uniform station selection, and Max vs uniform grasp choice on the uniform stations."""
     import multiprocessing as mp
 
@@ -217,8 +226,9 @@ def validate(config, *, checkpoint, maps_path, output, gpus, beta, per_group, ep
     from lastmile_dataflow.station_map.rl.env.environment import StationEnv
 
     maps = json.loads(Path(maps_path).read_text())
-    selection = select_validation(maps["stations"], beta=beta, per_group=per_group, seed=seed)
-    (output / "selection.json").write_text(json.dumps({"beta": beta, "maps": str(maps_path), "seed": seed,
+    selection, rule = select_validation(maps["stations"], beta=beta, per_group=per_group, seed=seed, score=score,
+                                        u_quantile=u_quantile)
+    (output / "selection.json").write_text(json.dumps({"beta": beta, "maps": str(maps_path), "seed": seed, **rule,
                                                        "selection": selection}, indent=2))
     env = StationEnv(config, gpu=VISIBLE_DEVICE, seed=seed, num_envs=1)
     index = {s["station_id"]: i for i, s in enumerate(env.task.stations)}
@@ -316,6 +326,8 @@ def main():
     validation.add_argument("--per-group", type=int, default=8)
     validation.add_argument("--episodes", type=int, default=20)
     validation.add_argument("--num-envs", type=int, default=64)
+    validation.add_argument("--score", choices=("max", "uniform"), default="max", help="排序用 Max 或均匀选抓汇总的 Q 与 U")
+    validation.add_argument("--u-quantile", type=float, help="U 高于该分位的站位标为未知区，不参选")
     args = parser.parse_args()
     select_devices(args.gpu if args.command in ("collect", "validate") else args.gpu[:1])
 
@@ -348,7 +360,7 @@ def main():
     elif args.command == "validate":
         result = validate(config, checkpoint=args.checkpoint, maps_path=args.maps, output=args.output, gpus=args.gpu,
                           beta=args.beta, per_group=args.per_group, episodes=args.episodes, seed=args.seed,
-                          num_envs=args.num_envs)
+                          num_envs=args.num_envs, score=args.score, u_quantile=args.u_quantile)
     else:
         result = evaluate(config, labels_dir=args.output, quality_path=args.quality, seed=args.seed)
     (args.output / f"{args.command}.json").write_text(json.dumps(result, indent=2))
