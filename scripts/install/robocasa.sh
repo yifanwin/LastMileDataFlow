@@ -18,7 +18,15 @@ uv --no-config pip install --python "$python" --no-deps -e "$robosuite_source" -
 site_dir=$("$python" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
 printf '%s\n' "$repo_root/src" > "$site_dir/lastmile-research.pth"
 if (( $# )); then
-    yes y | "$python" "$robocasa_source/robocasa/scripts/download_kitchen_assets.py" --type "$@"
+    "$python" -c '
+import runpy
+import sys
+
+from lastmile_dataflow.sim.mujoco316_compat import import_robocasa
+
+import_robocasa()
+runpy.run_path(sys.argv.pop(1), run_name="__main__")
+' "$robocasa_source/robocasa/scripts/download_kitchen_assets.py" --type "$@" < <(yes y)
 fi
 "$python" -c 'import importlib.metadata as m; print({p: m.version(p) for p in ("robosuite", "robocasa", "mujoco", "numpy")})'
 "$repo_root/scripts/install/egl.sh" "$repo_root/.venv-robocasa"

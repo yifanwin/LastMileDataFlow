@@ -75,10 +75,10 @@ def _commit(module):
 
 
 def versions():
+    robosuite = _robosuite()
+
     import mujoco
     import robocasa
-
-    robosuite = _robosuite()
     return {
         "robosuite": robosuite.__version__,
         "robosuite_commit": _commit(robosuite),

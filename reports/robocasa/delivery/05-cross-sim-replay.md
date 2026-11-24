@@ -2,7 +2,7 @@
 
 - 状态：active
 - 日期：2026-11-24 17:00 +08:00（诊断更新 2026-11-24 22:58 +08:00）
-- 关联：[plan 06](../plan/06-protocol-unification.md)、[04 逐抓法扫描](04-cup3-grasp-sweep.md)
+- 关联：[plan 06](../plan/06-protocol-unification.md)、[04 逐抓法扫描](04-cup3-grasp-sweep.md)、[合入记录](06-grasp-library-and-physics-integration.md)
 
 ## 定位
 
@@ -12,7 +12,7 @@
 
 - 原生：`scripts/operation/robocasa_replay_native.py` 按评测器 B 的阶段（approach、grasp、close 20 步、lift、hold 30 步，hold 总是跑满）执行已存 cuRobo 规划，逐控制步记录臂目标、夹爪执行器 ctrl、关节、TCP、目标位姿和 PickJudge 三个事实。
 - mjlab：`scripts/station_map/rl/robocasa_replay_mjlab.py` 在导出的 RL 场景同站位（mocap），以相同的逐步臂关节目标和夹爪 ctrl 驱动（绕过 DLS/终止），torso 目标 0，PickJudge 用原生口径（双指垫接触、无环境支撑、最低点 ≥2 cm、控制步保持 0.5 s）。
-- 代码在独立 worktree `.worktrees/robocasa-physics-align`（分支 `codex/robocasa-physics-align`，基于 `507ff6d`，未提交）。
+- 回放代码始于 `robocasa-physics-align` 的 `80747bc`，评测入口现位于 `robocasa-station-eval`。历史回放版本见各结果段。
 
 ## 结果一：3 站 × 2 场景（cuRobo 名义站位规划，均为杯沿捏抓）
 
@@ -42,19 +42,8 @@ far S0022 差 4 步的原因（逐步核对）：
 
 把 04 号扫描中在原生执行过的 114 条规划（原生成功 87、闭爪未抓住 18、跟踪超差 6、保持中断 3；30°/45° 侧抓与杯沿捏抓，kettle-far 三站）在两边回放，统计成败交叉表，检验临界抓法上是否有系统性偏差。
 
-- 原生回放：`outputs/experiments/robocasa-station-eval/runs/20261124-1715-physics-replay-sweep/native/`，17:00 时已完成 20/114。
-- mjlab 回放待原生完成后运行（命令见下），结果写 `mjlab/summary.json`（`outcome_agree`、四格计数、成功步差分布）。
-
-```bash
-cd .worktrees/robocasa-physics-align
-R=<station-eval>/outputs/experiments/robocasa-station-eval
-PYTHONPATH=src LD_LIBRARY_PATH=$PWD/.venv/lib/native .venv/bin/python scripts/station_map/rl/robocasa_replay_mjlab.py \
-  --native $R/runs/20261124-1715-physics-replay-sweep/native \
-  --config configs/station_map/rl/robocasa_kettle_far_station_quality_ppo.yaml \
-  --rl-scenes $R/rl-scenes --table $R/station-table/kettle-far__kettle-left-125mm/stations.jsonl \
-  --grasps $R/runs/20261124-0024-cup3-grasp-pool-pitch/rl_transforms.npz --gpu 1 \
-  --output $R/runs/20261124-1715-physics-replay-sweep/mjlab
-```
+- 114 条回放已完成。原生 3.3.1 和 mjlab 成败一致 84/114，两侧均成功 63 条。
+- 原生与 mjlab 结果分别在 `outputs/experiments/robocasa-station-eval/runs/20261124-1715-physics-replay-sweep/` 的 `native/` 和 `mjlab/`。当前回放环境和入口见合入记录。
 
 ## 限制
 
@@ -62,7 +51,7 @@ PYTHONPATH=src LD_LIBRARY_PATH=$PWD/.venv/lib/native .venv/bin/python scripts/st
 - 回放绕过 DLS，比较的是被控对象加底层伺服；RL 策略经 DLS 产生的关节目标未在原生中回放。
 
 
-## 结果三：差异来源诊断（2026-11-24 19:20–22:58 +08:00）
+## 结果三：历史差异诊断（2026-11-24 19:20–22:58 +08:00）
 
 同一批 114 条 kettle-far 规划，三种仿真两两比较成败：
 

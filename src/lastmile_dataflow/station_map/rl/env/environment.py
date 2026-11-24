@@ -207,7 +207,7 @@ class StationEnv(ManagerBasedRlEnv):
                 njmax=env_cfg["njmax"],
                 mujoco=MujocoCfg(
                     timestep=config["scene"]["physics_dt"],
-                    impratio=float(env_cfg.get("impratio", 10.0)),
+                    impratio=10.0,
                     cone="elliptic",
                     gravity=(0.0, 0.0, -9.8),
                     disableflags=() if prepared.multiccd else ("multiccd",),

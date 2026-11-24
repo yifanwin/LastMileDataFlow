@@ -31,8 +31,6 @@ def scene_config(base, scene_dir, table, home):
     config["scene"].update(scene_xml=str(scene_dir / "scene.xml"), scene_metadata=str(scene_dir / "metadata.json"),
                            home=[float(q) for q in home])
     config["environment"]["num_envs"] = 1
-    config["environment"]["impratio"] = 20.0  # native robosuite base.xml
-    config["scene"]["multiccd"] = True  # native RoboCasa kitchen enables multiccd
     config["noise"] = {"sigma_max": 0.0, "action": 0.0, "target_m": 0.0, "dock_m": 0.0, "dock_yaw_rad": 0.0}
     config["stations"]["table"] = str(table)
     return config
@@ -50,8 +48,7 @@ class MjlabReplay:
         self.link0 = next(i for i in range(model.nbody) if model.body(i).name.endswith("robot0_link0"))
         self.target_name = model.body(self.task.target).name
 
-    def run(self, station_index, arm_target, finger_ctrl, arm_state=None):
-        """arm_state: native arm_q per control step; when given, the arm joints are written each substep (contact-only comparison)."""
+    def run(self, station_index, arm_target, finger_ctrl):
         task, env, robot = self.task, self.env, self.task.robot
         task.requested_station_ids = torch.tensor([station_index], device=env.device)
         env.reset()
@@ -65,12 +62,7 @@ class MjlabReplay:
             robot.set_joint_position_target(torch.zeros(1, len(task.lift), device=device), joint_ids=task.lift)
             robot.set_joint_position_target(torch.tensor(ctrl, device=device, dtype=torch.float32)[None],
                                             joint_ids=task.fingers)
-            for j in range(env.cfg.decimation):
-                if arm_state is not None:
-                    w = (j + 1) / env.cfg.decimation
-                    qa = torch.tensor((1 - w) * arm_state[k - 1] + w * arm_state[k], device=device, dtype=torch.float32)[None]
-                    qd = torch.tensor((arm_state[k] - arm_state[k - 1]) / env.step_dt, device=device, dtype=torch.float32)[None]
-                    robot.write_joint_state_to_sim(qa, qd, joint_ids=task.arm)
+            for _ in range(env.cfg.decimation):
                 env.scene.write_data_to_sim()
                 env.sim.step()
                 env.scene.update(dt=env.physics_dt)
@@ -163,7 +155,6 @@ def main():
     p.add_argument("--grasps", type=Path, required=True, help="rl_transforms.npz of the grasp pool")
     p.add_argument("--gpu", type=int, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--force-arm", action="store_true", help="write the native arm joint positions each substep")
     a = p.parse_args()
     bind_device(a.gpu)
     from lastmile_dataflow.station_map.rl.devices import VISIBLE_DEVICE
@@ -191,8 +182,7 @@ def main():
             index = {s["station_id"]: i for i, s in enumerate(env.task.stations)}
             for z, meta, path in zip(loaded, metas, paths):
                 native = {k: z[k] for k in z.files if k != "meta"}
-                mjlab, judge = replay.run(index[meta["station_id"]], native["arm_target"], native["finger_ctrl"][1:],
-                                          native["arm_q"] if a.force_arm else None)
+                mjlab, judge = replay.run(index[meta["station_id"]], native["arm_target"], native["finger_ctrl"][1:])
                 np.savez(a.output / path.name, **mjlab)
                 meta["mjlab_table_z"] = float(env.task.table_height_m)
                 result = {"scene": scene, "station_id": meta["station_id"], "trial_id": meta.get("trial_id"),

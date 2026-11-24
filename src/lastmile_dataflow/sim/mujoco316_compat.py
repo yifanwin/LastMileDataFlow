@@ -3,6 +3,8 @@
 Three API gaps, no physics change: robocasa asserts mujoco 3.3.1 at import; 3.16 jnt_type is numpy.int32 and
 fails `in (enum, ...)`; mj_fullM takes (m, d, dst) and MjData.qM is gone.
 """
+from functools import cache
+
 import mujoco
 
 _ROBOCASA_PIN = "3.3.1"
@@ -23,6 +25,7 @@ def _full_m(original):
     return full_m
 
 
+@cache
 def import_robocasa():
     """Import robocasa under the running MuJoCo and patch robosuite where 3.16 changed the API."""
     real = mujoco.__version__
