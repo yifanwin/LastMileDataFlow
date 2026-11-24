@@ -151,13 +151,26 @@ def _yaw(quat_wxyz):
     return float(np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
 
 
+# Native robosuite joint-position controller with absolute goals, for tracking planned joint trajectories
+# (the frozen default is OSC_POSE delta, which leaves the elbow free). Physics and actuators are unchanged.
+JOINT_POSITION_ARM = {
+    "type": "JOINT_POSITION", "input_type": "absolute", "input_max": 2 * np.pi, "input_min": -2 * np.pi,
+    "kp": 200, "damping_ratio": 1, "impedance_mode": "fixed", "interpolation": None,
+}
+
+
 class RoboCasaRuntime:
     """One frozen RoboCasa instance; ``reset`` restores the frozen state and clears control history."""
 
-    def __init__(self, scene_dir, *, target="obj"):
+    def __init__(self, scene_dir, *, target="obj", arm_controller=None):
         self.scene_dir = Path(scene_dir)
         saved = read_json(self.scene_dir / ENV_FILE)
         self.kwargs = saved["kwargs"]
+        if arm_controller == "joint_position":
+            right = self.kwargs["controller_configs"]["body_parts"]["right"]
+            self.kwargs["controller_configs"]["body_parts"]["right"] = {**JOINT_POSITION_ARM, "gripper": right["gripper"]}
+        elif arm_controller is not None:
+            raise ValueError(f"unknown arm controller {arm_controller}")
         self.ep_meta = read_json(self.scene_dir / META_FILE)
         self.xml = (self.scene_dir / XML_FILE).read_text()
         with np.load(self.scene_dir / STATE_FILE, allow_pickle=False) as frozen:
