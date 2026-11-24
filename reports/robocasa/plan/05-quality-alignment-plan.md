@@ -56,3 +56,6 @@ cuRobo 全域在每个 XY 上加偏航偏移 {0°, ±20°}（约 3 倍站位）�
 - 2026-11-24 00:03：M1 锁底盘 lock_base/mask_base_action；kettle-far S0022 200 步强底盘命令下漂移 0.28 mm / 0.038°，臂与升降正常。
 - 2026-11-24 00:06：cup_3 解析抓法池 56 条（侧抓 48：16 方位×3 高度，开口 5.9–7.3 cm；杯沿捏抓 8），TCP=grip_site（+z 接近、x 闭合、开口 ≤8 cm）。原 Cup_30 库只用于 M0 val103 冒烟，不用于 RoboCasa。原生夹起验证待 M2。
 - 2026-11-24 00:12：1.0 规划资产 assets_robocasa（0.9 版除以 0.9，141 球）。S0022 同关节下 link0→TCP FK 与原生误差 0.0 mm / 0.028°。URDF world 在 link0 后方 0.21 m，导出碰撞世界以原生 robot0_link0 减该偏移为基座。
+- 2026-11-24 09:20：M2 cuRobo 评测器 B 接通（`planning/robocasa_curobo.py` 常驻规划进程 + `operation/robocasa_curobo_trial.py` 回合 + `scripts/lastmile_benchmark/robocasa_curobo.py` 批量）。全池 152 抓法 goalset 选抓，后段失败屏蔽该抓法重规划（≤3 轮）；手臂换原生 JOINT_POSITION 绝对输入（kp 200）跟踪，π0.5 仍用 OSC。cuRobo v0.8.0 两处坑：轨迹末端 JointState 喂回 plan_pose 会污染 IK 缓冲（之后全部 None），改为每次新建只含位置的状态；update_world 复用同名网格会沿用旧几何，每次换名。
+- 2026-11-24 09:20：M2 小样 6/6 成功（far/left × S0019/S0022/S0025，名义停靠）：抬升 0.09 m、保持 1 s、无机器人–环境接触、跟踪误差 ≤0.0021 rad、壶位移 ≤0.03 mm；goalset 均选杯沿捏抓（148–150）。单 GPU 3 进程时每回合 18–64 s（规划 11–51 s，单进程 3.7 s），已限规划进程 4 线程。`runs/20261124-0915-m2-curobo-smoke`。按方法冻结前不开封的约定，全量 K=15 留到 M5。
+

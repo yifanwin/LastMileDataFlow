@@ -51,7 +51,7 @@ class CuroboWorker:
     def __init__(self, root, gpu, log_path):
         root = Path(root)
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu), "PYTHONPATH": str(root / "src"),
-               "LD_LIBRARY_PATH": str(root / ".venv/lib/native")}
+               "LD_LIBRARY_PATH": str(root / ".venv/lib/native"), "OMP_NUM_THREADS": "4", "MKL_NUM_THREADS": "4"}
         self.log = open(log_path, "a")
         python = root.parents[1] / ".venv/bin/python"
         self.proc = subprocess.Popen([str(python), "-m", "lastmile_dataflow.planning.robocasa_curobo"], cwd=root, env=env,
