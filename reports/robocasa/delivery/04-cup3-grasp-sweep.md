@@ -51,3 +51,12 @@
 - [456 回合原始记录](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-105147-bottom2cm-full/trials.jsonl)
 - [RoboCasa 小样记录](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-104916-bottom2cm-pilot/trials.jsonl)
 - [运行配置、命令和轨迹入口](../../../outputs/experiments/robocasa-cup3-grasp-sweep/README.md)
+
+## 2026-11-24 21:10 回放
+
+四例均取自 `S0019-y00`。三种侧抓共用杯身目标位置和夹爪闭合轴。水平侧抓停在直接目标位姿规划阶段，视频叠加目标轴并保留静止的原生初态。三个成功案例重放已保存的关节目标，底盘按原批次方式锁定。回放的抓取判定、步数、峰值杯底离桌高度、保持时间和非目标环境接触步数均与原始记录一致。
+
+- [0° 侧抓，012，规划失败](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-105147-bottom2cm-full/videos/four-grasp-types/side-00-planning-failure.mp4)
+- [30° 侧抓，060，抓取成功](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-105147-bottom2cm-full/videos/four-grasp-types/side-30-success.mp4)
+- [45° 侧抓，108，抓取成功](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-105147-bottom2cm-full/videos/four-grasp-types/side-45-success.mp4)
+- [杯沿捏抓，150，抓取成功](../../../outputs/experiments/robocasa-cup3-grasp-sweep/runs/20261124-105147-bottom2cm-full/videos/four-grasp-types/rim-pinch-success.mp4)
