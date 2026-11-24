@@ -29,7 +29,9 @@ def _robosuite():
     import that MUJOCO_EGL_DEVICE_ID appears in CUDA_VISIBLE_DEVICES while LMDF maps EGL indices separately.
     """
     bind_cpu_renderer()
-    import robocasa  # noqa: F401  registers the kitchen environments
+    from .mujoco316_compat import import_robocasa
+
+    import_robocasa()  # registers the kitchen environments; MuJoCo 3.16 for all simulators
     import robosuite
 
     return robosuite

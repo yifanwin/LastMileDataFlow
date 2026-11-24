@@ -45,7 +45,7 @@ robocasa = [
     "numpy==2.2.5",
     "numba==0.61.2",
     "scipy==1.15.3",
-    "mujoco==3.3.1",
+    "mujoco==3.16.0",  # unified with mjlab (decisions/01-mujoco-3.16.md)
     "qpsolvers[quadprog]>=4.3.1",
     "opencv-python-headless>=4.11",
     "Pillow>=10",
