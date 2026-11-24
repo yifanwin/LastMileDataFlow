@@ -42,7 +42,7 @@ class Trial:
 
 
 def docking_errors(station_number, k, seed):
-    """K docking errors per station, identical across scenes (seeded by the shared XY id)."""
+    """K docking errors per station, identical across scenes (seeded by the station table row)."""
     rng = np.random.default_rng([seed, station_number])
     return rng.uniform(-1, 1, (k, 3)) * [DOCK_XY_M, DOCK_XY_M, np.radians(DOCK_YAW_DEG)]
 

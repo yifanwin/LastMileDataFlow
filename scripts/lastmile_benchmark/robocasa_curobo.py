@@ -1,7 +1,7 @@
 """Evaluator B batch: cuRobo + native tracking over a paired station table, K docking errors per station.
 
 Example:
-  python scripts/lastmile_benchmark/robocasa_curobo.py --scenes-root <runs/.../scenes> --evidence <analysis/.../evidence> \
+  python scripts/lastmile_benchmark/robocasa_curobo.py --scenes-root <runs/.../scenes> --station-table <station-table/.../stations.jsonl> \
     --scenes kettle-far kettle-left-125mm --grasps <grasps.npz> --output outputs/experiments/robocasa-station-eval/runs/<ts>-curobo \
     --gpus 3 4 --workers-per-gpu 4 --k 15
 """
@@ -23,12 +23,9 @@ from lastmile_dataflow.utils.io import append_row, create_run, rows, write_json,
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def shared_stations(evidence, scenes, station_ids):
-    """Stations legal in every scene of the group (same XY id and yaw), in table order."""
-    tables = {s: {r["station_id"]: r for r in rows(Path(evidence) / s / "stations.jsonl")} for s in scenes}
-    first = tables[scenes[0]]
-    keep = [sid for sid in first if all(tables[s][sid]["valid"] for s in scenes)]
-    return [first[sid] for sid in keep if not station_ids or sid in station_ids]
+def table_stations(table, station_ids):
+    """Legal rows of a paired station table (scripts/scenes/robocasa_station_table.py), with their row index."""
+    return [(i, r) for i, r in enumerate(rows(table)) if r["valid"] and (not station_ids or r["station_id"] in station_ids)]
 
 
 def worker(slot, gpu, scenes_root, grasps, trials, output):
@@ -80,7 +77,7 @@ def summarize(output):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--scenes-root", required=True)
-    p.add_argument("--evidence", required=True)
+    p.add_argument("--station-table", required=True)
     p.add_argument("--scenes", nargs="+", required=True)
     p.add_argument("--grasps", required=True)
     p.add_argument("--output", required=True)
@@ -91,15 +88,15 @@ def main():
     p.add_argument("--stations", nargs="*", default=[], help="station ids; default all shared legal stations")
     p.add_argument("--no-docking-error", action="store_true", help="k=0 nominal docking only (smoke)")
     a = p.parse_args()
-    stations = shared_stations(a.evidence, a.scenes, set(a.stations))
-    out = create_run(Path(a.output), {**vars(a), "criterion": PICK_PROTOCOL, "stations": [s["station_id"] for s in stations],
+    stations = table_stations(a.station_table, set(a.stations))
+    out = create_run(Path(a.output), {**vars(a), "criterion": PICK_PROTOCOL, "stations": [s["station_id"] for _, s in stations],
                                       "docking_error": {"xy_m": DOCK_XY_M, "yaw_deg": DOCK_YAW_DEG, "frame": "world"},
                                       "arm_controller": "joint_position (native robosuite, absolute)"})
     (out / "logs").mkdir(exist_ok=True)
     trials = []
     for scene in a.scenes:
-        for s in stations:
-            errors = np.zeros((1, 3)) if a.no_docking_error else docking_errors(int(s["xy_id"][1:]), a.k, a.seed)
+        for row, s in stations:
+            errors = np.zeros((1, 3)) if a.no_docking_error else docking_errors(row, a.k, a.seed)
             for k, (dx, dy, dyaw) in enumerate(errors):
                 trials.append(Trial(scene, s["station_id"], s["x"], s["y"], s["yaw"], k, float(dx), float(dy), float(dyaw), a.seed * 1000 + k))
     slots = [(i, gpu) for i, gpu in enumerate(g for g in a.gpus for _ in range(a.workers_per_gpu))]
