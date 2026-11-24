@@ -17,12 +17,20 @@ def main():
     parser.add_argument("--horizon", type=int, default=400, help="control steps per episode (20 Hz)")
     parser.add_argument("--prompt", default="Pick up the cup.")
     parser.add_argument("--max-stations-per-scene", type=int, default=0, help="0 keeps every valid station")
+    parser.add_argument("--evidence", type=Path, help="fixed station tables (<evidence>/<scene>/stations.jsonl); --scenes is then the scenes dir")
+    parser.add_argument("--scene-names", nargs="+", default=[], help="paired scenes for --evidence")
+    parser.add_argument("--stations", nargs="*", default=[], help="station ids for --evidence; default all shared visible")
+    parser.add_argument("--free-base", action="store_true", help="reference only: do not lock the base (--evidence)")
     args = parser.parse_args()
     select_devices(args.gpu)
     # MuJoCo reads the EGL binding at import; robosuite/π0.5 modules are imported after binding.
-    from lastmile_dataflow.lastmile_benchmark.robocasa_policy import run_trials
+    from lastmile_dataflow.lastmile_benchmark.robocasa_policy import run_station_table, run_trials
 
     setup_logging()
+    if args.evidence:
+        print(run_station_table(args.scenes, args.evidence, args.scene_names, policy_config=args.policy_config, output=args.output,
+                                gpus=args.gpu, seeds=args.seeds, horizon=args.horizon, prompt=args.prompt, station_ids=args.stations, fixed_base=not args.free_base))
+        return
     summary = run_trials(
         args.scenes,
         policy_config=args.policy_config,

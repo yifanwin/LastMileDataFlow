@@ -49,6 +49,7 @@ class TrialSettings:
     prompt: str
     horizon: int
     output: str
+    fixed_base: bool = True
 
 
 def prepare_stations(records, root, output, max_stations_per_scene):
@@ -84,6 +85,8 @@ def run_episode(runtime, client, episode, settings):
     """One trial from ``set_station``; stops at pick success or the step budget."""
     start = time.monotonic()
     initial = runtime.set_station(*episode.base_xyyaw)
+    if settings.fixed_base:
+        runtime.lock_base()  # fixed-base protocol: planar joints locked, base commands masked at the env boundary
     judge = PickJudge(runtime.target, initial.target_pose[2])
     video = Path(settings.output) / "videos" / f"{episode.episode_id}.mp4"
     video.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +95,7 @@ def run_episode(runtime, client, episode, settings):
     native_success = False
     first_contact = success_step = None
     inference_s = 0.0
+    base_cmd_max, base_mode_steps = 0.0, 0
     with _video_writer(video) as writer:
         for step in range(settings.horizon):
             frames = {camera: runtime.render(camera) for camera in CAMERAS}
@@ -101,7 +105,10 @@ def run_episode(runtime, client, episode, settings):
                 observation, task={"operation": "pick"}, attempt=episode.episode_id, seed=episode.seed, first=step == 0
             )
             inference_s += response.inference_s
-            result = runtime.step(robocasa_env_action(response.action))
+            action = robocasa_env_action(response.action)
+            base_cmd_max = max(base_cmd_max, float(np.max(np.abs(action[7:10]))))  # raw policy command, masked in step
+            base_mode_steps += action[11] > 0
+            result = runtime.step(action)
             status = judge.update(runtime.get_state())
             contacts = runtime.robot_env_contacts(include_target=False)
             best_lift, best_hold = max(best_lift, status.lift_m), max(best_hold, status.hold_s)
@@ -128,6 +135,10 @@ def run_episode(runtime, client, episode, settings):
         "first_contact_step": first_contact,
         "native_task_success": native_success,
         "inference_s": inference_s,
+        "raw_base_command_max": base_cmd_max,
+        "raw_base_mode_steps": int(base_mode_steps),
+        "base_drift": [float(v) for v in runtime.max_base_drift] if settings.fixed_base else None,
+        "base_displacement_m": float(np.hypot(*np.subtract(runtime.base_pose()[:2], initial.robot["base_xyyaw"][:2]))),
         "wall_s": time.monotonic() - start,
         "video": str(video.relative_to(settings.output)),
     }
@@ -167,6 +178,12 @@ def worker(gpu, episodes, settings):
 def summarize(output, selected):
     episodes = [row for path in sorted(Path(output).glob("episodes-gpu*.jsonl")) for row in rows(path)]
     write_rows(Path(output) / "episodes.jsonl", episodes)
+    groups = {}
+    for r in episodes:
+        groups.setdefault((r["scene_id"], r["station_id"]), []).append(r)
+    write_rows(Path(output) / "stations.jsonl", [  # evaluator table for the station report
+        {"scene": scene, "station_id": sid, "success_rate": float(np.mean([r["success"] for r in items])), "n": len(items)}
+        for (scene, sid), items in sorted(groups.items())])
 
     def block(items):
         done = [r for r in items if r["status"] != "error"]
@@ -225,3 +242,33 @@ def run_trials(scenes_root, *, policy_config, output, gpus, seeds, horizon, prom
         for future in [pool.submit(worker, gpu, items, settings) for gpu, items in plan.items() if items]:
             future.result()
     return summarize(root, selected)
+
+
+def table_stations(evidence, scenes, station_ids=()):
+    """Fixed paired table: stations legal and π0.5-visible in every scene, in table order."""
+    tables = {s: {r["station_id"]: r for r in rows(Path(evidence) / s / "stations.jsonl")} for s in scenes}
+    first = tables[scenes[0]]
+    keep = [sid for sid in first if all(tables[s][sid]["valid"] and tables[s][sid]["pi05_visible"] for s in scenes)]
+    return [first[sid] for sid in keep if not station_ids or sid in station_ids]
+
+
+def run_station_table(scenes_root, evidence, scenes, *, policy_config, output, gpus, seeds, horizon, prompt, station_ids=(), fixed_base=True):
+    """Paired evaluation on a fixed station table (no lattice resampling); same stations in every scene."""
+    scenes_root = Path(scenes_root).resolve()
+    stations = table_stations(evidence, scenes, station_ids)
+    settings = TrialSettings(str(Path(policy_config).resolve()), prompt, horizon, str(Path(output).resolve()), fixed_base)
+    root = create_run(Path(output), {"scenes_root": str(scenes_root), "evidence": str(Path(evidence).resolve()), "scenes": list(scenes),
+                                     "stations": [s["station_id"] for s in stations], "settings": asdict(settings), "gpus": list(gpus),
+                                     "seeds": list(seeds), "criterion": PICK_PROTOCOL, "fixed_base": fixed_base})
+    episodes = [Episode(f"{scene}__{st['station_id']}__s{seed}", scene, str(scenes_root / scene), st["station_id"],
+                        (st["x"], st["y"], st["yaw"]), seed)
+                for scene in scenes for st in stations for seed in seeds]
+    blocks = np.array_split(np.arange(len(episodes)), len(gpus))
+    plan = {gpu: [episodes[i] for i in block] for gpu, block in zip(gpus, blocks)}
+    write_json(root / "plan.json", {str(gpu): [e.episode_id for e in items] for gpu, items in plan.items()})
+    logger.info("回合总数 %s，GPU %s", len(episodes), list(gpus))
+    with ProcessPoolExecutor(len(gpus), mp_context=multiprocessing.get_context("spawn")) as pool:
+        for future in [pool.submit(worker, gpu, items, settings) for gpu, items in plan.items() if items]:
+            future.result()
+    return summarize(root, {scene: stations for scene in scenes})
+
