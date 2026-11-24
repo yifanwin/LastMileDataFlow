@@ -38,7 +38,13 @@ def _map(path, states, reps, geometry, evidence, *, close_up):
     card = Image.new("RGB", size, "#ffffff")
     draw = ImageDraw.Draw(card)
     # Keep the frame and scale identical within each plot type.
-    scale, x0, y0 = (274, 192, 154) if close_up else (98, 168, 117)
+    support = np.array(list(geometry["support_rectangles_xy_m"].values())).reshape(-1, 2)
+    lo, hi = support.min(axis=0), support.max(axis=0)
+    scale, x0, y0 = 98, 168, 117
+    if close_up:
+        scale = min(310 / (hi[0] - lo[0]), 176 / (hi[1] - lo[1]))
+        center = (lo + hi) / 2
+        x0, y0 = 168 - scale * center[0], 117 + scale * center[1]
 
     def xy(point):
         return x0 + scale * point[0], y0 - scale * point[1]
@@ -48,8 +54,6 @@ def _map(path, states, reps, geometry, evidence, *, close_up):
         draw.line((x, 23, x, 211), fill="#f0f2f2")
         if not close_up:
             draw.line((9, y, 327, y), fill="#f0f2f2")
-    support = np.array(list(geometry["support_rectangles_xy_m"].values())).reshape(-1, 2)
-    lo, hi = support.min(axis=0), support.max(axis=0)
     a = xy(lo)
     b = xy(hi)
     draw.rectangle((max(8, a[0]), max(23, b[1]), min(327, b[0]), min(211, a[1])),
@@ -70,7 +74,8 @@ def _map(path, states, reps, geometry, evidence, *, close_up):
                 _text(draw, (x-4, y+7), rep_labels[row["station_id"]], 11, bold=True)
 
     for key, polys, color, fill in (
-        ("Apple", geometry["apple_outline_xy_m"], "#607049", "#b5c28f"),
+        (geometry.get("distractor_label", "Apple"),
+         geometry.get("distractor_outline_xy_m", geometry.get("apple_outline_xy_m")), "#607049", "#b5c28f"),
         ("Cup", geometry["cup_outline_xy_m"], BLUE, "#a5c0eb"),
         ("Obstacle", evidence.get("obstacle_outline_xy_m"), OBJECT, "#edb590"),
     ):

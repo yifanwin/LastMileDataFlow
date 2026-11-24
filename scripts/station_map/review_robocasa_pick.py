@@ -17,7 +17,7 @@ def main():
     args = parser.parse_args()
     select_devices([args.gpu])
     # MuJoCo reads EGL selection on import.
-    from lastmile_dataflow.station_map.sampling.robocasa_pick_review import review_pick_variants
+    from lastmile_dataflow.station_map.robocasa_pick_review import review_pick_variants
 
     result = review_pick_variants(
         args.run, args.output, args.robot, min_pixels=args.min_pixels, min_fraction=args.min_visible_fraction,

@@ -10,7 +10,7 @@ from lastmile_dataflow.robots.registry import load_robot_config
 from lastmile_dataflow.sim.model.geometry import collision_geoms
 from lastmile_dataflow.sim.robocasa_runtime import RoboCasaRuntime
 from lastmile_dataflow.utils.io import read_json, rows, write_json, write_rows
-from .robocasa import check_robocasa_stations, robocasa_stations
+from .sampling.robocasa import check_robocasa_stations, robocasa_stations
 from .robocasa_pick_figures import draw_details, draw_overview
 from .robocasa_pick_views import RoboCasaPickViews
 
@@ -58,7 +58,8 @@ def _check_frozen(runtime, parent_joints, row):
     reloaded_pose = np.r_[sim.data.xpos[body], sim.data.xquat[body]]
     geom_ids = collision_geoms(sim, body)
     geom_names = [sim.model.geom(g).name for g in geom_ids]
-    pose_error = float(np.max(np.abs(reloaded_pose - row["settled_pose_xyz_wxyz"])))
+    expected_pose = row.get("frozen_pose_xyz_wxyz", row["settled_pose_xyz_wxyz"])
+    pose_error = float(np.max(np.abs(reloaded_pose - expected_pose)))
     if pose_error > 1e-10 or geom_names != obstacle["collision_geoms"]:
         raise ValueError(f"{row['id']} obstacle changed on reload")
     if row["kind"] == "box" and not np.allclose(sim.model.geom_size[geom_ids[0]], obstacle["mjcf_box_half_size_m"]):
@@ -101,8 +102,9 @@ def _verify_representative(scene, rows_by_station, ordered, images):
             reference = np.array(Image.open(path))
             replay = runtime.render(camera)
             difference[camera] = int(np.abs(replay.astype(int) - reference).max())
-        if any(difference.values()):
-            raise ValueError(f"{scene} representative RGB changed on reload")
+        # The renderer can round a channel differently by one 8-bit level across contexts.
+        if max(difference.values()) > 1:
+            raise ValueError(f"{scene} representative RGB changed on reload: {difference}")
         return {"station_id": row["station_id"], "max_rgb_difference": difference}
     finally:
         runtime.close()

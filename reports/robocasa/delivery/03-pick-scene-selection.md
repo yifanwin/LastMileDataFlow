@@ -34,6 +34,13 @@
 - **软件回归。** 相关的 13 项测试通过。主环境全量回归 339 项通过、16 项跳过，3 个 RL 测试模块因主环境缺少 `mjlab` 或 `torch_geometric` 无法导入，在已有 actor-critic 环境补跑 6 项并全部通过。
 - 本轮验收范围是场景、冻结回放、初态和视野。cuRobo 与 π0.5 的固定底盘抓取仍待实际执行。
 
+
+## 官方人类示教核查
+
+2026-11-24 21:56 +08:00，逐条核对官方 `PickPlaceCounterToCabinet` 的 `extras/episode_*/ep_meta.json`，以目标 `obj` 的 `info.mjcf_path` 判定资产。人类示教 `pretrain` 108 条、`target` 502 条，均无以 `objaverse/cup/cup_3/model.xml` 为目标的回合。布局 1 / 风格 1 的 40 条回合都在 `target`，其中唯一以杯类为目标的是 `episode_000098`，使用 `cup_5`。台面和柜体引用相同，记录的机器人初始 XY 相差约 12.9 cm。该回合适合在其原始初态回放。范围限于公开的同任务人类示教两套数据。[pretrain 官方包](https://utexas.box.com/s/myhvbjtfii7at6itjepbivcuo1y8krbp) · [target 官方包](https://utexas.box.com/s/ersnvqs6rcy6yge2fy5hmna7d954v9ty)
+
+2026-11-24 21:58 +08:00，以官方模型和记录状态逐帧回放 `episode_000098`，按原速 20 fps 导出左、右和腕部三路相机拼接视频。共 449 帧，完整解码通过，末帧通过 RoboCasa 原生放置判定。[回放视频](../../../outputs/experiments/robocasa-cup5-demo/runs/20261124-episode-000098/cup5-episode-000098.mp4)
+
 ## 复跑
 
 在 `robocasa-station-eval` worktree 根目录执行。复用相邻 RoboCasa 原生运行环境，显式将当前 worktree 的源码置于导入路径最前。复跑时给构建和分析各传一个新目录。

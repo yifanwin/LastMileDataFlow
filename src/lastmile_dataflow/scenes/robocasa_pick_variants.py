@@ -66,6 +66,11 @@ def _mesh_obstacle(parent, asset):
 def _box_obstacle(parent, dimensions, spec):
     xml = ET.fromstring(parent.xml)
     body = ET.SubElement(xml.find("worldbody"), "body", name="pick_box")
+    # Some recorded models infer inertia only from group 0. Keep the box in the rendered group
+    # and supply the inertia of a uniform cuboid explicitly.
+    inertia = spec["mass_kg"] / 12 * (np.sum(dimensions**2) - dimensions**2)
+    ET.SubElement(body, "inertial", pos="0 0 0", mass=str(spec["mass_kg"]),
+                  diaginertia=" ".join(map(str, inertia)))
     ET.SubElement(body, "joint", name="pick_box_free", type="free", damping=str(spec["joint_damping"]))
     ET.SubElement(
         body, "geom", name="pick_box_geom", type="box", size=" ".join(map(str, dimensions / 2)),
@@ -241,7 +246,8 @@ def _settle(runtime, parent, body, frame, offset, config):
         "obstacle_motion": obstacle_motion, "cup_motion": cup_motion, "peak_cup_translation_m": peak_cup_delta,
         "tail_motion_max": {key: max(x[key] for x in tail_motion) for key in tail_motion[0]},
         "final_qvel": velocity, "during_settle_other_contacts": foreign, "settled_contacts": settled_contacts,
-        "frozen_contacts": frozen_contacts, "actual_center_xy_m": center_xy,
+        "frozen_contacts": frozen_contacts, "frozen_pose_xyz_wxyz": _pose(sim, body),
+        "actual_center_xy_m": center_xy,
         "actual_center_distance_m": float(np.linalg.norm(center_xy)),
         "horizontal_gap_m": _outline_gap(cup_outline, outline), "obstacle_outline_xy_m": outline,
     }
@@ -268,11 +274,14 @@ def build_pick_variants(parent_dir, config_path, output):
         c, s = np.cos(yaw_rad), np.sin(yaw_rad)
         box_axes = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
         dimensions = np.ptp(kettle_points @ box_axes, axis=0)
-        apple = parent.env.sim.model.body("distr_counter_main").id
+        distractor = parent.env.objects["distr_counter"]
+        distractor_body = parent.env.sim.model.body(distractor.root_body).id
+        distractor_cfg = next(obj for obj in parent.ep_meta["object_cfgs"] if obj["name"] == "distr_counter")
         write_json(root / "geometry.json", {
             "origin_world": frame.origin, "axes_world": frame.axes, "support_rectangles_xy_m": frame.support,
             "cup_outline_xy_m": _outlines(parent.env.sim, parent.target_geoms, frame),
-            "apple_outline_xy_m": _outlines(parent.env.sim, collision_geoms(parent.env.sim, apple), frame),
+            "distractor_label": distractor_cfg["info"]["cat"].replace("_", " ").title(),
+            "distractor_outline_xy_m": _outlines(parent.env.sim, collision_geoms(parent.env.sim, distractor_body), frame),
             "kettle_counter_bounds_size_m": np.ptp(points, axis=0), "box_size_m": dimensions,
         })
         manifest = root / "scenes.jsonl"

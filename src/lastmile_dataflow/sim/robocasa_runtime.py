@@ -411,14 +411,13 @@ class RoboCasaRuntime:
         data.qpos[addresses] = 0.0
         data.qvel[[model.joint(name).dofadr[0] for name in BASE_JOINTS]] = 0.0
         sim.forward()
-        x0, y0, yaw0 = self.base_pose()
+        _, _, yaw0 = self.base_pose()
         data.qpos[addresses[2]] = yaw - yaw0
         sim.forward()
         xr, yr, _ = self.base_pose()
-        c, s = np.cos(yaw0), np.sin(yaw0)
-        dx, dy = x - xr, y - yr
-        data.qpos[addresses[0]] = c * dx + s * dy
-        data.qpos[addresses[1]] = -s * dx + c * dy
+        slide_ids = [model.joint(name).id for name in BASE_JOINTS[:2]]
+        world_axes = data.xaxis[slide_ids, :2].T
+        data.qpos[addresses[:2]] = np.linalg.solve(world_axes, [x - xr, y - yr])
         sim.forward()
         reached = self.base_pose()
         error = np.r_[reached[:2] - (x, y), np.arctan2(np.sin(reached[2] - yaw), np.cos(reached[2] - yaw))]
