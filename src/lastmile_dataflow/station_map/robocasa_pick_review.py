@@ -11,8 +11,8 @@ from lastmile_dataflow.sim.model.geometry import collision_geoms
 from lastmile_dataflow.sim.robocasa_runtime import RoboCasaRuntime
 from lastmile_dataflow.utils.io import read_json, rows, write_json, write_rows
 from .sampling.robocasa import check_robocasa_stations, robocasa_stations
-from .robocasa_pick_figures import draw_details, draw_overview
-from .robocasa_pick_views import RoboCasaPickViews
+from .visualization.robocasa_pick_figures import draw_details, draw_overview
+from .visualization.robocasa_pick_views import RoboCasaPickViews
 
 CAMERAS = ("robot0_agentview_left", "robot0_agentview_right")
 logger = logging.getLogger(__name__)

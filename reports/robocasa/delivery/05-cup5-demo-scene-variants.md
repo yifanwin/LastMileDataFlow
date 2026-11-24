@@ -18,7 +18,7 @@
 
 ## 人工选择
 
-场景筛选入口为 `scripts/station_map/review_robocasa_pick.py`。重载审阅、相机证据和选集图代码位于 `station_map/`，审阅流程调用 `station_map/sampling/` 的站位生成与检查。
+场景筛选入口为 `scripts/station_map/review_robocasa_pick.py`。审阅流程位于 `station_map/`，调用 `station_map/sampling/` 的站位生成与检查。相机证据和选集图代码位于 `station_map/visualization/`。
 
 父场景有 233 个名义站、26 个初态合法站、25 个机身相机可见站。14 个变体均保留同一批 26 个合法站。每组包含同种障碍的远置、左置、右置三个条件。
 
