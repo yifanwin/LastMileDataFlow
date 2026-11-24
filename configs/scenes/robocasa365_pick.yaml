@@ -5,7 +5,7 @@ runtime: robocasa
 robot_config: configs/robots/panda_omron_robocasa.yaml
 env_name: PickPlaceCounterToCabinet
 obj_groups: cup
-criterion: robocasa-pick-1cm-1s-v1
+criterion: robocasa-pick-bottom2cm-0.5s-v2
 instances:
   - {layout_id: 1, style_id: 1, seed: 42}
   - {layout_id: 2, style_id: 1, seed: 43}

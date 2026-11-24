@@ -87,7 +87,7 @@ def run_episode(runtime, client, episode, settings):
     initial = runtime.set_station(*episode.base_xyyaw)
     if settings.fixed_base:
         runtime.lock_base()  # fixed-base protocol: planar joints locked, base commands masked at the env boundary
-    judge = PickJudge(runtime.target, initial.target_pose[2])
+    judge = PickJudge(runtime.target, initial.target_bottom_z)
     video = Path(settings.output) / "videos" / f"{episode.episode_id}.mp4"
     video.parent.mkdir(parents=True, exist_ok=True)
     best_lift = best_hold = 0.0

@@ -35,9 +35,12 @@ class Trial:
     dy: float
     dyaw: float
     seed: int
+    grasp_id: int | None = None
 
     @property
     def trial_id(self):
+        if self.grasp_id is not None:
+            return f"{self.scene}/{self.station_id}/g{self.grasp_id:03d}"
         return f"{self.scene}/{self.station_id}/k{self.k:02d}"
 
 
@@ -130,6 +133,8 @@ def run_trial(runtime, worker, pool, trial, workdir):
     initial = runtime.set_station(trial.x + trial.dx, trial.y + trial.dy, trial.yaw + trial.dyaw)
     runtime.lock_base()
     row = {**asdict(trial), "trial_id": trial.trial_id, "success": False}
+    if trial.grasp_id is None:
+        row.pop("grasp_id")
     docking_contacts = runtime.robot_env_contacts()
     if docking_contacts:
         return {**row, "status": "invalid_docking", "docking_contacts": docking_contacts, "wall_s": time.monotonic() - started}
@@ -142,7 +147,7 @@ def run_trial(runtime, worker, pool, trial, workdir):
     with np.load(f"{stem}-plan.npz") as stages:
         stages = {k: stages[k] for k in ("approach", "grasp", "lift")}
     objects0 = _object_positions(runtime)
-    execution = Execution(runtime, PickJudge(runtime.target, initial.target_pose[2]))
+    execution = Execution(runtime, PickJudge(runtime.target, initial.target_bottom_z))
     execution.run("approach", stages["approach"], -1.0)
     execution.run("grasp", stages["grasp"], -1.0)
     execution.run("close", np.repeat(stages["grasp"][-1:], CLOSE_STEPS, axis=0), 1.0)

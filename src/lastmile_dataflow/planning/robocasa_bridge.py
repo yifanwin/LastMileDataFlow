@@ -28,7 +28,7 @@ def planning_base(runtime):
     return frame
 
 
-def _geom_triangles(m, d, g):
+def geom_triangles(m, d, g):
     kind = m.geom_type[g]
     if kind == mujoco.mjtGeom.mjGEOM_MESH:
         mid = m.geom_dataid[g]
@@ -57,7 +57,7 @@ def export_problem(runtime, grasps_object_to_tcp, path, range_m=1.5):
     base = planning_base(runtime)
     inv = np.linalg.inv(base)
     target = set(runtime.target_geoms)
-    verts, faces, names, n = [], [], [], 0
+    verts, faces, names, counts, n = [], [], [], [], 0
     for g in range(m.ngeom):
         if m.geom_contype[g] == 0 and m.geom_conaffinity[g] == 0:
             continue
@@ -67,18 +67,19 @@ def export_problem(runtime, grasps_object_to_tcp, path, range_m=1.5):
             continue
         if np.linalg.norm(d.geom_xpos[g][:2] - base[:2, 3]) - m.geom_rbound[g] > range_m:
             continue
-        tri = _geom_triangles(m, d, g)
+        tri = geom_triangles(m, d, g)
         if tri is None:
             continue
         v, f = tri
         if v[:, 2].max() <= base[2, 3] + FLOOR_CLEARANCE_M:
             continue  # floor slabs: planner only, physics unchanged
         verts.append(v @ inv[:3, :3].T + inv[:3, 3]); faces.append(f + n); n += len(v)
+        counts.append(len(v))
         names.append(m.geom(g).name or f"geom{g}")
     obj = _pose(d.xpos[runtime.target_body], d.xmat[runtime.target_body])
     goals = np.array([inv @ obj @ T for T in grasps_object_to_tcp])
     joints = runtime.joint_positions()
     np.savez(path, vertices=np.concatenate(verts), faces=np.concatenate(faces), geom_names=np.array(names),
-             base_world=base, goals_base=goals, arm=np.array(joints["right"]), torso=np.array(joints["torso"]),
+             base_world=base, goals_base=goals, geom_vertex_counts=np.array(counts), arm=np.array(joints["right"]), torso=np.array(joints["torso"]),
              fingers=np.array(joints["right_gripper"]), object_world=obj)
     return {"geoms": len(names), "vertices": n, "goals": len(goals)}

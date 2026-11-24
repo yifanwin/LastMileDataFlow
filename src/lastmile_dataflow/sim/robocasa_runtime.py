@@ -307,7 +307,15 @@ class RoboCasaRuntime:
             grasped_objects=self.grasped_objects(),
             target_supported=bool(support),
             support_contacts=support,
+            target_bottom_z=self.target_bottom_z(),
         )
+
+    def target_bottom_z(self):
+        """Lowest collision vertex of the target in world z (station-quality lift reference)."""
+        from lastmile_dataflow.planning.robocasa_bridge import geom_triangles
+
+        m, d = self.env.sim.model._model, self.env.sim.data._data
+        return float(min(geom_triangles(m, d, g)[0][:, 2].min() for g in self.target_geoms))
 
     def set_station(self, x, y, yaw):
         """Reset, then move only the three base joints so the base body reaches the world pose (x, y, yaw).

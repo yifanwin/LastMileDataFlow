@@ -44,6 +44,7 @@ class RuntimeState:
     grasped_objects: tuple  # objects passing the runtime's own two-finger grasp check
     target_supported: bool  # target touches any environment geom (not robot, not itself)
     support_contacts: tuple = ()
+    target_bottom_z: float | None = None  # lowest target collision vertex, world z
 
 
 class SceneRuntime(Protocol):

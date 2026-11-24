@@ -1,15 +1,19 @@
-"""Derived pick judgement ``robocasa-pick-1cm-1s-v1`` checked once per control step.
+"""Derived pick judgement ``robocasa-pick-bottom2cm-0.5s-v2`` checked once per control step.
 
 Success needs, continuously for at least ``hold_s``: the runtime's native two-finger grasp check holds for
-the designated target, the target touches no environment support, and the target body origin is at least
-``lift_m`` above its frozen initial height. Any broken condition restarts the window. Sampling is per
+the designated target, the target touches no environment support, and the target's lowest collision vertex
+is at least ``lift_m`` above the original tabletop, taken as that vertex height in the frozen resting state
+(as station-quality's ``target_lift_height``). Any broken condition restarts the window. Sampling is per
 control step, so this is not the per-physics-step ``strict-pick-v3`` and makes no claim of equivalence.
 The native task result (place in cabinet) is recorded separately; a derived pick is not a placement.
 """
 
 from dataclasses import dataclass
 
-PICK_PROTOCOL = {"version": "robocasa-pick-1cm-1s-v1", "lift_m": 0.01, "hold_s": 1.0, "sampling": "control_step"}
+PICK_PROTOCOL = {
+    "version": "robocasa-pick-bottom2cm-0.5s-v2", "lift_m": 0.02, "hold_s": 0.5, "sampling": "control_step",
+    "lift_reference": "lowest target collision vertex above the frozen resting tabletop",
+}
 
 
 @dataclass(frozen=True)
@@ -28,10 +32,10 @@ class PickStatus:
 
 
 class PickJudge:
-    """Hold window over runtime facts; the reference height is the frozen initial target height."""
+    """Hold window over runtime facts; the reference height is the target bottom in the frozen resting state."""
 
-    def __init__(self, target, initial_z, protocol=PICK_PROTOCOL):
-        self.target, self.initial_z, self.protocol = target, float(initial_z), protocol
+    def __init__(self, target, table_z, protocol=PICK_PROTOCOL):
+        self.target, self.table_z, self.protocol = target, float(table_z), protocol
         self.start = None
         self.succeeded_at = None
 
@@ -39,7 +43,7 @@ class PickJudge:
         """Advance with one ``RuntimeState``; success latches once the hold reaches ``hold_s``."""
         if state.target != self.target:
             raise ValueError(f"state describes {state.target}, judge tracks {self.target}")
-        lift = float(state.target_pose[2]) - self.initial_z
+        lift = float(state.target_bottom_z) - self.table_z
         grasped = self.target in state.grasped_objects
         unsupported = not state.target_supported
         lifted = lift >= self.protocol["lift_m"]

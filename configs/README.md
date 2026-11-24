@@ -26,7 +26,7 @@
 
 | 文件 | 说明 |
 |---|---|
-| `scenes/robocasa365_pick.yaml` | RoboCasa365 `PickPlaceCounterToCabinet` 台面取物：布局 1/2/3、style 1、seed 42/43/44，目标 `obj_groups: cup`，判据 `robocasa-pick-1cm-1s-v1` |
+| `scenes/robocasa365_pick.yaml` | RoboCasa365 `PickPlaceCounterToCabinet` 台面取物：布局 1/2/3、style 1、seed 42/43/44，目标 `obj_groups: cup`，判据 `robocasa-pick-bottom2cm-0.5s-v2` |
 | `robots/panda_omron_robocasa.yaml` | RoboCasa 原生 PandaOmron：`runtime: robocasa`、比例 1.0、默认原生控制器、三相机 256×256 |
 | `scenes/panda_omron.yaml` | PandaOmron 场景配方（`procthor_10k` / `lmdf`）：procthor-10k-val 前 10 个 house，每 house pick、open 各 1 个目标；每个任务一份原场景、一份编辑场景 |
 | `robots/panda_omron.yaml` | PandaOmron，robocasa-v1 控制、三相机；场景构建和 cuRobo、π0.5 执行共用 |
