@@ -1,0 +1,136 @@
+# RoboCasa kettle-far (plan 05 M4): LMDF PandaOmron at factory scale 1.0 on the exported native snapshot
+# (scripts/scenes/robocasa_rl_scene.py); lift 0 and the frozen native arm pose; native PickJudge window 1 s / 1 cm.
+scene:
+  data_root: /data1/wenyifan/lmdf/molmospaces_data
+  scene_xml: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/robocasa-station-eval/outputs/experiments/robocasa-station-eval/rl-scenes/kettle-far/scene.xml
+  scene_metadata: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/robocasa-station-eval/outputs/experiments/robocasa-station-eval/rl-scenes/kettle-far/metadata.json
+  robot_xml: assets/robots/panda_omron/model.xml
+  target: obj_main
+  local_radius_m: 2.0
+  physics_dt: 0.002
+  multiccd: false
+  home:
+  - -0.02325048
+  - -1.06932457
+  - -0.01701496
+  - -2.24018125
+  - 0.00893435
+  - 1.53268704
+  - 0.69090842
+  lift: 0.0
+  robot_scale: 1.0
+  fixed_base: true
+  home_noise_rad: 0.05
+observation:
+  mode: flat
+  layout: station
+  world_state: false
+mjlab_source: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/reference_repos/mjlab
+environment:
+  num_envs: 128
+  decimation: 25
+  episode_s: 20
+  settling_s: 1.0
+  nconmax: 5000
+  njmax: 5000
+action:
+  translation_m: 0.02
+  rotation_rad: 0.08726646259971647
+  damping: 0.05
+  joint_limit_weight: 1.0
+  lift_velocity_m_s: 0.05
+  gripper_step: 0.2
+reward:
+  position: 20.0
+  rotation: 5.0
+  success: 30.0
+  close: 3.0
+  grasp: 3.0
+  lift: 8.0
+  grasp_distance_m: 0.03
+  grasp_angle_rad: 0.3490658503988659
+  pregrasp_offset_m: 0.1
+  pregrasp_tolerance_m: 0.02
+  pregrasp_tolerance_rad: 0.17453292519943295
+  descent_lateral_weight: 3.0
+  closing_requires_contact: false
+  closing_distance_m: 0.01
+  closing_angle_rad: 0.17453292519943295
+  finger_inner_cos: 0.5
+  drop_height_m: 0.3
+  drop_penalty: 0.0
+  collision: 0.0
+  failure: 10.0
+algorithm: ppo
+ppo: {}
+training:
+  best_checkpoint:
+    window_episodes: 200
+    start_transitions: 600000
+    metric: success_rate
+  periodic_evaluation: false
+  batch_size: 512
+  replay_capacity: 100000
+  warmup_min: 20000
+  transitions_per_update: 128
+  debug_station_ids: []
+  log_every: 10000
+  max_transitions: 5000000
+  tensorboard_every_seconds: 30
+  validation_stations: 1
+  validation_rollouts_per_station: 16
+stations:
+  robot_config: configs/robots/panda_omron_robocasa.yaml
+  table: outputs/experiments/robocasa-station-eval/station-table/kettle-far__kettle-left-125mm/stations.jsonl
+  heading_offsets_deg:
+  - 0
+  seed: 42
+evaluation:
+  action_samples: 16
+  top: 4
+  middle: 4
+  low: 4
+  uniform: 8
+  rollouts_per_station: 1
+  seed: 20261109
+  q_color_limits:
+  - -100.0
+  - 100.0
+  station_count: 20
+acceptance:
+  top_success_min: 0.5
+  top_collision_free_success_min: 0.4
+  top_uniform_gap_min: 0.1
+  positive_spearman: true
+success:
+  version: rl-pick-contact-v2
+  finger_force_min_n: 0.5
+  pad_contact: true
+  lift_m: 0.01
+  hold_s: 1.0
+video:
+  every: 100000
+  width: 640
+  height: 480
+grasp:
+  preprocessed_path: outputs/experiments/robocasa-station-eval/runs/20261124-0024-cup3-grasp-pool-pitch/rl_transforms.npz
+  sample_count: 152
+  sample_seed: 42
+  roll_rad: 0.0
+  align_to_tcp: false
+termination:
+  illegal:
+  - finger_outer
+  - palm_target
+  - finger_table
+  - arm_target
+  - robot_scene
+  - self
+  joint_tolerance_rad: 0.01
+  joint_tolerance_m: 0.002
+noise:
+  sigma_max: 0.0
+  action: 0.1
+  target_m: 0.005
+  dock_m: 0.05
+  dock_yaw_rad: 0.08726646259971647

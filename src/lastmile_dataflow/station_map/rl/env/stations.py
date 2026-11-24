@@ -19,8 +19,33 @@ from .mobile import LocalBoundary
 from lastmile_dataflow.sim.model.geometry import descendants, geom_points
 
 
+def table_stations(path):
+    """Legal rows of a RoboCasa paired station table (native station = link0 XY under the arm).
+
+    LMDF stations are base_site poses, LINK0_OFFSET_M behind link0 along the heading, so each row is
+    shifted back; station ids and yaw are kept.
+    """
+    from lastmile_dataflow.planning.robocasa_bridge import LINK0_OFFSET_M
+    from lastmile_dataflow.utils.io import rows as read_rows
+
+    out = []
+    for r in read_rows(path):
+        if not r["valid"]:
+            continue
+        c, s = math.cos(r["yaw"]), math.sin(r["yaw"])
+        out.append({
+            "station_id": r["station_id"], "xy_id": r["xy_id"],
+            "x": r["x"] - LINK0_OFFSET_M * c, "y": r["y"] - LINK0_OFFSET_M * s, "yaw": r["yaw"],
+            "yaw_offset_rad": math.radians(r["yaw_offset_deg"]), "native_xy": [r["x"], r["y"]],
+            "split": "train", "valid": True, "invalid_reason": "",
+        })
+    return out
+
+
 def station_candidates(center, settings):
-    """Enumerate the grid, or keep one explicit world pose independent of grid IDs."""
+    """Enumerate the grid, a RoboCasa station table, or one explicit world pose independent of grid IDs."""
+    if settings.get("table"):
+        return table_stations(settings["table"])
     fixed = settings.get("fixed_station")
     if fixed:
         x, y, yaw = fixed["base_xyyaw"]
@@ -188,7 +213,8 @@ def check_stations(sim, settings, *, facing_only=False):
                 for a in np.linspace(0, 2 * math.pi, 16, endpoint=False)
             ],
         ]
-        supported = all(floor_support(sim, p, triangles=triangles) for p in footprint)
+        # Table stations were screened in the native scene; procthor room floors do not exist there.
+        supported = bool(settings.get("table")) or all(floor_support(sim, p, triangles=triangles) for p in footprint)
         for row in station_rows:
             if not row["valid"]:
                 continue
