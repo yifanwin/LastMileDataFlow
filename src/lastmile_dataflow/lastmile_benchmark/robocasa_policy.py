@@ -86,7 +86,7 @@ def run_episode(runtime, client, episode, settings):
     start = time.monotonic()
     initial = runtime.set_station(*episode.base_xyyaw)
     if settings.fixed_base:
-        runtime.lock_base()  # fixed-base protocol: planar joints locked, base commands masked at the env boundary
+        runtime.lock_base()  # operation phase: planar base and torso (0.00 m) locked, their commands masked
     judge = PickJudge(runtime.target, initial.target_bottom_z)
     video = Path(settings.output) / "videos" / f"{episode.episode_id}.mp4"
     video.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +95,7 @@ def run_episode(runtime, client, episode, settings):
     native_success = False
     first_contact = success_step = None
     inference_s = 0.0
-    base_cmd_max, base_mode_steps = 0.0, 0
+    base_cmd_max, torso_cmd_max, base_mode_steps = 0.0, 0.0, 0
     with _video_writer(video) as writer:
         for step in range(settings.horizon):
             frames = {camera: runtime.render(camera) for camera in CAMERAS}
@@ -107,6 +107,7 @@ def run_episode(runtime, client, episode, settings):
             inference_s += response.inference_s
             action = robocasa_env_action(response.action)
             base_cmd_max = max(base_cmd_max, float(np.max(np.abs(action[7:10]))))  # raw policy command, masked in step
+            torso_cmd_max = max(torso_cmd_max, abs(float(action[10])))
             base_mode_steps += action[11] > 0
             result = runtime.step(action)
             status = judge.update(runtime.get_state())
@@ -136,8 +137,10 @@ def run_episode(runtime, client, episode, settings):
         "native_task_success": native_success,
         "inference_s": inference_s,
         "raw_base_command_max": base_cmd_max,
+        "raw_torso_command_max": torso_cmd_max,
         "raw_base_mode_steps": int(base_mode_steps),
         "base_drift": [float(v) for v in runtime.max_base_drift] if settings.fixed_base else None,
+        "torso_drift_m": runtime.max_torso_drift if settings.fixed_base else None,
         "base_displacement_m": float(np.hypot(*np.subtract(runtime.base_pose()[:2], initial.robot["base_xyyaw"][:2]))),
         "wall_s": time.monotonic() - start,
         "video": str(video.relative_to(settings.output)),

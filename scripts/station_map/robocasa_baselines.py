@@ -30,6 +30,7 @@ def export(a):
         target_xy = rt.env.sim.data._data.xpos[rt.target_body][:2].tolist()
         for s in stations:
             rt.set_station(s["x"], s["y"], s["yaw"])
+            rt.lock_base()  # torso at 0.00 m, as in the evaluators
             path = out / "problems" / f"{scene}__{s['station_id']}.npz"
             export_problem(rt, pool, path)
             index.append({"scene": scene, "station_id": s["station_id"], "x": s["x"], "y": s["y"], "yaw": s["yaw"],

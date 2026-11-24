@@ -1,6 +1,6 @@
 """Baselines B0/B1/B2 for station quality (Vahrenkamp et al., ICRA 2013, "Robot placement based on reachability inversion").
 
-RD: uniform joint-space samples of the 7-DoF arm (the lift is locked at its frozen height, as in evaluator B),
+RD: uniform joint-space samples of the 7-DoF arm (the torso is locked at 0.00 m, as in every evaluator),
 FK of the TCP in the planning base frame, binned into a dense 6D grid (x, y, z, roll, pitch, yaw) keeping the
 voxel maximum of the extended manipulability  e = w * P_L * P_D :
   w   = sqrt(det(J J^T))                                   Yoshikawa manipulability

@@ -1,7 +1,6 @@
-# Curriculum stage A3: 3 front dev stations; grasps whose approach axis points >=30 deg down (geometric rule,
-# not from any evaluator): side30/side45 + rim pinch. Outer-finger/target contact is no longer a terminal
-# failure (native PickJudge and cuRobo allow finger-target contact); arm/scene/table/self contacts still end.
-# Networks start from stage A2 (training.init_checkpoint); counters and optimizers are fresh.
+# Curriculum stage A3 (plan 06 protocol): 3 front dev stations; grasps whose approach axis points >=30 deg down
+# (geometric rule, not from any evaluator): side30/side45 + rim pinch. Fresh networks (earlier stages used the
+# superseded force-based success and illegal-contact terminations).
 scene:
   data_root: /data1/wenyifan/lmdf/molmospaces_data
   scene_xml: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/robocasa-station-eval/outputs/experiments/robocasa-station-eval/rl-scenes/kettle-far/scene.xml
@@ -22,7 +21,7 @@ scene:
   lift: 0.0
   robot_scale: 1.0
   fixed_base: true
-  home_noise_rad: 0.05
+  lock_torso: true
 observation:
   mode: flat
   layout: station
@@ -40,7 +39,6 @@ action:
   rotation_rad: 0.08726646259971647
   damping: 0.05
   joint_limit_weight: 1.0
-  lift_velocity_m_s: 0.05
   gripper_step: 0.2
 reward:
   position: 20.0
@@ -59,9 +57,23 @@ reward:
   closing_distance_m: 0.01
   closing_angle_rad: 0.17453292519943295
   finger_inner_cos: 0.5
+  # rl-ppo fixed-base typed collision penalties, [first contact, per policy step while sustained]; a tier
+  # counts as first again after collision_rearm_s without it. Collisions never end an episode by themselves:
+  # only the stuck window below does (one-off penalty), or the target dropping drop_height_m (drop_penalty).
+  collision_tiers:
+    small: [0.5, 0.1]
+    medium: [0.8, 0.5]
+    large: [1.0, 0.5]
+  collision_rearm_s: 0.25
+  stuck:
+    window_s: 2.0
+    collision_fraction: 0.5
+    tcp_path_m: 0.02
+    distance_gain_m: 0.005
+    angle_gain_rad: 0.05
+    penalty: 10.0
   drop_height_m: 0.3
-  drop_penalty: 0.0
-  collision: 0.0
+  drop_penalty: 20.0
   failure: 10.0
 algorithm: ppo
 ppo: {}
@@ -84,10 +96,9 @@ training:
   tensorboard_every_seconds: 30
   validation_stations: 1
   validation_rollouts_per_station: 16
-  init_checkpoint: outputs/experiments/robocasa-station-eval/runs/20261124-0951-m4-ppo-far-stageA2/latest.pt
 stations:
   robot_config: configs/robots/panda_omron_robocasa.yaml
-  table: outputs/experiments/robocasa-station-eval/station-table/kettle-far__kettle-left-125mm/stations.jsonl
+  table: outputs/experiments/robocasa-station-eval/station-table/kettle-far__kettle-left-125mm-0deg/stations.jsonl
   heading_offsets_deg:
   - 0
   seed: 42
@@ -109,11 +120,11 @@ acceptance:
   top_uniform_gap_min: 0.1
   positive_spearman: true
 success:
-  version: rl-pick-contact-v2
-  finger_force_min_n: 0.5
-  pad_contact: true
-  lift_m: 0.01
-  hold_s: 1.0
+  # Native RoboCasa PickJudge (operation/outcomes/robocasa_pick.py), judged once per 0.05 s control step:
+  # both pads touch the target, no environment support, collision bottom >= 2 cm above the tabletop, held 0.5 s.
+  version: robocasa-pick-bottom2cm-0.5s-v2
+  lift_m: 0.02
+  hold_s: 0.5
 video:
   every: 100000
   width: 640
@@ -125,17 +136,11 @@ grasp:
   roll_rad: 0.0
   align_to_tcp: false
 termination:
-  illegal:
-  - palm_target
-  - finger_table
-  - arm_target
-  - robot_scene
-  - self
+  # No contact class terminates; joint limits and the time limit remain true terminals.
+  illegal: []
   joint_tolerance_rad: 0.01
   joint_tolerance_m: 0.002
 noise:
   sigma_max: 0.0
   action: 0.1
   target_m: 0.005
-  dock_m: 0.05
-  dock_yaw_rad: 0.08726646259971647

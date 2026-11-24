@@ -23,6 +23,7 @@ from .mobile import MobileBaseCfg
 from . import terms
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS
 from .terms import TaskState
+from ..config import contact_success
 
 
 @dataclass(kw_only=True)
@@ -154,7 +155,7 @@ def build_sensors(prepared, typed=False):
 class StationEnv(ManagerBasedRlEnv):
     def __init__(self, config, *, gpu, seed, num_envs=None):
 
-        contact_protocol = config["success"].get("version") == "rl-pick-contact-v2"
+        contact_protocol = contact_success(config)
         if not contact_protocol:
             for key, value in config["success"].items():
                 if RL_PICK_THRESHOLDS[key] != value:
@@ -221,7 +222,8 @@ class StationEnv(ManagerBasedRlEnv):
             actions={
                 "tcp": BaseFrameDLSCfg(
                     entity_name=ROBOT_ENTITY,
-                    actuator_names=[f"robot0_joint{i}" for i in range(1, 8)] + ["mobilebase0_joint_torso_height"],
+                    actuator_names=[f"robot0_joint{i}" for i in range(1, 8)]
+                    + ([] if config["scene"].get("lock_torso", False) else ["mobilebase0_joint_torso_height"]),
                     frame_type="site",
                     frame_name="gripper0_right_grip_site",
                     base_site=ROBOT_PREFIX + "base_site",
@@ -230,7 +232,8 @@ class StationEnv(ManagerBasedRlEnv):
                     delta_ori_scale=action["rotation_rad"],
                     damping=action["damping"],
                     joint_limit_weight=action["joint_limit_weight"],
-                    joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, action["lift_velocity_m_s"]),
+                    joint_velocity_limits=(2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61)
+                    + (() if config["scene"].get("lock_torso", False) else (action["lift_velocity_m_s"],)),
                 ),
                 "gripper": GripperCfg(entity_name=ROBOT_ENTITY, positive_closes=contact_protocol,
                                       step=action.get("gripper_step")),

@@ -2,7 +2,7 @@
 
 - 状态：active
 - 日期：2026-11-23 23:55 +08:00
-- 替代：无（补充 04）
+- 替代：无（补充 04）；§1 σ 的停靠/初始臂姿成分与 §4 偏航扩展已被 [06](06-protocol-unification.md) 替代
 - 关联：[04 首对实验构建计划](04-paired-station-experiment.md)、[Vahrenkamp 2013](../Vahrenkamp%20等%20-%202013%20-%20Robot%20placement%20based%20on%20reachability%20inversion.pdf)
 
 ## 1. 被估计量
@@ -65,3 +65,4 @@ cuRobo 全域在每个 XY 上加偏航偏移 {0°, ±20°}（约 3 倍站位）�
 - 2026-11-24 10:10：M2 π0.5 小样（far/left × S0019/S0022/S0025，1000 步）：seed 42 为 1/6，far 三站均未成功，按 plan 04 复核设置。不锁底盘对照（far，seed 42）2/3；但锁底盘下补 seed 43/44 后合计 9/18（far 5/9，left 4/9），S0025 两场景 1/6 且全部回合有机器人–环境接触。seed 42 的 far 0/3 属 seed 方差。另试“只清零底盘速度、保留模式位”为 8/18，与强制 arm mode 无差别且漂移更大（≤0.2 mm 对 ≤0.03 mm），未采用。π0.5 原始底盘命令峰值 0.28–0.74，S0025 底盘模式步数过半，执行时均被屏蔽。吞吐约 40 s/回合/GPU，正式 234 回合在 4 张卡上约 40 min。`runs/20261124-0919-m2-pi05-smoke`、`-0924-m2-pi05-forcearm-s4344`、`-0924-m2-pi05-keepmode`、`-0922-m2-pi05-freebase-ref`。
 
 - 2026-11-24 10:55：按用户要求，成功判据改为参照 station-quality 的 `target_lift_height`：`robocasa-pick-bottom2cm-0.5s-v2`，目标最低碰撞顶点高出原始桌面（冻结静置态的最低点）≥2 cm，与原生双指抓握、脱离环境支撑同时连续保持 ≥0.5 s，20 Hz 判定。替代 v1（原点抬升 1 cm、保持 1 s）。cuRobo 与 π0.5 评测器、场景配置同步；此前 M2 小样按 v1 判，不进入正式结果。S0022 cuRobo 回合在 v2 下成功（静置最低点 0.920 m，最大抬升 0.0855 m）。RL 训练端需同步 lift_m 0.02、hold_s 0.5（最低点口径）。
+- 2026-11-24 17:00：评测协议统一见 [06](06-protocol-unification.md)：全部方法用原生 PickJudge、7 DoF（torso 0.00 m）、40 个正对站位；RL 改用 rl-ppo 分档碰撞扣分与卡住终止；σ 只含感知与动作噪声；原生底盘按阶段锁定（新增 `unlock_base`），cuRobo 保留停靠扰动。此前的 M2 小样与 M4 checkpoint 不进正式结果。

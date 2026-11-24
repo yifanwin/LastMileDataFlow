@@ -131,7 +131,7 @@ def _failure(execution, grasped_after_close):
 def run_trial(runtime, worker, pool, trial, workdir):
     started = time.monotonic()
     initial = runtime.set_station(trial.x + trial.dx, trial.y + trial.dy, trial.yaw + trial.dyaw)
-    runtime.lock_base()
+    runtime.lock_base()  # docking error is applied by set_station above; torso locked at 0.00 m
     row = {**asdict(trial), "trial_id": trial.trial_id, "success": False}
     if trial.grasp_id is None:
         row.pop("grasp_id")
@@ -167,5 +167,5 @@ def run_trial(runtime, worker, pool, trial, workdir):
         "steps": execution.steps, "max_lift_m": execution.best_lift, "max_hold_s": execution.best_hold,
         "grasp_steps": execution.grasp_steps, "robot_env_contact_steps": execution.contact_steps,
         "track_error_rad": execution.track_error, "object_displacement_m": moved,
-        "base_drift": [float(v) for v in runtime.max_base_drift], "wall_s": time.monotonic() - started,
+        "base_drift": [float(v) for v in runtime.max_base_drift], "torso_drift_m": runtime.max_torso_drift, "wall_s": time.monotonic() - started,
     }

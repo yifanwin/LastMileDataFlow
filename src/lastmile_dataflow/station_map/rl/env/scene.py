@@ -49,8 +49,8 @@ class RLSceneConfig:
     lift: float = 0.2
     cube: dict | None = None
     fixed_base: bool = False
-    # Uniform per-joint arm offset around Home at reset (radians); used by the station-quality task.
-    home_noise_rad: float = 0.0
+    # Remove the torso joint too (fixed at 0.00 m), so the arm is the 7-DoF chain of every evaluator.
+    lock_torso: bool = False
     # Scene-builder run directory whose accepted edit adds obstacles (procedural_obstacle_*) to this scene.
     edit_scene: str | None = None
 
@@ -143,7 +143,7 @@ def prepare_rl_scene(config):
 
     robot_spec = load_robot_spec(robot, config.robot_scale)
     if config.fixed_base:
-        fix_robot_base(robot_spec)
+        fix_robot_base(robot_spec, torso=config.lock_torso)
     robot_joints = {joint.name for joint in robot_spec.joints}
     qpos = {
         local.model.joint(j).name: float(local.data.qpos[local.model.jnt_qposadr[j]])
@@ -193,11 +193,12 @@ def add_edit_obstacles(sim, run_dir):
     return edited
 
 
-def fix_robot_base(spec):
-    """Remove planar dynamics; mjlab wraps this articulated robot in a mocap root."""
-    for suffix in ("forward", "side", "yaw"):
-        spec.delete(spec.actuator(ROBOT_NAMESPACE + "mobilebase0_actuator_mobile_" + suffix))
-        spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_mobile_" + suffix))
+def fix_robot_base(spec, *, torso=False):
+    """Remove planar dynamics (and optionally the torso, leaving it at 0.00 m); mjlab wraps this robot in a mocap root."""
+    names = [f"mobile_{suffix}" for suffix in ("forward", "side", "yaw")] + (["torso_height"] if torso else [])
+    for name in names:
+        spec.delete(spec.actuator(ROBOT_NAMESPACE + "mobilebase0_actuator_" + name))
+        spec.delete(spec.joint(ROBOT_NAMESPACE + "mobilebase0_joint_" + name))
 
 
 def target_support_body(sim):

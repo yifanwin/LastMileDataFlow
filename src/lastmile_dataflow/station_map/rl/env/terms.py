@@ -11,7 +11,7 @@ from .observation import (
     GeometryObservation, REWARD_COMPONENTS, CONTACT_REWARD_COMPONENTS,
     CUBE_GRASP_ROTATION, FlatObservationState, build_flat_observation, pose_goal_error,
 )
-from .stations import mocap_frame, prepare_stations, station_joint_poses, station_mocap_poses
+from .stations import prepare_stations, station_joint_poses, station_mocap_poses
 from .scene_graph import NodeTensors, scene_entities, select_nodes
 from .mobile import LocalBoundary
 from lastmile_dataflow.operation.grasps import (
@@ -19,6 +19,8 @@ from lastmile_dataflow.operation.grasps import (
 )
 from lastmile_dataflow.utils.io import repo_path
 from lastmile_dataflow.operation.outcomes.pick_state import RL_PICK_THRESHOLDS as P, update_hold_window
+from lastmile_dataflow.operation.outcomes.robocasa_pick import PICK_PROTOCOL
+from ..config import contact_success
 from .scene import ROBOT_ENTITY, ROBOT_PREFIX, RLSceneConfig
 from lastmile_dataflow.sim.model.geometry import body_points
 
@@ -31,7 +33,7 @@ COLLISION_CLASSES = (
 )
 COLLISION_TIERS = ("small", "medium", "large")
 # First failure of a strict episode; "" while none, "timeout" is assigned when the record is written.
-FAILURE_REASONS = ("", *(name for name, _ in COLLISION_CLASSES), "joint_limit", "drop", "base_drift")
+FAILURE_REASONS = ("", *(name for name, _ in COLLISION_CLASSES), "joint_limit", "drop", "base_drift", "stuck")
 
 
 def tier_penalty(active, idle, first, sustained, rearm_steps):
@@ -74,7 +76,9 @@ def contact_addresses(model, prefixes, field, device):
 
 
 def finger_contact(env):
-    """Use the task protocol's normal-force threshold for both fingers."""
+    """Both fingers on the target: native pad contact (robosuite ``_check_grasp``) or a normal-force threshold."""
+    if getattr(env.task, "native_pick", False):
+        return (env.sim.data.sensordata[:, env.task.pad_found_addresses] > 0).all(-1)
     threshold = (
         env.research_config["success"]["finger_force_min_n"]
         if getattr(env.task, "contact_protocol", False) else P["finger_force_min_n"]
@@ -201,7 +205,17 @@ class TaskState:
         self.model = env.sim.mj_model
         self.robot = env.scene[ROBOT_ENTITY]
         n = env.num_envs
-        self.contact_protocol = env.research_config["success"].get("version") == "rl-pick-contact-v2"
+        self.contact_protocol = contact_success(env.research_config)
+        # Native RoboCasa PickJudge: pad contact on both fingers, no environment support, bottom lift, hold,
+        # judged once per control step (robocasa-pick-bottom2cm-0.5s-v2).
+        self.native_pick = env.research_config["success"]["version"] == PICK_PROTOCOL["version"]
+        if self.native_pick:
+            success_cfg = env.research_config["success"]
+            if (success_cfg.get("lift_m"), success_cfg.get("hold_s")) != (PICK_PROTOCOL["lift_m"], PICK_PROTOCOL["hold_s"]):
+                raise ValueError("success.lift_m/hold_s must equal the native PickJudge protocol")
+            self.pad_found_addresses = contact_addresses(self.model, ("pad_",), "found", self.device)
+            if len(self.pad_found_addresses) != 2:
+                raise ValueError("Native pick needs one pad-target contact sensor per finger")
         self.target = self.model.body(env.prepared.target_body).id
         self.finger_addresses = contact_addresses(self.model, ("finger_",), "force", self.device)
         self.support_addresses = contact_addresses(
@@ -216,7 +230,7 @@ class TaskState:
             if self.model.sensor(i).name.startswith(("environment_", "nonfinger_", "self_collision_"))
             and self.model.sensor(i).name.endswith("_found")
         ]
-        if env.research_config["success"].get("pad_contact"):
+        if env.research_config["success"].get("pad_contact") or self.native_pick:
             # Grasp facts use the pad geoms only, not the finger bodies' outer faces.
             self.finger_addresses = contact_addresses(self.model, ("pad_",), "force", self.device)
         self.typed = "collision_tiers" in env.research_config["reward"]
@@ -243,12 +257,15 @@ class TaskState:
                 ["mobilebase0_joint_mobile_" + suffix for suffix in ("forward", "side", "yaw")],
                 preserve_order=True,
             )
-        self.lift, _ = self.robot.find_joints(["mobilebase0_joint_torso_height"])
+        # A locked torso has no joint (removed with the planar base, 0.00 m); its observation slot reads 0.
+        self.torso_locked = env.research_config["scene"].get("lock_torso", False)
+        self.lift = [] if self.torso_locked else self.robot.find_joints(["mobilebase0_joint_torso_height"])[0]
         self.open_grip = float(
             self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint1").range[1]
             - self.model.joint(ROBOT_PREFIX + "gripper0_right_finger_joint2").range[0]
         )
-        self.lift_range = self.model.joint(ROBOT_PREFIX + "mobilebase0_joint_torso_height").range.copy()
+        self.lift_range = (np.array([0.0, 0.34]) if self.torso_locked
+                           else self.model.joint(ROBOT_PREFIX + "mobilebase0_joint_torso_height").range.copy())
         self.graph = None if self.contact_protocol else GeometryObservation(
             self.model,
             self.target,
@@ -289,6 +306,8 @@ class TaskState:
         self.reference_position = torch.zeros(n, 3, device=self.device)
         self.reference_rotation = torch.eye(3, device=self.device).repeat(n, 1, 1)
         self.hold = torch.zeros(n, dtype=torch.float64, device=self.device)
+        self.pick_facts = torch.zeros(n, dtype=torch.bool, device=self.device)
+        self.pick_start = torch.full((n,), -1.0, dtype=torch.float64, device=self.device)
         self.forces = torch.zeros(n, 2, device=self.device)
         self.support = torch.zeros(n, dtype=torch.bool, device=self.device)
         self.success = torch.zeros(n, dtype=torch.bool, device=self.device)
@@ -451,24 +470,31 @@ class TaskState:
         ) & ~(self.success | self.failed | self.unhealthy)
         self.stuck_event[:] = stuck
         self.stuck |= stuck
+        if getattr(self, "failure_reason", None) is not None:
+            self.failure_reason[stuck] = FAILURE_REASONS.index("stuck")
         self.failed |= stuck
+
+    def judge_pick(self):
+        """Native PickJudge.update per control step: the window opens at the first step with all facts true
+        and success latches once it has lasted hold_s; any broken fact restarts it."""
+        held = self.pick_facts & ~self.failed & ~self.unhealthy
+        self.pick_start[:] = torch.where(held, torch.where(self.pick_start < 0, self.elapsed, self.pick_start), -1.0)
+        self.hold[:] = torch.where(held, self.elapsed - self.pick_start, 0.0)
+        self.success |= held & (self.hold >= PICK_PROTOCOL["hold_s"] - 1e-9)
+        if getattr(self, "mobile_base", False):
+            self.success &= ~self.out_of_bounds
 
     def prepare_station_quality(self, n):
         """Episode noise, strict-termination limits and the per-station entity graph."""
         config = self.env.research_config
         noise = config.get("noise", {})
-        self.noise = {key: float(noise.get(key, 0.0)) for key in ("action", "target_m", "dock_m", "dock_yaw_rad")}
+        # Perception (target position bias) and action noise only, both scaled by sigma.
+        self.noise = {key: float(noise.get(key, 0.0)) for key in ("action", "target_m")}
         self.sigma_max = float(noise.get("sigma_max", 0.0))
         self.requested_sigma = None
         self.sigma = torch.zeros(n, device=self.device)
         self.target_offset = torch.zeros(n, 3, device=self.device)
-        self.actual_pose = torch.zeros(n, 3, device=self.device)
         self.failure_reason = torch.zeros(n, dtype=torch.long, device=self.device)
-        self.home_noise = float(config["scene"].get("home_noise_rad", 0.0))
-        if self.physical_fixed:
-            position, rotation, self.mocap_z = mocap_frame(self.model, self.base)
-            self.mocap_local_position = torch.tensor(position, dtype=torch.float32, device=self.device)
-            self.mocap_local_rotation = torch.tensor(rotation, dtype=torch.float32, device=self.device)
         if self.strict is not None:
             joints = [*self.arm, *self.lift, *self.fingers]
             limits = self.robot.data.joint_pos_limits[0, joints]
@@ -500,27 +526,6 @@ class TaskState:
             self.node_selection = select_nodes(self.entities, goal, [(s["x"], s["y"], s["yaw"]) for s in self.stations],
                                                config["stations"]["base_radius_m"])
             self.node_tensors = NodeTensors(self.entities, self.node_selection, self.device)
-
-    def jittered_pose(self, pose, sigma):
-        """Docking jitter: uniform disk in the nominal base frame and uniform yaw, both scaled by sigma."""
-        count = len(pose)
-        radius = self.noise["dock_m"] * sigma * torch.rand(count, device=self.device).sqrt()
-        phase = 2 * np.pi * torch.rand(count, device=self.device)
-        local = torch.stack((radius * phase.cos(), radius * phase.sin()), -1)
-        c, s = pose[:, 2].cos(), pose[:, 2].sin()
-        world = torch.stack((c * local[:, 0] - s * local[:, 1], s * local[:, 0] + c * local[:, 1]), -1)
-        yaw = pose[:, 2] + self.noise["dock_yaw_rad"] * sigma * (2 * torch.rand(count, device=self.device) - 1)
-        return torch.cat((pose[:, :2] + world, torch.atan2(yaw.sin(), yaw.cos())[:, None]), -1)
-
-    def mocap_pose(self, pose):
-        """Mocap root position and wxyz quaternion that put base_site at world (x, y, yaw)."""
-        c, s = pose[:, 2].cos(), pose[:, 2].sin()
-        zero, one = torch.zeros_like(c), torch.ones_like(c)
-        yaw = torch.stack((c, -s, zero, s, c, zero, zero, zero, one), -1).reshape(-1, 3, 3)
-        rotation = yaw @ self.mocap_local_rotation.T
-        site = torch.cat((pose[:, :2], torch.full_like(c, self.mocap_z)[:, None]), -1)
-        position = site - rotation @ self.mocap_local_position
-        return torch.cat((position, quat_from_matrix(rotation)), -1)
 
     def execute_action(self, action):
         """Control disturbance: independent uniform noise per normalized action dimension and step."""
@@ -673,6 +678,10 @@ class TaskState:
         self.held_time.zero_()
         self.last_action[:] = action
 
+    def lift_position(self, values):
+        """Torso joint column of ``values`` (positions or velocities); zeros when the torso is locked."""
+        return values[:, :1] * 0 if getattr(self, "torso_locked", False) else values[:, self.lift]
+
     def fixed_state(self):
         """Base XY/yaw and lift position, independent of the base's joint layout."""
         q = self.robot.data.joint_pos
@@ -683,7 +692,7 @@ class TaskState:
             base = torch.cat((data.site_xpos[:, self.base, :2], yaw), -1)
         else:
             base = q[:, self.base_joints]
-        return torch.cat((base, q[:, self.lift]), -1)
+        return torch.cat((base, self.lift_position(q)), -1)
 
     def base_velocity(self):
         """Measured velocity at base_site, expressed in the base frame."""
@@ -776,9 +785,13 @@ class TaskState:
             clearance = target_lift_height(self.env, target_p, target_r)
             success_cfg = self.env.research_config["success"]
             lifted = clearance >= success_cfg["lift_m"]
-            held = both & lifted & ~support & ~self.failed & ~self.unhealthy
-            self.hold[:] = torch.where(held, self.hold + self.env.physics_dt, 0.0)
-            self.success |= held & (self.hold >= success_cfg["hold_s"] - 1e-9)
+            if self.native_pick:
+                # Facts of the latest substep; judge_pick() samples them once per control step.
+                self.pick_facts[:] = both & ~support & lifted
+            else:
+                held = both & lifted & ~support & ~self.failed & ~self.unhealthy
+                self.hold[:] = torch.where(held, self.hold + self.env.physics_dt, 0.0)
+                self.success |= held & (self.hold >= success_cfg["hold_s"] - 1e-9)
             if getattr(self, "mobile_base", False):
                 self.success &= ~self.out_of_bounds
             self.elapsed += self.env.physics_dt
@@ -846,8 +859,8 @@ class TaskState:
         state = FlatObservationState(
             poses=(tcp_p, tcp_r, base_p, base_r, cube_p, cube_r),
             position_error=dp, rotation_error=dr,
-            arm_q=q[:, self.arm], lift_q=q[:, self.lift],
-            arm_qdot=v[:, self.arm], lift_qdot=v[:, self.lift],
+            arm_q=q[:, self.arm], lift_q=self.lift_position(q),
+            arm_qdot=v[:, self.arm], lift_qdot=self.lift_position(v),
             cube_linear=cube_linear, cube_angular=cube_angular,
             tcp_linear=linear, tcp_angular=angular,
             gripper_width=(q[:, self.fingers[0]] - q[:, self.fingers[1]])[:, None],
@@ -923,8 +936,8 @@ class TaskState:
                 self.fixed_state() - self.fixed_reference,
                 torch.stack((self.previous_distance, self.previous_angle), -1),
                 self.last_action,
-                (q[:, self.lift] - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
-                v[:, self.lift] / 0.05,
+                (self.lift_position(q) - self.lift_range[0]) / (self.lift_range[1] - self.lift_range[0]),
+                self.lift_position(v) / 0.05,
                 linear,
                 angular,
                 self.contact_bonus_paid.float()[:, None],
@@ -986,22 +999,14 @@ def reset(env, env_ids):
     env.sim.data.qpos[ids] = task.initial_qpos
     env.sim.data.qvel[ids] = 0
     q = task.robot.data.default_joint_pos[ids].clone()
-    if noisy and task.home_noise:
-        limits = task.robot.data.joint_pos_limits[ids][:, task.arm]
-        offset = task.home_noise * (2 * torch.rand(len(ids), len(task.arm), device=env.device) - 1)
-        q[:, task.arm] = torch.maximum(torch.minimum(q[:, task.arm] + offset, limits[..., 1]), limits[..., 0])
-    if task.physical_fixed and noisy:
-        actual = task.jittered_pose(task.station_poses[selected], task.sigma[ids])
-        task.actual_pose[ids] = actual
-        task.robot.write_mocap_pose_to_sim(task.mocap_pose(actual), env_ids=ids)
-    elif task.physical_fixed:
+    if task.physical_fixed:
         task.robot.write_mocap_pose_to_sim(task.mocap_poses[selected], env_ids=ids)
     else:
         q[:, task.base_joints] = task.station_joints[selected]
     task.robot.write_joint_state_to_sim(q, torch.zeros_like(q), env_ids=ids)
     task.robot.set_joint_position_target(q, env_ids=ids)
-    base = (task.actual_pose[ids] if noisy else task.station_poses[selected]) if task.physical_fixed else q[:, task.base_joints]
-    task.fixed_reference[ids] = torch.cat((base, q[:, task.lift]), -1)
+    base = task.station_poses[selected] if task.physical_fixed else q[:, task.base_joints]
+    task.fixed_reference[ids] = torch.cat((base, task.lift_position(q)), -1)
     task.window_start[ids] = -1
     task.reference_position[ids] = 0
     task.reference_rotation[ids] = torch.eye(3, device=env.device)
@@ -1045,6 +1050,8 @@ def reset(env, env_ids):
         for name in ("closing_active", "closing_peak", "closing_paid"):
             getattr(task, name)[ids] = 0
     task.first_contact_time_s[ids] = -1
+    task.pick_facts[ids] = False
+    task.pick_start[ids] = -1
     task.collision_free[ids] = True
     task.needs_baseline[ids] = True
     if getattr(task, "classify", False):
@@ -1103,7 +1110,7 @@ def reward(env):
         q = task.robot.data.joint_pos
         closing = (1 - (q[:, task.fingers[0]] - q[:, task.fingers[1]]) / task.open_grip).clamp(0, 1)
         # Optionally pay closing only once a finger presses the target, not for empty closing.
-        touched = (task.forces > env.research_config["success"]["finger_force_min_n"]).any(-1)
+        touched = (task.forces > env.research_config["success"].get("finger_force_min_n", 0.0)).any(-1)
         closing_stage = aligned & touched if cfg.get("closing_requires_contact") else aligned
         closing_progress = stage_peak_progress(
             closing, closing_stage, task.closing_active, task.closing_peak, task.closing_paid
@@ -1174,6 +1181,8 @@ def reward(env):
 
 def terminated(env):
     # Termination runs before reward in each step, so the stuck event is paid in the same step.
+    if getattr(env.task, "native_pick", False):
+        env.task.judge_pick()
     if getattr(env.task, "typed", False):
         env.task.update_stuck()
     return env.task.success | env.task.failed | env.task.unhealthy
@@ -1203,7 +1212,6 @@ def strict_episode(task, index):
     clean = getattr(task, "clean_classes", [])
     strict_clean = bool(task.success[index]) and (not clean or float(task.class_time[index, clean].sum()) == 0.0)
     return {"sigma": float(task.sigma[index]), "failure_reason": reason, "strict_clean_success": strict_clean,
-            "base_xyyaw_actual": task.actual_pose[index].cpu().tolist(),
             # Stage reach: pregrasp latch, closing progress inside the gate, two-pad grasp event, lift peak.
             "pregrasp_reached": bool(task.pregrasp_reached[index]), "closing_paid": float(task.closing_paid[index]),
             "grasp_event": bool(task.contact_bonus_paid[index]), "lift_peak": float(task.lift_peak[index])}

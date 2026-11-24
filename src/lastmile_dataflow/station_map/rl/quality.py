@@ -2,7 +2,7 @@
 
 Labels are strict terminal outcomes of one episode per (nominal station, grasp, sigma) request.
 Inputs are nominal: the settled target and entity graph expressed in the nominal base frame, the
-executed candidate grasp and sigma; the actual docking, noise draws and aligned variant never enter.
+executed candidate grasp and sigma; the perception/action noise draws and the aligned variant never enter.
 """
 
 from dataclasses import dataclass, fields

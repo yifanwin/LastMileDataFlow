@@ -6,6 +6,14 @@ import numpy as np
 
 from lastmile_dataflow.utils.io import read_config, repo_path
 from lastmile_dataflow.operation.grasps import DEFAULT_FPS_COUNT, DEFAULT_FPS_SEED
+from lastmile_dataflow.operation.outcomes.robocasa_pick import PICK_PROTOCOL
+
+# Contact-based success protocols: the mjlab station-quality pick and the native RoboCasa PickJudge.
+CONTACT_SUCCESS_VERSIONS = ("rl-pick-contact-v2", PICK_PROTOCOL["version"])
+
+
+def contact_success(config):
+    return config["success"].get("version") in CONTACT_SUCCESS_VERSIONS
 
 
 @dataclass(frozen=True)

@@ -44,6 +44,8 @@ from lastmile_dataflow.operation.outcomes.robocasa_pick import PickJudge
 
 runtime = RoboCasaRuntime("<场景run>/scenes/<实例>")      # 加载即为冻结初态
 state = runtime.set_station(x, y, yaw)                    # 可选：先 reset 再放底盘
+runtime.lock_base()                                       # 操作阶段：锁平面底盘、torso 锁 0.00 m、屏蔽底盘/torso 命令
+# runtime.unlock_base()                                   # 移动阶段：恢复原生底盘关节范围与命令
 judge = PickJudge(runtime.target, runtime.reset().target_pose[2])
 step = runtime.step(action)                               # action 形状 (runtime.action_spec.dim,)，见 action_spec
 status = judge.update(runtime.get_state())                # status.success / lift_m / hold_s / conditions

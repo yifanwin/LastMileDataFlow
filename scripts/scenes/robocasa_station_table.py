@@ -1,4 +1,4 @@
-"""Extend the paired station table with yaw offsets; a station is legal only if contact-free in every scene."""
+"""Paired station table, facing the target by default (yaw offsets optional); a station is legal only if contact-free in every scene."""
 import argparse, json
 from pathlib import Path
 import numpy as np
@@ -7,7 +7,7 @@ from lastmile_dataflow.utils.io import rows, write_rows, write_json
 
 p = argparse.ArgumentParser()
 p.add_argument("--scenes-root", required=True); p.add_argument("--evidence", required=True)
-p.add_argument("--scenes", nargs="+", required=True); p.add_argument("--offsets-deg", nargs="+", type=float, default=[0.0, -20.0, 20.0])
+p.add_argument("--scenes", nargs="+", required=True); p.add_argument("--offsets-deg", nargs="+", type=float, default=[0.0])
 p.add_argument("--output", required=True)
 a = p.parse_args()
 tables = {s: {r["station_id"]: r for r in rows(Path(a.evidence) / s / "stations.jsonl")} for s in a.scenes}

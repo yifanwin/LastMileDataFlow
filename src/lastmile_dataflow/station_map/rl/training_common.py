@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from lastmile_dataflow.utils.io import REPO_ROOT
-from .config import best_checkpoint_config
+from .config import best_checkpoint_config, contact_success
 from .env.observation import ARM_STATE_FIELDS, CONTACT_REWARD_COMPONENTS, REWARD_COMPONENTS, flat_fields
 from .env.terms import collision_episode, grasp_episode, mobile_episode, strict_episode
 from .evaluation import monitor_validation
@@ -58,7 +58,7 @@ def record_episodes(log, env, done, transitions, returns, components, steps, ran
                     "return": float(returns[index]),
                     "steps": int(steps[index]),
                     "reward_components": components[index].cpu().tolist(),
-                    "reward_component_names": (CONTACT_REWARD_COMPONENTS if env.research_config["success"].get("version") == "rl-pick-contact-v2" else REWARD_COMPONENTS),
+                    "reward_component_names": (CONTACT_REWARD_COMPONENTS if contact_success(env.research_config) else REWARD_COMPONENTS),
                     **({} if env.task.contact_protocol else {
                         "contact_bonus_count": int(env.task.contact_bonus_paid[index]),
                     }),
@@ -128,7 +128,7 @@ def training_metadata(config, env, obs, *, gpus, seed, num_envs, max_transitions
     settings = config["training"]
     devices = [str(gpu) for gpu in gpus]
     mode = config.get("observation", {}).get("mode", "graph")
-    contact = config["success"].get("version") == "rl-pick-contact-v2"
+    contact = contact_success(config)
     return {
         "config": config,
         "seed": seed,

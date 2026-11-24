@@ -16,7 +16,7 @@ from .monitor import DEFAULT_TENSORBOARD_EVERY_SECONDS, TrainingMonitor
 from .evaluation import station_scores, plot_scores
 import multiprocessing as mp
 from .devices import VISIBLE_DEVICE, sampler_entry
-from .config import resolve_config
+from .config import contact_success, resolve_config
 from .ppo.training import train_ppo
 from .training_common import (
     CHECKPOINT_EVERY_TRANSITIONS, training_metadata, restore_best_checkpoint,
@@ -147,7 +147,7 @@ def train_sac(config, *, gpus, output, seed, resume=None, max_transitions=None, 
         observations, _ = env.reset()
         mode = config.get("observation", {}).get("mode", "graph")
         obs = graph_observation(observations) if mode == "graph" else policy_observation(observations, mode)
-        contact = config["success"].get("version") == "rl-pick-contact-v2"
+        contact = contact_success(config)
         metadata = training_metadata(config, env, obs, gpus=gpus, seed=seed,
                                      num_envs=num_envs, max_transitions=max_transitions)
         if resume:

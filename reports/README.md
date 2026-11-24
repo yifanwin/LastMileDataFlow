@@ -28,6 +28,7 @@
 - RoboCasa 固定底盘站位实验见[框架梳理](robocasa/plan/02-fixed-base-station-evaluation.md)；原生物体和自定义长方体的放置、成组对照与人工选集见[场景搭建方案](robocasa/plan/03-pick-scene-construction.md)。
 - 固定底盘首版选用同一把水壶远置与杯左 125 mm，PPO 基于 station-quality。合并预检、双评测器、基线和配对验收见[首对实验构建计划](robocasa/plan/04-paired-station-experiment.md)。
 - RoboCasa 台面取杯的水壶和长方体首批 14 个变体已完成物理、重载和站位视野检查，见[候选与人工选择清单](robocasa/delivery/03-pick-scene-selection.md)。
+- RoboCasa 各方法的成功判据、自由度、底盘锁定、碰撞终止、σ 噪声和站位已统一，并通过锁定漂移、cuRobo/π0.5 冒烟和跨仿真回放验证，见[协议统一](robocasa/plan/06-protocol-unification.md)。
 - RoboCasa `cup_3` 的 152 条抓法在 `kettle-far` 三个固定站位完成 cuRobo 逐条验证，见[逐抓法实测](robocasa/delivery/04-cup3-grasp-sweep.md)。
 - 公开机器人配套资产是否齐全仍是复现限制。
 

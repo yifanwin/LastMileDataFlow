@@ -19,6 +19,7 @@ from .runtime import ActionSpec, RuntimeState, StepResult
 
 ENV_FILE, META_FILE, XML_FILE, STATE_FILE = "env.json", "ep_meta.json", "model.xml", "initial_state.npz"
 BASE_JOINTS = ("mobilebase0_joint_mobile_forward", "mobilebase0_joint_mobile_side", "mobilebase0_joint_mobile_yaw")
+TORSO_JOINT = "mobilebase0_joint_torso_height"
 
 
 def _robosuite():
@@ -213,7 +214,9 @@ class RoboCasaRuntime:
         self._restore()
         self.steps = 0
         self.locked_base = None
+        self.saved_ranges = None
         self.max_base_drift = np.zeros(2)
+        self.max_torso_drift = 0.0
         return self.get_state()
 
     def step(self, action):
@@ -336,22 +339,46 @@ class RoboCasaRuntime:
         self._sync_controllers()
         return self.get_state()
 
-    def lock_base(self):
-        """Fixed-base mode: clamp the three planar base joints to their current values and mask base commands."""
+    def lock_base(self, torso_m=0.0):
+        """Operation phase: clamp the planar base joints at their current values and the torso at ``torso_m``.
+
+        Base and torso commands are masked and arm mode is forced at the env boundary; ``unlock_base`` restores
+        the native ranges so a later navigation phase keeps the native base dynamics and controllers.
+        """
         model, data = self.env.sim.model._model, self.env.sim.data._data
-        for name in BASE_JOINTS:
+        torso = model.joint(TORSO_JOINT).id
+        data.qpos[model.jnt_qposadr[torso]] = torso_m
+        data.qvel[model.jnt_dofadr[torso]] = 0.0
+        self.env.sim.forward()
+        self.saved_ranges = {}
+        for name in (*BASE_JOINTS, TORSO_JOINT):
             joint = model.joint(name).id
+            self.saved_ranges[name] = (model.jnt_range[joint].copy(), int(model.jnt_limited[joint]))
             q = data.qpos[model.jnt_qposadr[joint]]
             model.jnt_range[joint] = (q, q)
             model.jnt_limited[joint] = 1
+        self.env.update_state()
+        self._sync_controllers()
         self.locked_base = self.base_pose()
+        self.locked_torso = float(torso_m)
+
+    def unlock_base(self):
+        """Navigation phase: restore the native base/torso ranges, resync controller goals, pass base commands."""
+        model = self.env.sim.model._model
+        for name, (limits, limited) in self.saved_ranges.items():
+            joint = model.joint(name).id
+            model.jnt_range[joint] = limits
+            model.jnt_limited[joint] = limited
+        self.saved_ranges = None
+        self.locked_base = None
+        self._sync_controllers()
 
     def mask_base_action(self, action):
-        """Zero planar base commands and force arm mode; arm, gripper and torso entries pass unchanged."""
+        """Zero planar base and torso commands and force arm mode; arm and gripper entries pass unchanged."""
         action = action.copy()
         start = 0
         for name, size in self.action_spec.parts:
-            if name == "base":
+            if name in ("base", "torso"):
                 action[start : start + size] = 0.0
             elif name == "base_mode":
                 action[start : start + size] = -1.0
@@ -363,6 +390,8 @@ class RoboCasaRuntime:
         d = pose - self.locked_base
         drift = np.r_[np.hypot(d[0], d[1]), abs(np.arctan2(np.sin(d[2]), np.cos(d[2])))]
         self.max_base_drift = np.maximum(self.max_base_drift, drift)
+        torso = self.joint_positions()["torso"][0]
+        self.max_torso_drift = max(self.max_torso_drift, abs(torso - self.locked_torso))
 
     def probe_station(self, x, y, yaw):
         """Geometry-only check: frozen qpos with the base at (x, y, yaw); no reset, controllers untouched.
