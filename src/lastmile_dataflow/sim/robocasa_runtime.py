@@ -312,10 +312,17 @@ class RoboCasaRuntime:
 
     def target_bottom_z(self):
         """Lowest collision vertex of the target in world z (station-quality lift reference)."""
-        from lastmile_dataflow.planning.robocasa_bridge import geom_triangles
+        from .model.geometry import geom_points
 
-        m, d = self.env.sim.model._model, self.env.sim.data._data
-        return float(min(geom_triangles(m, d, g)[0][:, 2].min() for g in self.target_geoms))
+        sim = self.env.sim
+        return float(min(geom_points(sim, g)[:, 2].min() for g in self.target_geoms))
+
+    def tabletop_z(self, support_contacts):
+        """Height of the collision surfaces supporting the cup in its initial state."""
+        from .model.geometry import geom_points
+
+        sim = self.env.sim
+        return float(max(geom_points(sim, sim.model.geom(name).id)[:, 2].max() for name in support_contacts))
 
     def set_station(self, x, y, yaw):
         """Reset, then move only the three base joints so the base body reaches the world pose (x, y, yaw).

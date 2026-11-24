@@ -111,7 +111,8 @@ class RoboCasaGraspPlanner:
             raise ValueError(f"problem has {len(goals)} grasps, planner built for {self.pool_size}")
         start = JointState.from_position(self.dev.to_device(problem["arm"].astype(np.float32)).view(1, -1), joint_names=ARM_JOINTS)
         failed, status, index = "goalset", "", -1
-        for rounds in range(1, GRASP_ROUNDS + 1):
+        round_limit = 1 if self.pool_size == 1 else GRASP_ROUNDS
+        for rounds in range(1, round_limit + 1):
             r = self.mp.plan_grasp(
                 self._goals(goals), start, grasp_approach_offset=-GRASP_APPROACH_DISTANCE_M, grasp_lift_offset=LIFT_M,
                 grasp_lift_in_tool_frame=False, plan_approach_to_grasp=True, plan_grasp_to_lift=True, disable_collision_links=[],
@@ -125,7 +126,8 @@ class RoboCasaGraspPlanner:
                 stages = {s: self._points(getattr(r, s + "_interpolated_trajectory"), getattr(r, s + "_interpolated_last_tstep")) for s in STAGES}
                 return PlanOutcome(True, status, "", index, rounds, time.monotonic() - started), stages
             failed = "approach" if "approach" in status else "grasp" if "grasp pose" in status else "lift"
-            goals[index, :3, 3] += FAR_M
+            if rounds < round_limit:
+                goals[index, :3, 3] += FAR_M
         return PlanOutcome(False, status, failed, index, rounds, time.monotonic() - started), {}
 
 

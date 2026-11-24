@@ -1,5 +1,7 @@
 # RoboCasa kettle-far (plan 05 M4): LMDF PandaOmron at factory scale 1.0 on the exported native snapshot
-# (scripts/scenes/robocasa_rl_scene.py); lift 0 and the frozen native arm pose; native PickJudge window 1 s / 1 cm.
+# (scripts/scenes/robocasa_rl_scene.py); lift 0 and the frozen native arm pose; success aligned to native robocasa-pick-bottom2cm-0.5s-v2.
+# success: collision-bottom >= 2 cm above the original tabletop (support_height_m 0.920), both pads in contact
+# and target off its support, held continuously >= 0.5 s (= native robocasa-pick-bottom2cm-0.5s-v2).
 scene:
   data_root: /data1/wenyifan/lmdf/molmospaces_data
   scene_xml: /home/wenyifan/wenyifan/lmdf/LastMileDataFlow/.worktrees/robocasa-station-eval/outputs/experiments/robocasa-station-eval/rl-scenes/kettle-far/scene.xml
@@ -106,8 +108,8 @@ success:
   version: rl-pick-contact-v2
   finger_force_min_n: 0.5
   pad_contact: true
-  lift_m: 0.01
-  hold_s: 1.0
+  lift_m: 0.02
+  hold_s: 0.5
 video:
   every: 100000
   width: 640

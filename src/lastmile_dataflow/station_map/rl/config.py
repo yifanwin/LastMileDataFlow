@@ -102,3 +102,15 @@ def best_checkpoint_config(training):
     if selection.metric not in ("success_rate", "return"):
         raise ValueError("best_checkpoint.metric must be success_rate or return")
     return selection
+
+
+def scene_variant(config, index):
+    """Sampler ``index`` trains on scene_variants[index % n] (obstacle experience); learner and evaluation keep ``scene``.
+
+    A variant only overrides scene paths (scene_xml, scene_metadata); every other scene setting is shared.
+    """
+    variants = config.get("scene_variants")
+    if not variants:
+        return config
+    return {**config, "scene": {**config["scene"], **variants[index % len(variants)]}}
+

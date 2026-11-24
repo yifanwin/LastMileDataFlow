@@ -2,8 +2,8 @@
 
 Success needs, continuously for at least ``hold_s``: the runtime's native two-finger grasp check holds for
 the designated target, the target touches no environment support, and the target's lowest collision vertex
-is at least ``lift_m`` above the original tabletop, taken as that vertex height in the frozen resting state
-(as station-quality's ``target_lift_height``). Any broken condition restarts the window. Sampling is per
+is at least ``lift_m`` above the tabletop reference (as in station-quality's ``target_lift_height``).
+Any broken condition restarts the window. Sampling is per
 control step, so this is not the per-physics-step ``strict-pick-v3`` and makes no claim of equivalence.
 The native task result (place in cabinet) is recorded separately; a derived pick is not a placement.
 """
@@ -32,7 +32,7 @@ class PickStatus:
 
 
 class PickJudge:
-    """Hold window over runtime facts; the reference height is the target bottom in the frozen resting state."""
+    """Hold window over runtime facts relative to the caller's fixed tabletop height."""
 
     def __init__(self, target, table_z, protocol=PICK_PROTOCOL):
         self.target, self.table_z, self.protocol = target, float(table_z), protocol

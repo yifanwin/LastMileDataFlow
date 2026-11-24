@@ -12,7 +12,7 @@ from ..training_common import record_episodes
 from ..devices import VISIBLE_DEVICE, ppo_sampler_entry
 from ..env.observation import CONTACT_REWARD_COMPONENTS, REWARD_COMPONENTS, policy_observation
 from ..networks import squashed_log_probability
-from ..config import PPOConfig
+from ..config import PPOConfig, scene_variant
 from .agent import ppo_networks
 from .rollout import RolloutBatch, cat_observations, gae, map_observation
 
@@ -116,7 +116,7 @@ class SynchronousSamplers:
         ctx = mp.get_context("spawn")
         for index, device in enumerate(devices):
             parent, child = ctx.Pipe()
-            process = ctx.Process(target=ppo_sampler_entry, args=(device, config, seed + index, num_envs, child))
+            process = ctx.Process(target=ppo_sampler_entry, args=(device, scene_variant(config, index), seed + index, num_envs, child))
             process.start()
             child.close()
             self.channels.append(parent)

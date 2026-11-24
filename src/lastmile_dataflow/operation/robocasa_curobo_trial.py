@@ -17,7 +17,7 @@ from lastmile_dataflow.operation.outcomes.robocasa_pick import PICK_PROTOCOL, Pi
 from lastmile_dataflow.planning.robocasa_bridge import export_problem
 
 CLOSE_STEPS = 20  # 1 s closing at the grasp pose
-HOLD_STEPS = 30  # 1.5 s after the lift; the judge needs 1 s
+HOLD_STEPS = 30  # up to 1.5 s after the lift
 TRACK_TOL_RAD = 0.05
 DOCK_XY_M = 0.01
 DOCK_YAW_DEG = 1.0
@@ -138,6 +138,9 @@ def run_trial(runtime, worker, pool, trial, workdir):
     docking_contacts = runtime.robot_env_contacts()
     if docking_contacts:
         return {**row, "status": "invalid_docking", "docking_contacts": docking_contacts, "wall_s": time.monotonic() - started}
+    tabletop_z = runtime.tabletop_z(initial.support_contacts)
+    row["tabletop_z_m"] = tabletop_z
+    row["initial_bottom_clearance_m"] = initial.target_bottom_z - tabletop_z
     stem = Path(workdir) / trial.trial_id.replace("/", "__")
     export_problem(runtime, pool, f"{stem}-problem.npz")
     plan = worker.plan(f"{stem}-problem.npz", f"{stem}-plan.npz", trial.seed)
@@ -147,7 +150,7 @@ def run_trial(runtime, worker, pool, trial, workdir):
     with np.load(f"{stem}-plan.npz") as stages:
         stages = {k: stages[k] for k in ("approach", "grasp", "lift")}
     objects0 = _object_positions(runtime)
-    execution = Execution(runtime, PickJudge(runtime.target, initial.target_bottom_z))
+    execution = Execution(runtime, PickJudge(runtime.target, tabletop_z))
     execution.run("approach", stages["approach"], -1.0)
     execution.run("grasp", stages["grasp"], -1.0)
     execution.run("close", np.repeat(stages["grasp"][-1:], CLOSE_STEPS, axis=0), 1.0)
